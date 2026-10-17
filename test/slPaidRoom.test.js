@@ -241,6 +241,21 @@ test('the paid board ranks by worth: {t:lb} rows [name, micro] most first, each 
 });
 
 
+test('a paid room watcher sees the same $ board: {t:lb} rows most first, me null; it opens no account', () => {
+  const { room, money, door, step } = makePaid();
+  const a = door(1);
+  door(2, 2 * STAKE);
+  step(2);
+  const opens = money.accounts ? money.accounts.size : 0;
+  const ws = bareSocket();
+  assert.ok(room.seatWatch(ws, {}), 'a watcher');
+  step(Math.ceil(3000 / P));
+  const last = (sock) => layer(sock).filter((m) => m.t === 'lb').pop();
+  assert.deepEqual(last(ws), { t: 'lb', rows: [['p2', 2 * STAKE], ['p1', STAKE]], me: null });
+  assert.deepEqual(last(a.sock).me, [2, STAKE], 'a player keeps its own row');
+  assert.equal(money.accounts ? money.accounts.size : 0, opens, 'no account opened');
+});
+
 test('seatPaid: the account opens last; the seat gets {t:room} kept and its own {t:w}; the console reads dollars', () => {
   const { room, money, s, door } = makePaid();
   const a = door(1);

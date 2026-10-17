@@ -862,6 +862,23 @@ function watchPage(squares = [{ id: 2, name: 'bob' }, { id: 3, name: 'cat' }, { 
   return t;
 }
 
+test('watch mode on a paid rung: the board ranks the squares by $ (bots too), the followed one pinned', () => {
+  const t = watchPage();
+  t.sock.connect('sock-w');
+  t.state();
+  const g = t.game;
+  const bob = sq(2, 'bob', 40, { micro: 300000 });
+  g.units = [bob, sq(4, 'cat', 20, { micro: 0 }), sq(3, 'Bot 1', 10, { micro: 1250000 })];
+  g.units.forEach((u) => { u.schemes.u = u; });
+  g.player = bob;
+  g.paid = true;
+  t.clock.advance(200);
+  frame(t);
+  assert.ok(t.boardEl().className.split(' ').includes('money'), 'the gold money board');
+  assert.deepStrictEqual(t.boardRows().map((r) => r.slice(1)), [['1', 'Bot 1', '$1.25'], ['2', 'bob', '$0.30'],
+    ['3', 'cat', '$0.00']], 'by money, not land');
+});
+
 const FINDING = 'Finding a player'; // the bar's plate before a table
 const shown = (b) => ({ on: b.on, empty: b.empty, busy: b.busy, text: b.text });
 

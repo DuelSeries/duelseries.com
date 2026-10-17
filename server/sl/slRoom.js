@@ -1798,6 +1798,8 @@ class SlRoom {
       const me = at === undefined ? null : [at + 1, board.order[at].w];
       seat.queue.message(tick, { t: 'lb', rows, me });
     }
+    // a watcher (a paid rung's Spectate) sees the same $ board, with no own row
+    for (const seat of this.watchers.values()) if (!seat.closed) seat.queue.message(tick, { t: 'lb', rows, me: null });
   }
 
   // ---------------------------------------------------------------------------------------------------------------

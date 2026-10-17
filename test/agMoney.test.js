@@ -624,6 +624,21 @@ test('a paid room watcher: never an account, never joins, steers or holds; count
   assert.strictEqual(r.openAccounts(), opens);
 });
 
+test('a paid room watcher hears the same $ board as the players: ag:money rows by money, no own rank', () => {
+  const w = world();
+  const { r } = w;
+  join(w, 'a', { micro: 100000 });
+  join(w, 'b', { micro: 1000000 });
+  const v = sock();
+  r.addSocket(v, { watch: true });
+  r.spectate(v.id);
+  for (let i = 0; i < 60; i++) r.tickOnce();
+  const m = v.of('ag:money').pop();
+  assert.ok(m, 'the watcher gets ag:money');
+  assert.deepStrictEqual(m.board.map((row) => row[1]), [1000000, 100000], 'most first');
+  assert.strictEqual(m.rank, 0, 'no own row');
+});
+
 // The Spectate bar in a paid room (Owen 2026-10-16): Previous and Next move only the watcher's camera.
 test('a paid room watcher: nobody alive is { none: true }; Next and Previous move its camera and nothing else', () => {
   const w = world();

@@ -6,7 +6,7 @@
       "date": "2026-10-17",
       "tag": "new",
       "title": "Cash room leaderboards show dollars",
-      "body": "In the $0.50 and $1 rooms of slither.io, agar.io and Paper.io, the leaderboard now ranks everyone by what they are holding, with the dollar amount next to each name.\n\nFree rooms still rank by size."
+      "body": "In the $0.50 and $1 rooms of slither.io, agar.io and Paper.io, the leaderboard now ranks everyone by what they are holding, with the dollar amount next to each name. Spectating one of these rooms shows the same board.\n\nFree rooms still rank by size."
     },
     {
       "id": "2026-10-17-open-lobbies",

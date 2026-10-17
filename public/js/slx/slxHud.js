@@ -65,7 +65,8 @@
   // its own, or the lobby's frame, which the lobby draws at 0.7 on a phone; a frame alone ignores the viewport line).
   var ZOOM = typeof slx.layoutZoom === 'function' ? slx.layoutZoom() : S.is_mobile && slx.framed !== true ? 1 / 0.7 : 1;
   // A paid room ranks by money (Owen 2026-10-17): the server's {t:'lb'} rows (name, worth in micro, its own order) and
-  // the seat's own [rank, worth] replace their names and lengths, shown as $ (dsEnd usd). Display only.
+  // the seat's own [rank, worth] replace their names and lengths, shown as $ (dsEnd usd). Display only. A watcher of a
+  // paid rung (slxWatch) is no paid page, so the first {t:'lb'} (only a paid room sends one) turns it on there too.
   var PAID = !!(slx.paid && slx.paid.on);
   var ours = E.board({ zoom: ZOOM, z: 10, money: PAID });
   ours.hide();
@@ -126,9 +127,14 @@
     me = m.me ? { rank: m.me[0], name: nick(), value: E.usd(micro(m.me[1])) } : null;
     push();
   }
-  if (PAID && typeof slx.on === 'function') {
+  if (typeof slx.on === 'function') {
     slx.on('x:lb', function (m) {
       if (!m || !Array.isArray(m.rows)) return;
+      if (!PAID) {
+        PAID = true;
+        if (ours.el) ours.el.className = String(ours.el.className) + ' money';
+        seen = texts(lbn).length > 0;
+      }
       var meOk = Array.isArray(m.me) && typeof m.me[0] === 'number' && m.me[0] >= 1;
       worths = { rows: m.rows.filter(Array.isArray), me: meOk ? m.me : null };
       try {
