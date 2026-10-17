@@ -66,6 +66,15 @@ function conserved(k) {
   return k.bank.totalMicro() === k.bank.ledger.inMicro - k.bank.ledger.outMicro;
 }
 
+
+// Owen 2026-10-17: a kill drops the victim's money as a coin where it died; the killer must pick it up. The newest
+// coin (the one the last death dropped) collected by a unit, as walking over it would.
+function grab(room, unitId) {
+  const ps = room.bank.pickups();
+  const p = ps[ps.length - 1];
+  return room.bank.collect(p.pid, unitId);
+}
+
 test('join, kill, chain kill and a multi-victim capture move money exactly once per victim', () => {
   const k = kit();
   const a = join(k, at(300, 0.3));
@@ -76,20 +85,23 @@ test('join, kill, chain kill and a multi-victim capture move money exactly once 
   const payload = a.s.got.find(e => e[0] === 'pp:joined')[1];
   assert.strictEqual(payload.units.find(x => x.id === a.u.id).micro, 100000);
   k.g.kill(b.u, a.u, REASON.TRACK_CUT);
+  assert.strictEqual(k.bank.balance(a.u.id), 100000, 'a kill gives the killer nothing by itself');
+  assert.strictEqual(k.bank.floorMicro(), 100000, 'B\'s money is a coin where B died');
+  grab(k.room, a.u.id);
   assert.strictEqual(k.bank.balance(a.u.id), 200000);
   assert.strictEqual(k.bank.balance(b.u.id), 0);
   k.g.kill(a.u, c.u, REASON.TRACK_CUT);
+  grab(k.room, c.u.id);
   assert.strictEqual(k.bank.balance(c.u.id), 300000, 'chain kill carries 300000');
-  // One capture kills two: each victim its own transfer and collusion record.
+  // One capture kills two: one coin each, once (the same capture can call kill twice).
   const e = join(k, at(500, 0.9));
   k.g.kill(d.u, e.u, REASON.ENCIRCLED);
   k.g.kill(c.u, e.u, REASON.EXIT_POINT_CAPTURED);
-  k.g.kill(c.u, e.u, REASON.ENCIRCLED); // the same capture can call kill twice
+  k.g.kill(c.u, e.u, REASON.ENCIRCLED);
+  assert.strictEqual(k.bank.pickups().length, 2);
+  grab(k.room, e.u.id);
+  grab(k.room, e.u.id);
   assert.strictEqual(k.bank.balance(e.u.id), 500000);
-  const kills = k.calls.transfer.filter(t => t.kind === 'kill');
-  assert.strictEqual(kills.length, 4);
-  assert.ok(kills.every(t => t.label === k.room.lobbyType));
-  assert.deepStrictEqual(kills.map(t => t.micro), [100000, 200000, 100000, 300000]);
   assert.ok(conserved(k));
   assert.strictEqual(k.room.liveHumans, 1);
 });
@@ -172,6 +184,7 @@ test('disconnect grace: hold cleared, still moving and killable; expiry drops a 
   // Grace again, and this time a kill during it pays the killer.
   k.room.beginGrace(a.seat);
   k.g.kill(a.u, killer.u, REASON.TRACK_CUT);
+  grab(k.room, killer.u.id);
   assert.strictEqual(k.bank.balance(killer.u.id), 200000);
   // A third player's grace expires: the coin drops where the square then stands.
   const c = join(k, at(250, 2.0));
@@ -242,6 +255,7 @@ test('open question 7: a pushed square that cuts a trail takes the money like an
   k.g.kill(a.u, b.u, REASON.TRACK_CUT);
   b.u._inPush = false;
   assert.ok(a.u.death);
+  grab(k.room, b.u.id);
   assert.strictEqual(k.bank.balance(b.u.id), 200000);
 });
 

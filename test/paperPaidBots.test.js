@@ -112,13 +112,27 @@ function scene() {
   return { w, room, a, b, bot: bots[0], bot2: bots[1] };
 }
 
-test('a bot kills a person and holds it; a person kills the bot and wins it all; never replaced', () => {
+test('every death drops one coin where it died, nobody gets it by the kill; the killer can grab it; never replaced', () => {
   const { w, room, a, b, bot } = scene();
+  const at0 = { x: a.unit.position.x, y: a.unit.position.y };
   room.game.kill(a.unit, bot, REASON.TRACK_CUT);
-  assert.equal(room.bank.balance(bot.id), 2 * STAKE, 'its seed plus A\'s money');
+  assert.equal(room.bank.balance(bot.id), STAKE, 'the bot killer gets nothing by the kill');
+  let coins = room.bank.pickups();
+  assert.equal(coins.length, 1);
+  assert.equal(coins[0].micro, STAKE, 'A\'s whole value');
+  assert.ok(Math.hypot(coins[0].x - at0.x, coins[0].y - at0.y) < 60, 'where A died');
   room.game.kill(bot, b.unit, REASON.TRACK_CUT);
-  assert.equal(room.bank.balance(b.unit.id), 3 * STAKE);
+  assert.equal(room.bank.balance(b.unit.id), STAKE, 'the person killer gets nothing by the kill');
+  coins = room.bank.pickups();
+  assert.equal(coins.length, 2);
   assert.equal(room.botFrom.has(bot.id), false);
+  // B walks over both coins
+  for (const c of coins) {
+    b.unit.position.x = c.x;
+    b.unit.position.y = c.y;
+    room._collectPickups();
+  }
+  assert.equal(room.bank.balance(b.unit.id), 3 * STAKE);
   for (let i = 0; i < 60; i++) room.game.update();
   assert.equal(room.botCount, 1, 'the dead bot is not replaced');
   ledger(w, room);
@@ -127,12 +141,15 @@ test('a bot kills a person and holds it; a person kills the bot and wins it all;
 test('a bot that dies with nobody to take it drops its whole value as a floor coin where it died, like a person', () => {
   const { w, room, a, b, bot, bot2 } = scene();
   const bank0 = w.bank.balanceMicro();
-  room.game.kill(a.unit, bot, REASON.TRACK_CUT);
+  room.game.kill(a.unit, bot, REASON.TRACK_CUT); // A's coin where A died
   const where = { x: bot.position.x, y: bot.position.y };
   room.game.kill(bot, undefined, REASON.SELF_CROSS);
   const coins = room.bank.pickups();
-  assert.equal(coins.length, 1);
-  assert.equal(coins[0].micro, 2 * STAKE, 'its seed plus what it took from A');
+  assert.equal(coins.length, 2);
+  assert.equal(coins[1].micro, STAKE, 'the bot\'s seed, where it died');
+  const coin = coins[1];
+  coins.length = 0;
+  coins.push(coin);
   assert.ok(Math.hypot(coins[0].x - where.x, coins[0].y - where.y) < 60, 'dropped where it died');
   assert.equal(w.bank.balanceMicro(), bank0, 'nothing back to the bank: the money is in play');
   assert.deepEqual(w.calls.owed, []);

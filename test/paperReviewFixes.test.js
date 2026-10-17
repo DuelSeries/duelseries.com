@@ -89,6 +89,15 @@ const settle = () => new Promise(r => setImmediate(r));
 
 // ---- Finding 1: an off-rung stake with no token set the stake of the rung's arena ----------------
 
+
+// Owen 2026-10-17: a kill drops the victim's money as a coin where it died; the killer must pick it up. The newest
+// coin (the one the last death dropped) collected by a unit, as walking over it would.
+function grab(room, unitId) {
+  const ps = room.bank.pickups();
+  const p = ps[ps.length - 1];
+  return room.bank.collect(p.pid, unitId);
+}
+
 test('a no-token join at an off-rung stake is refused bad-stake and creates or relabels no arena', () => {
   const w = world();
   const before = w.arenas.all().map(r => [r.stake, r.lobbyType]);
@@ -223,6 +232,7 @@ test('a reconnect after being cut during the grace is told who took the money, a
   const room = w.arenas.all().find(r => r.stake === 1 && r.liveHumans === 2);
   w.paper.drop(a.id); // ada's link drops: her square is in its grace
   room.game.kill(seatOf(w, 'WADA').unit, seatOf(w, 'WKAI').unit, REASON.TRACK_CUT);
+  grab(room, seatOf(w, 'WKAI').unit.id);
   assert.strictEqual(room.bank.balance(seatOf(w, 'WKAI').unit.id), 2000000, 'kai took the money');
   const c = sock(w);
   c.fire('pp:join', { name: 'ada', stake: 1, resumeKey: keyA });

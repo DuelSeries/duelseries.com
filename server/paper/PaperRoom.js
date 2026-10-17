@@ -553,25 +553,17 @@ class PaperRoom {
     const m = this.bank.balance(victim.id);
     let pid = 0;
     if (m > 0) {
-      // the killer takes it: a person, or a bounty bot (it holds that person's money until it dies or leaves)
-      if (killer && (killer.isHuman || this.botFrom.has(killer.id)) && this.bank.isOpen(killer.id) &&
-          this.bank.transferAll(victim.id, killer.id) >= 0) {
-        const kf = this.botFrom.get(killer.id);
-        if (kf) {
-          const w = seat ? seat.wallet : null;
-          if (w) kf.set(w, (kf.get(w) || 0) + m);
-          else console.error('[PAPER] BOT took ' + m + ' micro with no source wallet (' + this.lobbyType + ')');
-        }
-        this.pending.push(['m', killer.id, this.bank.balance(killer.id)]);
-        // A page that reconnects with this seat's resumeKey (pp:dead lost with the link, or a
-        // cut during the grace) is told who took the money, not that it dropped on the floor.
-        if (seat && this.paid && this.directory) {
-          const said = { killerName: killer.name || null };
-          this.directory.rememberOutcome('k:' + seat.resumeKey, 'killed', false, said);
-          // Cut before its first input: a page re-sending the token hears the same.
-          if (seat.proof && !seat.confirmed) this.directory.rememberOutcome('t:' + seat.proof, 'killed', false, said);
-        }
-      } else {
+      // Every death drops the whole value as ONE coin where the player died (Owen 2026-10-17: "the money should drop
+      // where the player died, not instantly given to whoever killed them"). Anyone can grab it, the killer included.
+      // A page that reconnects with this seat's resumeKey (pp:dead lost with the link, or a cut during the grace) is
+      // still told who killed it.
+      if (killer && seat && this.paid && this.directory) {
+        const said = { killerName: killer.name || null };
+        this.directory.rememberOutcome('k:' + seat.resumeKey, 'killed', false, said);
+        // Cut before its first input: a page re-sending the token hears the same.
+        if (seat.proof && !seat.confirmed) this.directory.rememberOutcome('t:' + seat.proof, 'killed', false, said);
+      }
+      {
         const c = this._clampInside(at);
         const p = this.bank.drop(victim.id, c.x, c.y, this.now());
         if (p) {
@@ -616,21 +608,10 @@ class PaperRoom {
     const from = this.botFrom.get(victim.id);
     const m = this.bank.balance(victim.id);
     let took = false;
-    if (m > 0 && killer && reason !== REASON.SYSTEM_REMOVED && this.bank.isOpen(killer.id) &&
-        (killer.isHuman || this.botFrom.has(killer.id)) && this.bank.transferAll(victim.id, killer.id) >= 0) {
-      took = true;
-      this.botFrom.delete(victim.id);
-      const kf = this.botFrom.get(killer.id);
-      for (const [src, v] of from) {
-        if (kf) kf.set(src, (kf.get(src) || 0) + v);
-        else if (src === BANK_SRC && this.directory && this.directory.botBank) this.directory.botBank.spent(v);
-      }
-      this.pending.push(['m', killer.id, this.bank.balance(killer.id)]);
-    }
     let pid = 0;
-    if (!took && m > 0 && reason !== REASON.SYSTEM_REMOVED) {
-      // nobody took it (the wall, its own trail): its whole value drops as a floor coin where it died, as a person's
-      // does (Owen 2026-10-17); the seed in it is in play now (the bank's inflight)
+    if (m > 0 && reason !== REASON.SYSTEM_REMOVED) {
+      // any death (killed, the wall, its own trail): its whole value drops as one floor coin where it died, as a
+      // person's does (Owen 2026-10-17); the seed in it is in play now (the bank's inflight)
       const c = this._clampInside(at || victim.position || this.game.border.center);
       const p = this.bank.drop(victim.id, c.x, c.y, this.now());
       if (p) {

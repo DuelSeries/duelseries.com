@@ -95,7 +95,7 @@ test('HOLD_TICKS - 1 ticks pays nothing; HOLD_TICKS ticks pays exactly once, acc
   assert.strictEqual(k.calls.cashout.length, 1, 'the receipt is single');
 });
 
-test('killed on the completing tick pays the KILLER, not the holder', () => {
+test('killed on the completing tick: no cash-out, the money is a coin where the holder died (not the killer\'s)', () => {
   const k = kit();
   const p = seat(k, at(300, 1.0));
   const killer = seat(k, at(300, 4.0));
@@ -108,7 +108,8 @@ test('killed on the completing tick pays the KILLER, not the holder', () => {
   };
   play(k, p, true);
   assert.strictEqual(k.calls.cashout.length, 0);
-  assert.strictEqual(k.bank.balance(killer.u.id), 200000);
+  assert.strictEqual(k.bank.balance(killer.u.id), 100000, 'a kill gives nothing by itself (Owen 2026-10-17)');
+  assert.strictEqual(k.bank.floorMicro(), 100000, 'the holder\'s money lies where it died');
 });
 
 test('die mid-hold, respawn: the new life has no hold', () => {

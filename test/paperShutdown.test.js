@@ -104,10 +104,20 @@ function scene(w) {
   const d = seat(room, at(300, 4.2), { confirmed: false, paid: 0.99 });
   const e = seat(room, at(300, 5.5));
   room.game.kill(b.u, a.u, REASON.TRACK_CUT);
+  grab(room, a.u.id);
   room.game.kill(c.u, undefined, REASON.SELF_CROSS);
   assert.equal(room.bank.balance(a.u.id), 2000000, 'A took B\'s money');
   assert.equal(room.bank.floorMicro(), 1000000, 'C\'s money lies on the floor');
   return { room, a, b, c, d, e };
+}
+
+
+// Owen 2026-10-17: a kill drops the victim's money as a coin where it died; the killer must pick it up. The newest
+// coin (the one the last death dropped) collected by a unit, as walking over it would.
+function grab(room, unitId) {
+  const ps = room.bank.pickups();
+  const p = ps[ps.length - 1];
+  return room.bank.collect(p.pid, unitId);
 }
 
 test('a restart owes every paid Paper balance 100% of what it holds now, one keyed row each, written once', async () => {

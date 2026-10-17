@@ -259,7 +259,9 @@ test('money won before the first input stays in the arena as a coin; only the bu
   const room = roomAt(w, 0.5);
   const fa = room.seatOfSocket(a.id).unit;
   const gb = room.seatOfSocket(b.id).unit;
-  room.game.kill(gb, fa, REASON.TRACK_CUT); // gus ran over fay's trail
+  room.game.kill(gb, fa, REASON.TRACK_CUT); // gus ran over fay's trail: his coin where he died
+  const gc = room.bank.pickups()[0];
+  room.bank.collect(gc.pid, fa.id); // fay walks over it
   assert.strictEqual(room.bank.balance(fa.id), 1000000);
   w.paper.drop(a.id);
   assert.deepStrictEqual(w.spy.refunds.map(r => [r.wallet, r.micro, r.why]), [['WFAY', 500000, 'join-lost']]);
