@@ -383,6 +383,15 @@ async function sendUsdc(toAddress, amountUsdc, mint, decimals, wallet, signTrans
   return r.sig;
 }
 
+/* Privy's wallet frame (auth.privy.io) says privy:iframe:ready once it can work. If a wallet setup
+   fails and it never said so, a browser blocker stopped it, and the card says how to allow it. */
+let privyFrameReady = false;
+if (typeof window !== 'undefined') {
+  window.addEventListener('message', (e) => {
+    if (e.origin === 'https://auth.privy.io' && e.data && e.data.event === 'privy:iframe:ready') privyFrameReady = true;
+  });
+}
+
 function WalletPanel() {
   const { ready, authenticated, user, logout, getAccessToken } = usePrivy();
   const { login } = useLogin();
@@ -440,7 +449,11 @@ function WalletPanel() {
         console.warn('[wallet-widget] wallet setup failed:', (r.error && r.error.message) || r.error);
         try { window.phEvent && window.phEvent('wallet_setup_failed', { error: String((r.error && r.error.message) || r.error).slice(0, 200) }); } catch (_) {}
         if (!D) return false;
-        const again = await D.confirm({ title: "Your wallet didn't load", line: 'Check your connection and try again. Your account is safe.', ok: 'Try again', cancel: 'Not now' });
+        const again = await D.confirm(privyFrameReady
+          ? { title: "Your wallet didn't load", line: 'Check your connection and try again. Your account is safe.', ok: 'Try again', cancel: 'Not now' }
+          : { title: 'Your browser is blocking your wallet', line: /Edg\//.test(navigator.userAgent)
+              ? 'Click the lock icon in the address bar, set Tracking prevention to Off for this site, then try again. Your account is safe.'
+              : 'Turn off tracking protection or ad blockers for this site, then try again. Your account is safe.', ok: 'Try again', cancel: 'Not now' });
         if (!again) return false;
       }
     };

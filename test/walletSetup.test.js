@@ -106,5 +106,8 @@ test('the widget turns off Privy\'s on-login create and Sign in never calls a ba
   assert.match(src, /solana:\s*\{\s*createOnLogin:\s*'off'\s*\}/);
   assert.doesNotMatch(src, /createOnLogin:\s*'all-users'/);
   assert.match(src, /window\.duelWalletLogin = signIn;/);
+  // A blocked wallet frame (never said privy:iframe:ready) gets the how-to-allow card, not a spinner.
+  assert.match(src, /e\.origin === 'https:\/\/auth\.privy\.io' && e\.data && e\.data\.event === 'privy:iframe:ready'/);
+  assert.match(src, /Your browser is blocking your wallet/);
   assert.match(src, /if \(p\.authenticated\) \{ if \(!solanaAddress\(p\.user\)\) setUpWallet\(\); return; \}/);
 });
