@@ -177,3 +177,38 @@ test('a sweep past its block height is only given up after several not-found rea
   assert.equal(bank.balanceMicro(), 0);
   assert.equal(chain.wallet, 1e6, 'landed once');
 });
+
+test('sweep, then display, then solvency: the bank total never counts a swept dollar twice', async () => {
+  let t = 1e12;
+  const chain = fakeChain(0);
+  const bank = createBotBank({ file: tmp(), log: quiet, chain, tickMs: 0, now: () => t });
+  bank.giveBack(10889738, 'migrate', 'r', false);
+  chain.escrow = 10889738;
+  assert.equal(bank.view().balance, 10.889738);
+  t += 121000;
+  await bank.tick();
+  await flush();
+  chain.land('sig1'); // on-chain, not settled yet
+  assert.equal(bank.view().balance, 10.889738, 'wallet has it; the pending sweep is not added on top');
+  assert.equal(bank.view().float, 0);
+  await bank.tick();
+  assert.equal(bank.view().balance, 10.889738);
+  assert.equal(bank.balanceMicro(), 0, 'escrow owes the bank nothing once settled');
+  assert.ok(chain.escrow >= bank.balanceMicro());
+  assert.equal(bank.whyNot(500000), 'funding', 'a seed now funds from the wallet, never a phantom float');
+});
+
+test('the real wallet module reads a signature status itself (no missing helper)', async () => {
+  const { createBotWallet } = require('../server/botWallet');
+  const { Keypair, PublicKey } = require('@solana/web3.js');
+  const kp = Keypair.generate();
+  const statuses = { a: { value: { confirmationStatus: 'confirmed', err: null } }, b: { value: { err: { x: 1 } } }, c: { value: null } };
+  const Usdc = { USDC_MINT: new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'), USDC_DECIMALS: 6, withRetry: (f) => f(),
+    connection: { getSignatureStatus: async (s) => statuses[s], getBlockHeight: async () => 10 } };
+  const w = createBotWallet({ dataDir: os.tmpdir(), Usdc, env: { BOT_BANK_PRIVATE_KEY: Buffer.from(kp.secretKey).toString('base64') }, log: quiet });
+  assert.equal(w.address, kp.publicKey.toString());
+  assert.equal(await w.status('a', 5), 'landed');
+  assert.equal(await w.status('b', 5), 'failed');
+  assert.equal(await w.status('c', 50), 'pending');
+  assert.equal(await w.status('c', 5), 'expired');
+});

@@ -38,13 +38,21 @@ function loadKeypair(dataDir, { env = process.env, fsx = fs, log = console } = {
   return kp;
 }
 
-// -> the chain side botBank.js drives. Usdc = server/Usdc.js (connection, mint, escrow key, retry, signatureLanded).
+// -> the chain side botBank.js drives. Usdc = server/Usdc.js (connection, mint, escrow key, retry).
 function createBotWallet({ dataDir, Usdc, env, log = console }) {
   const kp = loadKeypair(dataDir, { env, log });
   const conn = Usdc.connection;
   const mint = Usdc.USDC_MINT;
   const botAta = getAssociatedTokenAddressSync(mint, kp.publicKey);
   let usdc = { v: null, at: 0 }, sol = { v: null, at: 0 }, reading = null;
+  // true = confirmed, false = errored on-chain, null = not found or not confirmed yet (one read, never batched)
+  async function landed(sig) {
+    const r = await Usdc.withRetry(() => conn.getSignatureStatus(sig, { searchTransactionHistory: true }));
+    const v = r && r.value;
+    if (!v) return null;
+    if (v.err) return false;
+    return v.confirmationStatus === 'confirmed' || v.confirmationStatus === 'finalized' ? true : null;
+  }
 
   async function refresh() {
     if (reading) return reading;
@@ -109,7 +117,7 @@ function createBotWallet({ dataDir, Usdc, env, log = console }) {
     // -> 'landed', 'failed' (errored on-chain), 'expired' (past its block height and not found on this read; the
     // bank only gives up after several such reads in a row) or 'pending'
     async status(sig, lvbh) {
-      const l = await Usdc.signatureLanded(sig);
+      const l = await landed(sig);
       if (l === true) return 'landed';
       if (l === false) return 'failed';
       const h = await Usdc.withRetry(() => conn.getBlockHeight());

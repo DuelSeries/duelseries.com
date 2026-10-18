@@ -265,9 +265,12 @@ function createBotBank({ file, fsx = fs, now = Date.now, log = console, chain = 
     view() {
       roll();
       const w = chain ? chain.usdcMicro() : null, lam = chain ? chain.solLamports() : null;
-      const away = st.balance + (st.sweep ? st.sweep.micro : 0);
-      return { float: away / 1e6, wallet: Number.isSafeInteger(w) ? w / 1e6 : null,
-        balance: ((Number.isSafeInteger(w) ? w : 0) + away) / 1e6,
+      // the bank's total = the wallet + the float. A sweep not yet settled is left out of the total: it may already
+      // be in the wallet's balance, and counting it twice is worse than missing it for a few seconds. (Solvency
+      // still counts it as owed by escrow until it settles: balanceMicro.)
+      return { float: st.balance / 1e6, sweepingUsd: st.sweep ? st.sweep.micro / 1e6 : 0,
+        wallet: Number.isSafeInteger(w) ? w / 1e6 : null,
+        balance: ((Number.isSafeInteger(w) ? w : 0) + st.balance) / 1e6,
         sol: Number.isSafeInteger(lam) ? lam / 1e9 : null, address: chain ? chain.address : null,
         funding: !!(st.fund || funding), sweeping: !!st.sweep,
         spentToday: st.spent / 1e6, cap: st.capMicro / 1e6,
