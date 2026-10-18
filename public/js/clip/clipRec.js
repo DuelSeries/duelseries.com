@@ -33,11 +33,24 @@
    another window, and no picture while the game's own frames run late.
 
    Loaded as <script src="/js/clip/clipRec.js" data-game="slither"> after
-   mp4mux.js. window.DSClip = { on, save(), offer(why) }. */
+   mp4mux.js. window.DSClip = { on, save(), offer(why) }.
+
+   The whole screen (Owen 2026-10-17, "it should show my mouse and everything
+   that my screen sees"): the lobby loads this too, with data-top="1". There it
+   records nothing until the player turns on Settings > Clips > Record the whole
+   screen; then, at that click or the next P, the browser asks once to share this
+   tab (getDisplayMedia, preferCurrentTab), and the lobby keeps the same 30
+   seconds of the tab itself: lobby, games, end cards, toasts, with the tab's
+   sound and a drawn mouse (tab capture leaves the cursor out). The lobby page
+   never reloads between games, so one permission lasts the visit. While it
+   records, each game's own recorder stands down and hands P, the cash-out offer,
+   its mouse and its input to it; a no, a missing API or Stop sharing leaves the
+   game's own recorder doing what it always did. */
 (function () {
   const SCRIPT = document.currentScript;
   const GAME = (SCRIPT && SCRIPT.dataset.game) || 'game';
   const DOT = (SCRIPT && SCRIPT.dataset.dot) || 'tl';      // where the red dot sits: top left, or bottom left (bl)
+  const TOP = !!(SCRIPT && SCRIPT.dataset.top);            // the lobby: whole-tab recording only, when switched on
   const KEEP_US = 30e6;          // what a clip holds
   const FPS = 30;
   const KEY_US = 1e6;            // a key frame each second of time, so a clip starts at most 1 s early
@@ -45,6 +58,7 @@
   const OFFER_MS = 8000;
   const IDLE_MS = 45000;         // no key, click or mouse move for this long: nobody is playing this tab
   const LS_ON = 'dsClipsOn', LS_MIC = 'dsClipsMic', LS_PERF = 'dsClipPerf';
+  const LS_TAB = 'dsClipsTab';
   const PERF_PASS_MS = 7 * 864e5, PERF_FAIL_MS = 864e5;
 
   const DSClip = { on: false, save: () => false, offer: () => {} };
@@ -57,10 +71,11 @@
     || (navigator.userAgentData && navigator.userAgentData.mobile);
   const webcodecs = typeof VideoEncoder === 'function' && typeof VideoFrame === 'function'
     && typeof AudioEncoder === 'function' && typeof AudioData === 'function' && !!window.DSMp4;
-  if (touchOnly || mobileUA || !webcodecs || (navigator.hardwareConcurrency || 8) < 4 || ls(LS_ON) === '0') return;
+  // The lobby's copy reads the switch at the click and at P instead, so turning clips on needs no reload.
+  if (touchOnly || mobileUA || !webcodecs || (navigator.hardwareConcurrency || 8) < 4 || (!TOP && ls(LS_ON) === '0')) return;
   const perf = (() => { try { return JSON.parse(ls(LS_PERF) || 'null'); } catch (_) { return null; } })();
   const perfFresh = perf && Date.now() - perf.at < (perf.ok ? PERF_PASS_MS : PERF_FAIL_MS);
-  if (perfFresh && !perf.ok) return;
+  if (perfFresh && !perf.ok && !TOP) return;
 
   /* ── sound: tap every connection to the speakers, from the start ───────── */
   let mixer = null, mixDest = null;
@@ -76,7 +91,8 @@
     return t;
   }
   const pendingTaps = [];
-  AudioNode.prototype.connect = function (dest) {
+  // Not in the lobby: the tab's own sound track already holds everything the tab plays.
+  if (!TOP) AudioNode.prototype.connect = function (dest) {
     const r = origConnect.apply(this, arguments);
     try {
       if (dest instanceof AudioDestinationNode && dest.context && dest.context !== mixer) origConnect.call(this, tapFor(dest.context));
@@ -170,17 +186,21 @@
 
   /* ── encoders ──────────────────────────────────────────────────────────── */
   async function pickCodec(w, h, bitrate) {
-    for (const codec of ['avc1.640028', 'avc1.4D4028', 'avc1.42E028', 'avc1.42E01F']) {
-      const cfg = { codec, width: w, height: h, bitrate, framerate: FPS, avc: { format: 'avc' }, latencyMode: 'realtime' };
-      try { if ((await VideoEncoder.isConfigSupported(cfg)).supported) return cfg; } catch (_) {}
+    // The whole tab asks for the graphics card's encoder first: it runs beside a game that is already busy.
+    for (const hw of TOP ? ['prefer-hardware', ''] : ['']) {
+      for (const codec of ['avc1.640028', 'avc1.4D4028', 'avc1.42E028', 'avc1.42E01F']) {
+        const cfg = { codec, width: w, height: h, bitrate, framerate: FPS, avc: { format: 'avc' }, latencyMode: 'realtime' };
+        if (hw) cfg.hardwareAcceleration = hw;
+        try { if ((await VideoEncoder.isConfigSupported(cfg)).supported) return cfg; } catch (_) {}
+      }
     }
     return null;
   }
-  async function startVideo() {
-    [W, H] = size();
+  async function startVideo(w, h) {
+    [W, H] = w ? [w, h] : size();
     if (!mirror) { mirror = document.createElement('canvas'); mctx = mirror.getContext('2d', { alpha: false }); }
     mirror.width = W; mirror.height = H;
-    const bitrate = Math.round(Math.min(8e6, Math.max(2.5e6, W * H * FPS * 0.1)));
+    const bitrate = Math.round(Math.min(TOP ? 6e6 : 8e6, Math.max(2.5e6, W * H * FPS * 0.1)));
     const cfg = await pickCodec(W, H, bitrate);
     if (!cfg) { stop('no H.264 encoder'); return false; }
     if (vEnc) { try { vEnc.close(); } catch (_) {} }
@@ -199,7 +219,7 @@
     return true;
   }
 
-  async function startAudio() {
+  async function startAudio(tabSound) {
     try {
       mixer = new AudioContext();
       mixDest = mixer.createMediaStreamDestination();
@@ -211,6 +231,7 @@
       hush.connect(mixDest);
       hush.start();
       pendingTaps.splice(0).forEach(t => mixer.createMediaStreamSource(t.stream).connect(mixDest));
+      if (tabSound) mixer.createMediaStreamSource(new MediaStream([tabSound])).connect(mixDest);
       if (ls(LS_MIC) === '1' && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
         navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } })
           .then(s => { mixer.createMediaStreamSource(s).connect(mixDest); })
@@ -250,6 +271,7 @@
       if (r.done || !running && failed) { if (r.value) r.value.close(); return; }
       const ad = r.value;
       if (!aEnc || !running || asleep) { ad.close(); continue; }
+      if (tabbed) { ad.close(); continue; }      // the lobby is recording the whole tab, sound included
       const n = ad.numberOfFrames, ch = Math.min(2, ad.numberOfChannels);
       const durUs = (n / ad.sampleRate) * 1e6;
       const arrive = usNow() - durUs;
@@ -290,9 +312,14 @@
   function tick(now) {
     if (!running) return;
     requestAnimationFrame(tick);
+    // The lobby is recording the whole tab: this game's recorder stands down, and starts its buffer afresh after.
+    const T = topClip();
+    if (T && T.tab) { if (!tabbed) { vChunks = []; aChunks = []; } tabbed = true; return; }
+    if (tabbed) { tabbed = false; vChunks = []; aChunks = []; frameNo = 0; lastNow = 0; gaps = []; }
     sampleFps(now);
     pace(now);
     if (!asleep && now - lastInput > IDLE_MS) doze();
+    if (TOP) return;      // the lobby's pictures come from the tab itself (pumpTab)
     if (asleep || now < lateUntil || !capturing || now - lastCap < 1000 / FPS - 3) return;
     lastCap = now;
     if (vEnc.encodeQueueSize > 4) { slow++; if (slow > FPS * 3) stop('the encoder cannot keep up', true); return; }
@@ -300,6 +327,9 @@
     const [w, h] = size();
     if (w !== W || h !== H) { capturing = false; startVideo().then(ok => { capturing = ok; }); return; }
     composite();
+    encodeMirror();
+  }
+  function encodeMirror() {
     let f;
     try {
       const ts = usNow();
@@ -312,7 +342,7 @@
     } catch (_) { /* a frame lost */ }
     if (f) f.close();
   }
-  let capturing = false, slow = 0;
+  let capturing = false, slow = 0, tabbed = false;
 
   /* ── the game first ────────────────────────────────────────────────────── */
   /* The game's own pace: each second's median frame time; the best of the last 10 s is the screen's pace (240 Hz,
@@ -357,7 +387,7 @@
     if (document.hidden) doze();
     else if (performance.now() - lastInput < IDLE_MS) rouse();
   });
-  const touched = () => { lastInput = performance.now(); if (asleep) rouse(); };
+  const touched = () => { lastInput = performance.now(); if (asleep) rouse(); const T = topClip(); if (T && T.on) T.touch(); };
   ['pointermove', 'pointerdown', 'keydown', 'wheel'].forEach(t => addEventListener(t, touched, { capture: true, passive: true }));
 
   /* ── does recording cost this PC frames? (once a week) ─────────────────── */
@@ -384,12 +414,19 @@
   }
 
   function stop(why, tell) {
-    running = false; capturing = false; failed = true; DSClip.on = false;
+    running = false; capturing = false; failed = !TOP; DSClip.on = false;
     try { if (vEnc) vEnc.close(); } catch (_) {}
     try { if (aEnc) aEnc.close(); } catch (_) {}
     vEnc = aEnc = null; vChunks = []; aChunks = [];
     dot(false);
-    if (tell) toast('err', 'Clips are off on this PC', 'It was dropping frames while recording.');
+    if (TOP) {      // the lobby can start again later this visit
+      const s = tabStream;
+      tabStream = null; vDesc = null; W = H = 0;
+      if (s) s.getTracks().forEach(t => { try { t.stop(); } catch (_) {} });
+      if (mixer) { mixer.close().catch(() => {}); mixer = mixDest = null; }
+    }
+    if (tell && TOP) toast('err', 'Whole-screen recording stopped', 'Your PC could not keep up. Clips record the game only.');
+    else if (tell) toast('err', 'Clips are off on this PC', 'It was dropping frames while recording.');
     if (window.console) console.warn('[clips] off: ' + why);
   }
 
@@ -402,14 +439,14 @@
     audio: a ? { sampleRate: aRate, channels: 2, description: aDesc, chunks: a } : null,
   });
   // The clip held right now, as an MP4 plus a still of its last frame for the card on the Clips wall.
-  function build() {
+  function build(game) {
     const v = vChunks.slice();
     while (v.length && !v[0].key) v.shift();     // frames still in the encoder when the buffer restarted
     if (!v.length) throw new Error('no key frame yet');
     const a = aEnc && aChunks.length ? aChunks.slice() : null;
     const bytes = muxOf(v, a);
     const secs = Math.max(1, Math.round((v[v.length - 1].ts - v[0].ts) / 1e6));
-    return { v, a, bytes, secs, game: isBr() ? 'br' : GAME, poster: still(), shared: false, sharing: false };
+    return { v, a, bytes, secs, game: game || (isBr() ? 'br' : GAME), poster: still(), shared: false, sharing: false };
   }
   // A 640-wide JPEG of the picture as it is now (the last frame of the clip), or null.
   function still() {
@@ -423,18 +460,21 @@
       } catch (_) { resolve(null); }
     });
   }
-  function save() {
+  // game: the lobby is told which game is on screen by that game's recorder (none: the lobby itself).
+  function save(game) {
+    if (!TOP) { const T = topClip(); if (T && T.tab) return T.save(gameNow()); }
+    const g = TOP ? (/^(slither|agar|paper|br)$/.test(game) ? game : 'other') : '';
     if (!running || !vChunks.length || !vDesc) { toast('info', 'Nothing to save yet', 'Clips start a few seconds into a game.'); return false; }
     if (performance.now() - lastSave < 2000) return false;
     lastSave = performance.now();
     hideOffer();
     try {
-      const clip = build();
+      const clip = build(g);
       last = clip;
       const url = URL.createObjectURL(new Blob([clip.bytes], { type: 'video/mp4' }));
       const d = new Date();
       const p2 = (n) => String(n).padStart(2, '0');
-      const name = 'duelseries-' + (clip.game === 'br' ? 'battle-royale' : GAME) + '-' + d.getFullYear() + '-' + p2(d.getMonth() + 1)
+      const name = 'duelseries-' + (clip.game === 'br' ? 'battle-royale' : clip.game === 'other' ? 'lobby' : clip.game) + '-' + d.getFullYear() + '-' + p2(d.getMonth() + 1)
         + '-' + p2(d.getDate()) + '-' + p2(d.getHours()) + p2(d.getMinutes()) + p2(d.getSeconds()) + '.mp4';
       const a2 = document.createElement('a');
       a2.href = url; a2.download = name; a2.style.display = 'none';
@@ -586,6 +626,8 @@
       card = document.createElement('div');
       card.setAttribute('role', 'status');
       card.setAttribute('aria-live', 'polite');
+      // In the lobby, a click on the card hands the keys straight back to the game under it.
+      if (TOP) card.addEventListener('click', () => setTimeout(focusGame, 0));
       document.documentElement.appendChild(card);
     }
     clearTimeout(cardTimer);
@@ -698,7 +740,8 @@
   let asking = null;      // frees the prompt's picture and video once another card replaces it
 
   // After a cash-out or a win: an offer that runs out by itself.
-  function offer() {
+  function offer(game) {
+    if (!TOP) { const T = topClip(); if (T && T.tab) { T.offer(gameNow()); return; } }
     if (!running || !vChunks.length) return;
     show('info', (c) => {
       const t = el('div');
@@ -709,7 +752,7 @@
       c.appendChild(t);
       const b = el('button', '', 'Save clip');
       b.type = 'button';
-      b.onclick = (e) => { e.stopPropagation(); save(); };
+      b.onclick = (e) => { e.stopPropagation(); save(game); };
       c.appendChild(b);
       const bar = el('span', 'bar');
       const i = el('i');
@@ -740,7 +783,11 @@
     // Typing a chat line or a name: only a field on screen. slither keeps focus in its hidden nickname box all game.
     const typing = t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
     if (typing && t.getClientRects().length && getComputedStyle(t).visibility !== 'hidden') return;
-    if (!running) return;
+    // Whole screen switched on but not recording yet: this P (it counts as a click) asks for the tab, once a visit.
+    if (TOP && !running) { if (tabWanted()) { e.preventDefault(); tabStart(); } return; }
+    const T = topClip();
+    if (T && !T.on && T.wanted()) T.start();
+    if (!running && !(T && T.tab)) return;
     e.preventDefault();
     save();
   }, true);
@@ -761,7 +808,142 @@
     return done;
   }
   let hookTries = 0, hooked = '';
-  const hookTimer = setInterval(() => { if (hookGames() || ++hookTries > 60) clearInterval(hookTimer); }, 500);
+  const hookTimer = TOP ? 0 : setInterval(() => { if (hookGames() || ++hookTries > 60) clearInterval(hookTimer); }, 500);
+
+  /* ── the whole tab (the lobby's copy, Owen 2026-10-17) ─────────────────── */
+  // In a game: the lobby's recorder, once it is past its own checks (else null).
+  let topRec = null;
+  function topClip() {
+    if (TOP) return null;
+    if (topRec) return topRec;
+    try { const p = window.parent; const c = p !== window && p.DSClip; if (c && c.top) topRec = c; } catch (_) { /* another origin */ }
+    return topRec;
+  }
+  const gameNow = () => (isBr() ? 'br' : GAME);
+  // A game's mouse, in the lobby's own pixels (where its frame sits is read once a second, not per move).
+  let frameBox = null, frameBoxAt = 0;
+  if (!TOP) addEventListener('pointermove', (e) => {
+    const T = topClip();
+    if (!T || !T.on) return;
+    const now = performance.now();
+    if (!frameBox || now - frameBoxAt > 1000) {
+      try {
+        const fe = window.frameElement;
+        if (!fe) return;
+        const r = fe.getBoundingClientRect();
+        frameBox = { x: r.left + fe.clientLeft, y: r.top + fe.clientTop, k: fe.clientWidth / innerWidth || 1 };
+      } catch (_) { return; }
+      frameBoxAt = now;
+    }
+    T.pointer(frameBox.x + e.clientX * frameBox.k, frameBox.y + e.clientY * frameBox.k);
+  }, { capture: true, passive: true });
+
+  let tabStream = null, tabStarting = false, tabDeclined = false, sizing = false;
+  let ptrX = -1, ptrY = -1;
+  const tabWanted = () => ls(LS_TAB) === '1' && ls(LS_ON) !== '0' && !tabDeclined;
+  // The game on screen, so P and the card's buttons go back to it after a click on a lobby card.
+  function focusGame() {
+    for (const id of ['game-frame', 'agar-frame']) {
+      const f = document.getElementById(id);
+      if (f && f.style.display !== 'none' && f.contentWindow) { try { f.contentWindow.focus(); } catch (_) {} return; }
+    }
+  }
+  /* Must run inside a click or key press (the switch, or P here or in a game: a press in a game counts for the
+     lobby too). A no, or a browser without tab capture, changes nothing: the game's own recorder carries on, and
+     P stops asking until the next visit (the Settings switch asks again). */
+  async function tabStart(force) {
+    if (force) tabDeclined = false;
+    if (!TOP || running || tabStarting || !tabWanted()) return false;
+    const md = navigator.mediaDevices;
+    if (!md || typeof md.getDisplayMedia !== 'function' || typeof MediaStreamTrackProcessor !== 'function') { tabDeclined = true; return false; }
+    tabStarting = true;
+    let s = null;
+    try {
+      s = await md.getDisplayMedia({
+        video: { frameRate: { ideal: FPS, max: FPS }, width: { max: MAX_W }, height: { max: MAX_H } },
+        audio: { suppressLocalAudioPlayback: false },
+        preferCurrentTab: true, selfBrowserSurface: 'include', surfaceSwitching: 'exclude',
+        monitorTypeSurfaces: 'exclude', systemAudio: 'exclude',
+      });
+    } catch (_) { s = null; }
+    tabStarting = false;
+    const vt = s && s.getVideoTracks()[0];
+    const surf = vt && vt.getSettings ? vt.getSettings().displaySurface : 'browser';
+    if (!vt || (surf && surf !== 'browser') || running) {      // only ever this tab, never a window or a screen
+      if (s) s.getTracks().forEach(t => t.stop());
+      tabDeclined = true;
+      return false;
+    }
+    tabStream = s;
+    vt.addEventListener('ended', () => { if (tabStream === s) { tabDeclined = true; stop('stopped sharing'); } });
+    T0 = performance.now(); lastCap = 0; frameNo = 0; vChunks = []; aChunks = []; W = H = 0;
+    lastInput = performance.now(); asleep = false; lateUntil = 0; lastNow = 0; gaps = [];
+    running = true; DSClip.on = true;
+    requestAnimationFrame(tick);
+    startAudio(s.getAudioTracks()[0] || null);
+    pumpTab(new MediaStreamTrackProcessor({ track: vt }).readable.getReader(), s);
+    toast('ok', 'Recording the whole screen', 'Press P any time to save the last 30 seconds.');
+    return true;
+  }
+  /* Each frame of the tab, at most 30 a second: scaled onto the hidden canvas, the mouse and the mark drawn on
+     top, then encoded. Asleep or while the game's frames run late, frames are dropped unread, as in a game. */
+  async function pumpTab(reader, s) {
+    for (;;) {
+      let r;
+      try { r = await reader.read(); } catch (_) { break; }
+      const f = r.value;
+      if (r.done || tabStream !== s) { if (f) f.close(); break; }
+      const now = performance.now();
+      if (asleep || sizing || now < lateUntil || now - lastCap < 1000 / FPS - 3) { f.close(); continue; }
+      let w = f.displayWidth, h = f.displayHeight;
+      const k = Math.min(1, MAX_W / w, MAX_H / h);
+      w = Math.max(2, Math.round((w * k) / 2) * 2); h = Math.max(2, Math.round((h * k) / 2) * 2);
+      if (w !== W || h !== H) {
+        f.close();
+        sizing = true;
+        startVideo(w, h).then((ok) => { sizing = false; if (!ok) tabDeclined = true; });
+        continue;
+      }
+      lastCap = now;
+      if (!vEnc || vEnc.encodeQueueSize > 4) { f.close(); slow++; if (slow > FPS * 3) stop('the encoder cannot keep up', true); continue; }
+      slow = 0;
+      try { mctx.drawImage(f, 0, 0, W, H); } catch (_) {}
+      f.close();
+      cursor();
+      mark();
+      encodeMirror();
+    }
+  }
+  // The mouse: tab capture leaves the real one out, so a plain arrow is drawn where it is, in the video only.
+  function cursor() {
+    if (ptrX < 0) return;
+    const s = Math.max(16, Math.round(H * 0.024));
+    const x = (ptrX * W) / innerWidth, y = (ptrY * H) / innerHeight;
+    const P = [[0, 0], [0, 0.95], [0.24, 0.73], [0.4, 1.08], [0.54, 1.02], [0.38, 0.68], [0.68, 0.68]];
+    mctx.beginPath();
+    P.forEach(([px, py], i) => (i ? mctx.lineTo : mctx.moveTo).call(mctx, x + px * s, y + py * s));
+    mctx.closePath();
+    mctx.lineJoin = 'round';
+    mctx.lineWidth = Math.max(1.5, s * 0.08);
+    mctx.strokeStyle = 'rgba(0,0,0,.85)';
+    mctx.fillStyle = '#fff';
+    mctx.fill();
+    mctx.stroke();
+  }
+  if (TOP) {
+    addEventListener('pointermove', (e) => { ptrX = e.clientX; ptrY = e.clientY; }, { capture: true, passive: true });
+    DSClip.top = true;
+    Object.defineProperty(DSClip, 'tab', { get: () => running && !asleep && !!vDesc && vChunks.length > 0 });
+    DSClip.wanted = tabWanted;
+    DSClip.start = tabStart;
+    DSClip.stop = () => { if (running) stop('switched off'); };
+    DSClip.touch = () => {
+      lastInput = performance.now();
+      if (asleep) rouse();
+      else if (mixer && mixer.state === 'suspended') mixer.resume().catch(() => {});
+    };
+    DSClip.pointer = (x, y) => { ptrX = x; ptrY = y; };
+  }
 
   /* ── start ─────────────────────────────────────────────────────────────── */
   async function start() {
@@ -776,6 +958,7 @@
     startAudio();
     if (perfFresh) capturing = true; else perfTest();
   }
+  if (TOP) return;
   if (document.readyState === 'complete') setTimeout(start, 500);
   else addEventListener('load', () => setTimeout(start, 500), { once: true });
 })();

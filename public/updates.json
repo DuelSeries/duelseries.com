@@ -2,6 +2,17 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-10-17-clips-whole-screen",
+      "date": "2026-10-17",
+      "tag": "new",
+      "title": "Clips can record the whole screen",
+      "body": "Turn on Settings > Clips > Record the whole screen and your clips show everything: the lobby, the end cards, the buttons you press and your mouse.\n\nYour browser asks once per visit to share this tab. Say no and clips record just the game, like before. Press P any time to save the last 30 seconds.",
+      "image": {
+        "src": "/updates/whole-screen-clip.webp",
+        "alt": "A frame from a whole-screen clip: the end card, the leaderboard and the mouse pointer"
+      }
+    },
+    {
       "id": "2026-10-17-play-again-reliable",
       "date": "2026-10-17",
       "tag": "fix",

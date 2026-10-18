@@ -2799,6 +2799,8 @@ body.scr-anim { overflow-x:hidden }
         <button type="button" class="sw" id="set-clips" role="switch" aria-checked="true" aria-labelledby="set-clips-l" onclick="setClips(this)"></button></div>
       <div class="swrow"><div><b id="set-mic-l">Add my mic</b><span>Your voice in saved clips. Your browser asks first.</span></div>
         <button type="button" class="sw" id="set-mic" role="switch" aria-checked="false" aria-labelledby="set-mic-l" onclick="setMic(this)"></button></div>
+      <div class="swrow"><div><b id="set-tab-l">Record the whole screen</b><span>Lobby, end cards and your mouse too. Your browser asks once per visit.</span></div>
+        <button type="button" class="sw" id="set-tab" role="switch" aria-checked="false" aria-labelledby="set-tab-l" onclick="setClipTab(this)"></button></div>
     </section>
 
     <!-- The pages a real-money site owes its players, one tap from Settings.
@@ -4882,6 +4884,8 @@ function drawClipSet(){
   const a=document.getElementById('set-clips'), m=document.getElementById('set-mic');
   if(a)a.setAttribute('aria-checked',String(on));
   if(m){m.setAttribute('aria-checked',String(on&&mic));m.disabled=!on}
+  const t=document.getElementById('set-tab');
+  if(t){t.setAttribute('aria-checked',String(on&&lsGet('dsClipsTab')==='1'));t.disabled=!on}
 }
 /* Sound: the switch and the volume live in sounds.js (dsSnd, dsSndVol). Letting
    go of the slider plays a tap at the new level, so you hear what you chose. */
@@ -4912,6 +4916,17 @@ function setClips(b){
   const on=b.getAttribute('aria-checked')!=='true';
   lsPut('dsClipsOn',on?'1':'0');
   if(on)lsPut('dsClipPerf',null);
+  else if(window.DSClip&&DSClip.top)DSClip.stop();
+  drawClipSet();
+}
+/* Whole screen (Owen 2026-10-17): the lobby's own copy of the recorder keeps
+   the tab itself, lobby and games, once the browser's "share this tab" is
+   allowed. Asked here, at the click; a no just leaves the games' recorders. */
+function setClipTab(b){
+  const on=b.getAttribute('aria-checked')!=='true';
+  lsPut('dsClipsTab',on?'1':'0');
+  const C=window.DSClip;
+  if(C&&C.top){if(on)C.start(true);else C.stop()}
   drawClipSet();
 }
 async function setMic(b){
@@ -5232,6 +5247,10 @@ drawNav();V2Wallet.render();drawRail();drawTicker();V2Board.start();
 <!-- Self-custody wallet widget (Privy embedded). React island; the lobby stays
      vanilla and only reads the globals it publishes. The node-global shims must
      run before widget.js, exactly as they do in index.html. -->
+<!-- The clip recorder's whole-screen mode (Settings > Clips). It records nothing
+     until that switch is on; each game page still has its own recorder. -->
+<script src="/js/clip/mp4mux.js"></script>
+<script src="/js/clip/clipRec.js" data-game="other" data-top="1"></script>
 <script>window.global=window.global||window;window.process=window.process||{env:{NODE_ENV:'production'}};</script>
 <div id="wallet-root"></div>
 <script src="/wallet/widget.js"></script>

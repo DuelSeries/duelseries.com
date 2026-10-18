@@ -21,7 +21,7 @@ test('off on phones, touch screens, without WebCodecs, on small CPUs, when switc
   assert.match(gate, /typeof VideoEncoder === 'function'/);
   assert.match(gate, /hardwareConcurrency \|\| 8\) < 4/);
   assert.match(gate, /ls\(LS_ON\) === '0'/);
-  assert.match(gate, /if \(perfFresh && !perf\.ok\) return;/);
+  assert.match(gate, /if \(perfFresh && !perf\.ok && !TOP\) return;/, 'a failed frame test stops a game\'s recorder, not the lobby\'s whole-screen one');
   assert.match(js, /const LS_ON = 'dsClipsOn', LS_MIC = 'dsClipsMic', LS_PERF = 'dsClipPerf';/);
 });
 
@@ -149,4 +149,30 @@ test('the lobby paints nothing under a game; the toasts and the wallet stay abov
   // ingame comes and goes with the frame: added as a frame is shown, removed when the game says it is done.
   assert.match(html, /window\._pauseLobbyAnims=\(\)=>\{\s*_paused=true;\s*document\.body\.classList\.add\('ingame'\)/);
   assert.match(html, /document\.body\.classList\.remove\('ingame'\)/);
+});
+
+/* Owen 2026-10-17, "it should show my mouse and everything that my screen sees": Settings > Clips > Record the whole
+   screen. The lobby's own copy keeps the tab itself (getDisplayMedia, this tab only), asked at the switch or at P,
+   and each game's recorder stands down while it runs and starts again if it stops or was never allowed. */
+test('whole screen: off by default, PC only, asks at a click or P, this tab only, the game recorder as the fallback', () => {
+  const js = rec();
+  const html = read('public/v2.html');
+  assert.match(html, /id="set-tab" role="switch" aria-checked="false"/, 'off until chosen');
+  assert.match(html, /<section class="panel set-pc" aria-labelledby="set-clip-h">[\s\S]*id="set-tab"[\s\S]*<\/section>/, 'in the PC-only Clips group');
+  assert.match(html, /if\(C&&C\.top\)\{if\(on\)C\.start\(true\);else C\.stop\(\)\}/, 'the switch itself asks for the tab');
+  assert.ok(html.indexOf('<script src="/js/clip/mp4mux.js"></script>\n<script src="/js/clip/clipRec.js" data-game="other" data-top="1"></script>') > html.indexOf('id="agar-frame"'));
+  assert.match(js, /const tabWanted = \(\) => ls\(LS_TAB\) === '1' && ls\(LS_ON\) !== '0' && !tabDeclined;/);
+  assert.match(js, /preferCurrentTab: true, selfBrowserSurface: 'include', surfaceSwitching: 'exclude',/);
+  assert.match(js, /if \(!vt \|\| \(surf && surf !== 'browser'\) \|\| running\)/, 'never a window or a whole screen');
+  assert.match(js, /if \(TOP && !running\) \{ if \(tabWanted\(\)\) \{ e\.preventDefault\(\); tabStart\(\); \} return; \}/);
+  assert.match(js, /if \(T && !T\.on && T\.wanted\(\)\) T\.start\(\);/, 'P in a game asks too (a press in a frame counts for the lobby)');
+  assert.match(js, /if \(!TOP\) AudioNode\.prototype\.connect = function/, 'the lobby takes the tab\'s own sound, it never wraps audio');
+  assert.match(js, /if \(T && T\.tab\) \{ if \(!tabbed\) \{ vChunks = \[\]; aChunks = \[\]; \} tabbed = true; return; \}/, 'a game\'s recorder stands down');
+  assert.match(js, /if \(tabbed\) \{ tabbed = false; vChunks = \[\]; aChunks = \[\]; frameNo = 0;/, 'and starts afresh after');
+  assert.match(js, /if \(!TOP\) \{ const T = topClip\(\); if \(T && T\.tab\) return T\.save\(gameNow\(\)\); \}/, 'P in a game saves the whole tab');
+  assert.match(js, /tabDeclined = true; stop\('stopped sharing'\);/, 'Stop sharing hands back to the games and P stops asking');
+  assert.match(js, /const g = TOP \? \(\/\^\(slither\|agar\|paper\|br\)\$\/\.test\(game\) \? game : 'other'\) : '';/, 'only a known game name goes to the server');
+  const pump = js.slice(js.indexOf('async function pumpTab'), js.indexOf('function cursor()'));
+  assert.match(pump, /if \(asleep \|\| sizing \|\| now < lateUntil \|\| now - lastCap < 1000 \/ FPS - 3\) \{ f\.close\(\); continue; \}/, 'the game first, 30 a second at most');
+  assert.match(pump, /cursor\(\);\n\s*mark\(\);\n\s*encodeMirror\(\);/, 'the mouse and the mark are drawn into the video');
 });
