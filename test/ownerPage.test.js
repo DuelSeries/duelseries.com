@@ -188,7 +188,7 @@ test('signed in: draws the sheet from the state and never loads the wallet', asy
       assert.ok(text.includes(s), 'shows ' + JSON.stringify(s));
     }
     // the bot bank is its own big number, and the address says it is the only one
-    for (const s of ['Bot bank', '$0.50', 'Escrow address (the only address; send bot money here)']) {
+    for (const s of ['Bot bank', '$0.50', 'Escrow address', 'Bot bank address (send bot money here)', 'BotBankAddr1111']) {
       assert.ok(text.includes(s), 'shows ' + JSON.stringify(s));
     }
     // the escrow's breakdown adds up to it: 0.5 + 1.85 + 0.05 + 510 = 512.4

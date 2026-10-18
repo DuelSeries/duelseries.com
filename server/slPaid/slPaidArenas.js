@@ -131,6 +131,20 @@ class SlPaidArenas {
   }
 
   // Opens room #0 of every rung with a saved bot target (boot), so Owen's bots are back after a deploy.
+  // A fund from the Bot bank wallet landed: spawn the bots that were waiting for it (only counts Owen asked for).
+  resumeBots() {
+    if (!this.botBank || !this.botWant || this.stopping) return;
+    for (const [stake, more] of Array.from(this.botWant)) {
+      try {
+        this._applyBots(stake, this.botCount(stake) + more);
+      } catch (e) {
+        this.botWant.delete(stake);
+        this.log.error('[BOTS] paid bots not resumed at ' + stake + ': ' + (e && e.message));
+      }
+    }
+    this._saveTargets();
+  }
+
   startBots() {
     if (!this.botBank) return;
     for (const [stake, n] of Array.from(this.botTargets)) if (n > 0) this._applyBots(stake, n);
@@ -193,6 +207,9 @@ class SlPaidArenas {
 
   // -> { live, why } (why: null, or why it stopped short: the bank or today's cap)
   _applyBots(stake, n) {
+    // a count still waiting on a seed moving from the Bot bank wallet (resumeBots finishes it once it lands)
+    if (!this.botWant) this.botWant = new Map();
+    this.botWant.delete(stake);
     const list = this.rungs.get(stake) || [];
     let room = list.find((r) => this.place.get(r).index === 0 && !r.stopped && !r.closed) || null;
     if (!room && n > 0) {
@@ -211,7 +228,11 @@ class SlPaidArenas {
     for (let i = Number(room.botCount) || 0; i < n; i++) {
       const no = this.botBank.whyNot(seed);
       if (no) {
-        why = no === 'cap' ? 'The daily bot limit is reached' : 'The bot bank cannot cover another $' + stake + ' bot';
+        // only the bots still to come (a bot killed meanwhile is not replaced: no respawn)
+        if (no === 'funding') this.botWant.set(stake, n - (Number(room.botCount) || 0));
+        why = no === 'cap' ? 'The daily bot limit is reached' : no === 'funding'
+          ? 'The rest join in a few seconds, once their money has moved from the Bot bank wallet to escrow'
+          : 'The bot bank cannot cover another $' + stake + ' bot';
         break;
       }
       const rec = room.addBot();

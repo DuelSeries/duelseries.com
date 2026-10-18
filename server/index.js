@@ -1800,28 +1800,8 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
        held until changed), { room, auto: true } hands the room back to its own
        fill. How each kind of room holds the number is in
        ownerConsole.setBots. Paid rooms refuse before anything is touched. */
-    /* The bot bank (server/botBank.js). Top-up: Owen sends USDC from the revenue
-       wallet to the escrow address, then pastes that transaction's signature here.
-       The server reads the confirmed transaction (escrow's USDC went up, the
-       revenue wallet signed it), claims the signature once (the stakes' one-time
-       table), and only then credits the bank, so every bot seed is already in
-       escrow. Cap: the daily limit of seed handed out, in dollars. */
-    case 'botbank:topup': {
-      /* without the durable stake rows a player's stake is not claimed before it is sent, so a top-up could burn one */
-      if (!db.features.durableStakes) return refuse('Top-ups are paused: the stake ledger is not durable right now');
-      const t = await require('./botBankTopup').verifyTopup(args.sig, {
-        verify: (sig, min) => Usdc.verifyUsdcStake(sig, min),
-        isPlayerWallet: (w) => db.isPlayerWallet(w),
-        markStakeSig: (sig) => db.markStakeSig(sig),
-        botBank,
-        ownerWallets: [REVENUE_WALLET, OWNER_WALLET],
-      });
-      if (!t.ok) {
-        if (t.critical) console.error('[BOTBANK] CRITICAL top-up ' + String(args.sig).slice(0, 90) + ' of ' + t.micro + ' micro claimed but not saved');
-        return refuse(t.why);
-      }
-      return done('Bot bank +$' + (t.micro / 1e6).toFixed(2) + ', now $' + (botBank.balanceMicro() / 1e6).toFixed(2) + '.');
-    }
+    /* The bot bank (server/botBank.js): its own wallet, so a top-up is just a transfer to its address (no step
+       here). Cap: the daily limit of seed handed out, in dollars. */
     case 'botbank:cap': {
       const usd = typeof args.usd === 'number' ? args.usd : Number(String(args.usd || '').trim());
       if (!Number.isFinite(usd) || usd < 0 || usd > 1000) return refuse('Daily bot limit: a dollar amount from 0 to 1000');
@@ -2518,9 +2498,47 @@ const agJournal = require('./ag/agJournal').createAgJournal({
   file: process.env.AG_JOURNAL_PATH || undefined,
   bootId: BOOT_ID,
 });
-/* The owner's bot bank (server/botBank.js): funds paid bounty bots, topped up only
-   by a verified USDC transfer from the revenue wallet to escrow (botbank:topup). */
-const botBank = require('./botBank').createBotBank({ file: path.join(path.dirname(agJournal.file), 'bot-bank.json') });
+/* The owner's bot bank (server/botBank.js): funds paid bounty bots. Since 2026-10-17 it is its own wallet
+   (server/botWallet.js): its on-chain USDC is the bank, anything sent to its address is bot money, and a bot's seed
+   moves bot wallet -> escrow on-chain before the bot spawns (unspent seed goes back the same way). NA only, and
+   only with the escrow key (EU never moves bank money). */
+let botWallet = null;
+if (REGION === 'na' && process.env.ESCROW_PRIVATE_KEY) {
+  try {
+    botWallet = require('./botWallet').createBotWallet({ dataDir: path.dirname(agJournal.file), Usdc });
+    console.log('[BOTBANK] Bot bank wallet ' + botWallet.address);
+  } catch (e) {
+    console.error('[BOTBANK] CRITICAL Bot bank wallet not opened (bots wait, nothing moves): ' + (e && e.message));
+  }
+}
+const botBank = require('./botBank').createBotBank({ file: path.join(path.dirname(agJournal.file), 'bot-bank.json'), chain: botWallet });
+/* One-time move (2026-10-17): the ledger bank already sits in escrow as the float, and the sweep sends it to the
+   wallet on its own. Owen's $10.55 deposit to escrow (from his Coinbase, never claimed) is credited into the float
+   through the one-time claim (markStakeSig + the bank's own list), so it can never count twice, and is swept too. */
+const BOTBANK_DEPOSIT_SIG = '3zNHejSF77E7cxHSHAFGAqmZyXAuHbfxfVpS4rjxCLnvMhmsU3F3cMnDtGfCaPprDrqMbZRsdnTTptrtQCvvKKzV';
+async function botBankMigrate(left) {
+  if (!botWallet || botBank.flag('deposit-3zNH')) return;
+  if (!botBank.flag('moved-to-wallet')) botBank.setFlag('moved-to-wallet', 'float $' + (botBank.balanceMicro() / 1e6).toFixed(2) + ' goes to the wallet');
+  let t = { ok: false, why: 'the stake ledger is not durable yet' };
+  if (db.features.durableStakes) {
+    t = await require('./botBankTopup').verifyTopup(BOTBANK_DEPOSIT_SIG, {
+      verify: (sig, min) => Usdc.verifyUsdcStake(sig, min),
+      isPlayerWallet: (w) => db.isPlayerWallet(w),
+      markStakeSig: (sig) => db.markStakeSig(sig),
+      botBank,
+      ownerWallets: [REVENUE_WALLET, OWNER_WALLET],
+    }).catch((e) => ({ ok: false, why: String(e && e.message) }));
+  }
+  if (t.ok || /already/i.test(t.why || '')) {
+    botBank.setFlag('deposit-3zNH', t.ok ? '+$' + (t.micro / 1e6).toFixed(2) : t.why);
+    console.log('[BOTBANK] deposit 3zNH: ' + (t.ok ? 'credited ' + t.micro + ' micro' : t.why));
+    return;
+  }
+  if (t.critical) console.error('[BOTBANK] CRITICAL deposit 3zNH of ' + t.micro + ' micro claimed but not saved');
+  console.warn('[BOTBANK] deposit 3zNH not credited yet: ' + t.why);
+  if (left > 0) setTimeout(() => botBankMigrate(left - 1), 120000).unref();
+}
+setTimeout(() => botBankMigrate(10), 30000).unref();
 {
   const waiting = agJournal.rotate();
   if (waiting.length) console.warn(`[AG] JOURNAL ${waiting.length} file(s) to replay once the database is up`);
@@ -2946,6 +2964,15 @@ const slPaid = slPaidOpened.arenas;
 if (slPaid && typeof slPaid.startBots === 'function') {
   try { slPaid.startBots(); } catch (e) { console.error('[SLP] paid bots not restored:', e && e.message); }
 }
+/* A seed moved from the Bot bank wallet landed in escrow: each game spawns the bots that were waiting for it. */
+botBank.onReady(() => {
+  for (const d of [slPaid, agArenas, paperArenas]) {
+    if (d && typeof d.resumeBots === 'function') {
+      try { d.resumeBots(); } catch (e) { console.error('[BOTBANK] bots not resumed:', e && e.message); }
+    }
+  }
+  broadcastLobbyState();
+});
 /* ── The nightly battle royale on the sl engine (server/slBr; Owen 2026-10-15) ──
    The event plays like the free /sl room (the same snakes, bots, food, client
    and Customize skin) with its own rules on top: the wandering circle, the
@@ -3943,10 +3970,19 @@ function sumLiveSelfCustodyStakes() {
 function totalLiveStakesSol() {
   return sumLiveSelfCustodyStakes() + (remoteStats.liveStakesSol || 0);
 }
+let _bbSolWarnAt = 0;
 async function checkSolvency() {
+  /* The Bot bank wallet pays its own transfer fees: low SOL means bots stop spawning, so tell Owen (every 6 h at most). */
+  const bbv = botBank.view();
+  if (bbv.address && bbv.sol !== null && bbv.sol < 0.003 && Date.now() - _bbSolWarnAt > 6 * 3600e3) {
+    _bbSolWarnAt = Date.now();
+    console.warn('[BOTBANK] wallet low on SOL: ' + bbv.sol);
+    notify.pushOwner('The Bot bank wallet has ' + bbv.sol.toFixed(4) + ' SOL for fees. Send about 0.01 SOL to ' + bbv.address,
+      { title: 'Bot bank needs SOL' });
+  }
   try {
     const escrow = await money.escrowBalance();
-    /* the bot bank sits in escrow too (its top-ups were transfers to escrow), so it is owed like a stake */
+    /* the bank's float (bot money moved into escrow, not yet back in its wallet) is owed like a stake */
     const liveStakes = totalLiveStakesSol() + botBank.balanceMicro() / 1e6;
     const surplus = escrow - liveStakes;
     const solvent = surplus >= -1e-6;

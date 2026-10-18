@@ -733,12 +733,13 @@ function partEscrowParts(ups, cls, pad) {
   });
   return el;
 }
-// The bot bank as its own big number beside the escrow (it is part of the escrow, not a second wallet).
+// The bot bank as its own big number beside the escrow: a separate wallet with its own address.
 function bankFig(s, short) {
   const b = s.botBank;
-  if (!b) return { v: '-', cls: 'dim', label: short ? 'bot bank' : 'Bot bank' };
-  return { v: money(b.balance), cls: 'gold', label: short ? 'bot bank' : 'Bot bank',
-    title: 'Money set aside for paid bots. It sits inside the escrow; the escrow figure includes it.' };
+  if (!b) return { v: '-', cls: 'dim', label: short ? 'bot bank' : 'Bot bank wallet' };
+  return { v: money(b.balance), cls: 'gold', label: short ? 'bot bank' : 'Bot bank wallet',
+    title: 'Money for paid bots, in its own wallet' + (num(b.float) > 0.005 ? ', plus ' + money(b.float) +
+      ' of it in escrow on its way back' : '') + '. Bot seeds move to escrow when a bot spawns.' };
 }
 function partNewGames(ups) {
   return toggle(ups, {
@@ -882,36 +883,11 @@ function partSmooth(ups) {
     pick: (on) => act('smooth', on ? 'sl:smooth:on' : 'sl:smooth:off'),
   });
 }
-/* The bot bank: what funds paid slither bots (each spawns worth its room's stake).
-   Add: send USDC from the revenue wallet to the escrow address, then paste that
-   transfer's signature here; the server checks it on-chain before crediting. */
-function partBotBank(ups, cls) {
-  const read = h('span', { class: 'l', 'data-k': 'botbank' }, 'Bot bank');
-  const sig = h('input', { class: 'say', type: 'text', maxlength: '100', autocomplete: 'off', 'data-k': 'bbsig',
-    placeholder: 'Paste the transfer signature', 'aria-label': 'Paste the transfer signature' });
-  const add = h('button', { type: 'button', class: 'btn', 'data-k': 'bbadd', text: 'Add' });
-  const cap = h('input', { class: 'say', type: 'text', maxlength: '8', autocomplete: 'off', 'data-k': 'bbcap',
-    placeholder: 'Daily limit $', 'aria-label': 'Daily bot limit in dollars', style: 'max-width:110px' });
-  const setCap = h('button', { type: 'button', class: 'btn', 'data-k': 'bbcapset', text: 'Set limit' });
-  add.addEventListener('click', async () => {
-    const v = sig.value.trim();
-    if (!v) { say('Paste the transfer signature first.', true); sig.focus(); return; }
-    const r = await act('botbank', 'botbank:topup', { sig: v });
-    if (r && r.ok && r.body.ok !== false) sig.value = '';
-  });
-  setCap.addEventListener('click', async () => {
-    const v = cap.value.trim();
-    if (!v) { say('Write the daily limit in dollars first.', true); cap.focus(); return; }
-    const r = await act('botbank', 'botbank:cap', { usd: Number(v) });
-    if (r && r.ok && r.body.ok !== false) cap.value = '';
-  });
-  /* Where to send it: the escrow's address as the server reports it, with a Copy button. */
-  const hint = h('span', { class: 'l', 'data-k': 'bbhint' }, 'Escrow address (the only address; send bot money here)');
-  const addr = h('span', { class: 'l', 'data-k': 'bbaddr', style: 'font-family:var(--fm,monospace);word-break:break-all' }, '…');
-  const copy = h('button', { type: 'button', class: 'btn', 'data-k': 'bbcopy', text: 'Copy' });
-  copy.addEventListener('click', async () => {
-    const a = S && S.botBank && S.botBank.escrowAddress;
-    if (!a) { say('The escrow address has not loaded yet.', true); return; }
+/* The bot bank: its own wallet. Send USDC to the Bot bank address and it is bot money; there is no step here.
+   Both addresses come from the server (its own keys), never typed into the page. */
+function copyText(a, what) {
+  if (!a) { say(what + ' has not loaded yet.', true); return; }
+  (async () => {
     try {
       await navigator.clipboard.writeText(a);
     } catch (e) {
@@ -920,18 +896,43 @@ function partBotBank(ups, cls) {
       try { document.execCommand('copy'); } catch (_) { /* nothing more to try */ }
       t.remove();
     }
-    say('Escrow address copied.');
+    say(what + ' copied.');
+  })();
+}
+function addrRow(cls, key, label, get) {
+  const hint = h('span', { class: 'l', 'data-k': key + 'hint' }, label);
+  const addr = h('span', { class: 'l', 'data-k': key + 'addr', style: 'font-family:var(--fm,monospace);word-break:break-all' }, '…');
+  const copy = h('button', { type: 'button', class: 'btn', 'data-k': key + 'copy', text: 'Copy' });
+  copy.addEventListener('click', () => copyText(get(), label));
+  return { rows: [h('div', { class: cls }, hint), h('div', { class: cls }, addr, copy)],
+    up() { const a = get(); addr.textContent = a || 'Not loaded'; copy.disabled = !a; } };
+}
+function partBotBank(ups, cls) {
+  const read = h('span', { class: 'l', 'data-k': 'botbank' }, 'Bot bank');
+  const warn = h('span', { class: 'l', 'data-k': 'bbwarn', style: 'color:var(--bad,#e5484d)' }, '');
+  const cap = h('input', { class: 'say', type: 'text', maxlength: '8', autocomplete: 'off', 'data-k': 'bbcap',
+    placeholder: 'Daily limit $', 'aria-label': 'Daily bot limit in dollars', style: 'max-width:110px' });
+  const setCap = h('button', { type: 'button', class: 'btn', 'data-k': 'bbcapset', text: 'Set limit' });
+  setCap.addEventListener('click', async () => {
+    const v = cap.value.trim();
+    if (!v) { say('Write the daily limit in dollars first.', true); cap.focus(); return; }
+    const r = await act('botbank', 'botbank:cap', { usd: Number(v) });
+    if (r && r.ok && r.body.ok !== false) cap.value = '';
   });
+  const esc = addrRow(cls, 'esc', 'Escrow address', () => S && S.botBank && S.botBank.escrowAddress);
+  const bank = addrRow(cls, 'bb', 'Bot bank address (send bot money here)', () => S && S.botBank && S.botBank.address);
   ups.push(() => {
     const b = S && S.botBank;
-    read.textContent = b ? 'Bot bank $' + num(b.balance).toFixed(2) + ' · today $' + num(b.spentToday).toFixed(2) +
-      ' of $' + num(b.cap).toFixed(2) : 'Bot bank';
-    addr.textContent = b && typeof b.escrowAddress === 'string' && b.escrowAddress ? b.escrowAddress : 'Escrow address not loaded';
-    copy.disabled = !(b && b.escrowAddress);
-    add.disabled = setCap.disabled = busy.has('botbank');
+    read.textContent = b ? 'Bot bank ' + (b.wallet === null ? '…' : '$' + num(b.balance).toFixed(2)) +
+      (b.funding ? ' · moving a seed' : '') + ' · today $' + num(b.spentToday).toFixed(2) + ' of $' + num(b.cap).toFixed(2) +
+      (b.sol === null ? '' : ' · fees ' + num(b.sol).toFixed(4) + ' SOL') : 'Bot bank';
+    warn.textContent = b && b.address && b.sol !== null && b.sol < 0.003
+      ? 'The Bot bank wallet is low on SOL for fees: send about 0.01 SOL to its address.' : b && !b.address ? 'The Bot bank wallet is not open on this server.' : '';
+    esc.up();
+    bank.up();
+    setCap.disabled = busy.has('botbank');
   });
-  return [h('div', { class: cls }, read, cap, setCap), h('div', { class: cls }, hint),
-    h('div', { class: cls }, addr, copy), h('div', { class: cls }, sig, add)];
+  return [h('div', { class: cls }, read, cap, setCap), h('div', { class: cls }, warn)].concat(bank.rows, esc.rows);
 }
 function partSay(ups, next, cls) {
   const input = h('input', { class: 'say', type: 'text', maxlength: '200', autocomplete: 'off', 'data-k': 'say',
