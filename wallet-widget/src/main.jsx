@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { PrivyProvider, usePrivy, useLogin, useIdentityToken } from '@privy-io/react-auth';
-import { useWallets as useSolanaWallets, useSignTransaction, useSignMessage, useFundWallet } from '@privy-io/react-auth/solana';
+import { PrivyProvider, usePrivy, useLogin, useUser, useIdentityToken } from '@privy-io/react-auth';
+import { useWallets as useSolanaWallets, useCreateWallet as useCreateSolanaWallet, useSignTransaction, useSignMessage, useFundWallet } from '@privy-io/react-auth/solana';
 import { createSolanaRpc, createSolanaRpcSubscriptions } from '@solana/kit';
 import bs58 from 'bs58';
 import { ComputeBudgetProgram, PublicKey, SystemProgram, Transaction, VersionedTransaction } from '@solana/web3.js';
@@ -10,6 +10,7 @@ import { SERVER_URLS, stakeRoute } from './stakeRoute.mjs';
 import { createRestakeBridge, cancelledError } from './restakeBridge.mjs';
 import { holdBackCoinbase } from './holdCoinbase.mjs';
 import { buildSkinPayment } from './skinPay.mjs';
+import { makeWalletSetup } from './walletSetup.mjs';
 // The shared gold popup card (public/js/shared/dsDialog.js), bundled so the lobby needs no extra tag.
 import '../../public/js/shared/dsDialog.js';
 
@@ -393,6 +394,8 @@ function WalletPanel() {
   const { signTransaction } = useSignTransaction();
   const { signMessage } = useSignMessage();
   const { fundWallet } = useFundWallet();
+  const { createWallet } = useCreateSolanaWallet();
+  const { refreshUser } = useUser();
   const [balance, setBalance] = useState(null);
   const [sol, setSol] = useState(null);    // the wallet's SOL beside a USDC balance (null in SOL mode)
   const [unit, setUnit] = useState('SOL'); // balance unit label (SOL or USDC), from /api/money-config
@@ -408,6 +411,67 @@ function WalletPanel() {
 
   const wallet = solWallets && solWallets[0];
   const address = (wallet && wallet.address) || solanaAddress(user);
+
+  /* Signed in with no wallet (walletSetup.mjs: Privy's on-login create can stall for good, and
+     its login() does nothing for a session already signed in). The wallet is made here: right
+     after login, on the next visit of anyone already stuck, and on every Sign in press. The gold
+     card says what is happening, and a failure offers Try again instead of a spinner forever. */
+  const privyRef = useRef(null);
+  privyRef.current = { ready, authenticated, user, login, createWallet, refreshUser };
+  const setupRef = useRef(null);
+  if (!setupRef.current) {
+    setupRef.current = makeWalletSetup({
+      createWallet: () => privyRef.current.createWallet(),
+      hasWallet: () => !!solanaAddress(privyRef.current.user),
+      refreshUser: () => privyRef.current.refreshUser(),
+      sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+      now: () => Date.now(),
+    });
+  }
+  const setupUi = useRef(null); // the card flow on screen now, so two callers share one
+  const setUpWallet = () => {
+    if (setupUi.current) return setupUi.current;
+    const run = async () => {
+      for (;;) {
+        const D = window.DSDialog;
+        if (D) D.busy({ title: 'Setting up your wallet', line: 'This takes a few seconds' });
+        const r = await setupRef.current.ensure();
+        if (r.ok) { if (D) D.close(); return true; }
+        console.warn('[wallet-widget] wallet setup failed:', (r.error && r.error.message) || r.error);
+        try { window.phEvent && window.phEvent('wallet_setup_failed', { error: String((r.error && r.error.message) || r.error).slice(0, 200) }); } catch (_) {}
+        if (!D) return false;
+        const again = await D.confirm({ title: "Your wallet didn't load", line: 'Check your connection and try again. Your account is safe.', ok: 'Try again', cancel: 'Not now' });
+        if (!again) return false;
+      }
+    };
+    const p = run().finally(() => { setupUi.current = null; });
+    setupUi.current = p;
+    return p;
+  };
+  const hasSolWallet = !!solanaAddress(user);
+  useEffect(() => {
+    if (ready && authenticated && user && !hasSolWallet) setUpWallet();
+  }, [ready, authenticated, user && user.id, hasSolWallet]);
+
+  /* Sign in always does something: signed in without a wallet makes the wallet; Privy still
+     starting is waited for (up to 10 s) with the card up, then login, or a plain message. */
+  const signIn = async () => {
+    let p = privyRef.current;
+    if (!p.ready) {
+      const D = window.DSDialog;
+      if (D) D.busy({ title: 'Signing in', line: 'Getting ready' });
+      const end = Date.now() + 10000;
+      while (!privyRef.current.ready && Date.now() < end) await new Promise((r) => setTimeout(r, 200));
+      p = privyRef.current;
+      if (D) D.close();
+      if (!p.ready) {
+        if (D) D.alert({ title: "Sign in didn't load", line: 'Check your connection, or turn off blockers for this site, then try again.' });
+        return;
+      }
+    }
+    if (p.authenticated) { if (!solanaAddress(p.user)) setUpWallet(); return; }
+    p.login();
+  };
 
   useEffect(() => {
     if (!address) { setBalance(null); setSol(null); return; }
@@ -575,7 +639,7 @@ function WalletPanel() {
       });
       return { action, args: a, wallet: address, ts, sig: bs58.encode(signature) };
     };
-    window.duelWalletLogin = () => login();
+    window.duelWalletLogin = signIn;
     window.duelWalletLogout = () => logout();
     window.duelWalletRefresh = async () => {
       if (!address) return null;
@@ -753,7 +817,9 @@ function App() {
         loginMethods: ['google', 'email'],
         // showWalletUIs:false → sign the stake / cash-out silently (no Privy approve + "all set"
         // screens). The Join Game / Cash Out Send click is the confirmation; one tap into the game.
-        embeddedWallets: { createOnLogin: 'all-users', showWalletUIs: false },
+        // Wallets are made by the widget (walletSetup.mjs), not Privy's on-login screen, which can
+        // stall for good on "Creating your wallet" when its wallet frame loads late.
+        embeddedWallets: { ethereum: { createOnLogin: 'off' }, solana: { createOnLogin: 'off' }, showWalletUIs: false },
         appearance: { walletChainType: 'solana-only' },
         solana: {
           rpcs: {

@@ -2,6 +2,13 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-10-18-sign-in-wallet",
+      "date": "2026-10-18",
+      "tag": "fix",
+      "title": "Signing up works first time",
+      "body": "Some new players got stuck on \"Creating your wallet\" after signing in with Google, and Sign in stopped responding after that.\n\nYour wallet is now set up for you right after you sign in, with a Try again button if your connection drops. If you got stuck before, just open the site again and it finishes on its own."
+    },
+    {
       "id": "2026-10-17-clips-whole-screen",
       "date": "2026-10-17",
       "tag": "new",
