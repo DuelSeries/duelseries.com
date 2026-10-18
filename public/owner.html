@@ -710,7 +710,7 @@ function escrowFig(s, short) {
   if (e.ok === false || gap > 0.005 || spareGap) {
     return { v: money(e.usdc), label: 'short by ' + money(Math.max(0, gap, spareGap)), labelCls: 'bad', title };
   }
-  return { v: money(e.usdc), label: short ? 'escrow' : 'escrow, covers it', title };
+  return { v: money(e.usdc), label: short ? 'escrow, all money' : 'Escrow (all money held)', title: title + ' It covers what it owes.' };
 }
 /* What the escrow is made of (the server's numbers, adding up to it exactly), one line under the figures. */
 const SPARE_HINT = 'Money in escrow nobody is owed: usually house cuts and floor money from paid games, plus any extra '
@@ -732,6 +732,13 @@ function partEscrowParts(ups, cls, pad) {
       item('Spare (not owed to anyone)', p.spare, SPARE_HINT, p.spare < -0.005));
   });
   return el;
+}
+// The bot bank as its own big number beside the escrow (it is part of the escrow, not a second wallet).
+function bankFig(s, short) {
+  const b = s.botBank;
+  if (!b) return { v: '-', cls: 'dim', label: short ? 'bot bank' : 'Bot bank' };
+  return { v: money(b.balance), cls: 'gold', label: short ? 'bot bank' : 'Bot bank',
+    title: 'Money set aside for paid bots. It sits inside the escrow; the escrow figure includes it.' };
 }
 function partNewGames(ups) {
   return toggle(ups, {
@@ -899,7 +906,7 @@ function partBotBank(ups, cls) {
     if (r && r.ok && r.body.ok !== false) cap.value = '';
   });
   /* Where to send it: the escrow's address as the server reports it, with a Copy button. */
-  const hint = h('span', { class: 'l', 'data-k': 'bbhint' }, 'Send USDC here (from Coinbase or any wallet), then paste the signature below');
+  const hint = h('span', { class: 'l', 'data-k': 'bbhint' }, 'Escrow address (the only address; send bot money here)');
   const addr = h('span', { class: 'l', 'data-k': 'bbaddr', style: 'font-family:var(--fm,monospace);word-break:break-all' }, '…');
   const copy = h('button', { type: 'button', class: 'btn', 'data-k': 'bbcopy', text: 'Copy' });
   copy.addEventListener('click', async () => {
@@ -1012,6 +1019,7 @@ function buildPC(ups, next) {
     fig(ups, 'fig', (s) => ({ v: money(s.drain.moneyInPlay), cls: 'gold', label: 'money in play',
       title: 'Live paid worth, money on the floor, unspent entries and paid duel stakes.' })),
     fig(ups, 'fig', (s) => escrowFig(s, false)),
+    fig(ups, 'fig', (s) => bankFig(s, false)),
     h('div', { class: 'open' }, partMaint(ups), 'New games ', partNewGames(ups)));
   const parts = partEscrowParts(ups, 'parts', '10px 36px;border-bottom:1px solid var(--ln)');
 
@@ -1091,7 +1099,8 @@ function buildPhone(ups, next) {
     fig(ups, '', (s) => ({ v: String(num(s.drain.people)), label: 'people' })),
     fig(ups, '', (s) => ({ v: String(num(s.bots)), label: 'bots' })),
     fig(ups, '', (s) => ({ v: money(s.drain.moneyInPlay), cls: 'gold', label: 'in play' })),
-    fig(ups, '', (s) => escrowFig(s, true)));
+    fig(ups, '', (s) => escrowFig(s, true)),
+    fig(ups, '', (s) => bankFig(s, true)));
   const pparts = partEscrowParts(ups, 'pparts', '8px 16px');
 
   const blocks = [];

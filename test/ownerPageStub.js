@@ -92,6 +92,7 @@ function baseState() {
     drain: { safe: false, reason: '1 person has $1.85 on the table', people: 4, paidPeople: 1, moneyInPlay: 2.35, floor: 0, pending: 0, duels: 0 },
     escrow: { usdc: 512.4, owed: 2.35, surplus: 510.05, ok: true, at: now - 40000,
       parts: { bank: 0.5, inPlay: 1.85, owed: 0.05, spare: 510 } },
+    botBank: { balance: 0.5, spentToday: 0, cap: 5, fromHouse: 0, log: [], escrowAddress: 'EscrowAddr1111111111111111111111111111111111' },
     bots: 0,
     games: [
       { id: 'slither', name: 'Slither', duel: false, paid: { enabled: true, open: true, stopping: false, saved: false, action: 'sl:paid' },
