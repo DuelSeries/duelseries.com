@@ -163,7 +163,8 @@ class PaperArenas {
   _saveTargets() {
     for (const st of RUNGS) {
       if (!(st > 0)) continue;
-      const live = this.botCount(st);
+      // bots still waiting for their seed to reach escrow count too, so a restart meanwhile keeps them
+      const live = this.botCount(st) + ((this.botWant && this.botWant.get(st)) || 0);
       if (live > 0) this.botTargets.set(st, live);
       else this.botTargets.delete(st);
     }

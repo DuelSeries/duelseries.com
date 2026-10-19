@@ -37,6 +37,7 @@ const path = require('path');
 
 const DEFAULT_CAP_MICRO = 5000000;
 const SWEEP_IDLE_MS = 120000;   // no seed taken this long: the float goes home
+const READ_WAIT_MS = 5000;      // the wallet balance is not read yet: the games ask again this much later
 const RETRY_MS = 60000;         // after a failed transfer, wait this long before the next one
 const EXPIRED_READS = 5;        // past its block height and not found this many reads in a row: it never landed
 const FUND_BOTS = 5;            // one fund covers this many seeds at most (fewer transactions when many bots start)
@@ -194,6 +195,12 @@ function createBotBank({ file, fsx = fs, now = Date.now, log = console, chain = 
       if (funding || st.fund) return 'funding';
       const w = chain.usdcMicro();
       const need = micro - st.balance;
+      // the wallet not read yet (a fresh boot) is not an empty bank: wait and ask again, so a deploy never drops
+      // Owen's bots (2026-10-18: every restart lost them, the saved counts went to 0 before the first read)
+      if (w === null || w === undefined) {
+        if (!retryAt) retryAt = now() + READ_WAIT_MS;
+        return 'funding';
+      }
       if (!Number.isSafeInteger(w) || w < need) return 'bank';
       if (now() < retryAt) return 'funding'; // a transfer just failed: the next try starts when the wait is over
       // up to FUND_BOTS seeds in one transfer, never past the wallet or what is left of today's limit
