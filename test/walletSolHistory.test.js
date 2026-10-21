@@ -169,3 +169,22 @@ test('the list walks both addresses: one row per transaction, newest first, game
   const hist = await Usdc.usdcHistory(OWNER, { limit: 20 });
   assert.deepStrictEqual(hist.rows.map((r) => r.signature), ['conv', 'stake', 'wsol']);
 });
+
+test('SOL mode: a game payout under the dust is still a game row, and a SOL skin payment is a skin row', () => {
+  const smallWin = tx({ keys: [ESCROW, OWNER, SYS], deltas: { [ESCROW]: -465_000 - 5000, [OWNER]: 465_000 },
+    ixs: [[SYS, [ESCROW, OWNER], transferData(465_000)]] });
+  const r = row(smallWin, 'win');
+  assert.deepStrictEqual([r.kind, r.game, r.direction, r.sol], ['sol', true, 'in', 0.000465]);
+  const stake = tx({ keys: [OWNER, ESCROW, SYS], deltas: { [OWNER]: -4_647_669 - 5000, [ESCROW]: 4_647_669 },
+    ixs: [[SYS, [OWNER, ESCROW], transferData(4_647_669)]] });
+  assert.deepStrictEqual([row(stake).kind, row(stake).game, row(stake).direction], ['sol', true, 'out']);
+  const REVENUE = key();
+  const skin = tx({ keys: [OWNER, REVENUE, SYS, MEMO], deltas: { [OWNER]: -9_295_000 - 5000, [REVENUE]: 9_295_000 },
+    ixs: [[SYS, [OWNER, REVENUE], transferData(9_295_000)], [MEMO, [], Buffer.from('ds-skin:Abcdefghijkmnopq')]] });
+  const s = row(skin);
+  assert.deepStrictEqual([s.kind, s.skinRef, s.sol, s.usdc], ['skin', 'Abcdefghijkmnopq', 0.009295, 0]);
+  // a stranger's dust is still never a row
+  const dust = tx({ keys: [POISON, OWNER, SYS], deltas: { [POISON]: -1000 - 5000, [OWNER]: 1000 },
+    ixs: [[SYS, [POISON, OWNER], transferData(1000)]] });
+  assert.strictEqual(row(dust), null);
+});

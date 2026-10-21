@@ -117,7 +117,9 @@ test('payout: dollars become lamports rounded down at the rate of the build; no 
   await money.withdraw('W', 0.45);
   assert.deepStrictEqual(sent[0], ['W', null, 4_500_000]);
   money.price._last.clear();
-  assert.throws(() => money.withdraw('W', 0.45), (e) => e.code === PRICE_WAIT);
+  const p = money.withdraw('W', 0.45);
+  assert.ok(p instanceof Promise, 'a rejection, never a synchronous throw: callers .catch it into an owed row');
+  await assert.rejects(p, (e) => e.code === PRICE_WAIT);
   assert.strictEqual(sent.length, 1);
 });
 

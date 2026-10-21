@@ -343,7 +343,11 @@ function historyRowOf(tx, owner, escrow, sig) {
   }
   // A skin bought from this wallet (server/skinShop.js): its memo names the purchase. It pays the revenue wallet, a
   // house address, so it used to read as a game entry (Owen, 2026-10-16). The route fills in which skin (skinRef).
-  const skinRef = delta < 0n ? skinRefOf(msg, keys) : null;
+  const skinRef = delta < 0n || (delta === 0n && solNet < 0n) ? skinRefOf(msg, keys) : null;
+  if (skinRef && delta === 0n) {
+    // SOL mode: the skin was paid in SOL (plain transfer to the revenue wallet with the memo)
+    return Object.assign(base, { kind: 'skin', usdc: 0, direction: 'out', game: false, peer: null, sol: sol(-solNet), skinRef });
+  }
   if (skinRef) {
     return Object.assign(base, { kind: 'skin', usdc: toUsdc(-delta), direction: 'out', game: false,
                                  peer: counterpartyOf(meta, owner, mint), sol: null, skinRef });
@@ -368,22 +372,25 @@ function historyRowOf(tx, owner, escrow, sig) {
     else if (t.from === owner && t.to !== owner) { outSum += t.lamports; if (t.lamports > outBig) { outBig = t.lamports; outPeer = t.to; } }
   }
   const net = inSum - outSum;
-  if (net >= SOL_DUST || -net >= SOL_DUST) {
-    const inb = net > 0n;
-    const peer = inb ? inPeer : outPeer;
-    return Object.assign(base, { kind: 'sol', usdc: 0, sol: sol(inb ? net : -net), direction: inb ? 'in' : 'out',
-                                 game: !!peer && (peer === escrow || _houseAddrs.has(peer)), peer });
+  const inb = net > 0n;
+  const peer = inb ? inPeer : outPeer;
+  const game = !!peer && (peer === escrow || _houseAddrs.has(peer));
+  // SOL mode: a stake or a payout with the house is a game row however small (a $0.05 win is under the dust)
+  if (net >= SOL_DUST || -net >= SOL_DUST || (game && net !== 0n)) {
+    return Object.assign(base, { kind: 'sol', usdc: 0, sol: sol(inb ? net : -net), direction: inb ? 'in' : 'out', game, peer });
   }
   return null;
 }
 
 // { rows, next }: up to `limit` signatures' worth of rows, newest first; `next` is the cursor
 // for the page after (pass it back as `before`), null once the wallet's history is exhausted.
+/* opts.sol (SOL mode): the Transactions list is the SOL games and skins of the wallet itself (its own signatures, not
+   its USDC account's), each priced in dollars at its day's price (opts.priceOn), like Add funds and Withdrawals. */
 async function usdcHistory(ownerAddress, opts) {
   const owner = String(ownerAddress);
   const o = opts || {};
   const limit = Math.max(1, Math.min(HISTORY_PAGE_MAX, Number(o.limit) || 25));
-  const ata = new PublicKey(ataFor(owner));
+  const ata = o.sol ? new PublicKey(owner) : new PublicKey(ataFor(owner));
   const escrow = historyEscrow();
   const rows = [];
   let before = o.before || undefined;
@@ -401,11 +408,15 @@ async function usdcHistory(ownerAddress, opts) {
     const ok = sigs.filter(s => s && !s.err);
     const got = await Promise.all(ok.map(s => historyRow(owner, s, escrow)));
     // The Transactions list is the USDC that moved; SOL-only rows belong to Add funds and Withdrawals.
-    for (const r of got) if (r && r.usdc > 0) rows.push(r);
-    if (sigs.length < limit) return { rows, next: null };
+    for (const r of got) {
+      if (!r) continue;
+      if (o.sol ? (r.sol > 0 && (r.game || r.kind === 'skin')) : r.usdc > 0) rows.push(r);
+    }
+    if (sigs.length < limit) { before = null; break; }
     before = sigs[sigs.length - 1].signature;
     if (rows.length) break;
   }
+  if (o.sol) await priceSolRows(rows, o.priceOn);
   return { rows, next: before || null };
 }
 
@@ -493,7 +504,7 @@ async function priceSolRows(rows, priceOn) {
   if (typeof priceOn !== 'function') return;
   let asked = 0;
   for (const r of rows) {
-    if (r.kind !== 'sol' || r.usd != null || !r.at || !(r.sol > 0)) continue;
+    if ((r.kind !== 'sol' && r.kind !== 'skin') || r.usd != null || !r.at || !(r.sol > 0)) continue;
     if (asked >= PRICE_LOOKUPS_PER_ASK) break;
     asked++;
     let p = null;

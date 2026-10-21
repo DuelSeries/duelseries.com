@@ -83,7 +83,9 @@ const solBackend = {
     return { payer, worth: Number(expected), lamports, rate };
   },
   // Dollars out, converted when the transaction is built (Wallet.buildSignedPayout refuses dust to an empty wallet).
-  withdraw: (addr, usd) => Wallet.withdraw(addr, null, { lamports: lamportsDown(usd, price.usdPerSol()) }),
+  // async: with no price the conversion REJECTS (never throws synchronously), so every caller's .catch records the
+  // owed row (Fable review 2026-10-21, finding 1)
+  async withdraw(addr, usd) { return Wallet.withdraw(addr, null, { lamports: lamportsDown(usd, price.usdPerSol()) }); },
   allowAccountRentFor: () => {},                                      // SOL has no token account
   attemptPayout: (row, fn) => Wallet.attemptPayout(row, fn, (r) => lamportsDown(r.amount_sol, price.usdPerSol())),
   // In dollars at the rate now, so solvency compares like with like. Throws PRICE_WAIT without a rate.

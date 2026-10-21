@@ -579,7 +579,8 @@ async function owedForLateStake(row) {
     /* SOL mode: a short stake is still money that landed. Its verify reports it in dollars at its quote's rate
        (money.js), and it goes home as a refund of exactly that, never kept: in SOL mode only a price that moved
        between a lost quote and a restart can make an honest stake look short. */
-    if (/too small/i.test(m) && Number(e.landedUsd) > 0 && typeof e.payer === 'string') {
+    // A cent or more: under that it is kept as in USDC mode, so dust stakes cannot queue fee-burning refunds (Fable)
+    if (/too small/i.test(m) && Number(e.landedUsd) >= 0.01 && typeof e.payer === 'string') {
       return { payer: e.payer, amount: refundBound(Number(e.landedUsd)) };
     }
     if (/too small|did not pay the escrow|failed on-chain/i.test(m)) return { reject: m };
@@ -927,7 +928,7 @@ app.get('/api/stake-quote', entryFeeLimiter, async (req, res) => {
       return res.json({ stake, ...(await money.stakeQuoteFor(stake)) });
     } catch (e) {
       // SOL mode with no good price: refused before any wallet prompt (server/solPrice.js)
-      return res.status(e && e.code === money.waitCode ? 503 : 500).json({ error: e.message });
+      return res.status(money.waitCode && e && e.code === money.waitCode ? 503 : 500).json({ error: e.message });
     }
   }
 
@@ -941,7 +942,7 @@ app.get('/api/stake-quote', entryFeeLimiter, async (req, res) => {
     // escrowAta/usdcMint/units/amountUsdc). The client builds the matching transfer.
     res.json({ lobbyType, ...(await money.stakeQuote(lobbyType)) });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(money.waitCode && e && e.code === money.waitCode ? 503 : 500).json({ error: e.message });
   }
 });
 
@@ -2169,7 +2170,7 @@ function txHistoryFor(wallet, before) {
     }
     if (txHistoryCache.size >= TX_HISTORY_MAX) txHistoryCache.delete(txHistoryCache.keys().next().value);
   }
-  const pending = Usdc.usdcHistory(wallet, { limit: TX_PAGE, before }).then((page) => withSkinItems(wallet, page)).then(
+  const pending = Usdc.usdcHistory(wallet, { limit: TX_PAGE, before, sol: money.mode === 'sol', priceOn: prices.solUsdAt }).then((page) => withSkinItems(wallet, page)).then(
     (page) => { txHistoryCache.set(key, { at: Date.now(), page }); return page; },
     (e) => { txHistoryCache.delete(key); throw e; });
   txHistoryCache.set(key, { at: now, pending });

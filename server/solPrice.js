@@ -45,7 +45,10 @@ function createSolPrice({ fetchImpl = globalThis.fetch, now = Date.now, sources 
 
   async function readOne(src) {
     try {
-      const r = await fetchImpl(src.url, { signal: AbortSignal.timeout(TIMEOUT_MS), headers: { accept: 'application/json' } });
+      const headers = { accept: 'application/json' };
+      // Jupiter's host takes the same key as the swap (JUP_API_KEY) when there is one; keyless works today
+      if (src.name === 'jupiter' && process.env.JUP_API_KEY) headers['x-api-key'] = process.env.JUP_API_KEY;
+      const r = await fetchImpl(src.url, { signal: AbortSignal.timeout(TIMEOUT_MS), headers });
       if (!r || !r.ok) throw new Error('HTTP ' + (r && r.status));
       const usd = src.read(await r.json());
       if (usd === null) throw new Error('no price in the reply');

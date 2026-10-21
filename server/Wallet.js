@@ -90,9 +90,11 @@ async function buildSignedPayout(toAddress, amountSol, opts) {
     withRetry(() => connection.getMinimumBalanceForRentExemption(0), 8),
   ]);
   const maxWithdrawable = escrowBalance - rentMin - 10000; // keep rent-exempt min + ~tx fee
-  if (maxWithdrawable <= 0) throw new Error('Escrow has insufficient funds');
+  /* Nothing signed in either case, so both wait in the drainer's slow lane (PAYOUT_WAIT) instead of using up its
+     attempt budget and silently dropping out of the queue while the escrow is topped up (Fable review 2026-10-21). */
+  if (maxWithdrawable <= 0) throw Object.assign(new Error('Escrow has insufficient funds'), { code: PAYOUT_WAIT });
   if (lamports > maxWithdrawable) {
-    throw new Error(`Amount too large. Max withdrawable: ${(maxWithdrawable / LAMPORTS_PER_SOL).toFixed(4)} SOL`);
+    throw Object.assign(new Error(`Amount too large. Max withdrawable: ${(maxWithdrawable / LAMPORTS_PER_SOL).toFixed(4)} SOL`), { code: PAYOUT_WAIT });
   }
   /* A transfer under the rent-exempt minimum to an address with nothing on it fails on-chain (the new account
      could not exist) and still costs the escrow its fee, every retry. Refused here, before anything is signed,
