@@ -2170,14 +2170,14 @@ test('every playable game is listed before any locked or unreleased one', () => 
     html.slice(a, b + 1) + '\nreturn GAMES.map(g=>g.id);')({ DS_LOCKED: lock }, lock);
 
   assert.deepStrictEqual(run(LOCK), [
-    'snake', 'agar', 'knockout', 'battleship', 'paper',
+    'snake', 'paper', 'agar', 'knockout', 'battleship',
     'omgshooter', 'tanks', 'rooftop', 'headsoccer', 'swim', 'maze', 'stumble',
   ], 'playable in their own order, then locked and unreleased in theirs');
 
   // Unlocked, both go straight back to their own place among the playable ones.
   const none = { LOCKED_GAMES: [], isLocked: () => false };
   assert.deepStrictEqual(run(none).slice(0, 7),
-    ['snake', 'agar', 'omgshooter', 'tanks', 'knockout', 'battleship', 'paper']);
+    ['snake', 'paper', 'agar', 'omgshooter', 'tanks', 'knockout', 'battleship']);
 
   // The rail and the full grid both draw from that order.
   assert.ok(/order=GAMES\.slice\(\)/.test(html) && html.indexOf('order=GAMES.slice()') > s, 'the rail copies it after the sort');

@@ -1467,7 +1467,8 @@ function consoleStake(r) {
    old ladder's free rung, which sl:door:off hands back), the new engine's paid
    rooms, and the old engine's paid rungs, where paid snake goes while
    sl:paid:off is on. The old fixed tiers and a drained old free rung are
-   counted only while somebody is still in one. The duels are read only. */
+   counted only while somebody is still in one. The duels are read only. Rows
+   go in the lobby's game order: slither.io, Paper.io, agar.io, then the duels. */
 function consoleGames(ko, bs) {
   const snakeRungs = [];
   for (const e of ladder.rooms.values()) if (e && e.game === 'snake' && e.room) snakeRungs.push(e.room);
@@ -1481,10 +1482,10 @@ function consoleGames(ko, bs) {
   return [
     { id: 'slither', name: 'slither.io', duel: false, paid: door(slPaid, slPaidSwitch, 'sl:paid'),
       rungs: paidBotRows(rows([...slFree, ...(slPaid ? slPaid.all() : []), ...oldPaid], [...tiers, ...oldFree]), 'sl') },
-    { id: 'agar', name: 'agar.io', duel: false, paid: door(agArenas, agPaidSwitch, 'agar:paid'),
-      rungs: paidBotRows(rows(agArenas ? agArenas.all() : [], []), 'ag') },
     { id: 'paper', name: 'Paper.io', duel: false, paid: door(paperArenas, paperPaidSwitch, 'paper:paid'),
       rungs: paidBotRows(rows(paperArenas ? paperArenas.all() : [], []), 'paper') },
+    { id: 'agar', name: 'agar.io', duel: false, paid: door(agArenas, agPaidSwitch, 'agar:paid'),
+      rungs: paidBotRows(rows(agArenas ? agArenas.all() : [], []), 'ag') },
     { id: 'knockout', name: 'Knockout', duel: true,
       paid: ownerConsole.paidDoor({ enabled: true, open: koPaidOpen, stopping: false }, koPaidSwitch.saved(), 'ko:paid'),
       rungs: ownerConsole.duelRows(ko) },

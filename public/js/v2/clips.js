@@ -26,7 +26,7 @@
    in this browser only. */
 (function () {
   const $ = (id) => document.getElementById(id);
-  const GAME = { slither: 'slither.io', agar: 'agar.io', paper: 'Paper.io', br: 'Battle royale', other: 'Other' };
+  const GAME = { slither: 'slither.io', paper: 'Paper.io', agar: 'agar.io', br: 'Battle royale', other: 'Other' };
   const ART = { slither: 'snake', agar: 'agar', paper: 'paper', br: 'snake', other: 'snake' };
   const SRC = { x: 'X', youtube: 'YouTube', tiktok: 'TikTok', upload: '' };
   const ON_SITE = { x: 'Watch on X', youtube: 'Watch on YouTube', tiktok: 'Watch on TikTok' };

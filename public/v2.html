@@ -3021,6 +3021,16 @@ const GAMES=[
     bar shut, saying there is nothing to change yet. */
  {id:'snake',name:'Slither.io',c:['#15251c','#c080ff'],type:'p',real:1,ladder:1,look:1,
   d:'Grow by eating, cut other players off, and cash out before somebody cuts you off.'},
+ /* Second, before agar.io (Owen 2026-10-21: "I just want paper.io before agar
+    because the game's pretty good"). Built, and an arena on the server now:
+    the rooms are rungs of the same ladder as slither.io (Free, $0.50, $1.00),
+    so it is ladder:1 and every rung goes through the wallet widget to
+    /paper-arena. It is not paid:1 or duel:1,
+    because it is dropped into rather than matched into. It had a line of
+    rules under Play; Owen asked for it gone (2026-09-28), and with it the
+    only use of the per-game rules line. */
+ {id:'paper',name:'Paper.io',c:['#1e1826','#a887d6'],type:'p',built:1,ladder:1,
+  d:'Claim ground by looping back home without anyone crossing your trail.'},
  /* The agar.io redo (server/ag, page /ag), in the lobby since 2026-10-07; the
     old agar.io game is deleted. Its rooms are rungs of the same ladder as
     slither.io and Paper.io (Free, $0.50, $1.00; PAID-AGAR-DESIGN.md 7), so it
@@ -3049,15 +3059,6 @@ const GAMES=[
     bot, a paid table waits for a real person and refunds if none comes. */
  {id:'battleship',name:'Battleship',c:['#141a24','#7b93c4'],type:'m',duel:1,built:1,paid:1,
   d:'Hide your fleet, then find theirs before they find yours.'},
-
- /* Built, and an arena on the server now: the rooms are rungs of the same
-    ladder as slither.io (Free, $0.50, $1.00), so it is ladder:1 and every rung
-    goes through the wallet widget to /paper-arena. It is not paid:1 or duel:1,
-    because it is dropped into rather than matched into. It had a line of
-    rules under Play; Owen asked for it gone (2026-09-28), and with it the
-    only use of the per-game rules line. */
- {id:'paper',name:'Paper.io',c:['#1e1826','#a887d6'],type:'p',built:1,ladder:1,
-  d:'Claim ground by looping back home without anyone crossing your trail.'},
  /* Placeholders so these are not forgotten. soon:1 greys the card and takes it
     out of the tab order, so none of them is reachable or clickable — the slot
     exists, nothing behind it does.

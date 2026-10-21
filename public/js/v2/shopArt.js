@@ -66,14 +66,14 @@
      the page, cheapest first. */
   var GAMES = [
     { id: 'snake', name: 'Slither.io', bg: '#0e1622', skins: SK.SKINS.snake },
+    { id: 'paper', name: 'Paper.io', bg: '#e7fff4',
+      /* The arena hands out a free colour from its palette (paperSkins.js). */
+      def: { name: 'Random colour', cols: ['#3b7dd8', '#f77f00', '#1a936f', '#ff3377', '#8874a3', '#fcbf49'] }, skins: SK.SKINS.paper },
     { id: 'agar', name: 'Agar.io', bg: 'rgb(242,251,255)',
       /* The server deals a colour every life (one channel 255, one 7, the third
          anything between; server/ag/agSim.js playerColour), so the free look
          walks through a few of those. */
       def: { name: 'Random colour', cols: ['#ff4007', '#07ff8a', '#5a07ff', '#ffd407', '#07c4ff', '#ff07a8'] }, skins: SK.SKINS.agar },
-    { id: 'paper', name: 'Paper.io', bg: '#e7fff4',
-      /* The arena hands out a free colour from its palette (paperSkins.js). */
-      def: { name: 'Random colour', cols: ['#3b7dd8', '#f77f00', '#1a936f', '#ff3377', '#8874a3', '#fcbf49'] }, skins: SK.SKINS.paper },
     { id: 'knockout', name: 'Knockout', bg: '#0b0907', def: { name: 'Default', col: '#f4f1ea' }, skins: SK.SKINS.knockout },
     { id: 'battleship', name: 'Battleship', bg: '#0a1622', def: { name: 'Default', native: true }, skins: SK.SKINS.battleship },
     { id: 'omgshooter', name: 'Awesome Tanks', bg: '#1d2016', def: { name: 'Default', team: 'you' }, skins: SK.SKINS.omgshooter },
