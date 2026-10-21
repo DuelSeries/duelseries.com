@@ -52,6 +52,7 @@ function rateForQuote(blockhash) {
   return usd;
 }
 async function solQuote(usd) {
+  price.usdPerSol();                                    // no good price: PRICE_WAIT (503) before any chain read
   const { blockhash } = await Wallet.getLatestBlockhash();
   const rate = rateForQuote(blockhash);
   const lamports = lamportsUp(usd, rate);

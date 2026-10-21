@@ -53,7 +53,7 @@ Object.assign(process.env, {
   NODE_ENV: 'development',
   PORT,
   REGION: 'na',
-  MONEY_MODE: 'usdc',
+  MONEY_MODE: process.env.DEV_MONEY_MODE === 'sol' ? 'sol' : 'usdc',   // DEV_MONEY_MODE=sol boots SOL mode (prices still need the network)
   SESSION_SECRET: 'dev-local',
   DATABASE_URL: '',
   // .invalid never resolves (RFC 2606). Must be https: Wallet.js/Usdc.js pair
