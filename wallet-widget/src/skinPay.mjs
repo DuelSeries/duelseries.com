@@ -8,7 +8,10 @@ import { getAssociatedTokenAddressSync, createTransferCheckedInstruction } from 
 
 const MEMO_PROGRAM = 'MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr';
 
-export function buildSkinPayment(quote, walletAddress) {
+/* opts (SOL mode): payTo, the only address a SOL skin payment may go to (the revenue wallet from /api/money-config),
+   and maxLamports, a ceiling on what one skin may cost. A quote naming anywhere else, or more, is refused before the
+   wallet is asked, so a script on the page cannot use this to sign away the balance (Fable review 2026-10-21). */
+export function buildSkinPayment(quote, walletAddress, opts) {
   const q = quote || {};
   if (!walletAddress) throw new Error('Connect your wallet first.');
   if (typeof q.ref !== 'string' || typeof q.memo !== 'string' || q.memo !== 'ds-skin:' + q.ref) throw new Error('Bad quote');
@@ -16,6 +19,9 @@ export function buildSkinPayment(quote, walletAddress) {
   if (!/^[0-9]+$/.test(String(q.units || '')) || BigInt(q.units) <= 0n) throw new Error('Bad quote');
   const from = new PublicKey(walletAddress);
   if (q.asset === 'sol') {
+    const o = opts || {};
+    if (!o.payTo || q.payTo !== o.payTo) throw new Error('Bad quote');
+    if (!(Number(o.maxLamports) > 0) || BigInt(q.units) > BigInt(Math.floor(Number(o.maxLamports)))) throw new Error('Bad quote');
     // SOL mode: one plain SOL transfer of exactly the quoted lamports to the shop's wallet, and the memo
     const tx = new Transaction();
     tx.feePayer = from;

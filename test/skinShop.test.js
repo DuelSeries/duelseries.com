@@ -292,7 +292,7 @@ test('a preflight refusal (no USDC) reopens the row: nothing moved, the player c
   chain.sendError = new Error('failed to send transaction: Transaction simulation failed: Error processing Instruction 0: custom program error: 0x1');
   const r = await s.buy({ ref: q.ref, signedTx: b64(payTx(p, { ref: q.ref })) });
   assert.equal(r.status, 400);
-  assert.match(r.body.error, /Not enough USDC/);
+  assert.match(r.body.error, /Not enough in your wallet/);
   assert.equal(store.rows.get(q.ref).state, 'open');
   chain.sendError = null;
   const raw = payTx(p, { ref: q.ref, extra: [new TransactionInstruction({ programId: new PublicKey('ComputeBudget111111111111111111111111111111'), keys: [], data: Buffer.from([2, 64, 13, 3, 0]) })] });
@@ -376,7 +376,7 @@ test('Owen 2026-10-16: a fresh payment the chain has not shown yet is never "exp
   const r = await s.buy({ ref: q.ref, signedTx: b64(raw) });     // not visible yet, blockhash unknown at finalized
   assert.equal(r.status, 202);
   assert.equal(r.body.state, 'pending');
-  assert.doesNotMatch(JSON.stringify(r.body), /no USDC moved/);
+  assert.doesNotMatch(JSON.stringify(r.body), /no money moved/);
   // A retry while it is on its way pays nothing more: same row, the payment on its way.
   const again = await s.intent({ game: 'snake', skin: 'candycane', wallet: p.publicKey.toBase58() });
   assert.deepEqual(again.body, { pending: true, ref: q.ref, item: 'snake:candycane' });

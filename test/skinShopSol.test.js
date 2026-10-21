@@ -77,3 +77,13 @@ test('a SOL row pays only on its own quote\'s blockhash, never on a later one fr
   assert.strictEqual(late.status, 400);
   assert.match(late.body.error, /old price check/);
 });
+
+test('the widget signs a SOL skin payment only to the revenue wallet and under the ceiling', async () => {
+  const { buildSkinPayment } = await import('../wallet-widget/src/skinPay.mjs');
+  const q = { ref, memo: memoFor(ref), memoProgram: MEMO_PROGRAM, asset: 'sol', units: '9295000', payTo: revenue,
+              blockhash: '11111111111111111111111111111111' };
+  assert.ok(buildSkinPayment(q, wallet, { payTo: revenue, maxLamports: 250_000_000 }).length > 0);
+  assert.throws(() => buildSkinPayment(q, wallet), /Bad quote/);
+  assert.throws(() => buildSkinPayment(Object.assign({}, q, { payTo: Keypair.generate().publicKey.toBase58() }), wallet, { payTo: revenue, maxLamports: 250_000_000 }), /Bad quote/);
+  assert.throws(() => buildSkinPayment(Object.assign({}, q, { units: '250000001' }), wallet, { payTo: revenue, maxLamports: 250_000_000 }), /Bad quote/);
+});

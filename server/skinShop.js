@@ -149,8 +149,8 @@ function friendlySend(e) {
   if (/insufficient lamports|Attempt to debit|insufficient funds for fee|no record of a prior credit/i.test(m)) {
     return 'Your wallet needs a little SOL for the network fee. Add funds and try again.';
   }
-  if (/insufficient funds|custom program error: 0x1\b/i.test(m)) return 'Not enough USDC. Add funds and try again.';
-  if (/could not find account|AccountNotFound|InvalidAccountData/i.test(m)) return 'Not enough USDC. Add funds and try again.';
+  if (/insufficient funds|custom program error: 0x1\b/i.test(m)) return 'Not enough in your wallet. Add funds and try again.';
+  if (/could not find account|AccountNotFound|InvalidAccountData/i.test(m)) return 'Not enough in your wallet. Add funds and try again.';
   return 'The payment was refused by the network. Nothing was charged.';
 }
 
@@ -320,8 +320,8 @@ function createSkinShop({ store, chain, mint, revenueAta, paused = () => false, 
   const closedState = (row) => (['paid', 'failed', 'review'].includes(row.state) ? row.state : 'expired');
   const answer = (row, state) => {
     if (state === 'paid') return { status: 200, body: { ok: true, state: 'paid', item: row.item } };
-    if (state === 'failed') return { status: 400, body: { state: 'failed', error: 'The payment failed on the network, so no USDC moved. Try again.' } };
-    if (state === 'expired') return { status: 400, body: { state: 'expired', error: 'The payment never went through, so no USDC moved. Try again.' } };
+    if (state === 'failed') return { status: 400, body: { state: 'failed', error: 'The payment failed on the network, so no money moved. Try again.' } };
+    if (state === 'expired') return { status: 400, body: { state: 'expired', error: 'The payment never went through, so no money moved. Try again.' } };
     if (state === 'review') return { status: 500, body: { state: 'review', error: 'Something went wrong checking this payment. It has been flagged for the owner.' } };
     return { status: 202, body: { pending: true, state: 'pending', ref: row.ref, item: row.item } };
   };

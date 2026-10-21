@@ -440,6 +440,8 @@ app.get('/api/money-config', (req, res) => {
              /* SOL mode (money.js solBackend): games count in dollars (unit 'USD'), money moves as SOL (payUnit).
                 solUsd is display only (the $ beside a SOL balance); every payment is priced on the server. */
              payUnit: money.payUnit || money.unit, solUsd: money.price ? money.price.peek() : prices.getSolUsdRate(),
+             // where a SOL skin payment may go: the widget refuses to sign one to anywhere else (Fable review 2)
+             skinPayTo: REVENUE_WALLET,
              // SOL <-> USDC in the player's own wallet (server/swap.js): what the Wallet tab offers. SOL mode
              // offers only old USDC -> SOL in the same wallet (and Withdraw as SOL); USDC mode as before.
              swap: true, convertDirs: SWAP_DIRS[money.mode] || [], solReserve: Swap.RULES.RESERVE_LAMPORTS / 1e9,

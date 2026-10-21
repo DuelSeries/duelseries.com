@@ -249,7 +249,10 @@ async function stakeOnly(sel, wallet, signTransaction, onStatus, base, hooks) {
    transfer and memo the server accepts (skinPay.mjs), and the player's own wallet signs it, sign only, the same way
    a stake is signed. The lobby (public/js/v2/skinBuy.js) sends it to /api/skins/buy; nothing is broadcast here. */
 async function signSkinPayment(quote, wallet, signTransaction) {
-  const serialized = buildSkinPayment(quote, wallet.address);
+  // SOL skins: only to the server's revenue wallet, and never more than $25 of SOL (skins cost $1 to $5)
+  const cfg = await moneyConfig();
+  const maxLamports = Number(cfg.solUsd) > 0 ? Math.ceil((25 / Number(cfg.solUsd)) * 1e9) : 250_000_000;
+  const serialized = buildSkinPayment(quote, wallet.address, { payTo: cfg.skinPayTo, maxLamports });
   const { signedTransaction } = await signTransaction({ transaction: serialized, wallet });
   return Buffer.from(signedTransaction).toString('base64');
 }

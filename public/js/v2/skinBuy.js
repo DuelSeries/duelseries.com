@@ -120,7 +120,7 @@
         if (st === 'paid') return finishPaid(r.body.item);
         if (st === 'failed' || st === 'expired' || st === 'review' || r.status === 404) {
           put(BUY_KEY, null);
-          const err = new Error(r.body.error || 'That payment did not go through, so no USDC moved.');
+          const err = new Error(r.body.error || 'That payment did not go through, so no money moved.');
           err.settled = st || 'gone';
           throw err;
         }
@@ -163,8 +163,10 @@
           say('Your earlier payment is still confirming…');
           return await settle(q.body.ref, say);
         }
-        if (expectUsd != null && Math.abs(Number(q.body.amountUsdc) - Number(expectUsd)) > 1e-9) {
-          const pc = new Error('The price is now $' + Number(q.body.amountUsdc).toFixed(2) + '. Refresh the page to see it.');
+        // SOL mode quotes amountUsd (the dollars), USDC mode amountUsdc
+        const quotedUsd = Number(q.body.amountUsd != null ? q.body.amountUsd : q.body.amountUsdc);
+        if (expectUsd != null && Math.abs(quotedUsd - Number(expectUsd)) > 1e-9) {
+          const pc = new Error('The price is now $' + quotedUsd.toFixed(2) + '. Refresh the page to see it.');
           pc.cancelled = true;
           throw pc;
         }
@@ -193,7 +195,7 @@
         if (r.body && r.body.owned) { put(BUY_KEY, null); await refresh(); return { owned: true }; }
         put(BUY_KEY, null);
         const err = new Error(r.body.error || 'The purchase did not go through. Nothing was charged.');
-        if (/Not enough USDC|SOL for the network fee/.test(err.message)) err.funds = true;
+        if (/Not enough (USDC|in your wallet)|SOL for the network fee/.test(err.message)) err.funds = true;
         throw err;
       } finally {
         busy = false;
