@@ -199,7 +199,8 @@ test('the widget and the lobby agree on the reserve, and the widget checks befor
   // the USDC send also keeps room for the receiver's USDC account rent (Fable review 3)
   const iu = send.indexOf('leavesReserve(haveLamports, USDC_ACCOUNT_RENT, SEND_FEE_LAMPORTS)');
   assert.ok(iu > -1 && send.indexOf('return sendUsdc(', iu) > iu, 'and before the USDC send');
-  assert.ok(/if \(cfg\.mode === 'usdc'\) return sendUsdc\(/.test(send), 'USDC mode sends USDC exactly as before');
+  // USDC mode sends USDC as before; only a SOL sheet (asset 'sol') is refused there, as a changed mode
+  assert.ok(/if \(cfg\.mode === 'usdc'\) \{\s*if \(asset === 'sol'\) throw new Error\(CHANGED\);\s*return sendUsdc\(/.test(send), 'USDC mode sends USDC exactly as before');
   assert.ok(/if \(cfg\.mode !== 'sol'\) throw/.test(send), 'an unreadable mode sends nothing');
 });
 
