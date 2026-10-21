@@ -2,6 +2,13 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-10-21-money-in-sol",
+      "date": "2026-10-21",
+      "tag": "heads-up",
+      "title": "Money is in SOL now",
+      "body": "Buy-ins, cash-outs, skins and prizes are now paid in SOL, straight from and to your wallet. Prices still show in US dollars, and each payment uses the live SOL price at that moment.\n\nAdd funds buys SOL, and it's ready to play right away, with no convert step. Keep a little SOL (about $0.15) in your wallet for network fees.\n\nStill holding USDC from before? Open the Wallet tab: one tap converts it to SOL, or you can withdraw it as USDC."
+    },
+    {
       "id": "2026-10-21-game-order",
       "date": "2026-10-21",
       "tag": "new",

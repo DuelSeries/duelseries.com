@@ -3,14 +3,16 @@
 // backend is chosen once at startup by the MONEY_MODE env var:
 //   • MONEY_MODE=sol            -> native SOL (Wallet.js), games still counting in dollars (solBackend below,
 //     Owen's move back to SOL, 2026-10-17). Every amount crossing this module is dollars in BOTH modes.
-//   • MONEY_MODE=usdc (DEFAULT) -> USDC SPL-token path (Usdc.js). Default flipped at the live
+//   • MONEY_MODE=usdc           -> USDC SPL-token path (Usdc.js), the default 2026-06-24 to 2026-10-21. Default flipped at the live
 //     cutover (2026-06-24). Flipping between the two is the rollback switch: nothing in play changes unit.
 // The USDC code shipped dormant and was switched on at cutover by changing this default (no SSH
 // access to set the env var on the servers), without ever deploying a broken-money intermediate.
 const Wallet = require('./Wallet');
 const Usdc   = require('./Usdc');
 
-const MODE = (process.env.MONEY_MODE || 'usdc').toLowerCase();
+/* Default flipped to SOL on switch night, 2026-10-21 (Owen: "everything swapped back to SOL"; runbook
+   docs/sol-switch-runbook.md). MONEY_MODE=usdc in .env, or this default back to 'usdc', is the rollback. */
+const MODE = (process.env.MONEY_MODE || 'sol').toLowerCase();
 
 // Lobby entry fees, in dollars in both modes (SOL mode converts them to lamports at the quote).
 /* br is the nightly Battle Royale and it costs nothing to enter — the prize
