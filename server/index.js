@@ -2535,7 +2535,9 @@ const agJournal = require('./ag/agJournal').createAgJournal({
 let botWallet = null;
 if (REGION === 'na' && process.env.ESCROW_PRIVATE_KEY) {
   try {
-    botWallet = require('./botWallet').createBotWallet({ dataDir: path.dirname(agJournal.file), Usdc });
+    botWallet = require('./botWallet').createBotWallet({ dataDir: path.dirname(agJournal.file), Usdc,
+      // SOL mode: the bank is the wallet's SOL; seeds move as SOL at the money path's price (botWallet.js)
+      mode: money.mode, usdPerSol: money.price ? () => money.price.usdPerSol() : null });
     console.log('[BOTBANK] Bot bank wallet ' + botWallet.address);
   } catch (e) {
     console.error('[BOTBANK] CRITICAL Bot bank wallet not opened (bots wait, nothing moves): ' + (e && e.message));

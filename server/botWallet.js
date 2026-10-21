@@ -10,16 +10,24 @@
 // on the server and kept in the data folder (bot-bank-key.json, mode 600, never in git). The secret is never logged.
 //
 // Reads are single RPC calls (never batched: Helius Free 429s every batch), the balances cached 20 s.
+//
+// SOL mode (MONEY_MODE=sol, 2026-10-17): the bank is the wallet's SOL above a 0.003 SOL reserve (its own fees and
+// rent), and the same two directions move plain SOL. The bank still counts in micro-dollars (server/botBank.js):
+// usdcMicro() answers the SOL above the reserve in micro-dollars at the price now (rounded down, null with no price),
+// a seed going 'in' converts its dollars rounding UP (escrow always receives at least what it now owes), unspent seed
+// going 'out' rounds DOWN (escrow never sends more than it owes).
 
 const fs = require('fs');
 const path = require('path');
-const { Keypair, PublicKey, Transaction, ComputeBudgetProgram } = require('@solana/web3.js');
+const { Keypair, PublicKey, Transaction, ComputeBudgetProgram, SystemProgram } = require('@solana/web3.js');
+const { lamportsUp, lamportsDown, microDown } = require('./solPrice');
 const { getAssociatedTokenAddressSync, createTransferCheckedInstruction,
   createAssociatedTokenAccountIdempotentInstruction } = require('@solana/spl-token');
 
 const CU_LIMIT = 80000;
 const CU_PRICE = 100000; // micro-lamports per compute unit, the stake tx's priority fee (a72884b)
 const CACHE_MS = 20000;
+const SOL_RESERVE = 3_000_000;   // SOL mode: 0.003 SOL stays in the bot wallet for its own fees and rent
 
 function loadKeypair(dataDir, { env = process.env, fsx = fs, log = console } = {}) {
   if (env.BOT_BANK_PRIVATE_KEY) return Keypair.fromSecretKey(Buffer.from(env.BOT_BANK_PRIVATE_KEY, 'base64'));
@@ -39,7 +47,10 @@ function loadKeypair(dataDir, { env = process.env, fsx = fs, log = console } = {
 }
 
 // -> the chain side botBank.js drives. Usdc = server/Usdc.js (connection, mint, escrow key, retry).
-function createBotWallet({ dataDir, Usdc, env, log = console }) {
+// mode 'sol': usdPerSol() -> the money path's SOL price (money.price.usdPerSol, throws when there is none)
+function createBotWallet({ dataDir, Usdc, env, log = console, mode = 'usdc', usdPerSol = null }) {
+  const sol_ = mode === 'sol';
+  if (sol_ && typeof usdPerSol !== 'function') throw new Error('botWallet: SOL mode needs a price');
   const kp = loadKeypair(dataDir, { env, log });
   const conn = Usdc.connection;
   const mint = Usdc.USDC_MINT;
@@ -57,7 +68,7 @@ function createBotWallet({ dataDir, Usdc, env, log = console }) {
   async function refresh() {
     if (reading) return reading;
     reading = (async () => {
-      try {
+      if (!sol_) try {
         const b = await Usdc.withRetry(() => conn.getTokenAccountBalance(botAta));
         usdc = { v: Number(b.value.amount), at: Date.now() };
       } catch (e) {
@@ -77,6 +88,13 @@ function createBotWallet({ dataDir, Usdc, env, log = console }) {
     address: kp.publicKey.toString(),
     // cached reads (null until the first read); a stale cache starts a refresh
     usdcMicro() {
+      if (sol_) {
+        if (Date.now() - sol.at > CACHE_MS) refresh();
+        if (!Number.isSafeInteger(sol.v)) return null;
+        let rate;
+        try { rate = usdPerSol(); } catch (_) { return null; }    // no price: not read yet, never "empty"
+        return sol.v > SOL_RESERVE ? microDown(sol.v - SOL_RESERVE, rate) : 0;
+      }
       if (Date.now() - usdc.at > CACHE_MS) refresh();
       return usdc.v;
     },
@@ -97,8 +115,15 @@ function createBotWallet({ dataDir, Usdc, env, log = console }) {
       const tx = new Transaction()
         .add(ComputeBudgetProgram.setComputeUnitLimit({ units: CU_LIMIT }))
         .add(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: CU_PRICE }));
-      if (dir === 'out') tx.add(createAssociatedTokenAccountIdempotentInstruction(escrow.publicKey, toAta, toOwner, mint));
-      tx.add(createTransferCheckedInstruction(fromAta, mint, toAta, from.publicKey, BigInt(micro), Usdc.USDC_DECIMALS));
+      if (sol_) {
+        const rate = usdPerSol();                                   // throws with no price: nothing built
+        const lamports = dir === 'in' ? lamportsUp(micro / 1e6, rate) : lamportsDown(micro / 1e6, rate);
+        if (!(lamports > 0)) throw new Error('botWallet: amount');
+        tx.add(SystemProgram.transfer({ fromPubkey: from.publicKey, toPubkey: toOwner, lamports }));
+      } else {
+        if (dir === 'out') tx.add(createAssociatedTokenAccountIdempotentInstruction(escrow.publicKey, toAta, toOwner, mint));
+        tx.add(createTransferCheckedInstruction(fromAta, mint, toAta, from.publicKey, BigInt(micro), Usdc.USDC_DECIMALS));
+      }
       const { blockhash, lastValidBlockHeight } = await Usdc.withRetry(() => conn.getLatestBlockhash(), 6);
       tx.recentBlockhash = blockhash;
       tx.feePayer = from.publicKey;
@@ -126,4 +151,4 @@ function createBotWallet({ dataDir, Usdc, env, log = console }) {
   };
 }
 
-module.exports = { createBotWallet, loadKeypair };
+module.exports = { createBotWallet, loadKeypair, SOL_RESERVE };
