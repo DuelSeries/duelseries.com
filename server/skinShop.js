@@ -23,6 +23,8 @@ const catalog = require('./skinCatalog');
 const { isWalletString } = require('./b58Caps');
 
 const TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
+const SYSTEM_PROGRAM = '11111111111111111111111111111111';
+const SYSTEM_TRANSFER = 2;
 const MEMO_PROGRAM = 'MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr';
 const COMPUTE_BUDGET = 'ComputeBudget111111111111111111111111111111';
 const TRANSFER_CHECKED = 12;
@@ -44,7 +46,10 @@ function u64le(bytes, at) {
    row's units from an account the wallet controls (the wallet is its authority) to the revenue wallet's USDC
    account, exactly one memo naming the ref, the wallet as fee payer, Compute Budget allowed, nothing else (no other
    program, no address lookup table). A refusal here sends nothing, so it costs the player nothing. */
+/* SOL mode (expect.asset 'sol', Owen 2026-10-17): the same rules with one plain SOL transfer of exactly the row's
+   lamports from the wallet to the revenue wallet (expect.revenueWallet) in place of the token transfer. */
 function paymentProblem(raw, expect) {
+  const sol = expect.asset === 'sol';
   let tx;
   try { tx = VersionedTransaction.deserialize(raw); } catch (_) { return 'not a transaction'; }
   const msg = tx.message;
@@ -63,7 +68,16 @@ function paymentProblem(raw, expect) {
       if (data.toString('utf8') !== memoFor(expect.ref)) return 'the memo does not name this purchase';
       continue;
     }
-    if (prog === TOKEN_PROGRAM) {
+    if (sol && prog === SYSTEM_PROGRAM) {
+      transfers++;
+      if (data.length !== 12 || data.readUInt32LE(0) !== SYSTEM_TRANSFER) return 'not a plain SOL transfer';
+      if ((ix.accountKeyIndexes || []).length !== 2) return 'unexpected transfer accounts';
+      if (acct(0) !== expect.wallet) return 'not paid from this wallet';
+      if (acct(1) !== expect.revenueWallet) return 'not paid to the shop';
+      if (data.readBigUInt64LE(4) !== expect.units) return 'not the price';
+      continue;
+    }
+    if (!sol && prog === TOKEN_PROGRAM) {
       transfers++;
       if (data.length !== 10 || data[0] !== TRANSFER_CHECKED) return 'not a checked token transfer';
       if ((ix.accountKeyIndexes || []).length !== 4) return 'unexpected transfer accounts';
@@ -95,6 +109,19 @@ function landedProblem(tx, expect) {
   const loaded = tx.meta.loadedAddresses || {};
   const all = stat.concat((loaded.writable || []).map(String), (loaded.readonly || []).map(String));
   if (all[0] !== expect.wallet) return { problem: 'payer is not this purchase\'s wallet' };
+  if (expect.asset === 'sol') {
+    /* This transaction's own balances for the revenue wallet (pre and post of THIS tx only, so a rake sweep landing
+       beside it can never count as the payment). What it grants is the row's dollar price. */
+    const i = all.indexOf(expect.revenueWallet);
+    if (i < 0) return { problem: 'not paid to the shop' };
+    const delta = BigInt(tx.meta.postBalances[i]) - BigInt(tx.meta.preBalances[i]);
+    if (delta < expect.units) return { problem: `paid ${delta} < ${expect.units} lamports` };
+    const memo = memoFor(expect.ref);
+    const hasMemo = (m.compiledInstructions || []).some((ix) => all[ix.programIdIndex] === MEMO_PROGRAM
+      && Buffer.from(typeof ix.data === 'string' ? bs58.decode(ix.data) : (ix.data || [])).toString('utf8') === memo);
+    if (!hasMemo) return { problem: 'memo missing' };
+    return { problem: null, usdc: Number(expect.usdMicro) / 1e6 };
+  }
   const bal = (arr) => {
     const b = (arr || []).find((x) => x && all[x.accountIndex] === expect.revenueAta && x.mint === expect.mint);
     return BigInt(b ? b.uiTokenAmount.amount : '0');
@@ -137,7 +164,11 @@ const NOT_SELLING = 'Skins cannot be bought right now. Try again soon.';
    mint, revenueAta   USDC's mint and the revenue wallet's USDC account (base58)
    paused()           true while the owner has the site in maintenance (no new purchases)
    ready()            false when the database could not create the purchase table (nothing is sold) */
+/* asset() -> 'usdc' | 'sol': what a NEW purchase pays in (the money mode). solQuote(usd) -> lamports for that many
+   dollars at a fresh SOL price (throws when there is none). revenueWallet: where SOL payments go. Every row keeps its
+   own asset, so a row opened before the mode flipped is checked as what it was. */
 function createSkinShop({ store, chain, mint, revenueAta, paused = () => false, ready = () => true, log = console,
+                          asset = () => 'usdc', solQuote = null, revenueWallet = null,
                           now = () => Date.now(), sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
                           confirmMs = 40_000, pollMs = 1000, sweepAfterMs = 60_000, openTtlMs = 30 * 60 * 1000,
                           onPaid = () => {} } = {}) {
@@ -155,7 +186,8 @@ function createSkinShop({ store, chain, mint, revenueAta, paused = () => false, 
   }
   const lastLook = new Map();        // ref -> when the page last made us ask the chain (one look per 3 s per ref)
 
-  const expectOf = (row) => ({ wallet: row.wallet, units: BigInt(row.units), mint, revenueAta, ref: row.ref });
+  const expectOf = (row) => ({ wallet: row.wallet, units: BigInt(row.units), mint, revenueAta, ref: row.ref,
+                               asset: row.asset === 'sol' ? 'sol' : 'usdc', revenueWallet, usdMicro: row.usd_micro });
 
   // POST /api/skins/intent: a row to pay, or why not. Returns { status, body }.
   async function intent(body) {
@@ -169,6 +201,7 @@ function createSkinShop({ store, chain, mint, revenueAta, paused = () => false, 
     if (!ready()) return { status: 503, body: { error: NOT_SELLING } };
     if (paused()) return { status: 503, body: { error: NOT_SELLING } };
     if (await store.ownsItem(wallet, it.item)) return { status: 200, body: { owned: true, item: it.item } };
+    if (asset() === 'sol') return solIntent(wallet, it);
     const fresh = () => store.skinOpen({ ref: newRef(), wallet, item: it.item, game: it.game, skin: it.skin, units: it.units.toString() });
     let row = await fresh();
     if (!row) return { status: 503, body: { error: NOT_SELLING } };
@@ -185,6 +218,31 @@ function createSkinShop({ store, chain, mint, revenueAta, paused = () => false, 
     return { status: 200, body: {
       ref: row.ref, item: row.item, units: String(row.units), amountUsdc: Number(row.units) / 1e6,
       mint, decimals: 6, payTo: revenueAta, memo: memoFor(row.ref), memoProgram: MEMO_PROGRAM, blockhash,
+    } };
+  }
+
+  /* SOL mode: the dollar price converted at a fresh rate into the row's lamports. An open row priced at another rate
+     is closed unpaid and a new one opened, so a quote is always today's rate. */
+  async function solIntent(wallet, it) {
+    if (!solQuote || !revenueWallet) return { status: 503, body: { error: NOT_SELLING } };
+    let lamports;
+    try { lamports = solQuote(Number(it.units) / 1e6); } catch (_) { return { status: 503, body: { error: NOT_SELLING } }; }
+    if (!Number.isSafeInteger(lamports) || lamports < 1) return { status: 503, body: { error: NOT_SELLING } };
+    const fresh = () => store.skinOpen({ ref: newRef(), wallet, item: it.item, game: it.game, skin: it.skin,
+                                         units: String(lamports), asset: 'sol', usdMicro: it.units.toString() });
+    let row = await fresh();
+    if (!row) return { status: 503, body: { error: NOT_SELLING } };
+    if (row.state === 'submitted') return { status: 200, body: { pending: true, ref: row.ref, item: row.item } };
+    if (row.asset !== 'sol' || String(row.units) !== String(lamports) || String(row.usd_micro) !== it.units.toString()) {
+      await store.skinExpire(row.ref);
+      row = await fresh();
+      if (!row || row.state !== 'open' || row.asset !== 'sol' || String(row.units) !== String(lamports)) return { status: 503, body: { error: NOT_SELLING } };
+    }
+    const { blockhash, lastValidBlockHeight } = await chain.latestBlockhash();
+    remember(blockhash, lastValidBlockHeight);
+    return { status: 200, body: {
+      ref: row.ref, item: row.item, asset: 'sol', units: String(row.units), lamports: Number(row.units),
+      amountUsd: Number(it.units) / 1e6, payTo: revenueWallet, memo: memoFor(row.ref), memoProgram: MEMO_PROGRAM, blockhash,
     } };
   }
 

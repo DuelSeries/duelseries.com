@@ -46,6 +46,8 @@ const RULES = Object.freeze({
   RESERVE_LAMPORTS: 5_000_000,        // 0.005 SOL always left for network fees
   MIN_SOL_IN: 1_000_000,              // 0.001 SOL, the smallest Convert
   MIN_USDC_IN: 1_000_000,             // $1, the smallest Withdraw as SOL
+  MIN_USDC_CONVERT: 100_000,          // $0.10, the smallest Convert of old USDC to SOL (SOL mode)
+  CONVERT_SOL_FEE_LAMPORTS: 1_010_000, // what a USDC -> SOL convert may cost the wallet: base fee + the priority cap
   MAX_USDC_IN: 100_000_000_000,       // $100,000, a sanity bound on one withdrawal
   MAX_SLIPPAGE_BPS: 100,              // the floor is at most 1% under the quote
   RETRY_SLIPPAGE_BPS: 50,             // what a second order asks for, well inside the cap
@@ -239,6 +241,11 @@ function checkEffects(o, pre, post, rules) {
   if (o.dir === 'toUsdc') {
     if (!qu || qu.amount - before < o.minOut) fail('That conversion would pay less USDC than quoted. It was stopped.');
     if (spent > o.inAmount + allow) fail('That conversion would take more SOL than you asked. It was stopped.');
+  } else if (o.dir === 'usdcToSol') {
+    const after = qu ? qu.amount : 0n;
+    if (before - after > o.inAmount) fail('That conversion would take more USDC than you asked. It was stopped.');
+    // the wallet both pays the fee and receives the SOL: its net gain must be the floor less at most the fee
+    if (-spent + BigInt(R.CONVERT_SOL_FEE_LAMPORTS) < o.minOut) fail('That conversion would pay less SOL than quoted. It was stopped.');
   } else {
     const after = qu ? qu.amount : 0n;
     if (before - after > o.inAmount) fail('That conversion would take more USDC than you asked. It was stopped.');
@@ -315,7 +322,10 @@ function createSwap({ chain, jupiter, usdcMint, refSolUsd = () => null, now = Da
     const wallet = req && req.wallet, dir = req && req.dir;
     const receiver = req && req.receiver ? req.receiver : null;
     if (!isKey(wallet)) fail('That wallet address is not valid.');
-    if (dir !== 'toUsdc' && dir !== 'toSol') fail('Unknown conversion.');
+    /* usdcToSol (SOL mode, Owen 2026-10-17): a player's old USDC becomes SOL in the same wallet. Like toSol with
+       the wallet itself as receiver, so Jupiter is asked with no receiver and the effects check reads the
+       wallet's own SOL gain. */
+    if (dir !== 'toUsdc' && dir !== 'toSol' && dir !== 'usdcToSol') fail('Unknown conversion.');
     const amount = big(req.amount);
     if (amount === null) fail('Enter an amount.');
     const mint = usdcMint();
@@ -323,6 +333,10 @@ function createSwap({ chain, jupiter, usdcMint, refSolUsd = () => null, now = Da
     if (dir === 'toUsdc') {
       if (receiver) fail('Converted USDC stays in your own wallet.');
       if (amount < BigInt(R.MIN_SOL_IN)) fail('That is less than the smallest conversion, ' + (R.MIN_SOL_IN / 1e9) + ' SOL.');
+    } else if (dir === 'usdcToSol') {
+      if (receiver) fail('Converted SOL stays in your own wallet.');
+      if (amount < BigInt(R.MIN_USDC_CONVERT)) fail('The smallest conversion is $' + (R.MIN_USDC_CONVERT / 1e6).toFixed(2) + '.');
+      if (amount > BigInt(R.MAX_USDC_IN)) fail('That is more than one conversion can take.');
     } else {
       if (!isKey(receiver)) fail('That is not a Solana address.');
       if (receiver === wallet) fail('That is this wallet\'s own address.');

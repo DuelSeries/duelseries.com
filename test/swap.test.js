@@ -457,15 +457,43 @@ test('Jupiter client: orders are spaced to the keyless limit, the key is sent, f
   assert.deepStrictEqual(await failed.execute({}), { status: 'Failed', code: -1000 });
 });
 
-test('the routes: rate limited, USDC mode only, small bodies, and no key in what the page gets', () => {
+test('usdcToSol (SOL mode Convert): old USDC becomes SOL in the same wallet, net of at most the fee', async () => {
+  const ok = (post, c) => {
+    post[c.usdcAta] = tokAcct({ mint: USDC, owner: c.wallet, amount: 5_000_000n });
+    post[c.wallet] = sysAcct(c.pre[c.wallet].lamports + 10_460_000n - 5_000n);
+  };
+  const order = { outAmount: '10500000', otherAmountThreshold: '10450000' };
+  const w = world({ usdcBefore: 10_000_000n, effect: ok, order });
+  const q = await w.swap.quote({ wallet: w.wallet, dir: 'usdcToSol', amount: '5000000' });
+  assert.strictEqual(w.calls.order[0].receiver, undefined);
+  assert.strictEqual(w.calls.order[0].inputMint, USDC);
+  assert.strictEqual(w.calls.order[0].outputMint, S.SOL_MINT);
+  assert.strictEqual(q.dir, 'usdcToSol');
+  const bad = [
+    ['wallet gains too little', (post, c) => { ok(post, c); post[c.wallet] = sysAcct(c.pre[c.wallet].lamports + 10_450_000n - BigInt(S.RULES.CONVERT_SOL_FEE_LAMPORTS) - 1n); }, /less SOL than quoted/],
+    ['more USDC taken', (post, c) => { ok(post, c); post[c.usdcAta] = tokAcct({ mint: USDC, owner: c.wallet, amount: 4_999_999n }); }, /more USDC than you asked/],
+  ];
+  for (const [name, effect, re] of bad) {
+    const b = world({ usdcBefore: 10_000_000n, effect, order });
+    await refuses(b.swap.quote({ wallet: b.wallet, dir: 'usdcToSol', amount: '5000000' }), re).catch((e) => { throw new Error(name + ': ' + e.message); });
+  }
+  const r = world({ usdcBefore: 10_000_000n, effect: ok, order });
+  await refuses(r.swap.quote({ wallet: r.wallet, dir: 'usdcToSol', amount: '5000000', receiver: r.receiver }), /stays in your own wallet/);
+  await refuses(r.swap.quote({ wallet: r.wallet, dir: 'usdcToSol', amount: '99999' }), /smallest conversion is \$0\.10/);
+  await refuses(r.swap.quote({ wallet: r.wallet, dir: 'usdcToSol', amount: '10000001' }), /more USDC than you have/);
+  assert.strictEqual(r.calls.order.length, 0);
+});
+
+test('the routes: rate limited, directions per money mode, small bodies, and no key in what the page gets', () => {
   const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'server', 'index.js'), 'utf8');
   assert.match(src, /app\.get\('\/api\/swap\/quote', swapQuoteLimiter, async/);
   assert.match(src, /app\.post\('\/api\/swap\/execute', swapExecLimiter, express\.json\(\{ limit: '16kb' \}\), async/);
   const at = (s) => src.indexOf(s);
   const quote = src.slice(at("app.get('/api/swap/quote'"), at("app.post('/api/swap/execute'"));
-  assert.match(quote, /if \(money\.mode !== 'usdc'\) return res\.status\(400\)/);
+  assert.match(quote, /if \(!\(SWAP_DIRS\[money\.mode\] \|\| \[\]\)\.includes\(strOr\(req\.query\.dir, ''\)\)\) return res\.status\(400\)/);
+  assert.match(src, /const SWAP_DIRS = \{ usdc: \['toUsdc', 'toSol'\], sol: \['usdcToSol', 'toSol'\] \};/);
   const exec = src.slice(at("app.post('/api/swap/execute'"), at("app.post('/api/swap/execute'") + 600);
-  assert.match(exec, /if \(money\.mode !== 'usdc'\) return res\.status\(400\)/);
+  assert.match(exec, /if \(!SWAP_DIRS\[money\.mode\]\) return res\.status\(400\)/);
   assert.match(src, /createJupiter\(\{ apiKey: process\.env\.JUP_API_KEY \|\| '' \}\)/);
   const cfg = src.slice(at("app.get('/api/money-config'"), at("app.get('/api/money-config'") + 900);
   assert.doesNotMatch(cfg, /JUP_API_KEY|apiKey/);

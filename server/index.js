@@ -1101,7 +1101,11 @@ const skinShop = createSkinShop({
   chain: liveChain({ Wallet, Usdc }),
   mint: Usdc.USDC_MINT.toString(),
   revenueAta: Usdc.ataFor(REVENUE_WALLET),
-  ready: () => money.mode === 'usdc' && !!db.features.skinShop,
+  ready: () => (money.mode === 'usdc' || money.mode === 'sol') && !!db.features.skinShop,
+  // SOL mode: a new purchase pays its dollar price in SOL at a fresh rate, straight to the revenue wallet
+  asset: () => (money.mode === 'sol' ? 'sol' : 'usdc'),
+  solQuote: (usd) => require('./solPrice').lamportsUp(usd, money.price.usdPerSol()),
+  revenueWallet: REVENUE_WALLET,
   paused: () => !!ops.get().maintenance,
   // The sale's ledger row is written by db.skinGrant in the same transaction; this is PostHog's copy.
   onPaid: ({ wallet, item, game, usdc }) => analytics.captureEarning({ source: 'cosmetic', amountUsdc: usdc, game, lobbyType: item, wallet }),

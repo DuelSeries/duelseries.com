@@ -247,6 +247,10 @@ const SKIN_SHOP_DDL = [
   `CREATE INDEX IF NOT EXISTS idx_skin_purchases_open ON skin_purchases (created_at) WHERE state = 'open'`,
   // The last block height the payment's blockhash can land in: 'expired' only once the FINALIZED height is past it.
   `ALTER TABLE skin_purchases ADD COLUMN IF NOT EXISTS last_valid_height BIGINT`,
+  // SOL mode (2026-10-17): what the row is paid in ('usdc' rows: units are micro-USDC; 'sol' rows: units are
+  // lamports and usd_micro is the dollar price it sold for).
+  `ALTER TABLE skin_purchases ADD COLUMN IF NOT EXISTS asset TEXT NOT NULL DEFAULT 'usdc'`,
+  `ALTER TABLE skin_purchases ADD COLUMN IF NOT EXISTS usd_micro BIGINT`,
 ];
 
 async function runDdl(label, statements) {
@@ -1035,7 +1039,7 @@ async function getOwnedCosmetics(walletAddress) {
 }
 
 // ─── Buying skins (server/skinShop.js drives these; docs/skin-purchases.md) ──────────────────────
-const SKIN_COLS = 'ref, wallet, item, game, skin, units, state, sig, blockhash, last_valid_height, submitted_at';
+const SKIN_COLS = 'ref, wallet, item, game, skin, units, state, sig, blockhash, last_valid_height, submitted_at, asset, usd_micro';
 // The state a close or a grant may start from: a live payment, or (the late-landing net) one closed expired.
 const SKIN_FROM = new Set(['submitted', 'expired']);
 
@@ -1045,13 +1049,13 @@ async function ownsCosmetic(walletAddress, itemId) {
 }
 
 // A new open row, or the wallet's live (open or submitted) row for this item when it has one.
-async function skinOpen({ ref, wallet, item, game, skin, units }) {
+async function skinOpen({ ref, wallet, item, game, skin, units, asset = 'usdc', usdMicro = null }) {
   const ins = await pool.query(
-    `INSERT INTO skin_purchases (ref, wallet, item, game, skin, units)
-     VALUES ($1, $2, $3, $4, $5, $6)
+    `INSERT INTO skin_purchases (ref, wallet, item, game, skin, units, asset, usd_micro)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      ON CONFLICT (wallet, item) WHERE state IN ('open', 'submitted') DO NOTHING
      RETURNING ${SKIN_COLS}`,
-    [ref, wallet, item, game, skin, String(units)]
+    [ref, wallet, item, game, skin, String(units), asset === 'sol' ? 'sol' : 'usdc', usdMicro === null ? null : String(usdMicro)]
   );
   if (ins.rows[0]) return ins.rows[0];
   const r = await pool.query(
