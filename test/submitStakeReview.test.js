@@ -215,11 +215,13 @@ test('maintenance refuses a paid quote and a submit before the broadcast; free s
    SOL, and tierFor matched about 0.003 SOL against the $0.50 rung, found none, and answered 400 AFTER
    the broadcast and before the stake row was written: money in escrow with no record. The ladder is
    priced in dollars, so outside USDC mode its paid quote and submit are refused before anything is
-   broadcast. The mode is read per request, so flipping the live backend's field is the switch. */
-test('outside USDC mode a paid ladder quote and submit are refused before any broadcast; free still quotes', async () => {
+   broadcast. The mode is read per request, so flipping the live backend's field is the switch.
+   Since 2026-10-21 SOL mode prices the ladder in dollars too (server/money.js solBackend, test/solMoney.test.js),
+   so the refusal now guards any mode that is neither: a backend that cannot price a rung never takes a stake. */
+test('outside USDC and SOL modes a paid ladder quote and submit are refused before any broadcast; free still quotes', async () => {
   const money = require(path.join(ROOT, 'server', 'money.js'));
   const mode = money.mode;
-  money.mode = 'sol';
+  money.mode = 'cad';
   try {
     const before = broadcasts;
     for (const q of ['/api/stake-quote?stake=0.5', '/api/stake-quote?stake=1']) {

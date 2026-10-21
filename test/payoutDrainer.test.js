@@ -264,6 +264,7 @@ test('db.js: the lanes\' SQL, and the no-account marker agrees with Usdc.js', ()
   assert.strictEqual(db.NO_USDC_ACCOUNT, Usdc.RECIPIENT_NO_USDC_ACCOUNT);
   assert.strictEqual(NO_USDC_ACCOUNT, Usdc.RECIPIENT_NO_USDC_ACCOUNT);
   const idx = fs.readFileSync(path.join(__dirname, '..', 'server', 'index.js'), 'utf8');
-  assert.match(idx, /createPayoutDrainer\(\{\s*db,\s*money,\s*noAccountCode: Usdc\.RECIPIENT_NO_USDC_ACCOUNT/);
+  // SOL mode waits on money.waitCode (no price, dust to an empty wallet, escrow short); USDC mode on the no-account marker
+  assert.match(idx, /createPayoutDrainer\(\{\s*db,\s*money,[^}]*noAccountCode: money\.waitCode \|\| Usdc\.RECIPIENT_NO_USDC_ACCOUNT/);
   assert.doesNotMatch(idx, /db\.claimDuePayout\(/, 'index.js has no drainer loop of its own any more');
 });
