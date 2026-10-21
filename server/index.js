@@ -2764,7 +2764,9 @@ const agOwnerAlert = require('./ag/agAlert').createAgOwnerAlert({
     const s = lobbySocketsByGoogleId.get(OWNER_WALLET);
     if (s) s.emit('admin:agar_alert', safe);
   },
-  push: (text) => notify.pushOwner(text, { title: 'agar.io money alert', priority: 'high' }),
+  /* Paid slither and battle royale share this sender (sl_*, br_* rooms), so the title names the game. */
+  push: (text, safe) => notify.pushOwner(text, { title: /^(sl|br)_/.test(String((safe && safe.lobbyType) || ''))
+    ? 'slither.io money alert' : 'agar.io money alert', priority: 'high' }),
 });
 /* agShutdown, agInflight and agJournal are built above the Paper block (paid Paper
    shares them since security review item a). */

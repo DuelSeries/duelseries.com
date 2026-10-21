@@ -137,11 +137,36 @@ test('a bot holding money: removal, restart, crash, emergency and the idle relea
   r.m.emergencySettle('test');
   ledgerHolds(r.m, r.s);
   assert.equal(r.m.bank.sums.acc + r.m.bank.sums.floor, 0);
-  // idle with nobody there: the directory's release
+  // idle with nobody there: the directory's release owes back the bot's money; the floor stays in play (below)
   r = setup();
   r.m.releaseBots('idle');
   assert.equal(r.m.botBalance(9), 0);
   ledgerHolds(r.m, r.s);
+  assert.equal(r.m.bank.sums.acc, 0);
+  assert.equal(r.m.bank.sums.floor, STAKE, 'the two uneaten pellets are still money');
+});
+
+// I6 in sl_na_s0_5 (2026-10-18): the idle release of a room the bots keep running took the floor's money back but left
+// the gold on the board (no wire record removes a food without an eater), so every uneaten pellet was gold worth 0.
+test('idle release in a held room: every gold pellet still on the board keeps its money', () => {
+  const r = seeded();
+  const d1 = drops(4);
+  r.m.applyFacts({ tick: 1, deaths: [{ id: 1, cause: 'snake', killer: 9, drops: d1 }] }, []);
+  r.m.applyFacts({ tick: 2, deaths: [] }, [{ food: d1[0].food, eater: 9 }]);
+  r.m.cashOut(2, 's2');
+  assert.equal(r.m.openCount(), 0, 'nobody open: the case the old release returned the floor in');
+  r.m.releaseBots('idle');
+  for (const q of d1.slice(1)) assert.equal(r.m.bank.pellet(q.food).micro, STAKE / 4, 'gold on the board holds cash');
+  assert.equal(r.m.botBalance(9), STAKE, 'the bot keeps its seed');
+  assert.ok(r.s.of('onOwed').some((x) => x.wallet === 'W1' && x.micro === STAKE / 4), 'what it picked up goes back');
+  // a later eat moves the pellet's money as usual; the settle still returns what is left to its dropper
+  r.m.applyFacts({ tick: 3, deaths: [] }, [{ food: d1[1].food, eater: 9 }]);
+  assert.equal(r.m.botBalance(9), STAKE + STAKE / 4);
+  r.m.sweepFloor('idle');
+  const back = r.s.of('onSeedBack').reduce((n, x) => n + x, 0);
+  const cash = r.s.of('onCashout').reduce((n, o) => n + o.grossMicro, 0);
+  const owed = r.s.of('onOwed').reduce((n, x) => n + x.micro, 0);
+  assert.equal(r.m.bank.ledger.in, cash + owed + back, 'stakes + seed in == cash-outs + owed + seed back');
   assert.equal(r.m.bank.sums.acc + r.m.bank.sums.floor, 0);
 });
 

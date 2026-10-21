@@ -475,8 +475,10 @@ class SlMoney {
     return this._owedRows(src.filter((x) => x.micro > 0), why, live);
   }
 
-  // The room's bots give back what they hold, and the floor goes back too (no person is open here): the directory
-  // calls this for a held room nobody has played in for FLOOR_SWEEP_MS, so a bot never sits on money for good.
+  // The room's bots give back what they picked up: the directory calls this for a held room nobody has played in for
+  // FLOOR_SWEEP_MS, so a bot never sits on money for good. The floor stays: the room keeps running and the wire has
+  // no way to take a food off the board without an eater, so returning it left gold worth nothing on the grid (I6,
+  // sl_na_s0_5 2026-10-18). A bot that eats a pellet holds it until the next release; the settles return the rest.
   releaseBots(why = 'idle') {
     const rows = [];
     for (const id of Array.from(this.botFrom.keys())) {
@@ -487,7 +489,6 @@ class SlMoney {
           (e && e.message));
       }
     }
-    if (this.accounts.size === 0) rows.push(...this._returnFloor(why, true));
     return rows;
   }
 

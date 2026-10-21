@@ -624,7 +624,8 @@ class SlPaidArenas {
         }
         if (held) {
           // the owner's bots keep the room, but money never sits with them for good: nobody here for FLOOR_SWEEP_MS,
-          // the bots' money and the floor go back to the players they came from, and the clock starts again
+          // what the bots picked up goes back to the players it came from (the floor stays money on the board, slMoney
+          // releaseBots), and the clock starts again
           const act = this.activity.get(room) || 0;
           const e = this.emptySince.get(room);
           if (!e || e.act !== act) this.emptySince.set(room, { at: now, act });
