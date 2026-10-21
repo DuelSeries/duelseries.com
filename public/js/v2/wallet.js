@@ -5,13 +5,18 @@
    so there is exactly one implementation of funding and sending in the product
    and this lobby cannot drift from the live one:
 
-     window.duelWallet          { ready, authenticated, address, balance, unit, sol, swap }
+     window.duelWallet          { ready, authenticated, address, balance, unit, sol, swap, mode, usdc, solUsd }
+                                mode 'usdc': balance is the USDC, sol the SOL beside it.
+                                mode 'sol' (the games still count in dollars): balance is the dollar value of the
+                                wallet's SOL (null with no price), sol the SOL itself, usdc any old USDC left,
+                                solUsd the server's display rate.
      'duelwallet:change'        fired on any of the above changing
      window.duelWalletLogin()   opens the Privy login
      window.duelWalletFund()    Privy funding flow (Pay with card, Receive funds)
-     window.duelWalletSend(a,t) send `a` to address `t`
+     window.duelWalletSend(a,t,asset)  send `a` to address `t` (SOL mode: SOL, or USDC when asset is 'usdc')
      window.duelWalletRefresh() re-read the on-chain balance
      window.duelWalletSwapQuote(dir, amount, receiver)  a checked price, nothing signed
+     window.duelWalletUsdcToSolQuote()                  SOL mode: a checked price for ALL the old USDC, nothing signed
      window.duelWalletSwapRun(quote)                    sign and send a confirmed price
 
    Nothing here signs, quotes or verifies anything. If a call is missing the
@@ -29,6 +34,16 @@
   /* How the withdrawal is paid: 'usdc' sends the dollars as they are, 'sol' converts them on the
      way out (server/swap.js) and the address receives SOL. */
   let payAs = 'usdc';
+  /* SOL mode (the server's MONEY_MODE=sol): the games count in dollars as ever, but the money in the wallet is
+     SOL. The big number is the SOL's value in dollars (the server's own figure, never a price of ours), the SOL
+     itself sits small under it, and old USDC, if any, gets its own line. A withdrawal there sends 'sol' (the
+     default) or 'usdc'. */
+  let wdAsset = 'sol';
+  const solMode = () => w().mode === 'sol';
+  /* Every SOL send leaves the wallet at least 0.001 SOL after the amount and the fee: under about 0.00089 SOL
+     the network refuses the account, and a wallet down to dust cannot pay for its next move. Same numbers as
+     wallet-widget/src/solReserve.mjs, which re-checks every send against a fresh balance. */
+  const KEEP_LAMPORTS = 1000000, SEND_FEE_LAMPORTS = 5000;
   const connected = () => !!(w().authenticated && w().address);
   /* SOL beside the dollars (Owen, 2026-10-15: "Accept both, play in USDC"). Card top-ups and
      exchange sends land as SOL; everything but the reserve kept for network fees can become
@@ -36,11 +51,22 @@
   const swapOn = () => !!(w().swap && window.duelWalletSwapQuote && window.duelWalletSwapRun);
   const solLamports = () => Math.max(0, Math.round((Number(w().sol) || 0) * 1e9));
   function convertible() {
-    const s = w().swap; if (!s) return 0;
+    const s = w().swap; if (!s || solMode()) return 0;   // SOL mode never converts SOL: SOL is the money
     const n = solLamports() - Math.round((Number(s.solReserve) || 0) * 1e9);
     return n >= Math.round((Number(s.minConvertSol) || 0) * 1e9) ? n : 0;
   }
   const solTxt = lamports => (Number(lamports) / 1e9).toFixed(4) + ' SOL';
+  // A SOL amount exactly as typed, up to the six places the form takes: the confirm step shows what is sent.
+  const solPlain = sol => parseFloat((Number(sol) || 0).toFixed(9)) + ' SOL';
+  const maxSendLamports = () => Math.max(0, solLamports() - KEEP_LAMPORTS - SEND_FEE_LAMPORTS);
+  // Old USDC, in whole cents, in SOL mode only; a smaller dust figure would read $0.00 and is left alone.
+  const usdcBal = () => (solMode() ? cents(w().usdc) : 0);
+  const usdcOn = () => usdcBal() > 0;
+  // What a SOL-mode withdrawal sends now: USDC only while there is some to send, else SOL.
+  const curAsset = () => (wdAsset === 'usdc' && usdcOn() ? 'usdc' : 'sol');
+  // SOL mode before the server has a price: the SOL is known, its dollars are not (shown as "…" until they are).
+  const noPrice = () => solMode() && w().balance == null;
+  const bigBal = n => (noPrice() ? '…' : balMoney(n));
   const usdTxt = units => money(Number(units) / 1e6);
   // A floor ("at least") rounds down, so the figure shown is never more than what arrives.
   const usdFloor = units => balMoney(Number(units) / 1e6);
@@ -48,10 +74,23 @@
   /* The small line under the balance: the SOL in the wallet, and Convert to USDC when there is
      any to convert. Hidden while the SOL figure is unknown (SOL money mode, or not read yet). */
   function solLine() {
-    if (w().sol == null || !w().swap) return '';
+    if (w().sol == null) return '';
+    // SOL mode: just the SOL, quietly. No Convert to USDC, ever.
+    if (solMode()) return '<span class="num">' + solTxt(solLamports()) + '</span>' +
+      (noPrice() ? '<span>price unavailable</span>' : '');
+    if (!w().swap) return '';
     const c = convertible();
     return '<span class="num">' + solTxt(solLamports()) + '</span>' +
       (c && swapOn() ? '<button type="button" class="wcv" onclick="V2Wallet.convert()">Convert to USDC</button>' : '');
+  }
+  /* SOL mode: old USDC still in the wallet (from before the switch, or sent by habit). One line, two actions:
+     Convert to SOL (the price sheet, then one tap) and Withdraw USDC. */
+  function usdcLine() {
+    if (!usdcOn()) return '';
+    return '<span>You have <b class="num">' + money(usdcBal()) + '</b> USDC</span>' +
+      (swapOn() && window.duelWalletUsdcToSolQuote
+        ? '<button type="button" class="wcv" onclick="V2Wallet.convertUsdc()">Convert to SOL</button>' : '') +
+      '<button type="button" class="wcv" onclick="V2Wallet.cashOut(\'usdc\')">Withdraw USDC</button>';
   }
   // Thousands separated, so $1,234.56 never reads as $1234.56.
   const money = n => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -92,7 +131,7 @@
   function renderHeader() {
     const v = el('hdr-balance');
     if (!v) return;
-    v.textContent = connected() ? balMoney(w().balance) : '—';
+    v.textContent = connected() ? bigBal(w().balance) : '—';
     /* Target the label span, not lastChild: the button's last node is the
        whitespace after the span, so writing to it appends a second label. */
     const label = document.querySelector('#wbtn span');
@@ -139,8 +178,9 @@
       return;
     }
     if (light === true && drawnFor === w().address && el('w-bal')) {
-      el('w-bal').textContent = balMoney(w().balance);
+      el('w-bal').textContent = bigBal(w().balance);
       const s = el('w-sol'); if (s) s.innerHTML = solLine();
+      const u = el('w-usdc'); if (u) u.innerHTML = usdcLine();
       return;
     }
 
@@ -156,10 +196,12 @@
          2026-10-15): the big number on the Wallet tab is the balance, and the
          address panel right below already says what it is held in. */
       '<div class="wbal">' +
-        '<div class="bnum num" id="w-bal" data-cu>' + balMoney(bal) + '</div>' +
+        '<div class="bnum num" id="w-bal" data-cu>' + bigBal(bal) + '</div>' +
         /* The SOL under the dollars, small, like the DamnBruh wallet's "$1.03 / 0.0098 SOL"
            (Owen, 2026-10-15), with the one tap that turns it into dollars. */
         '<div class="wsol" id="w-sol">' + solLine() + '</div>' +
+        /* SOL mode only (empty, and not drawn, otherwise): "You have $X USDC" with its two actions. */
+        '<div class="wsol wusdc" id="w-usdc">' + usdcLine() + '</div>' +
         /* The form lives in its own sheet now, so this row never swaps out. */
         ('<div class="wacts">' +
             '<button class="btn pri" onclick="V2Wallet.fund()">Add funds</button>' +
@@ -452,6 +494,7 @@
      styled, cannot show the balance while you type an amount against it, and
      on a phone each one covers the whole screen. */
   function cashForm(bal) {
+    if (solMode()) return cashFormSol();
     if (pending && pending.as === 'sol') {
       /* Withdraw as SOL: the dollars are converted on the way out, so the
          confirm step shows the SOL the address gets, from a price checked on
@@ -528,6 +571,57 @@
       '</div></div>';
   }
 
+  /* The withdraw sheet in SOL mode: SOL by default, USDC too while old USDC is in the wallet. The amount is
+     in the asset sent (SOL for SOL), because turning dollars into SOL is a price, and the server owns prices;
+     a small "About $x" under the field is only the amount times the server's display rate. */
+  function cashFormSol() {
+    const as = curAsset();
+    if (pending) {
+      const p = pending;
+      const what = p.asset === 'usdc' ? '<b>' + money(p.amt) + ' USDC</b>' : '<b>' + solPlain(p.amt) + '</b>' +
+        (Number(w().solUsd) > 0 ? ' (about ' + money(p.amt * Number(w().solUsd)) + ')' : '');
+      return '<div class="cashout">' +
+        '<p class="note">Send ' + what + ' to</p>' +
+        '<code class="cofull">' + esc(p.to) + '</code>' +
+        '<p class="note">On-chain transfers cannot be reversed.</p>' +
+        '<div class="brow">' +
+          '<button class="btn pri" onclick="V2Wallet.confirmCash()">Send it</button>' +
+          '<button class="btn sec" onclick="V2Wallet.backCash()">Back</button>' +
+        '</div></div>';
+    }
+    const asRow = usdcOn()
+      ? '<div class="payas" role="radiogroup" aria-label="Send as">' +
+          '<span class="k">Send as</span>' +
+          ['sol', 'usdc'].map(v => '<button type="button" role="radio" aria-checked="' + (as === v) + '"' +
+            ' class="pa' + (as === v ? ' on' : '') + '" onclick="V2Wallet.setPayAs(\'' + v + '\')">' +
+            (v === 'sol' ? 'SOL' : 'USDC') + '</button>').join('') +
+        '</div>'
+      : '';
+    return '<div class="cashout">' +
+      '<div class="mfig">' +
+        (as === 'usdc'
+          ? '<div class="v num">' + money(usdcBal()) + '<span class="cvu"> USDC</span></div>'
+          : '<div class="v num">' + bigBal(w().balance) + '</div>') +
+      '</div>' +
+      (as === 'sol' ? '<p class="note">You have ' + solTxt(solLamports()) + '. Keep ' + solTxt(KEEP_LAMPORTS) +
+        ' in your wallet for network fees.</p>' : '') +
+      asRow +
+      '<input class="fld" id="co-to" placeholder="Solana address" autocomplete="off" ' +
+        'spellcheck="false" aria-label="Destination Solana address" ' +
+        'onkeydown="if(event.key===\'Enter\')V2Wallet.submitCash()">' +
+      '<div class="amtrow">' +
+        '<input class="fld num" id="co-amt" inputmode="decimal" placeholder="' + (as === 'usdc' ? '0.00' : '0.0000') + '" ' +
+          'autocomplete="off" aria-label="' + (as === 'usdc' ? 'Amount in USDC' : 'Amount in SOL') + '" ' +
+          'oninput="V2Wallet.hint()" onkeydown="if(event.key===\'Enter\')V2Wallet.submitCash()">' +
+        '<button type="button" class="maxbtn" onclick="V2Wallet.max()">Max</button>' +
+      '</div>' +
+      '<p class="note" id="co-msg"></p>' +
+      '<div class="brow">' +
+        '<button class="btn pri" onclick="V2Wallet.submitCash()">Withdraw</button>' +
+        '<button class="btn sec" onclick="V2Wallet.cancelCash()">Cancel</button>' +
+      '</div></div>';
+  }
+
   function login() { if (window.duelWalletLogin) window.duelWalletLogin(); }
 
   function fund() {
@@ -552,10 +646,15 @@
      away (fund, above). It used to open our own sheet first, which repeated
      the address and warning already on the Wallet tab (Owen, 2026-10-15). */
 
-  function cashOut() {
+  function cashOut(asset) {
     if (!connected()) return login();
     if (!window.duelWalletSend) return note('Your wallet is still starting. Try again in a moment.');
-    if ((Number(w().balance) || 0) <= 0) return note('There is nothing to withdraw yet.');
+    if (solMode()) {
+      // SOL mode: the SOL less what is kept for fees, or the old USDC, whichever there is. "Withdraw USDC" opens on USDC.
+      if (!maxSendLamports() && !usdcOn()) return note(solLamports() > 0
+        ? 'The SOL in your wallet is kept for network fees.' : 'There is nothing to withdraw yet.');
+      wdAsset = (asset === 'usdc' && usdcOn()) || !maxSendLamports() ? 'usdc' : 'sol';
+    } else if ((Number(w().balance) || 0) <= 0) return note('There is nothing to withdraw yet.');
     cashing = true; pending = null;
     drawCash();
     el('wdrveil').classList.add('on');
@@ -587,7 +686,23 @@
   function max() {
     const a = el('co-amt');
     // Filled, not focused: a tap on Max should not raise the keyboard either.
+    if (a && solMode()) {
+      /* SOL mode: Max is the SOL less 0.001 SOL and the fee, rounded DOWN to six places, so the wallet is never
+         left holding dust; old USDC goes whole (to the cent). */
+      a.value = curAsset() === 'usdc' ? cents(w().usdc).toFixed(2)
+        : (Math.floor(maxSendLamports() / 1000) / 1e6).toFixed(6);
+      return hint();
+    }
     if (a) a.value = cents(w().balance).toFixed(2);
+  }
+  // SOL mode: "About $x" under the amount, the typed SOL times the server's display rate. Display only.
+  function hint() {
+    const m = el('co-msg');
+    if (!m || !solMode() || curAsset() !== 'sol') return;
+    const n = Number(((el('co-amt') || {}).value || '').trim().replace(',', '.'));
+    const rate = Number(w().solUsd);
+    m.dataset.state = '';
+    m.textContent = n > 0 && isFinite(n) && rate > 0 ? 'About ' + money(n * rate) : '';
   }
   // A refusal in the form reads as one: the error red, not the hint grey.
   function say(msg) {
@@ -603,7 +718,32 @@
      and an amount in more than cents, which the confirm step could only show
      rounded. A comma is read as the decimal point. */
   const SOL_ADDR = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+  /* SOL mode: the same destination checks, then the amount in the asset being sent. A SOL send must leave 0.001
+     SOL after the fee (Max does); anything more is refused here in words, and again by the widget. */
+  function submitCashSol() {
+    const as = curAsset();
+    const to = ((el('co-to') || {}).value || '').trim();
+    const raw = ((el('co-amt') || {}).value || '').trim().replace(',', '.');
+    const amt = Number(raw);
+    if (!to) return say('Paste the Solana address to send to.');
+    if (!SOL_ADDR.test(to)) return say('That is not a Solana address.');
+    if (to === w().address) return say('That is this wallet\'s own address.');
+    if (!raw || !isFinite(amt) || amt <= 0) return say('Enter an amount to withdraw.');
+    if (as === 'usdc') {
+      if (/\.\d{3,}$/.test(raw)) return say('Use dollars and cents, two decimal places at most.');
+      if (amt > usdcBal()) return say('That is more than the ' + money(usdcBal()) + ' USDC you have.');
+      if (solLamports() < KEEP_LAMPORTS + SEND_FEE_LAMPORTS) return say('Add a little SOL first. Sending needs 0.001 SOL left over for network fees.');
+    } else {
+      if (/\.\d{7,}$/.test(raw)) return say('Use six decimal places at most.');
+      const lamports = Math.round(amt * 1e9);
+      if (lamports > solLamports() - SEND_FEE_LAMPORTS) return say('That is more than the ' + solTxt(solLamports()) + ' you have.');
+      if (lamports > maxSendLamports()) return say('Keep at least 0.001 SOL in your wallet for network fees. Max sends the most you can.');
+    }
+    pending = { to: to, amt: amt, asset: as };
+    drawCash();
+  }
   function submitCash() {
+    if (solMode()) return submitCashSol();
     const bal = Number(w().balance) || 0;
     const to = ((el('co-to') || {}).value || '').trim();
     const raw = ((el('co-amt') || {}).value || '').trim().replace(',', '.');
@@ -654,14 +794,14 @@
        a fault in it is swallowed here, before the send and inside each answer,
        so a confirmed send can never fall through to the failed branch. */
     const T = window.DSToast;
-    const what = { amount: money(p.amt) + ' USDC', detail: 'to', code: ownShort(p.to) };
+    const what = { amount: p.asset === 'sol' ? solPlain(p.amt) : money(p.amt) + ' USDC', detail: 'to', code: ownShort(p.to) };
     let card = null;
     try { if (T) card = T.show(Object.assign({ kind: 'info', title: 'Sending your withdraw', sticky: true }, what)); } catch (_) {}
     const tell = (o, plain, good) => {
       try { if (card) return card.update(o); } catch (_) {}
       note(plain, good);
     };
-    window.duelWalletSend(p.amt, p.to)
+    window.duelWalletSend(p.amt, p.to, p.asset)
       .then(() => {
         tell(Object.assign({ kind: 'ok', title: 'Withdraw confirmed' }, what), 'Sent.', true);
         if (window.duelWalletRefresh) window.duelWalletRefresh();
@@ -694,6 +834,14 @@
   /* Keeps what was typed when the form is drawn again for a new choice. */
   function setPayAs(v) {
     if (v !== 'usdc' && v !== 'sol') return;
+    if (solMode()) {
+      // SOL mode: SOL or old USDC. The amount is in a different asset now, so only the address is kept.
+      if (v === 'usdc' && !usdcOn()) return;
+      const to = (el('co-to') || {}).value || '';
+      wdAsset = v; drawCash();
+      if (el('co-to')) el('co-to').value = to;
+      return;
+    }
     const to = (el('co-to') || {}).value || '', amt = (el('co-amt') || {}).value || '';
     payAs = v; drawCash();
     if (el('co-to')) el('co-to').value = to;
@@ -705,9 +853,22 @@
      about what arrives, the floor it cannot fall under, what stays behind for
      network fees. Nothing is signed until Convert is tapped on that price;
      an old price is replaced and shown again rather than used. */
-  let cv = null;           // { q, err, busy } while the sheet is open
+  let cv = null;           // { q, err, busy, dir } while the sheet is open; dir 'usdcToSol' in SOL mode
+  /* SOL mode: all the old USDC into SOL, in the same wallet. The same sheet, price and one Convert tap as the
+     other way; only the words and the quote differ. Never opened by itself, only by this tap. */
+  function convertUsdc() {
+    if (!connected()) return login();
+    if (!solMode() || !usdcOn()) return;
+    if (!swapOn() || !window.duelWalletUsdcToSolQuote) return note('Your wallet is still starting. Try again in a moment.');
+    cv = { dir: 'usdcToSol' };
+    drawConvert();
+    el('cvveil').classList.add('on');
+    if (window.sheetFocus) window.sheetFocus.open('cvveil');
+    return priceConvert(cv);
+  }
   function convert() {
     if (!connected()) return login();
+    if (solMode()) return;     // SOL is the money in SOL mode: there is nothing to convert it to
     if (!swapOn()) return note('Your wallet is still starting. Try again in a moment.');
     if (!convertible()) return note('There is no SOL to convert. ' +
       solTxt(Math.round(((w().swap && w().swap.solReserve) || 0) * 1e9)) + ' stays in your wallet for network fees.');
@@ -719,7 +880,8 @@
   }
   function priceConvert(c) {
     c.q = null; c.err = null; drawConvert();
-    return window.duelWalletSwapQuote('toUsdc', convertible()).then(q => {
+    const ask = c.dir === 'usdcToSol' ? window.duelWalletUsdcToSolQuote() : window.duelWalletSwapQuote('toUsdc', convertible());
+    return ask.then(q => {
       if (cv !== c) return;
       c.q = q; drawConvert();
     }, e => {
@@ -729,6 +891,9 @@
   }
   function drawConvert() {
     const b = el('cv-body'); if (!b || !cv) return;
+    const toSol = cv.dir === 'usdcToSol';
+    const ttl = el('cv-title'); if (ttl) ttl.textContent = toSol ? 'Convert to SOL' : 'Convert to USDC';
+    const dlg = el('cvveil'); if (dlg) dlg.setAttribute('aria-label', toSol ? 'Convert to SOL' : 'Convert to USDC');
     const reserve = Math.round(((w().swap && w().swap.solReserve) || 0) * 1e9);
     if (cv.err) {
       b.innerHTML = '<div class="cashout"><p class="note" data-state="bad" id="cv-msg">' + esc(cv.err) + '</p>' +
@@ -737,6 +902,24 @@
       return;
     }
     const q = cv.q;
+    if (toSol) {
+      // "Convert $12.34 USDC to about 0.0821 SOL?" and the floor it cannot fall under.
+      b.innerHTML = '<div class="cashout">' +
+        '<div class="mfig"><div class="k">Convert ' + (q ? usdTxt(q.inAmount) : money(usdcBal())) + ' USDC to about</div>' +
+          '<div class="v num">' + (q ? (Number(q.outAmount) / 1e9).toFixed(4) : '…') + '<span class="cvu"> SOL?</span></div></div>' +
+        '<ul class="cvfacts">' +
+          '<li><span>At least</span><b class="num">' + (q ? solFloor(q.minOut) : '…') + '</b></li>' +
+        '</ul>' +
+        '<p class="note" aria-live="polite">' + (q
+          ? 'The price can move a little before it lands. If it would pay less than the at-least figure, nothing is converted.'
+          : 'Getting a price…') + '</p>' +
+        '<div class="brow">' +
+          '<button class="btn pri" onclick="V2Wallet.confirmConvert()"' + (q && !cv.busy ? '' : ' disabled') + '>' +
+            (cv.busy ? 'Converting…' : 'Convert') + '</button>' +
+          '<button class="btn sec" onclick="V2Wallet.cancelConvert()"' + (cv.busy ? ' disabled' : '') + '>Cancel</button>' +
+        '</div></div>';
+      return;
+    }
     /* The question itself, filled in (Owen, 2026-10-15): "Convert 0.1573 SOL to about $29.89
        USDC?", so the one tap is all that is left to do. */
     b.innerHTML = '<div class="cashout">' +
@@ -762,9 +945,18 @@
     c.busy = true; drawConvert();
     // The dollars arriving are this card's news; the toast system's "Funds added" stays quiet for them.
     let unexpect = () => {};
-    try { if (window.DSToast && window.DSToast.expectRise) unexpect = window.DSToast.expectRise(Number(c.q.outAmount) / 1e6); } catch (_) {}
+    // The dollars arriving (USDC out, or in SOL mode the USDC going in, which is what the SOL is worth).
+    try { if (window.DSToast && window.DSToast.expectRise) unexpect = window.DSToast.expectRise(Number(c.dir === 'usdcToSol' ? c.q.inAmount : c.q.outAmount) / 1e6); } catch (_) {}
     window.duelWalletSwapRun(c.q).then(r => {
       if (cv === c) closeConvert();
+      if (c.dir === 'usdcToSol') {
+        const inUsd = usdTxt((r && r.inAmount) || c.q.inAmount);
+        const got = solTxt((r && r.outAmount) || c.q.outAmount);
+        tell({ kind: 'money', title: 'Converted', amount: '+' + got, detail: 'from ' + inUsd + ' USDC' },
+             'Converted ' + inUsd + ' USDC to ' + got + '.', true);
+        if (onScreen()) { loadTx(); loadMoves(); }
+        return;
+      }
       const inSol = solTxt((r && r.inAmount) || c.q.inAmount);
       const got = usdTxt((r && r.outAmount) || c.q.outAmount);
       tell({ kind: 'money', title: 'Converted', amount: '+' + got + ' USDC', detail: 'from ' + inSol },
@@ -794,7 +986,7 @@
      this SOL: the sheet does not come back on its own until more arrives (offerConvert). */
   function cancelConvert() {
     if (cv && cv.busy) return;
-    if (cv && connected()) setDeclined(w().address, convertible());
+    if (cv && cv.dir !== 'usdcToSol' && connected()) setDeclined(w().address, convertible());
     closeConvert();
   }
 
@@ -811,7 +1003,7 @@
   const busyScreen = () => !!document.querySelector('.howveil.on') || !!document.getElementById('privy-modal-content') ||
     document.visibilityState === 'hidden';
   function offerConvert() {
-    if (cv || !connected() || !swapOn() || w().sol == null) return;
+    if (cv || !connected() || !swapOn() || w().sol == null || solMode()) return;   // never in SOL mode
     const c = convertible();
     const a = w().address;
     let no = declinedAt(a);
@@ -843,7 +1035,8 @@
     const now = solLamports();
     if (seenConv !== null && now - seenConv >= SOL_ARRIVAL_MIN) {
       // The Convert sheet opens by itself for it (offerConvert), so the card only says it came.
-      tell({ kind: 'money', title: 'Funds added', amount: '+' + solTxt(now - seenConv), detail: 'is in your wallet' },
+      // SOL mode: toasts.js says it, in dollars, so this one stays quiet; the history still refreshes.
+      if (!solMode()) tell({ kind: 'money', title: 'Funds added', amount: '+' + solTxt(now - seenConv), detail: 'is in your wallet' },
            'Funds added: ' + solTxt(now - seenConv) + '.', true);
       if (onScreen()) loadMoves();
     }
@@ -928,7 +1121,8 @@
                       copyPeer: copyPeer,
                       cashOut: cashOut, cancelCash: cancelCash, backCash: backCash,
                       max: max, submitCash: submitCash, confirmCash: confirmCash, setPayAs: setPayAs,
-                      convert: convert, confirmConvert: confirmConvert, convertAgain: convertAgain,
+                      convert: convert, convertUsdc: convertUsdc, hint: hint,
+                      confirmConvert: confirmConvert, convertAgain: convertAgain,
                       cancelConvert: cancelConvert,
                       addrRow: addrRow, headerTap: headerTap };
 })();

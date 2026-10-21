@@ -272,3 +272,56 @@ test('announcements stack over a game, newest on top, at most 4, each on its own
   p.tick(200);
   assert.ok(!p.said().some(c => c.line.startsWith('w w')), 'and gone at the 20 s cap');
 });
+
+/* SOL mode (2026-10-21): the games count in dollars, the money is SOL. A rise is read off the SOL itself, never off
+   its dollar value, so a price tick is not money arriving; the dollars shown are plain, never "USDC". */
+function solWallet(p, sol, solUsd, address) {
+  p.win.duelWallet = { authenticated: true, address: address || 'AAAAbbbbccccddddeeeeffffgggghhhhiiiijjjjZZZZ',
+    balance: sol == null ? null : sol * solUsd, sol, solUsd, unit: 'USD', mode: 'sol' };
+  p.win.dispatchEvent({ type: 'duelwallet:change' });
+}
+
+test('SOL mode: a price move says nothing; SOL arriving says the dollars, without USDC', () => {
+  const p = page();
+  solWallet(p, 0.1, 100);
+  solWallet(p, 0.1, 100);
+  solWallet(p, 0.1, 140);               // SOL up 40 percent in the market: the wallet got nothing
+  solWallet(p, 0.1, 90);
+  assert.strictEqual(p.cards().length, 0);
+  solWallet(p, 0.1, null);              // no price for a moment: no card, no crash
+  solWallet(p, 0.15, 100);              // 0.05 SOL really arrived: $5.00
+  assert.deepStrictEqual(p.said(), [{ kind: 'money', title: 'Funds added', line: '+$5.00 is in your wallet' }]);
+});
+
+test('SOL mode: a paid seat and its payout are in dollars; the conversion card keeps Funds added quiet', () => {
+  const p = page();
+  solWallet(p, 0.1, 100);
+  p.store.entryToken = 'OLD-TOKEN';
+  p.play({ game: 'snake', stake: 1 });
+  p.store.entryToken = 'NEW-TOKEN'; p.store.stake = '1'; p.store.entrySol = '1';
+  p.open();
+  assert.deepStrictEqual(p.said(), [{ kind: 'money', title: 'Entry paid', line: '$1.00' }]);
+  solWallet(p, 0.09, 100);              // the stake leaving
+  solWallet(p, 0.108, 100);             // the payout: 0.018 SOL, $1.80
+  assert.deepStrictEqual(p.said().pop(), { kind: 'money', title: 'Payout received', line: '+$1.80 from your game' });
+  p.close();
+  // Old USDC turned into SOL: its own Converted card is the news, and the SOL it brings is not announced again,
+  // even when the display rate and the swap's price differ by a little.
+  const c = page();
+  solWallet(c, 0.1, 100); solWallet(c, 0.1, 100);
+  c.win.DSToast.expectRise(10);         // $10.00 of USDC going in
+  solWallet(c, 0.1996, 100);            // 0.0996 SOL = $9.96 lands
+  assert.strictEqual(c.cards().length, 0, 'covered by the Converted card');
+  solWallet(c, 0.2996, 100);            // 0.1 SOL more, really added
+  assert.deepStrictEqual(c.said(), [{ kind: 'money', title: 'Funds added', line: '+$10.00 is in your wallet' }]);
+});
+
+test('SOL mode: the widget learning the money mode (a figure changing meaning) is not money arriving', () => {
+  const p = page();
+  const addr = 'AAAAbbbbccccddddeeeeffffgggghhhhiiiijjjjZZZZ';
+  p.win.duelWallet = { authenticated: true, address: addr, balance: 0.05, sol: 0.1, solUsd: 100, unit: '' };   // /api/money-config not answered yet
+  p.win.dispatchEvent({ type: 'duelwallet:change' });
+  p.win.duelWallet = { authenticated: true, address: addr, balance: 10, sol: 0.1, solUsd: 100, unit: 'USD', mode: 'sol' };
+  p.win.dispatchEvent({ type: 'duelwallet:change' });
+  assert.strictEqual(p.cards().length, 0);
+});

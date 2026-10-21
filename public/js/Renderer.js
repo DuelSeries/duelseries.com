@@ -1098,10 +1098,8 @@ class Renderer {
       ctx.fillText(name, hx, hy - HR * 2.5);
     }
     if (snake.worth > 0) {
-      // USDC mode: worth already IS dollars. SOL mode: convert SOL worth -> CAD via the live rate.
-      const usdc = (typeof moneyMode !== 'undefined' && moneyMode === 'usdc');
-      const rate = usdc ? 1 : (typeof solCadRate !== 'undefined' ? solCadRate : 200);
-      const label = (usdc ? '$' : 'C$') + (Math.round(snake.worth * rate * 100) / 100).toFixed(2);
+      // Worth is dollars in BOTH money modes (SOL only moves at the doors): plain $, no conversion.
+      const label = '$' + (Math.round(snake.worth * 100) / 100).toFixed(2);
       const wfs = Math.round(R * 1.0);
       ctx.font = `bold ${wfs}px Segoe UI`;
       ctx.strokeStyle = 'rgba(0,0,0,0.7)'; ctx.lineWidth = wfs * 0.18;

@@ -38,18 +38,13 @@ const entryToken    = sessionStorage.getItem('entryToken') || null;
 const selectedRegion = sessionStorage.getItem('region') || 'na';
 const spectateOnly  = sessionStorage.getItem('spectateOnly') === 'true';
 
-// SOL/CAD rate — fetched once on load
-let solCadRate = 200;
-fetch('/api/prices').then(r => r.json()).then(d => { if (d.solCadRate) solCadRate = d.solCadRate; }).catch(() => {});
-let moneyMode = 'sol';
 let moneyNetwork = 'mainnet-beta';   // which cluster payout links should point at
 fetch('/api/money-config').then(r => r.json()).then(c => {
-  if (c && c.mode) moneyMode = c.mode;
   if (c && c.network) moneyNetwork = c.network;
 }).catch(() => {});
-// Format a money value for display. USDC mode: the value already IS US dollars. SOL mode: it's SOL,
-// converted to CAD via the live rate. (Pre-cutover this stayed CAD; post-cutover worth is in USDC.)
-function fmtMoney(v) { v = Number(v) || 0; return moneyMode === 'usdc' ? '$' + v.toFixed(2) : 'C$' + (v * solCadRate).toFixed(2); }
+// Format a money value for display. The game counts in US dollars in BOTH money modes (USDC, and SOL where
+// only the doors move SOL), so a value is always plain dollars, never converted.
+function fmtMoney(v) { v = Number(v) || 0; return '$' + v.toFixed(2); }
 
 let myId = null;
 let isDead = false;
@@ -2741,8 +2736,8 @@ requestAnimationFrame(gameLoop);
   function drawChart(historyData, period) {
     const ctx = chartCanvas.getContext('2d');
     const W = chartCanvas.width, H = chartCanvas.height;
-    const rate = moneyMode === 'usdc' ? 1 : (typeof solCadRate !== 'undefined' ? solCadRate : 200);
-    const sym = moneyMode === 'usdc' ? '$' : 'C$';
+    const rate = 1;   // dollars in both money modes, no conversion
+    const sym = '$';
     ctx.clearRect(0, 0, W, H);
 
     if (!historyData || historyData.length === 0) {
@@ -2812,9 +2807,9 @@ requestAnimationFrame(gameLoop);
 
   function renderProfile() {
     if (!currentProfile) return;
-    const rate = moneyMode === 'usdc' ? 1 : (typeof solCadRate !== 'undefined' ? solCadRate : 200);
-    const sym = moneyMode === 'usdc' ? '$' : 'C$';
-    const cad = (currentProfile.totalEarnings * rate).toFixed(2);
+    const rate = 1;   // dollars in both money modes, no conversion
+    const sym = '$';
+    const cad =(currentProfile.totalEarnings * rate).toFixed(2);
     const sign = currentProfile.totalEarnings >= 0 ? '+' : '';
     earningsEl.textContent = sign + sym + cad;
     earningsEl.style.color = currentProfile.totalEarnings >= 0 ? '#14F195' : '#ef4444';

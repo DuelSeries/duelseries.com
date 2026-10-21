@@ -63,7 +63,7 @@ test('social data comes from the server, not from a generated roster', () => {
   const src = fs.readFileSync(path.join(ROOT, 'public/js/v2/social.js'), 'utf8') +
               fs.readFileSync(path.join(ROOT, 'public/js/v2/leaders.js'), 'utf8');
   for (const ep of ['/api/earnings/board', '/api/players/search', '/api/profile/',
-                    '/api/earnings/total', '/api/money-config']) {
+                    '/api/earnings/total']) {
     assert.ok(src.includes(ep), `social.js or leaders.js calls ${ep}`);
   }
   const html = v2();

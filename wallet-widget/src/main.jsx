@@ -11,17 +11,22 @@ import { createRestakeBridge, cancelledError } from './restakeBridge.mjs';
 import { holdBackCoinbase } from './holdCoinbase.mjs';
 import { buildSkinPayment } from './skinPay.mjs';
 import { makeWalletSetup } from './walletSetup.mjs';
+import { SEND_FEE_LAMPORTS, leavesReserve } from './solReserve.mjs';
 // The shared gold popup card (public/js/shared/dsDialog.js), bundled so the lobby needs no extra tag.
 import '../../public/js/shared/dsDialog.js';
 
-// Active money mode (sol|usdc) reported by the server — decides whether the widget builds native
-// SOL transfers or USDC SPL-token transfers, and how it labels balances. Cached after first fetch.
+// Active money mode (sol|usdc) reported by the server. In BOTH modes the games count in dollars; the mode
+// decides what a send is made of (a SOL transfer or a USDC token transfer) and what a balance is read from.
+// Cached after the first good answer. An unreadable answer is never cached and never guessed: it comes back
+// as mode null, and a send refuses it rather than moving the wrong asset.
 let _moneyCfg = null;
 async function moneyConfig() {
   if (_moneyCfg) return _moneyCfg;
-  try { _moneyCfg = await (await fetch('/api/money-config')).json(); }
-  catch { _moneyCfg = { mode: 'sol', unit: 'SOL', usdcMint: null, decimals: 9 }; }
-  return _moneyCfg;
+  try {
+    const j = await (await fetch('/api/money-config')).json();
+    if (j && (j.mode === 'usdc' || j.mode === 'sol')) _moneyCfg = j;
+  } catch {}
+  return _moneyCfg || { mode: null, unit: null, usdcMint: null, decimals: 6 };
 }
 
 // Phase 1 — self-custody stake-on-join. Connect (Phase 0) + a "Stake & Play" button that
@@ -34,15 +39,21 @@ const APP_ID = 'cmpnepg0100f20cl10wdig1fr';
 const RPC_HTTP = (typeof window !== 'undefined' ? window.location.origin : '') + '/api/rpc';
 const RPC_WSS = 'wss://api.mainnet-beta.solana.com';
 
-/* The balance (USDC under MONEY_MODE=usdc) and, beside it, the wallet's SOL: card top-ups and
-   exchange sends arrive as SOL, and the Wallet tab shows it with Convert to USDC. */
+/* What the wallet holds, as the server reads it.
+     USDC mode: balance is the USDC (dollars); sol is the wallet's SOL beside it (card top-ups and exchange
+                sends arrive as SOL, and the Wallet tab shows it with Convert to USDC).
+     SOL mode:  balance is the dollar VALUE of the wallet's SOL (null while the server has no price), sol is
+                the SOL itself, usdc is any old USDC left in the wallet (the Convert to SOL line), solUsd the
+                display rate. The server's figures are used as given; nothing here prices anything. */
+const finite = (x) => (typeof x === 'number' && isFinite(x) ? x : null);
 async function fetchBalances(address) {
   try {
     const r = await fetch('/api/sol-balance?address=' + encodeURIComponent(address));
     const j = await r.json();
     return { balance: typeof j.sol === 'number' ? j.sol : null,
-             sol: typeof j.solNative === 'number' ? j.solNative : null };
-  } catch { return { balance: null, sol: null }; }
+             sol: typeof j.solNative === 'number' ? j.solNative : null,
+             usdc: finite(j.usdc), solUsd: finite(j.solUsd) };
+  } catch { return { balance: null, sol: null, usdc: null, solUsd: null }; }
 }
 
 /* SOL <-> USDC in this wallet (server/swap.js; Owen 2026-10-15, "Accept both, play in USDC").
@@ -122,6 +133,11 @@ function pageRegion() { try { return sessionStorage.getItem('region') || lobbyRe
    the same code either way, so there is one staking path and not two. */
 const STAKE_CU_LIMIT = 80_000;
 const STAKE_CU_PRICE = 100_000;   // micro-lamports per compute unit
+// A stake's most: the base fee plus its priority fee (STAKE_CU_LIMIT * STAKE_CU_PRICE / 1e6 = 8000).
+const STAKE_FEE_LAMPORTS = SEND_FEE_LAMPORTS + Math.ceil(STAKE_CU_LIMIT * STAKE_CU_PRICE / 1e6);
+// Plain words for a SOL stake the wallet cannot carry. Keep "rent" out of it: doStake rewrites such messages.
+const SOL_LOW_MSG = 'Add a little SOL. Your wallet needs the entry plus 0.001 SOL left over for network fees.';
+const SOL_SEND_LOW = 'Leave at least 0.001 SOL in your wallet for network fees. Send a little less, or use Max.';
 
 function stakeSpec(sel) {
   if (typeof sel === 'string') return { lobbyType: sel };
@@ -164,6 +180,17 @@ async function stakeOnly(sel, wallet, signTransaction, onStatus, base, hooks) {
     ? Number(quote.units || 0)
     : Number(quote.lamports || 0);
   if (!owes) return { entryToken: '', worth: 0 };
+
+  /* SOL mode: the stake, its fee and a little SOL must all fit in the wallet. A wallet left holding less
+     than 0.001 SOL cannot pay for its next move (and under about 0.00089 SOL the network refuses the
+     account outright), so the player is told to add a little SOL BEFORE anything is signed. A balance
+     that cannot be read does not block play; the network still refuses a stake the wallet cannot cover. */
+  if (quote.mode === 'sol') {
+    const have = (await fetchBalances(wallet.address)).sol;
+    if (have != null && !leavesReserve(Math.round(have * 1e9), owes, STAKE_FEE_LAMPORTS)) {
+      throw new Error(SOL_LOW_MSG);
+    }
+  }
 
   onStatus('Building stake…');
   const from = new PublicKey(wallet.address);
@@ -405,9 +432,12 @@ function WalletPanel() {
   const { fundWallet } = useFundWallet();
   const { createWallet } = useCreateSolanaWallet();
   const { refreshUser } = useUser();
-  const [balance, setBalance] = useState(null);
-  const [sol, setSol] = useState(null);    // the wallet's SOL beside a USDC balance (null in SOL mode)
-  const [unit, setUnit] = useState('SOL'); // balance unit label (SOL or USDC), from /api/money-config
+  const [balance, setBalance] = useState(null);  // USDC mode: the USDC. SOL mode: the dollar value of the SOL.
+  const [sol, setSol] = useState(null);    // the wallet's SOL (beside a USDC balance, or the money itself in SOL mode)
+  const [usdc, setUsdc] = useState(null);  // SOL mode: old USDC still in the wallet (null: none, or not read)
+  const [solUsd, setSolUsd] = useState(null); // SOL mode: the server's display rate, dollars per SOL
+  const [mode, setMode] = useState(null);  // 'usdc' | 'sol', from /api/money-config (null until it answers)
+  const [unit, setUnit] = useState('');    // what the games count in: USDC, or USD in SOL mode (/api/money-config)
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
   const [err, setErr] = useState('');
@@ -486,25 +516,34 @@ function WalletPanel() {
     p.login();
   };
 
+  const applyBalances = (b) => { setBalance(b.balance); setSol(b.sol); setUsdc(b.usdc); setSolUsd(b.solUsd); };
   useEffect(() => {
-    if (!address) { setBalance(null); setSol(null); return; }
+    if (!address) { setBalance(null); setSol(null); setUsdc(null); setSolUsd(null); return; }
     let live = true;
-    const tick = () => fetchBalances(address).then((b) => { if (live) { setBalance(b.balance); setSol(b.sol); } });
+    const tick = () => fetchBalances(address).then((b) => { if (live) applyBalances(b); });
     tick();
     const id = setInterval(tick, 15000);
     return () => { live = false; clearInterval(id); };
   }, [address]);
 
   const [swapCfg, setSwapCfg] = useState(null);
-  useEffect(() => { moneyConfig().then((c) => {
-    setUnit(c.unit || 'SOL');
-    if (c.swap) setSwapCfg({ solReserve: c.solReserve, minConvertSol: c.minConvertSol, minWithdrawSolUsd: c.minWithdrawSolUsd });
-  }).catch(() => {}); }, []);
+  useEffect(() => {
+    let live = true, timer = null;
+    const load = () => moneyConfig().then((c) => {
+      if (!live) return;
+      if (!c.mode) { timer = setTimeout(load, 5000); return; }   // unreadable: ask again, never guess
+      setMode(c.mode);
+      setUnit(c.unit || '');
+      if (c.swap) setSwapCfg({ solReserve: c.solReserve, minConvertSol: c.minConvertSol, minWithdrawSolUsd: c.minWithdrawSolUsd });
+    }).catch(() => {});
+    load();
+    return () => { live = false; clearTimeout(timer); };
+  }, []);
 
   useEffect(() => {
-    window.duelWallet = { ready, authenticated, address, balance, unit, sol, swap: swapCfg };
+    window.duelWallet = { ready, authenticated, address, balance, unit, sol, swap: swapCfg, mode, usdc, solUsd };
     window.dispatchEvent(new CustomEvent('duelwallet:change', { detail: window.duelWallet }));
-  }, [ready, authenticated, address, balance, unit, sol, swapCfg]);
+  }, [ready, authenticated, address, balance, unit, sol, swapCfg, mode, usdc, solUsd]);
 
   // Hide the widget while the game iframe covers the screen; re-show on return to lobby.
   useEffect(() => {
@@ -657,15 +696,30 @@ function WalletPanel() {
     window.duelWalletRefresh = async () => {
       if (!address) return null;
       const b = await fetchBalances(address);
-      setBalance(b.balance); setSol(b.sol);
+      applyBalances(b);
       return b.balance;
     };
-    window.duelWalletSend = async (amount, toAddress) => {
+    /* Send out of the wallet. USDC mode: amount is USDC. SOL mode: amount is SOL by default, or USDC when
+       asset is 'usdc' (old USDC still in the wallet). A SOL-mode send is checked against a FRESH balance
+       first and never leaves the wallet holding between 0 and 0.001 SOL after the amount and the fee. */
+    window.duelWalletSend = async (amount, toAddress, asset) => {
       if (!wallet) return Promise.reject(new Error('Wallet not ready — try again in a moment.'));
       const cfg = await moneyConfig();
-      return cfg.mode === 'usdc'
-        ? sendUsdc(toAddress, amount, cfg.usdcMint, cfg.decimals, wallet, signTransaction)
-        : sendSol(toAddress, amount, wallet, signTransaction);
+      if (cfg.mode === 'usdc') return sendUsdc(toAddress, amount, cfg.usdcMint, cfg.decimals, wallet, signTransaction);
+      if (cfg.mode !== 'sol') throw new Error('Could not read the money settings. Try again in a moment.');
+      const have = (await fetchBalances(wallet.address)).sol;
+      if (have == null) throw new Error('Could not read your balance. Try again in a moment.');
+      const haveLamports = Math.round(have * 1e9);
+      if (asset === 'usdc') {
+        // The token transfer costs only the network fee, and the wallet still keeps its reserve.
+        if (!leavesReserve(haveLamports, 0, SEND_FEE_LAMPORTS)) throw new Error(SOL_SEND_LOW);
+        return sendUsdc(toAddress, amount, cfg.usdcMint, cfg.decimals, wallet, signTransaction);
+      }
+      const lamports = Math.round(Number(amount) * 1e9);
+      if (!(lamports > 0)) throw new Error('Enter an amount to send.');
+      if (haveLamports < lamports + SEND_FEE_LAMPORTS) throw new Error('That is more SOL than your wallet has after the network fee.');
+      if (!leavesReserve(haveLamports, lamports, SEND_FEE_LAMPORTS)) throw new Error(SOL_SEND_LOW);
+      return sendSol(toAddress, amount, wallet, signTransaction);
     };
     /* Add funds: Privy's own funding sheet, "Add funds to your DuelSeries wallet", with Pay with
        card and Receive funds (Owen, 2026-10-15, like playpulp.io). The asset is SOL because MoonPay
@@ -678,20 +732,24 @@ function WalletPanel() {
     window.duelWalletFund = async () => {
       if (!address) throw new Error('Connect your wallet first.');
       const cfg = await moneyConfig();
+      const solMode = cfg.mode === 'sol';
       const start = Number(cfg.cardStartSol) > 0 ? Number(cfg.cardStartSol) : 0.156;
       return fundWallet({ address, options: {
         chain: 'solana:mainnet', asset: 'native-currency', amount: String(start),
         card: { preferredProvider: 'moonpay' },
         uiConfig: {
           landing: { title: 'Add funds to your DuelSeries wallet' },
-          receiveFundsTitle: 'Receive SOL or USDC',
-          receiveFundsSubtitle: 'Send SOL or USDC on Solana to this address. SOL turns into USDC with one tap on your Wallet tab.',
+          receiveFundsTitle: solMode ? 'Receive SOL' : 'Receive SOL or USDC',
+          receiveFundsSubtitle: solMode
+            ? 'Send SOL on Solana to this address. Your balance shows in dollars on your Wallet tab.'
+            : 'Send SOL or USDC on Solana to this address. SOL turns into USDC with one tap on your Wallet tab.',
         },
       } });
     };
     /* A checked price for converting this wallet's SOL to USDC (dir 'toUsdc', amount in
-       lamports), or its USDC to SOL paid to an outside address (dir 'toSol', amount in USDC
-       units, receiver). Resolves the quote; nothing is signed. */
+       lamports; USDC mode only), its USDC to SOL paid to an outside address (dir 'toSol', amount in
+       USDC units, receiver), or its old USDC to SOL in the same wallet (dir 'usdcToSol', amount in
+       USDC units, no receiver; SOL mode only). Resolves the quote; nothing is signed. */
     window.duelWalletSwapQuote = (dir, amount, receiver) => {
       if (!address) return Promise.reject(new Error('Connect your wallet first.'));
       return swapQuote(address, dir, amount, receiver);
@@ -701,8 +759,18 @@ function WalletPanel() {
     window.duelWalletSwapRun = async (q) => {
       if (!wallet) throw new Error('Wallet not ready — try again in a moment.');
       const r = await swapRun(q && q.requestId, wallet, signTransaction);
-      fetchBalances(wallet.address).then((b) => { setBalance(b.balance); setSol(b.sol); }).catch(() => {});
+      fetchBalances(wallet.address).then(applyBalances).catch(() => {});
       return r;
+    };
+    /* SOL mode: a checked price for turning ALL the old USDC in this wallet into SOL (dir 'usdcToSol', amount
+       in USDC units, no receiver). The amount is read fresh here, so it is the whole balance as it is now.
+       Resolves the quote; nothing is signed (duelWalletSwapRun does that, from the player's tap). */
+    window.duelWalletUsdcToSolQuote = async () => {
+      if (!address) throw new Error('Connect your wallet first.');
+      const b = await fetchBalances(address);
+      const units = b.usdc == null ? 0 : Math.round(b.usdc * 1e6);
+      if (!(units > 0)) throw new Error('There is no USDC to convert.');
+      return swapQuote(address, 'usdcToSol', units);
     };
     // Signs a skin's payment from the server's quote; resolves the signed bytes (base64). Sends nothing.
     window.duelWalletSignSkin = (quote) => {
@@ -739,7 +807,9 @@ function WalletPanel() {
     } catch (e) {
       const m = (e && e.message) || 'Stake failed';
       setErr(/insufficient funds|rent|TokenAccountNotFound|could not find account/i.test(m)
-        ? `Not enough funds — your wallet needs ${unit} for the entry plus a little SOL for network fees.`
+        ? (mode === 'sol'
+            ? SOL_LOW_MSG
+            : `Not enough funds — your wallet needs ${unit} for the entry plus a little SOL for network fees.`)
         : m);
       setBusy(false); setStatus('');
     } finally {
@@ -789,6 +859,9 @@ function busyCopy(what, status) {
    with a spaced dash; that becomes a full stop here. */
 function errCopy(m, what) {
   const amt = money(what && what.stake).trim();
+  if (/^Add a little SOL/.test(m)) {
+    return { title: 'Add a little SOL', line: `Your wallet needs ${amt ? 'about ' + amt + ' in SOL' : 'the entry'} plus 0.001 SOL left over for network fees.` };
+  }
   if (/^Not enough funds/.test(m)) {
     return { title: 'Not enough in your wallet', line: `You need ${amt || 'the entry'} plus a little SOL for network fees.` };
   }

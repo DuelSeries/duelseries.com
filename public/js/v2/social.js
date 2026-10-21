@@ -26,18 +26,17 @@
                                     lobby strip's own total (server/earnings), real
                                     players' landed cash-outs only; {on:false} while
                                     the strip's off switch is on
-     GET /api/money-config       -> { mode, unit, … }
 
    ?leaderboard=preview fills the board, search and profiles with sample
    players made in this browser only (socialPreview.js); never sent anywhere. */
 
 (function () {
-  let MODE = 'usdc';
   const PROFILES = new Map();          // name -> profile, so reopening is free
   const PV = () => (window.V2SocialPreview && window.V2SocialPreview.on ? window.V2SocialPreview : null);
 
   // With thousands separators, so $1,234.56 never reads as $1234.56.
-  const money = n => (MODE === 'usdc' ? '$' : 'C$') +
+  // Always dollars: the game counts in dollars in both money modes.
+  const money = n => '$' +
     (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const toast = m => (window.V2Play && window.V2Play.toast ? window.V2Play.toast(m) : alert(m));
   const esc = s => String(s == null ? '' : s)
@@ -57,11 +56,6 @@
        last time sat over results that no longer matched it. */
     const q = el('soc-q'); if (q) q.value = '';
     el('soc-board').innerHTML = '';
-    try {
-      const cfg = await (await fetch('/api/money-config')).json();
-      MODE = cfg.mode || 'usdc';
-    } catch (_) { /* the default is already the live mode */ }
-
     pullWin();
 
     // The top 3 and the full board (leaders.js), live while this tab is open.

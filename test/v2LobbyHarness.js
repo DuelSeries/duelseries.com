@@ -69,7 +69,7 @@ function lobbyHarness(liveRows) {
   vm.createContext(win);
   const widget = fs.readFileSync(path.join(ROOT, 'wallet-widget/src/main.jsx'), 'utf8');
   // The widget's plain modules first, as its imports (they have none of their own).
-  for (const m of ['stakeRoute.mjs', 'restakeBridge.mjs']) {
+  for (const m of ['stakeRoute.mjs', 'restakeBridge.mjs', 'solReserve.mjs']) {
     if (!widget.includes("from './" + m + "'")) continue;
     const f = 'wallet-widget/src/' + m;
     vm.runInContext(fs.readFileSync(path.join(ROOT, f), 'utf8').replace(/^export /gm, ''), win, { filename: f });

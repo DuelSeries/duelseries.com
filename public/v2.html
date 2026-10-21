@@ -27,9 +27,9 @@
 <title>DuelSeries</title>
 <!-- What a search result or a shared link shows. There was none, so a pasted
      link previewed as a bare URL. -->
-<meta name="description" content="Slither.io, Agar.io, Paper.io and more, free or for $0.50 and $1 in USDC.">
+<meta name="description" content="Slither.io, Agar.io, Paper.io and more, free or for $0.50 and $1.">
 <meta property="og:title" content="DuelSeries">
-<meta property="og:description" content="Slither.io, Agar.io, Paper.io and more, free or for $0.50 and $1 in USDC.">
+<meta property="og:description" content="Slither.io, Agar.io, Paper.io and more, free or for $0.50 and $1.">
 <meta property="og:image" content="https://duelseries.com/img/icon-512.png">
 <meta property="og:url" content="https://duelseries.com/">
 <meta name="twitter:card" content="summary">
@@ -731,6 +731,10 @@ body.ingame>.howveil,body.ingame>.meveil,body.ingame>.apscreen,body.ingame>.bshe
   transition:background .15s,color .15s}
 .wcv:hover{background:var(--money);color:var(--ink)}
 .wcv:focus-visible{outline:2px solid var(--money);outline-offset:2px}
+/* SOL mode: "You have $X USDC" with its two actions, wrapping on a phone. Nothing is drawn while it is empty,
+   so USDC mode keeps exactly the spacing it had. */
+.wusdc{flex-wrap:wrap;margin-top:2px}
+.wusdc:empty{display:none}
 .wref.spin svg{animation:wspin .5s linear}
 @keyframes wspin{to{transform:rotate(360deg)}}
 /* One centred column for the whole Wallet tab on a big screen (Owen,
@@ -2503,10 +2507,11 @@ body.scr-anim { overflow-x:hidden }
 
 <!-- Convert to USDC: the wallet's SOL (a card top-up, a send from an exchange)
      into dollars, at a price shown before anything is signed (Owen 2026-10-15,
-     "Accept both, play in USDC"). -->
+     "Accept both, play in USDC"). In SOL mode the same sheet converts old USDC
+     into SOL (wallet.js sets the title). -->
 <div id="cvveil" class="howveil" role="dialog" aria-modal="true" aria-label="Convert to USDC">
   <div class="howcard mcard">
-    <div class="howtop"><h2>Convert to USDC</h2>
+    <div class="howtop"><h2 id="cv-title">Convert to USDC</h2>
       <button type="button" class="howx" onclick="V2Wallet.cancelConvert()" aria-label="Close">&#10005;</button>
     </div>
     <div id="cv-body"></div>
@@ -2919,13 +2924,13 @@ body.scr-anim { overflow-x:hidden }
     <p class="bs-sub" id="bs-sub"></p>
     <div class="bs-rows">
       <div><span>Price</span><b class="num" id="bs-price"></b></div>
-      <div><span>Your USDC</span><b class="num" id="bs-bal"></b></div>
+      <div><span id="bs-bal-k">Your USDC</span><b class="num" id="bs-bal"></b></div>
       <div class="bs-after"><span>After</span><b class="num" id="bs-after"></b></div>
     </div>
     <p class="bs-msg" id="bs-msg" aria-live="polite"></p>
     <button class="bs-go" id="bs-go" onclick="confirmBuy()"></button>
     <button class="bs-no" id="bs-no" onclick="closeBuy()">Not now</button>
-    <p class="bs-fine">Paid in USDC from your wallet. Skins are final, so there are no refunds.</p>
+    <p class="bs-fine" id="bs-fine">Paid in USDC from your wallet. Skins are final, so there are no refunds.</p>
   </div>
 </div>
 
@@ -3273,9 +3278,13 @@ let R=null;
   }catch(e){ console.warn('[lobby-v2] Renderer failed to start:',e); R=null }
 })();
 
-/* The renderer's worth label reads moneyMode to decide between "$" and a SOL
-   to CAD conversion. The lobby is USDC, so worth already is dollars. */
-window.moneyMode='usdc';
+/* Which money the server runs on, 'usdc' or 'sol' (/api/money-config). The games count in DOLLARS either way,
+   so the renderer's worth label never depends on it; the lobby's own copy (the skin sheet) reads it to say
+   USDC or SOL. Null until the server answers, which reads as USDC, the wording the page has always had. */
+window.moneyMode=null;
+fetch('/api/money-config').then(r=>r.json()).then(c=>{
+  if(c&&(c.mode==='usdc'||c.mode==='sol'))window.moneyMode=c.mode;
+}).catch(()=>{});
 
 /* ── the slither card: one fixed still ───────────────────────────────────
    Not a random scene. Every visitor sees the same picture: a big snake
@@ -4015,8 +4024,8 @@ function closeLook(save){
 }
 
 /* ── the unlock sheet (docs/skin-purchases.md) ─────────────────────────────
-   The skin in its case, the price, the USDC you have and what is left after,
-   one Unlock button. The server prices it and checks the payment; this only
+   The skin in its case, the price, what you have (USDC, or the dollar value of
+   your SOL in SOL mode) and what is left after, one Unlock button. The server prices it and checks the payment; this only
    asks and reports. Short of USDC, the button is Add funds (the Wallet tab,
    where a card top-up and Convert to USDC both live). */
 const BUY={s:null,busy:false,raf:0,short:false,later:false};
@@ -4036,9 +4045,14 @@ function buyMsg(text,kind){
 }
 function buyRows(){
   const s=BUY.s, w=window.duelWallet||{}, price=Number(s.price)||0;
+  /* The price is dollars and w.balance is dollars in BOTH modes (USDC mode: the USDC; SOL mode: the dollar value
+     of the SOL, the server's figure), so the two compare directly. SOL mode words it without "USDC". */
+  const sol=(w.mode||window.moneyMode)==='sol';
   const bal=w.authenticated&&w.balance!=null&&isFinite(Number(w.balance))?Number(w.balance):null;
   BUY.short=bal!=null&&bal+1e-9<price;
-  document.getElementById('bs-price').textContent=usd(price)+' USDC';
+  document.getElementById('bs-price').textContent=usd(price)+(sol?'':' USDC');
+  document.getElementById('bs-bal-k').textContent=sol?'Your balance':'Your USDC';
+  document.getElementById('bs-fine').textContent=(sol?'Paid in SOL':'Paid in USDC')+' from your wallet. Skins are final, so there are no refunds.';
   document.getElementById('bs-bal').textContent=bal==null?'…':usd(bal);
   document.getElementById('bs-after').textContent=bal==null?'…':BUY.short?'Short '+usd(price-bal):usd(bal-price);
   document.getElementById('bs-after').parentNode.classList.toggle('short',BUY.short);
@@ -4046,7 +4060,7 @@ function buyRows(){
   if(BUY.busy)return;
   if(!w.authenticated){go.textContent='Log in to unlock';return}
   go.textContent=BUY.short?'Add funds':'Unlock for '+usd(price);
-  if(BUY.short)buyMsg('You need '+usd(price-bal)+' more USDC.','err');
+  if(BUY.short)buyMsg(sol?'You need about '+usd(price-bal)+' more.':'You need '+usd(price-bal)+' more USDC.','err');
 }
 function openBuy(s){
   if(!s||!s.shop||BUY.busy)return;

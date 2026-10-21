@@ -196,12 +196,18 @@
   window.addEventListener('resize', place);
 
   // ---- money the lobby can see -------------------------------------------
-  const unitOf = () => ((window.duelWallet || {}).unit === 'SOL' ? 'SOL' : 'USDC');
+  /* 'USDC' (USDC mode), or 'USD' in SOL mode: the games count in dollars either way, but in SOL mode the money is
+     SOL, so a dollar figure there is plain "$5.00" and never claims to be USDC. ('SOL' is the old SOL unit.) */
+  const isSolMode = (w) => !!w && (w.mode === 'sol' || w.unit === 'USD');
+  const unitOf = () => {
+    const w = window.duelWallet || {};
+    return w.unit === 'SOL' ? 'SOL' : isSolMode(w) ? 'USD' : 'USDC';
+  };
   function amount(n, sign) {
     const v = Math.abs(Number(n) || 0);
     const s = unitOf() === 'SOL'
       ? v.toLocaleString('en-US', { maximumFractionDigits: 4 }) + ' SOL'
-      : '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' USDC';
+      : '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + (unitOf() === 'USD' ? '' : ' USDC');
     return (sign ? '+' : '') + s;
   }
 
@@ -240,7 +246,7 @@
      so it says that and the amount, which is what actually landed. Any other
      rise is money that was added. A fall says nothing: every fall this page
      causes (a stake, a withdraw) has its own card already. */
-  let seen = { addr: null, bal: null };
+  let seen = { addr: null, bal: null, sol: false };
   /* A rise this page caused itself and already has a card for (Convert to
      USDC says "Converted"): the next rises, up to that much, within a minute,
      say nothing more. Returns a cancel for a conversion that did not happen. */
@@ -253,17 +259,30 @@
   window.addEventListener('duelwallet:change', () => {
     const w = window.duelWallet || {};
     const addr = w.authenticated && w.address ? w.address : null;
-    const bal = typeof w.balance === 'number' && isFinite(w.balance) ? w.balance : null;
-    if (!addr) { seen = { addr: null, bal: null }; return; }
-    if (addr !== seen.addr) { seen = { addr: addr, bal: bal }; return; }   // a sign-in is not money arriving
+    /* SOL mode watches the SOL itself, never its dollar value: that value moves with the price all day, and a
+       price tick must not read as money arriving. The rise is turned into dollars below, at the server's rate. */
+    const solMode = isSolMode(w);
+    const raw = solMode ? w.sol : w.balance;
+    const bal = typeof raw === 'number' && isFinite(raw) ? raw : null;
+    if (!addr) { seen = { addr: null, bal: null, sol: false }; return; }
+    // A sign-in is not money arriving; neither is the money mode being learned (dollars become SOL as the figure read).
+    if (addr !== seen.addr || solMode !== seen.sol) { seen = { addr: addr, bal: bal, sol: solMode }; return; }
     if (bal === null) return;                                              // a failed read keeps the last one
     const before = seen.bal;
     seen.bal = bal;
     if (before === null) return;
     let up = bal - before;
+    if (solMode) {
+      if (!(Number(w.solUsd) > 0)) return;                                 // no rate, no dollars to report
+      up *= Number(w.solUsd);
+    }
     if (expected > 0 && Date.now() < expectedUntil && up > 0) {
-      const covered = Math.min(up, expected);
-      expected -= covered; up -= covered;
+      /* SOL mode: the SOL a conversion lands is worth a little more or less than the USDC it came from (the display
+         rate against the swap's own price), so the card's own rise is allowed a few percent of slack, and once it
+         has landed the expectation is spent: a sliver left over must not eat into money added afterwards. */
+      const slack = solMode ? expected * 0.05 + 0.02 : 0;
+      const covered = Math.min(up, expected + slack);
+      expected = solMode ? 0 : Math.max(0, expected - covered); up -= covered;
     }
     if (up < (unitOf() === 'SOL' ? 0.0005 : 0.005)) return;
     if (Date.now() < payoutUntil) {
