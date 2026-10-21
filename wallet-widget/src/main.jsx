@@ -248,9 +248,18 @@ async function stakeOnly(sel, wallet, signTransaction, onStatus, base, hooks) {
 /* A skin's payment, signed (docs/skin-purchases.md): the quote from POST /api/skins/intent becomes exactly the
    transfer and memo the server accepts (skinPay.mjs), and the player's own wallet signs it, sign only, the same way
    a stake is signed. The lobby (public/js/v2/skinBuy.js) sends it to /api/skins/buy; nothing is broadcast here. */
+const USDC_ACCOUNT_RENT = 2_039_280;   // what a USDC send costs the sender when the receiver has no USDC account
 async function signSkinPayment(quote, wallet, signTransaction) {
   // SOL skins: only to the server's revenue wallet, and never more than $25 of SOL (skins cost $1 to $5)
   const cfg = await moneyConfig();
+  if (quote && quote.asset === 'sol') {
+    // the wallet keeps its 0.001 SOL after the skin and the fee, like a stake or a send
+    const have = (await fetchBalances(wallet.address)).sol;
+    if (have == null) throw new Error('Could not read your balance. Try again in a moment.');
+    if (!leavesReserve(Math.round(have * 1e9), Number(quote.units), SEND_FEE_LAMPORTS)) {
+      throw new Error('Not enough in your wallet. Keep 0.001 SOL for network fees.');
+    }
+  }
   const maxLamports = Number(cfg.solUsd) > 0 ? Math.ceil((25 / Number(cfg.solUsd)) * 1e9) : 250_000_000;
   const serialized = buildSkinPayment(quote, wallet.address, { payTo: cfg.skinPayTo, maxLamports });
   const { signedTransaction } = await signTransaction({ transaction: serialized, wallet });
@@ -708,14 +717,21 @@ function WalletPanel() {
     window.duelWalletSend = async (amount, toAddress, asset) => {
       if (!wallet) return Promise.reject(new Error('Wallet not ready — try again in a moment.'));
       const cfg = await moneyConfig();
-      if (cfg.mode === 'usdc') return sendUsdc(toAddress, amount, cfg.usdcMint, cfg.decimals, wallet, signTransaction);
+      /* The amount's unit is the sheet's, so the sheet must say which it drew: a sheet drawn before the mode was
+         known (no asset) is never sent as SOL, and a SOL sheet never as USDC dollars (Fable review 2026-10-21). */
+      const CHANGED = 'The money settings changed while this was open. Close it and try again.';
+      if (cfg.mode === 'usdc') {
+        if (asset === 'sol') throw new Error(CHANGED);
+        return sendUsdc(toAddress, amount, cfg.usdcMint, cfg.decimals, wallet, signTransaction);
+      }
       if (cfg.mode !== 'sol') throw new Error('Could not read the money settings. Try again in a moment.');
+      if (asset !== 'sol' && asset !== 'usdc') throw new Error(CHANGED);
       const have = (await fetchBalances(wallet.address)).sol;
       if (have == null) throw new Error('Could not read your balance. Try again in a moment.');
       const haveLamports = Math.round(have * 1e9);
       if (asset === 'usdc') {
-        // The token transfer costs only the network fee, and the wallet still keeps its reserve.
-        if (!leavesReserve(haveLamports, 0, SEND_FEE_LAMPORTS)) throw new Error(SOL_SEND_LOW);
+        // The fee, and the receiver's USDC account rent when it has none (the sender pays it), and the reserve after
+        if (!leavesReserve(haveLamports, USDC_ACCOUNT_RENT, SEND_FEE_LAMPORTS)) throw new Error(SOL_SEND_LOW);
         return sendUsdc(toAddress, amount, cfg.usdcMint, cfg.decimals, wallet, signTransaction);
       }
       const lamports = Math.round(Number(amount) * 1e9);
@@ -809,7 +825,7 @@ function WalletPanel() {
       await stakeAndPlay(game, sel, wallet, signTransaction, setStatus, () => setPlaying(true));
     } catch (e) {
       const m = (e && e.message) || 'Stake failed';
-      setErr(/insufficient funds|rent|TokenAccountNotFound|could not find account/i.test(m)
+      setErr(/insufficient funds|\brent\b|TokenAccountNotFound|could not find account/i.test(m)
         ? (mode === 'sol'
             ? SOL_LOW_MSG
             : `Not enough funds — your wallet needs ${unit} for the entry plus a little SOL for network fees.`)

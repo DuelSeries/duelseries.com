@@ -165,6 +165,7 @@
         }
         // SOL mode quotes amountUsd (the dollars), USDC mode amountUsdc
         const quotedUsd = Number(q.body.amountUsd != null ? q.body.amountUsd : q.body.amountUsdc);
+        if (!isFinite(quotedUsd)) throw new Error('Could not read the price. Nothing was sent. Try again.');
         if (expectUsd != null && Math.abs(quotedUsd - Number(expectUsd)) > 1e-9) {
           const pc = new Error('The price is now $' + quotedUsd.toFixed(2) + '. Refresh the page to see it.');
           pc.cancelled = true;

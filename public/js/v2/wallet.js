@@ -88,7 +88,8 @@
   function usdcLine() {
     if (!usdcOn()) return '';
     return '<span>You have <b class="num">' + money(usdcBal()) + '</b> USDC</span>' +
-      (swapOn() && window.duelWalletUsdcToSolQuote
+      // the server's smallest convert is $0.10 (server/swap.js MIN_USDC_CONVERT)
+      (swapOn() && window.duelWalletUsdcToSolQuote && usdcBal() >= 0.10
         ? '<button type="button" class="wcv" onclick="V2Wallet.convertUsdc()">Convert to SOL</button>' : '') +
       '<button type="button" class="wcv" onclick="V2Wallet.cashOut(\'usdc\')">Withdraw USDC</button>';
   }
@@ -732,7 +733,8 @@
     if (as === 'usdc') {
       if (/\.\d{3,}$/.test(raw)) return say('Use dollars and cents, two decimal places at most.');
       if (amt > usdcBal()) return say('That is more than the ' + money(usdcBal()) + ' USDC you have.');
-      if (solLamports() < KEEP_LAMPORTS + SEND_FEE_LAMPORTS) return say('Add a little SOL first. Sending needs 0.001 SOL left over for network fees.');
+      // the fee, the receiver's USDC account rent if it has none (the sender pays it), then 0.001 SOL left over
+      if (solLamports() < KEEP_LAMPORTS + SEND_FEE_LAMPORTS + 2039280) return say('Add a little SOL first. Sending USDC needs about 0.003 SOL for network fees.');
     } else {
       if (/\.\d{7,}$/.test(raw)) return say('Use six decimal places at most.');
       const lamports = Math.round(amt * 1e9);

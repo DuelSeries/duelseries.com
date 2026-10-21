@@ -196,8 +196,17 @@ test('the widget and the lobby agree on the reserve, and the widget checks befor
   const send = WIDGET.slice(WIDGET.indexOf('window.duelWalletSend = async'), WIDGET.indexOf('window.duelWalletFund = async'));
   assert.ok(send.indexOf('leavesReserve(haveLamports, lamports, SEND_FEE_LAMPORTS)') > -1);
   assert.ok(send.indexOf('leavesReserve(haveLamports, lamports') < send.indexOf('return sendSol('), 'checked before the SOL send is built');
-  const iu = send.indexOf('leavesReserve(haveLamports, 0, SEND_FEE_LAMPORTS)');
+  // the USDC send also keeps room for the receiver's USDC account rent (Fable review 3)
+  const iu = send.indexOf('leavesReserve(haveLamports, USDC_ACCOUNT_RENT, SEND_FEE_LAMPORTS)');
   assert.ok(iu > -1 && send.indexOf('return sendUsdc(', iu) > iu, 'and before the USDC send');
   assert.ok(/if \(cfg\.mode === 'usdc'\) return sendUsdc\(/.test(send), 'USDC mode sends USDC exactly as before');
   assert.ok(/if \(cfg\.mode !== 'sol'\) throw/.test(send), 'an unreadable mode sends nothing');
+});
+
+test('a send carries its sheet\'s unit: no asset is never SOL, SOL is never sent as USDC dollars', () => {
+  const W = require('fs').readFileSync(require('path').join(__dirname, '..', 'wallet-widget', 'src', 'main.jsx'), 'utf8');
+  const send = W.slice(W.indexOf('window.duelWalletSend = async'), W.indexOf('window.duelWalletFund = async'));
+  assert.match(send, /if \(cfg\.mode === 'usdc'\) \{\s*if \(asset === 'sol'\) throw new Error\(CHANGED\);/);
+  assert.match(send, /if \(asset !== 'sol' && asset !== 'usdc'\) throw new Error\(CHANGED\);/);
+  assert.ok(send.indexOf("asset !== 'sol' && asset !== 'usdc'") < send.indexOf('return sendSol('));
 });
