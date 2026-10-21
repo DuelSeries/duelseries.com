@@ -563,6 +563,7 @@ function stepper(ups, o) {
       : r.botsAllowed === false ? String(r.botsNote || 'This room takes no bots')
       : p ? 'Sending ' + p.count + '…'
       : r.botTarget != null ? 'Held at ' + num(r.botTarget) + '. ' + num(r.bots) + ' in the room now.'
+      : r.botAim != null ? 'Automatic, following the clock: aiming at ' + num(r.botAim) + ' now. ' + num(r.bots) + ' in the room now.'
       : 'Automatic. ' + num(r.bots) + ' in the room now.';
     box.title = title;
     minus.title = title;

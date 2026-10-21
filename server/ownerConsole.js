@@ -73,6 +73,17 @@ function roomBotTarget(r) {
   return Number.isInteger(r._botsHeld) ? r._botsHeld : null;
 }
 
+/* What a free room's automatic fill is aiming at by the clock (the daily
+   curve, server/botPopulation.js), or null for a room without one. Shown
+   beside the live count; a number set in Control overrides it until Auto. */
+function roomBotAim(r) {
+  const f = r && (typeof r.botCurve === 'function' ? r.botCurve
+    : r.game && typeof r.game.botCurve === 'function' ? r.game.botCurve : null);
+  if (!f) return null;
+  const n = f();
+  return Number.isInteger(n) ? n : null;
+}
+
 const takesBots = (r) => !!r && typeof r.botsAllowed === 'function' && r.botsAllowed() === true
   && typeof r.addBot === 'function' && roomStake(r) === 0;
 
@@ -105,6 +116,7 @@ function rungRows(rooms, extra, stakeOf) {
       bots,
       money: r6(money),
       botTarget: main ? roomBotTarget(main) : null,
+      botAim: main ? roomBotAim(main) : null,
       botsAllowed: allowed,
       botsNote: rung > 0 ? PAID_BOTS_NOTE : allowed ? null : main ? 'This room does not take bots' : 'No room is open',
     };

@@ -91,13 +91,14 @@ function drift(tHours) {
   );
 }
 
-/* The population a free room should be aiming at this second.
+/* A whole number between lo and hi for this second: the HOURLY shape plus the
+   drift, on the Eastern clock. `phase` (hours) reads the drift at a different
+   point, so two games on the same curve do not rise and dip in step.
 
    `at` is only for tests: left out, it reads the clock. */
-function botTarget(at) {
+function curveTarget(lo, hi, at, phase) {
   const now = at === undefined ? Date.now() : at;
   const { hour, minute } = easternNow(now);
-  const lo = C.BOT_MIN, hi = C.BOT_MAX;
   const span = hi - lo;
 
   const base = lo + span * curveAt(hour, minute);
@@ -106,9 +107,47 @@ function botTarget(at) {
      pinned to the floor every night.
 
      Driven off the absolute clock so it does not reset at midnight — see drift. */
-  const wander = drift(now / 3600000) * span * 0.09;
+  const wander = drift(now / 3600000 + (phase || 0)) * span * 0.09;
 
   return Math.max(lo, Math.min(hi, Math.round(base + wander)));
+}
+
+/* The population a free snake room should be aiming at this second. */
+function botTarget(at) {
+  return curveTarget(C.BOT_MIN, C.BOT_MAX, at, 0);
+}
+
+/* ── the same day for the other free rooms ───────────────────────────────────
+   agar.io and Paper.io keep their free rooms warm with bots too, and a count
+   that sat at 54 or 15 all night was the same tell twenty was. Same clock, same
+   HOURLY shape, same drift, scaled to each arena's own range. Each reads the
+   drift a few hours apart so the lobby's numbers do not move in lockstep.
+
+   Ranges CHOSEN 2026-10-21, the trough near a quarter of the peak as the
+   snake's 22 of 101 is:
+     agar   20 to 54 bots. 54 is the room's own size (agLaws L39), what it held
+            all day before; the room still caps there with people in it.
+     paper   6 to 15 bots. 15 is the most the stock bot type rows hold
+            (FREE_BOTS_IDLE), what it held all day before.
+   Knockout and Battleship are 1v1 duels with one bot at a table: no curve. */
+const GAME_CURVES = Object.freeze({
+  agar: Object.freeze({ lo: 20, hi: 54, phase: 5.3 }),
+  paper: Object.freeze({ lo: 6, hi: 15, phase: 11.7 }),
+});
+
+/* The rooms read this every tick; the answer changes at most once a second, so
+   a clock read is kept per game for the rest of that second. */
+const _gameCache = new Map();
+function gameBotTarget(game, at) {
+  const g = GAME_CURVES[game];
+  if (!g) throw new Error('botPopulation: no curve for ' + game);
+  if (at !== undefined) return curveTarget(g.lo, g.hi, at, g.phase);
+  const sec = Math.floor(Date.now() / 1000);
+  const hit = _gameCache.get(game);
+  if (hit && hit.sec === sec) return hit.n;
+  const n = curveTarget(g.lo, g.hi, sec * 1000, g.phase);
+  _gameCache.set(game, { sec, n });
+  return n;
 }
 
 /* ── the population is the GAME's, not each room's ───────────────────────────
@@ -179,6 +218,6 @@ function roomShare(at) {
 }
 
 module.exports = {
-  botTarget, curveAt, easternNow, HOURLY,
+  botTarget, curveTarget, gameBotTarget, GAME_CURVES, curveAt, easternNow, HOURLY,
   registerRoom, unregisterRoom, liveBotsEverywhere, globalHeadroom, roomShare,
 };

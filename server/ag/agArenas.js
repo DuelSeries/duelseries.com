@@ -75,7 +75,8 @@ class AgArenas {
   // paid: AG_PAID at boot (the paid rungs exist only then); moneyHooks: the payout and alert hooks every paid room's
   // money controller needs (onCashout, onRefund, onTransfer, onFeed, onBreach, onStake, onHouse); timers: tests only
   constructor({ region = 'na', laws = LAWS, shippableOnly = true, now = Date.now, clock, autoTick = true, seed,
-    makeRoom, game = 'agar', log = console, paid = false, moneyHooks = null, timers = null, botStore = null, botBank = null } = {}) {
+    makeRoom, game = 'agar', log = console, paid = false, moneyHooks = null, timers = null, botStore = null, botBank = null,
+    botCurve = null } = {}) {
     if (shippableOnly) assertShippable(laws);
     assertLawsComplete(laws, ['L39']);
     this.region = region;
@@ -88,6 +89,8 @@ class AgArenas {
     this.game = game;
     this.log = log || console;
     this.cap = laws.L39.value;
+    // The free rooms' daily bot curve, () -> bots now (agBoot passes botPopulation's; null fills to L39, as tests do).
+    this.botCurve = typeof botCurve === 'function' ? botCurve : null;
     this.makeRoom = makeRoom || ((opts) => new AgRoom(opts));
     this.rooms = [];                 // index order
     this.bySocket = new Map();       // socketId -> room
@@ -266,6 +269,7 @@ class AgArenas {
       portraitOf: (socketId) => this.portraitOf(socketId),
     };
     if (this.clock) opts.clock = this.clock;
+    if (this.botCurve) opts.botCurve = this.botCurve;
     if (this.seed !== undefined && this.seed !== null) opts.seed = this.seed + index;
     const room = this.makeRoom(opts);
     room.onClosed = (closed, sockets) => this._replace(closed, sockets);

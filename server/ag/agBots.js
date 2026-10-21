@@ -153,6 +153,9 @@ const BOT_TUNING = Object.freeze({
   SHY_SPLIT_CARE: chosen(0, 'shy: no prey splits to check'),
   SHY_IDLE_SPLIT_CHANCE: chosen(0.008, 'shy: chance per calm think of a careless split'),
   SHY_KEEPS_TO_EDGE: chosen(1, 'shy: farms and wanders near the map edge'),
+  // The free room's daily curve (fillBots with a target): a bot joins at most this often, so a rise is people arriving
+  // one by one; a boot fill of 54 takes about 14 seconds.
+  FILL_GAP_MS: chosen(250, 'curve fill: least time between two bots joining'),
 });
 // END BOT_TUNING
 
@@ -268,6 +271,9 @@ function splitKillRange(size, preySize, laws) {
 // Fill rule (THE ONE RULE lives here as well as in the room).
 
 // How many bots the room should add or remove now. botsAllowed false always means: remove every bot, add none.
+// opts.target (the free room's daily curve, server/botPopulation.js) aims below the room size; left out, the room
+// fills to L39 as before. yieldNow is the part of remove that cannot wait: people plus bots over L39, so a bot
+// gives up its place at once. The rest of remove is only the curve falling, and the room lets those go as they die.
 function planBotFill(opts, laws) {
   assertLawsComplete(laws, BOT_FILL_LAW_IDS);
   const humans = opts && okNum(opts.humans) && opts.humans > 0 ? Math.floor(opts.humans) : 0;
@@ -275,8 +281,11 @@ function planBotFill(opts, laws) {
   if (!opts || opts.botsAllowed !== true) return { add: 0, remove: bots, want: 0 };
   if (laws.BOT_FILL.value !== 'toRoomSize') throw new Error('agBots: unsupported BOT_FILL rule ' + laws.BOT_FILL.value);
   const roomSize = laws.L39.value;
-  const want = Math.max(0, roomSize - humans);
-  return { add: Math.max(0, want - bots), remove: Math.max(0, bots - want), want };
+  const t = opts.target;
+  const aim = Number.isInteger(t) && t >= 0 && t < roomSize ? t : roomSize;
+  const want = Math.max(0, aim - humans);
+  const room = Math.max(0, roomSize - humans);
+  return { add: Math.max(0, want - bots), remove: Math.max(0, bots - want), want, yieldNow: Math.max(0, bots - room) };
 }
 
 // One bot name from ONE draw of the room's rng (as before, so a room's draws stay in step), at most L37 characters

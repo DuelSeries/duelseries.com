@@ -31,7 +31,7 @@ const BANK_SPENT = '#botbank:spent';
 class PaperRoom {
   // now: the wall clock of every deadline (grace, stale hold, coin age). clock: the monotonic
   // clock the tick loop runs on (never steps with the wall clock).
-  constructor({ stake = 0, region = 'na', index = 0, io = null, hooks = {}, now = Date.now, clock = monotonicNow, seed, directory = null, autoTick = true, trim, paidBots = false } = {}) {
+  constructor({ stake = 0, region = 'na', index = 0, io = null, hooks = {}, now = Date.now, clock = monotonicNow, seed, directory = null, autoTick = true, trim, paidBots = false, botCurve = null } = {}) {
     for (const name of REQUIRED_HOOKS) {
       if (typeof hooks[name] !== 'function') throw new Error('PaperRoom: hook ' + name + ' must be a function');
     }
@@ -93,6 +93,11 @@ class PaperRoom {
     // kill drops the money as a floor coin, only seats collect coins). botRoom: a bot has played here, so the coins
     // nobody collected go back to the players who dropped them, never to the house (_floorBack).
     this.paidBots = this.paid && paidBots === true && this.game.enablePaidBots();
+    // A free arena's bots follow the daily curve (server/botPopulation.js) when PaperArenas hands one in.
+    if (!this.paid && typeof botCurve === 'function') {
+      this.game.botCurve = botCurve;
+      this.game.config.botsCount = this.game.freeSquares();
+    }
     this.botRoom = false;
     // the bots' coin sense (ArenaGame._seekCoin): the floor coins where they lie
     this.game.coinSpots = () => this.bank.pickups();

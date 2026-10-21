@@ -609,13 +609,13 @@ test('THE ONE RULE: bots only where botsAllowed(), filled to the room size', () 
   assert.deepStrictEqual(B.planBotFill({ humans: 1, bots: 3 }, FIXTURE), { add: 0, remove: 3, want: 0 });
   assert.deepStrictEqual(B.planBotFill({ botsAllowed: 'yes', humans: 1, bots: 3 }, FIXTURE), { add: 0, remove: 3, want: 0 });
   // Fixture L39 = 50 players per room, BOT_FILL 'toRoomSize'.
-  assert.deepStrictEqual(B.planBotFill({ botsAllowed: true, humans: 1, bots: 0 }, FIXTURE), { add: 49, remove: 0, want: 49 });
-  assert.deepStrictEqual(B.planBotFill({ botsAllowed: true, humans: 3, bots: 49 }, FIXTURE), { add: 0, remove: 2, want: 47 });
-  assert.deepStrictEqual(B.planBotFill({ botsAllowed: true, humans: 60, bots: 5 }, FIXTURE), { add: 0, remove: 5, want: 0 });
-  assert.deepStrictEqual(B.planBotFill({ botsAllowed: true, humans: NaN, bots: -4 }, FIXTURE), { add: 50, remove: 0, want: 50 });
+  assert.deepStrictEqual(B.planBotFill({ botsAllowed: true, humans: 1, bots: 0 }, FIXTURE), { add: 49, remove: 0, want: 49, yieldNow: 0 });
+  assert.deepStrictEqual(B.planBotFill({ botsAllowed: true, humans: 3, bots: 49 }, FIXTURE), { add: 0, remove: 2, want: 47, yieldNow: 2 });
+  assert.deepStrictEqual(B.planBotFill({ botsAllowed: true, humans: 60, bots: 5 }, FIXTURE), { add: 0, remove: 5, want: 0, yieldNow: 5 });
+  assert.deepStrictEqual(B.planBotFill({ botsAllowed: true, humans: NaN, bots: -4 }, FIXTURE), { add: 50, remove: 0, want: 50, yieldNow: 0 });
   // The real table: Owen approved 54 players per room (L39, 2026-10-02). Without a room size nothing fills.
   assert.deepStrictEqual(B.planBotFill({ botsAllowed: true, humans: 1, bots: 0 }, LAWS),
-    { add: 53, remove: 0, want: 53 });
+    { add: 53, remove: 0, want: 53, yieldNow: 0 });
   assert.throws(() => B.planBotFill({ botsAllowed: true, humans: 1, bots: 0 }, withValues(LAWS, { L39: null })), /L39/);
 });
 

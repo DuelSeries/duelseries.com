@@ -41,7 +41,7 @@ class PaperArenas {
   // journal: the paid money journal (server/ag/agJournal.js, shared with paid agar and paid snake), or null. Every paid
   // seat's account is opened and closed in it, and a shutdown or crash closes each one 'refunded' with its owed row,
   // so the next boot's replay writes the refunds a dying process could not (security review item a).
-  constructor({ region = 'na', io = null, hooks, now = Date.now, paidEnabled = process.env.PAPER_PAID === '1', autoTick = true, warm = true, awake = false, makeRoom, journal = null, botStore = null, botBank = null } = {}) {
+  constructor({ region = 'na', io = null, hooks, now = Date.now, paidEnabled = process.env.PAPER_PAID === '1', autoTick = true, warm = true, awake = false, makeRoom, journal = null, botStore = null, botBank = null, botCurve = null } = {}) {
     this.region = region;
     this.io = io;
     this.hooks = hooks;
@@ -56,6 +56,8 @@ class PaperArenas {
     this.journal = journal;
     this.autoTick = autoTick;
     this.makeRoom = makeRoom || ((opts) => new PaperRoom(opts));
+    // The free arenas' daily bot curve, () -> bots now (index.js passes botPopulation's; null: FREE_BOTS_IDLE).
+    this.botCurve = typeof botCurve === 'function' ? botCurve : null;
     this.arenas = {};
     for (const s of RUNGS) this.arenas[keyOf(s)] = [];
     this.byKey = new Map(); // resumeKey -> seat
@@ -237,7 +239,8 @@ class PaperArenas {
       hooks: this.hooks,
       now: this.now,
       directory: this,
-      autoTick: this.autoTick
+      autoTick: this.autoTick,
+      botCurve: stake > 0 ? null : this.botCurve
     });
     room.onClosed = (closed) => this._replace(closed);
     const list = this.arenas[keyOf(stake)];
@@ -571,7 +574,7 @@ class PaperArenas {
         region: this.region,
         stake,
         players,
-        bots: stake > 0 ? bots : players > 0 ? bots : MP.FREE_BOTS_IDLE,
+        bots: stake > 0 || this.botCurve ? bots : players > 0 ? bots : MP.FREE_BOTS_IDLE,
         capacity: MP.MAX_HUMANS,
         // a paid rung under paper:paid:off (or a restart) stays listed, its seated players counted, but closed: the
         // lobby draws it struck through and asks for no money (board.js isOpen / playableStakes)

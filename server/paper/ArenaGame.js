@@ -180,6 +180,7 @@ class ArenaGame extends P.Game {
     this.hooks = Object.assign({}, NOOP_HOOKS, hooks || {});
     this.trim = trim || null;
     this.botCap = null;
+    this.botCurve = null;   // a free arena's daily curve, () -> bots now (PaperRoom sets it; null: FREE_BOTS_IDLE)
     this.paidBots = false;
     return this;
   }
@@ -720,8 +721,12 @@ class ArenaGame extends P.Game {
     const humans = this.humans.length;
     // a paid arena with the owner's bots: the people plus exactly the held bots
     if (this.paid) return this.paidBots && Number.isInteger(this.botCap) ? humans + this.botCap : humans;
-    if (!Number.isInteger(this.botCap)) return humans > 0 ? MP.FREE_SQUARES : MP.FREE_BOTS_IDLE;
-    return Math.min(humans + this.botCap, Math.max(MP.FREE_SQUARES, humans));
+    if (!Number.isInteger(this.botCap) && !this.botCurve) return humans > 0 ? MP.FREE_SQUARES : MP.FREE_BOTS_IDLE;
+    /* On the daily curve the automatic count is the clock's, held like a cap: above it nothing respawns and the
+       surplus leaves as it dies, below it the stock spawn adds one bot per spawnTimeout. */
+    const cap = Number.isInteger(this.botCap) ? this.botCap
+      : Math.max(0, Math.min(MP.FREE_BOTS_IDLE, Math.floor(this.botCurve()) || 0));
+    return Math.min(humans + cap, Math.max(MP.FREE_SQUARES, humans));
   }
 
   addUnit(unit) {

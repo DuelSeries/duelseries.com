@@ -2678,6 +2678,8 @@ const paperArenas = new PaperArenas({
      people-only unless the owner sets bots in Control (saved here); a bot never
      holds money and a bot arena's uncollected coins go back to their droppers. */
   awake: true,
+  /* Its free bots follow the same daily curve as the snake's (server/botPopulation.js, 6 to 15). */
+  botCurve: () => require('./botPopulation').gameBotTarget('paper'),
   botStore: require('./paidBotStore').createBotStore({ file: path.join(path.dirname(agJournal.file), 'paper-paid-bots.json') }),
   botBank,
   hooks: {

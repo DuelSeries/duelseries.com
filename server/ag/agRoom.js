@@ -157,7 +157,7 @@ class AgRoom {
   // socket whose account just closed (death, cash-out, release, refund) or that another socket replaced.
   constructor({ laws = LAWS, shippableOnly = true, stake = 0, region = 'na', index = 0, seed, clock = monotonicNow,
     now = Date.now, autoTick = true, log = console, viewBelowOf = null, portraitOf = null, moneyHooks = null,
-    onSeatless = null, paidBots = false } = {}) {
+    onSeatless = null, paidBots = false, botCurve = null } = {}) {
     if (shippableOnly) assertShippable(laws);
     const R = readRoomLaws(laws);
     this.laws = laws;
@@ -177,6 +177,10 @@ class AgRoom {
     this.clock = clock;
     this.now = now;
     this.autoTick = autoTick;
+    // A free room's daily curve (agArenas passes botPopulation's for agar): () -> bots to aim at now. Null: fill to L39.
+    this.botCurve = !this.paid && typeof botCurve === 'function' ? botCurve : null;
+    this._botWant = Infinity;   // the fill's last want, read where a dead bot respawns
+    this._botAddAt = -Infinity; // monotonic ms of the curve fill's last add
     // The free room from boot (setAwake, agArenas keepAwake): it ticks with nobody seated, so its bots are grown and
     // moving when the first person comes and a Spectate always has someone to follow. Never a paid room.
     this.awake = false;
@@ -351,14 +355,29 @@ class AgRoom {
     if (!this.isFree()) return; // paid bots are only the owner's, added by hand
     const auto = [];
     for (const b of this.bots.values()) if (!b.manual) auto.push(b);
-    const plan = agBots.planBotFill({ humans: this.liveHumans, bots: auto.length, botsAllowed: true }, this.laws);
-    if (plan.remove > 0) {
+    const target = this.botCurve ? this.botCurve() : undefined;
+    const plan = agBots.planBotFill({ humans: this.liveHumans, bots: auto.length, botsAllowed: true, target }, this.laws);
+    this._botWant = plan.want;
+    // On the curve only the room size forces a bot out alive; a falling curve lets bots go as they die (tick).
+    const out = this.botCurve ? plan.yieldNow : plan.remove;
+    if (out > 0) {
       auto.sort((a, b) => b.pid - a.pid);   // the newest automatic bots go first
-      for (let i = 0; i < plan.remove && i < auto.length; i++) this._removeBot(auto[i]);
+      for (let i = 0; i < out && i < auto.length; i++) this._removeBot(auto[i]);
     }
     if (plan.add > 0 && !(this._botsPausedUntil > this.now())) {
-      for (let i = 0; i < plan.add; i++) this._spawnBot(false);
+      if (!this.botCurve) {
+        for (let i = 0; i < plan.add; i++) this._spawnBot(false);
+      } else if (this.clock() - this._botAddAt >= agBots.BOT_TUNING.FILL_GAP_MS.value) {
+        this._botAddAt = this.clock();
+        this._spawnBot(false);   // one at a time, the way people arrive
+      }
     }
+  }
+
+  _autoBotCount() {
+    let n = 0;
+    for (const b of this.bots.values()) if (!b.manual) n++;
+    return n;
   }
 
   _spawnBot(manual) {
@@ -750,6 +769,8 @@ class AgRoom {
       if (this._alive(bot.pid)) continue;
       // a paid bounty bot is never back (no respawn, Owen 2026-10-17): its money moved with its last cell
       if (this.money && this.paidBots) this._removeBot(bot);
+      // the daily curve fell below the room: this one leaves the way a person does, after dying, never alive
+      else if (this.botCurve && !bot.manual && this._autoBotCount() > this._botWant) this._removeBot(bot);
       else this.sim.spawn(bot.pid, bot.name);   // a dead bot is back on the next step
     }
     this.fillBots();

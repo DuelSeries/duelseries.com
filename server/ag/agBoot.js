@@ -80,11 +80,13 @@ function openAg(opts) {
   try {
     const { laws, dev } = loadAgLaws(env, log);
     const { AgArenas } = require('./agArenas');
+    const { gameBotTarget } = require('../botPopulation');
     const { attachAgSockets } = require('./agSockets');
     const m = o.money || null;
     const paid = agPaidSwitch(env.AG_PAID, log) && !!(m && m.hooks && m.door);
     const arenas = new AgArenas({ region: o.region || 'na', laws, shippableOnly: !dev, log,
-      autoTick: o.autoTick !== false, paid, moneyHooks: paid ? m.hooks : null, botStore: paid ? o.botStore : null, botBank: paid ? o.botBank : null });
+      autoTick: o.autoTick !== false, paid, moneyHooks: paid ? m.hooks : null, botStore: paid ? o.botStore : null, botBank: paid ? o.botBank : null,
+      botCurve: o.botCurve === false ? null : () => gameBotTarget('agar') });
     if (paid) {
       try {
         arenas.startBots();
