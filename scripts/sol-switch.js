@@ -34,7 +34,7 @@ function botKeypair() {
   return loadKeypair(DATA_DIR);
 }
 
-async function check() {
+async function check({ quiet = false } = {}) {
   const out = {};
   const price = createSolPrice({ log: null });
   await price.poll();
@@ -61,7 +61,8 @@ async function check() {
   const usd = out.price.used;
   if (usd) out.escrow.solUsd = Math.round(out.escrow.sol * usd * 100) / 100;
   out.safeToFlip = out.stakes ? out.stakes.verifying === 0 && !!usd : false;
-  console.log(JSON.stringify(out, null, 2));
+  if (!quiet) console.log(JSON.stringify(out, null, 2));
+  return out;
 }
 
 async function convertOne(label, kp, swap) {
@@ -78,6 +79,14 @@ async function convertOne(label, kp, swap) {
 
 async function convert() {
   if (!process.argv.includes('--yes')) { console.log('convert moves real money: add --yes'); process.exit(2); }
+  // Only when check is clean (no verifying stake, an agreed price, no owed rows), unless --force (Fable finding 8)
+  const c = await check({ quiet: true });
+  const clean = c.safeToFlip && c.owed && c.owed.rows === 0;
+  if (!clean && !process.argv.includes('--force')) {
+    console.log('not converting: check is not clean (verifying ' + (c.stakes && c.stakes.verifying) + ', owed rows ' + (c.owed && c.owed.rows)
+      + ', price ' + c.price.used + '). Fix that first, or add --force.');
+    process.exit(3);
+  }
   const price = createSolPrice({ log: null });
   await price.poll();
   const swap = Swap.createSwap({

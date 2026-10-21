@@ -2155,6 +2155,8 @@ async function withSkinItems(wallet, page) {
     try {
       const row = await db.skinRow(t.skinRef);
       if (row && row.wallet === wallet && skinCatalog.ID.test(row.game) && skinCatalog.ID.test(row.skin)) t.skinItem = row.game + ':' + row.skin;
+      // SOL mode: what it sold for, in dollars (not its SOL at the day's rate)
+      if (row && row.wallet === wallet && row.asset === 'sol' && Number(row.usd_micro) > 0) t.usd = Number(row.usd_micro) / 1e6;
     } catch (_) { /* no database: the row stays "Skin" */ }
   }
   return page;

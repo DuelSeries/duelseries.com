@@ -185,6 +185,15 @@ function createSkinShop({ store, chain, mint, revenueAta, paused = () => false, 
     while (issued.size > 2000) issued.delete(issued.keys().next().value);
   }
   const lastLook = new Map();        // ref -> when the page last made us ask the chain (one look per 3 s per ref)
+  /* SOL rows: ref -> the blockhash its quote was given (newest 2000). A SOL row's lamports are a price at one moment,
+     so its payment must be built on that quote's own blockhash (valid about 90 s), never a later one taken from
+     another intent: otherwise an old quote could be paid after SOL rose (Fable review 2026-10-21, finding 1). */
+  const solQuoteBh = new Map();
+  function rememberSolQuote(ref, blockhash) {
+    solQuoteBh.delete(ref);
+    solQuoteBh.set(ref, blockhash);
+    while (solQuoteBh.size > 2000) solQuoteBh.delete(solQuoteBh.keys().next().value);
+  }
 
   const expectOf = (row) => ({ wallet: row.wallet, units: BigInt(row.units), mint, revenueAta, ref: row.ref,
                                asset: row.asset === 'sol' ? 'sol' : 'usdc', revenueWallet, usdMicro: row.usd_micro });
@@ -208,7 +217,7 @@ function createSkinShop({ store, chain, mint, revenueAta, paused = () => false, 
     if (row.state === 'submitted') return { status: 200, body: { pending: true, ref: row.ref, item: row.item } };
     // An open row from before a price change (Owen edited the price list since) is closed unpaid and a new one opened
     // at today's price, so a quote is always the price the page shows.
-    if (String(row.units) !== it.units.toString()) {
+    if (String(row.units) !== it.units.toString() || (row.asset && row.asset !== 'usdc')) {
       await store.skinExpire(row.ref);
       row = await fresh();
       if (!row || row.state !== 'open' || String(row.units) !== it.units.toString()) return { status: 503, body: { error: NOT_SELLING } };
@@ -240,6 +249,7 @@ function createSkinShop({ store, chain, mint, revenueAta, paused = () => false, 
     }
     const { blockhash, lastValidBlockHeight } = await chain.latestBlockhash();
     remember(blockhash, lastValidBlockHeight);
+    rememberSolQuote(row.ref, blockhash);
     return { status: 200, body: {
       ref: row.ref, item: row.item, asset: 'sol', units: String(row.units), lamports: Number(row.units),
       amountUsd: Number(it.units) / 1e6, payTo: revenueWallet, memo: memoFor(row.ref), memoProgram: MEMO_PROGRAM, blockhash,
@@ -338,6 +348,9 @@ function createSkinShop({ store, chain, mint, revenueAta, paused = () => false, 
     if (paused()) return { status: 503, body: { error: NOT_SELLING } };
     const lastValid = issued.get(info.blockhash);
     if (!lastValid) return { status: 400, body: { error: 'That payment was for an old price check. Nothing was sent. Try again.', state: 'open' } };
+    if (row.asset === 'sol' && solQuoteBh.get(row.ref) !== info.blockhash) {
+      return { status: 400, body: { error: 'That payment was for an old price check. Nothing was sent. Try again.', state: 'open' } };
+    }
     const problem = paymentProblem(raw, expectOf(row));
     if (problem) {
       log.warn(`[SKINS] refused unsent ${ref}: ${problem}`);

@@ -504,7 +504,7 @@ async function priceSolRows(rows, priceOn) {
   if (typeof priceOn !== 'function') return;
   let asked = 0;
   for (const r of rows) {
-    if ((r.kind !== 'sol' && r.kind !== 'skin') || r.usd != null || !r.at || !(r.sol > 0)) continue;
+    if (r.kind !== 'sol' || r.usd != null || !r.at || !(r.sol > 0)) continue;   // a SOL skin row gets its sale price (index.js withSkinItems)
     if (asked >= PRICE_LOOKUPS_PER_ASK) break;
     asked++;
     let p = null;

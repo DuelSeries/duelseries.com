@@ -46,3 +46,34 @@ test('landed: the revenue wallet\'s gain inside this transaction, granted at the
   assert.match(landedProblem(tx(9_294_999), expect).problem, /lamports/);
   assert.strictEqual(landedProblem(tx(9_295_000, false), expect).problem, 'memo missing');
 });
+
+test('a SOL row pays only on its own quote\'s blockhash, never on a later one from another intent', async () => {
+  const { createSkinShop } = require('../server/skinShop');
+  const rows = new Map();
+  const store = {
+    ownsItem: async () => false,
+    skinOpen: async (r) => { for (const x of rows.values()) if (x.wallet === r.wallet && x.item === r.item && x.state === 'open') return x;
+      const row = { ref: r.ref, wallet: r.wallet, item: r.item, game: r.game, skin: r.skin, units: r.units, state: 'open', asset: r.asset, usd_micro: r.usdMicro };
+      rows.set(r.ref, row); return row; },
+    skinRow: async (ref) => rows.get(ref) || null,
+    skinExpire: async (ref) => { const x = rows.get(ref); if (x) x.state = 'expired'; },
+  };
+  let n = 0, txBh = null;
+  const chain = { latestBlockhash: async () => ({ blockhash: 'BH' + (++n), lastValidBlockHeight: 100 }),
+                  txInfo: () => ({ signature: 'S'.repeat(88), blockhash: txBh }) };
+  const shop = createSkinShop({ store, chain, mint: 'M', revenueAta: 'A', asset: () => 'sol', solQuote: () => 9_295_000,
+                                revenueWallet: revenue, log: { warn() {}, log() {} } });
+  const catalog = require('../server/skinCatalog');
+  const shopPrices = require('../shared/shopPrices');
+  const items = [];
+  for (const g of Object.keys(shopPrices.PRICES)) for (const k of Object.keys(shopPrices.PRICES[g])) if (catalog.itemOf(g, k)) items.push([g, k]);
+  assert.ok(items.length >= 2, 'two skins for sale');
+  const a = await shop.intent({ game: items[0][0], skin: items[0][1], wallet });
+  assert.strictEqual(a.status, 200, JSON.stringify(a.body));
+  assert.strictEqual(a.body.asset, 'sol');
+  await shop.intent({ game: items[1][0], skin: items[1][1], wallet });   // a later blockhash, BH2
+  txBh = 'BH2';
+  const late = await shop.buy({ ref: a.body.ref, signedTx: 'AAAA' });
+  assert.strictEqual(late.status, 400);
+  assert.match(late.body.error, /old price check/);
+});
