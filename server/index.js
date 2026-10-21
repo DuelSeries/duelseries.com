@@ -437,8 +437,12 @@ app.get('/api/money-config', (req, res) => {
   // network lets the client build an explorer link that points at the cluster the
   // payout actually happened on, instead of guessing mainnet.
   res.json({ mode: money.mode, unit: money.unit, usdcMint: money.usdcMint || null, decimals: money.decimals || 6, network: process.env.SOLANA_NETWORK || 'mainnet-beta',
-             // SOL <-> USDC in the player's own wallet (server/swap.js): what the Wallet tab offers.
-             swap: money.mode === 'usdc', solReserve: Swap.RULES.RESERVE_LAMPORTS / 1e9,
+             /* SOL mode (money.js solBackend): games count in dollars (unit 'USD'), money moves as SOL (payUnit).
+                solUsd is display only (the $ beside a SOL balance); every payment is priced on the server. */
+             payUnit: money.payUnit || money.unit, solUsd: money.price ? money.price.peek() : prices.getSolUsdRate(),
+             // SOL <-> USDC in the player's own wallet (server/swap.js): what the Wallet tab offers. SOL mode
+             // offers only old USDC -> SOL in the same wallet (and Withdraw as SOL); USDC mode as before.
+             swap: true, convertDirs: SWAP_DIRS[money.mode] || [], solReserve: Swap.RULES.RESERVE_LAMPORTS / 1e9,
              minConvertSol: Swap.RULES.MIN_SOL_IN / 1e9, minWithdrawSolUsd: Swap.RULES.MIN_USDC_IN / 1e6,
              cardStartSol: cardStartSol(),
              /* Coinbase Onramp's row in Add funds: held back while Coinbase caps this app at about
@@ -572,6 +576,12 @@ async function owedForLateStake(row) {
     v = await money.verifyStake(row.sig, expected);
   } catch (e) {
     const m = String((e && e.message) || e);
+    /* SOL mode: a short stake is still money that landed. Its verify reports it in dollars at its quote's rate
+       (money.js), and it goes home as a refund of exactly that, never kept: in SOL mode only a price that moved
+       between a lost quote and a restart can make an honest stake look short. */
+    if (/too small/i.test(m) && Number(e.landedUsd) > 0 && typeof e.payer === 'string') {
+      return { payer: e.payer, amount: refundBound(Number(e.landedUsd)) };
+    }
     if (/too small|did not pay the escrow|failed on-chain/i.test(m)) return { reject: m };
     throw e;
   }
@@ -754,6 +764,17 @@ app.get('/api/sol-balance', rpcLimiter, async (req, res) => {
   // A key's size and alphabet before new PublicKey() decodes it (quadratic: server/b58Caps.js).
   if (!isWalletString(address)) return res.status(400).json({ error: 'Invalid address' });
   try {
+    if (money.mode === 'sol') {
+      /* SOL mode: the wallet's SOL is its money. balance is that SOL in dollars at the display rate (null with no
+         good rate: shown as unknown, never guessed), solNative the SOL itself, usdc any old USDC (the Wallet tab's
+         Convert to SOL / Withdraw USDC line). A failed USDC read only hides that line. */
+      const solNative = await Wallet.getAddressBalance(address);
+      const rate = money.price.peek();
+      let usdc = null;
+      try { usdc = await Usdc.usdcBalanceOf(address); } catch (_) { usdc = null; }
+      const usd = rate ? solNative * rate : null;
+      return res.json({ address, sol: usd, balance: usd, unit: money.unit, solNative, usdc, solUsd: rate });
+    }
     const sol = await money.balanceOf(address); // native unit (SOL or USDC); `sol` field kept for client back-compat
     /* The SOL beside the dollars (Owen, 2026-10-15: "Accept both, play in USDC"): card top-ups and
        exchange sends arrive as SOL, and the Wallet tab shows it under the balance with Convert. */
@@ -812,12 +833,15 @@ const swap = Swap.createSwap({
   chain: Swap.chainFromConnection(Wallet.connection),
   jupiter: Swap.createJupiter({ apiKey: process.env.JUP_API_KEY || '' }),
   usdcMint: () => money.usdcMint,
-  refSolUsd: () => prices.getSolUsdRate(),
+  refSolUsd: () => (money.price ? money.price.peek() : prices.getSolUsdRate()),
   log: (m) => console.log('[SWAP] ' + m),
 });
 const swapQuoteLimiter = rateLimit({ windowMs: 60 * 1000, max: 12, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Slow down.' } });
 const swapExecLimiter = rateLimit({ windowMs: 60 * 1000, max: 6, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Slow down.' } });
 const SWAP_OFF = 'Converting is not available right now.';
+/* Which conversions each money mode offers. SOL mode: only a player's old USDC becoming SOL in their own wallet
+   (usdcToSol), and Withdraw as SOL (toSol, USDC paid out as SOL to another wallet). Never SOL to USDC. */
+const SWAP_DIRS = { usdc: ['toUsdc', 'toSol'], sol: ['usdcToSol', 'toSol'] };
 function swapFail(res, e, what) {
   if (e && e.publicMessage) return res.status(400).json({ error: e.publicMessage, signature: e.signature || undefined });
   console.warn('[SWAP] ' + what + ' error: ' + (e && e.message));
@@ -826,14 +850,14 @@ function swapFail(res, e, what) {
     : 'Could not get a price. Try again.' });
 }
 app.get('/api/swap/quote', swapQuoteLimiter, async (req, res) => {
-  if (money.mode !== 'usdc') return res.status(400).json({ error: SWAP_OFF });
+  if (!(SWAP_DIRS[money.mode] || []).includes(strOr(req.query.dir, ''))) return res.status(400).json({ error: SWAP_OFF });
   try {
     res.json(await swap.quote({ wallet: strOr(req.query.wallet, ''), dir: strOr(req.query.dir, ''),
                                 amount: strOr(req.query.amount, ''), receiver: strOr(req.query.receiver, '') || null }));
   } catch (e) { swapFail(res, e, 'quote'); }
 });
 app.post('/api/swap/execute', swapExecLimiter, express.json({ limit: '16kb' }), async (req, res) => {
-  if (money.mode !== 'usdc') return res.status(400).json({ error: SWAP_OFF });
+  if (!SWAP_DIRS[money.mode]) return res.status(400).json({ error: SWAP_OFF });   // the quote checked its direction
   const b = req.body || {};
   try {
     res.json(await swap.execute({ requestId: strOr(b.requestId, ''), signedTransaction: strOr(b.signedTransaction, '') }));
@@ -857,7 +881,7 @@ function stakePaused() {
    row was written: the money sat in escrow with no record and no refund. So every paid ladder
    quote and submit is refused in any other mode, before a wallet prompt or a broadcast. */
 const LADDER_NEEDS_USDC = 'Paid buy-ins are not available right now. Free play still works.';
-const ladderPriced = () => money.mode === 'usdc';
+const ladderPriced = () => money.mode === 'usdc' || money.mode === 'sol';   // SOL mode prices the ladder in dollars too (money.js)
 
 /* The pending-verify claim, made BEFORE a client-signed stake is broadcast (security review
    2026-10-15, findings 3 and 5; server/stakeLedger.js). Wallet.submitStake reads the signature,
@@ -902,7 +926,8 @@ app.get('/api/stake-quote', entryFeeLimiter, async (req, res) => {
     try {
       return res.json({ stake, ...(await money.stakeQuoteFor(stake)) });
     } catch (e) {
-      return res.status(500).json({ error: e.message });
+      // SOL mode with no good price: refused before any wallet prompt (server/solPrice.js)
+      return res.status(e && e.code === money.waitCode ? 503 : 500).json({ error: e.message });
     }
   }
 
@@ -4284,7 +4309,8 @@ if (slPaid) everyStaggered(() => {
 const payoutDrainer = require('./payoutDrainer').createPayoutDrainer({
   db,
   money,
-  noAccountCode: Usdc.RECIPIENT_NO_USDC_ACCOUNT,
+  // SOL mode: "nothing signed, try later" (no good SOL price, or dust to an empty wallet): the slow lane, never dropped
+  noAccountCode: money.waitCode || Usdc.RECIPIENT_NO_USDC_ACCOUNT,
 });
 /* One drain at a time (security review 2026-10-15, "drainer double pay"): this tick and kickDrain
    below both land here, and a call made while a drain is running merges into one follow-up run

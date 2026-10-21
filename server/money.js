@@ -1,19 +1,18 @@
 // Money backend abstraction. The game treats a player's "worth" as an opaque number; THIS module
 // is the only place that knows whether that number is denominated in SOL or USDC. The active
 // backend is chosen once at startup by the MONEY_MODE env var:
-//   • MONEY_MODE=sol            -> native-SOL path (Wallet.js) — the pre-cutover behaviour.
+//   • MONEY_MODE=sol            -> native SOL (Wallet.js), games still counting in dollars (solBackend below,
+//     Owen's move back to SOL, 2026-10-17). Every amount crossing this module is dollars in BOTH modes.
 //   • MONEY_MODE=usdc (DEFAULT) -> USDC SPL-token path (Usdc.js). Default flipped at the live
-//     cutover (2026-06-24); set MONEY_MODE=sol to roll back instantly.
+//     cutover (2026-06-24). Flipping between the two is the rollback switch: nothing in play changes unit.
 // The USDC code shipped dormant and was switched on at cutover by changing this default (no SSH
 // access to set the env var on the servers), without ever deploying a broken-money intermediate.
 const Wallet = require('./Wallet');
 const Usdc   = require('./Usdc');
-const prices = require('./prices');
 
 const MODE = (process.env.MONEY_MODE || 'usdc').toLowerCase();
 
-// Lobby entry fees. SOL mode prices them in CAD (then converts to SOL); USDC mode prices them in
-// USD (which IS USDC, 1:1). Same lobby keys either way.
+// Lobby entry fees, in dollars in both modes (SOL mode converts them to lamports at the quote).
 /* br is the nightly Battle Royale and it costs nothing to enter — the prize
    comes from the house. It has to be IN this table even so, because the table is
    what validates a lobby type: without it the stake quote answered 'Unknown
@@ -27,37 +26,75 @@ const MODE = (process.env.MONEY_MODE || 'usdc').toLowerCase();
    room, kept as it was. */
 const FEES = { free: 0, br: 0, dollar: 1.00 };
 
+/* SOL mode (Owen 2026-10-17: "everything swapped back to SOL"). Games still count in DOLLARS, exactly as in
+   USDC mode: every amount this backend is handed or answers is dollars, so entry tokens, banks, payout rows,
+   rake rows, earnings and every screen are unchanged. SOL exists only here, at the doors:
+     in : a stake quote converts its dollars to lamports at a fresh two-source rate (server/solPrice.js) and
+          remembers that rate under the quote's blockhash; the verify prices what landed at the same rate.
+     out: a payout converts its dollars to lamports at the rate of the moment it is built (rounded down).
+   No good rate means no new quote and no new payout transaction (PRICE_WAIT: the payout waits as an owed row).
+   The old SOL backend priced in CAD with a 200 CAD guess when it had no rate; it is gone. */
+const solPrice = require('./solPrice');
+const { lamportsUp, lamportsDown, microDown, PRICE_WAIT } = solPrice;
+const price = solPrice.createSolPrice();
+/* blockhash -> the rate its first quote used. Kept for 10 minutes (a blockhash is valid for about 90 s). A
+   second quote on the same blockhash reuses that rate, so every quote built from one blockhash asks for lamports
+   at one rate and the verify can never price an honest stake above what its quote asked. */
+const QUOTE_RATE_MS = 10 * 60 * 1000;
+const quoteRates = new Map();
+function rateForQuote(blockhash) {
+  const t = Date.now();
+  for (const [bh, q] of quoteRates) { if (t - q.at > QUOTE_RATE_MS) quoteRates.delete(bh); else break; }
+  const had = quoteRates.get(blockhash);
+  if (had) return had.usd;
+  const usd = price.usdPerSol();                        // throws PRICE_WAIT
+  quoteRates.set(blockhash, { usd, at: t });
+  return usd;
+}
+async function solQuote(usd) {
+  const { blockhash } = await Wallet.getLatestBlockhash();
+  const rate = rateForQuote(blockhash);
+  const lamports = lamportsUp(usd, rate);
+  return { mode: 'sol', escrowAddress: Wallet.getEscrowPublicKey(), lamports, feeSol: lamports / 1e9,
+           amountUsd: usd, rate, blockhash };
+}
 const solBackend = {
-  mode: 'sol', unit: 'SOL', lobbyFees: FEES,
-  feeFor: (t) => prices.cadToSol(FEES[t] || 0),                       // CAD fee -> SOL stake
-  async stakeQuote(t) {
-    const feeSol = prices.cadToSol(FEES[t] || 0);
-    const { blockhash } = await Wallet.getLatestBlockhash();
-    return { mode: 'sol', escrowAddress: Wallet.getEscrowPublicKey(), lamports: Math.round(feeSol * 1e9), feeSol, blockhash };
+  mode: 'sol', unit: 'USD', payUnit: 'SOL', lobbyFees: FEES,
+  feeFor: (t) => FEES[t] || 0,                                        // dollars, as in USDC mode
+  stakeQuote: (t) => solQuote(FEES[t] || 0),
+  stakeQuoteFor: (amount) => solQuote(Number(amount) || 0),
+  amountFor: (amount) => Number(amount) || 0,
+  /* expected is dollars. What landed is priced at its quote's rate (the blockhash it was built on); a stake whose
+     quote this process no longer remembers (a restart in between) is priced at the rate now. Covered -> worth is
+     exactly `expected` (the overpay of under a lamport stays in escrow, as an overpay does in USDC mode). Short ->
+     throws 'Stake too small' carrying what landed in dollars (e.landedUsd, e.payer), so a late stake's refund pays
+     back what landed instead of nothing (server/index.js owedForLateStake). */
+  async verifyStake(sig, expected) {
+    const { payer, lamports, blockhash } = await Wallet.verifyStakeTransfer(sig, 0);
+    const q = quoteRates.get(blockhash);
+    const rate = q ? q.usd : price.usdPerSol();
+    const need = lamportsUp(expected, rate);
+    if (lamports < need) {
+      const e = new Error(`Stake too small (${lamports} < ${need} lamports)`);
+      e.landedUsd = lamports > 0 ? microDown(lamports, rate) / 1e6 : 0;
+      e.payer = payer;
+      throw e;
+    }
+    return { payer, worth: Number(expected), lamports, rate };
   },
-  // Any-amount sibling of stakeQuote. Same shape; the amount comes from the
-  // player rather than from the tier table. `amount` is in the fiat unit (CAD
-  // here), matching FEES, and is converted to SOL the same way feeFor does.
-  async stakeQuoteFor(amount) {
-    const feeSol = prices.cadToSol(Number(amount) || 0);
-    const { blockhash } = await Wallet.getLatestBlockhash();
-    return { mode: 'sol', escrowAddress: Wallet.getEscrowPublicKey(), lamports: Math.round(feeSol * 1e9), feeSol, blockhash };
-  },
-  amountFor: (amount) => prices.cadToSol(Number(amount) || 0),
-  async verifyStake(sig, expected) {                                  // expected = fee in SOL
-    const minLamports = Math.round(expected * 1e9 * 0.95);            // tolerate 5% price slippage
-    const { payer, lamports } = await Wallet.verifyStakeTransfer(sig, minLamports);
-    return { payer, worth: lamports / 1e9 };
-  },
-  withdraw:      (addr, amt) => Wallet.withdraw(addr, amt),
+  // Dollars out, converted when the transaction is built (Wallet.buildSignedPayout refuses dust to an empty wallet).
+  withdraw: (addr, usd) => Wallet.withdraw(addr, null, { lamports: lamportsDown(usd, price.usdPerSol()) }),
   allowAccountRentFor: () => {},                                      // SOL has no token account
-  attemptPayout: (row, fn)   => Wallet.attemptPayout(row, fn),
-  escrowBalance: ()          => Wallet.getEscrowBalance(),
-  balanceOf:     (addr)      => Wallet.getAddressBalance(addr),
-  fiatValue:     (amt)       => amt * prices.getSolCadRate(),         // SOL -> CAD (for earnings)
-  usdcMint:      null, decimals: 9,
+  attemptPayout: (row, fn) => Wallet.attemptPayout(row, fn, (r) => lamportsDown(r.amount_sol, price.usdPerSol())),
+  // In dollars at the rate now, so solvency compares like with like. Throws PRICE_WAIT without a rate.
+  async escrowBalance() { const sol = await Wallet.getEscrowBalance(); return sol * price.usdPerSol(); },
+  async escrowSol() { return Wallet.getEscrowBalance(); },
+  async balanceOf(addr) { const sol = await Wallet.getAddressBalance(addr); return sol * price.usdPerSol(); },
+  fiatValue:     (amt)       => amt,                                  // dollars already
+  waitCode: PRICE_WAIT,
+  price,
+  usdcMint:      Usdc.USDC_MINT.toString(), decimals: 6,              // the convert-old-USDC line still needs the mint
 };
-
 const usdcBackend = {
   mode: 'usdc', unit: 'USDC', lobbyFees: FEES,
   feeFor: (t) => FEES[t] || 0,                                        // USD fee = USDC stake
@@ -93,6 +130,8 @@ const usdcBackend = {
   usdcMint:      Usdc.USDC_MINT.toString(), decimals: Usdc.USDC_DECIMALS,
 };
 
-const money = (MODE === 'usdc') ? usdcBackend : solBackend;
-console.log(`[MONEY] mode: ${money.mode.toUpperCase()} (worth denominated in ${money.unit})`);
+const money = (MODE === 'sol') ? solBackend : usdcBackend;
+// SOL_PRICE_POLL=off: tests seed readings by hand and never touch the network
+if (money.mode === 'sol' && process.env.SOL_PRICE_POLL !== 'off') price.start();
+console.log(`[MONEY] mode: ${money.mode.toUpperCase()} (games count in dollars, paid in ${money.payUnit || money.unit})`);
 module.exports = money;

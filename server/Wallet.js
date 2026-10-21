@@ -76,10 +76,14 @@ async function withRetry(fn, retries = 5, delay = 600) {
 // recover it later. The signature is deterministic from the signed bytes, so re-broadcasting
 // the SAME bytes can only ever land ONCE — that property is what makes payout retries safe from
 // double-paying. (Payouts are money-critical, so the reads here retry harder than the default.)
-async function buildSignedPayout(toAddress, amountSol) {
+// opts.lamports (SOL mode, server/money.js): the exact integer amount, already converted from dollars, used
+// instead of amountSol so no float round trip can move it by a lamport.
+async function buildSignedPayout(toAddress, amountSol, opts) {
   const escrow   = getEscrowKeypair();
   const toPubkey = new PublicKey(toAddress);
-  const lamports = Math.floor(amountSol * LAMPORTS_PER_SOL);
+  const exact    = opts && opts.lamports;
+  const lamports = exact !== undefined && exact !== null ? Number(exact) : Math.floor(amountSol * LAMPORTS_PER_SOL);
+  if (!Number.isSafeInteger(lamports) || lamports < 1) throw new Error('Payout amount is not a positive number of lamports');
 
   const [escrowBalance, rentMin] = await Promise.all([
     withRetry(() => connection.getBalance(escrow.publicKey), 8),
@@ -89,6 +93,17 @@ async function buildSignedPayout(toAddress, amountSol) {
   if (maxWithdrawable <= 0) throw new Error('Escrow has insufficient funds');
   if (lamports > maxWithdrawable) {
     throw new Error(`Amount too large. Max withdrawable: ${(maxWithdrawable / LAMPORTS_PER_SOL).toFixed(4)} SOL`);
+  }
+  /* A transfer under the rent-exempt minimum to an address with nothing on it fails on-chain (the new account
+     could not exist) and still costs the escrow its fee, every retry. Refused here, before anything is signed,
+     with the drainer's wait code so the owed row waits in the slow lane until the wallet holds some SOL. */
+  if (lamports < rentMin) {
+    const toBal = await withRetry(() => connection.getBalance(toPubkey), 8);
+    if (!(toBal > 0)) {
+      const e = new Error(`Payout of ${lamports} lamports waits: the receiving wallet is empty and it is under the ${rentMin} lamport minimum`);
+      e.code = PAYOUT_WAIT;
+      throw e;
+    }
   }
 
   const { blockhash, lastValidBlockHeight } = await withRetry(() => connection.getLatestBlockhash(), 8);
@@ -127,8 +142,8 @@ async function confirmSig(signature, lastValidBlockHeight, tries = 30) {
 
 // Inline cash-out payout (happy path). On any failure it attaches `e.broadcast` — the exact
 // signed bytes + signature — so the drainer can finish this same payout idempotently.
-async function withdraw(toAddress, amountSol) {
-  const built = await buildSignedPayout(toAddress, amountSol);
+async function withdraw(toAddress, amountSol, opts) {
+  const built = await buildSignedPayout(toAddress, amountSol, opts);
   try {
     await withRetry(() => connection.sendRawTransaction(built.raw, { skipPreflight: false }), 6);
     await withRetry(() => connection.confirmTransaction({ signature: built.signature, blockhash: built.blockhash, lastValidBlockHeight: built.lastValidBlockHeight }), 6);
@@ -149,7 +164,13 @@ async function withdraw(toAddress, amountSol) {
 // onFreshTx is a compare-and-set (db.savePayoutSignature): when it answers false another attempt
 // saved its own tx for this row first, and this fresh one is dropped unsent (Usdc.js has the same).
 const PAYOUT_SUPERSEDED = 'payout-superseded';
-async function attemptPayout(row, onFreshTx) {
+// "Nothing was signed; try this row again later" (no SOL price, or an empty wallet under the rent minimum).
+// The drainer moves such a row to its slow lane (server/payoutDrainer.js noAccountCode). Same string as
+// server/solPrice.js PRICE_WAIT.
+const PAYOUT_WAIT = 'payout-wait';
+// lamportsFor(row) (SOL mode): the exact lamports for a FRESH build only, so a row whose saved transaction is
+// still valid or already landed is settled without needing a price at all.
+async function attemptPayout(row, onFreshTx, lamportsFor) {
   if (row.signature) {
     const landed = await signatureLanded(row.signature);
     if (landed === true) return { paid: true, sig: row.signature };
@@ -165,7 +186,8 @@ async function attemptPayout(row, onFreshTx) {
     }
     // landed === false (errored on-chain) → build fresh
   }
-  const built = await buildSignedPayout(row.wallet_address, row.amount_sol);
+  const opts = typeof lamportsFor === 'function' ? { lamports: lamportsFor(row) } : undefined;
+  const built = await buildSignedPayout(row.wallet_address, row.amount_sol, opts);
   const saved = await onFreshTx({ signature: built.signature, signedTx: built.signedTx, blockhash: built.blockhash, lastValidBlockHeight: built.lastValidBlockHeight });
   if (saved === false) {
     const e = new Error('another attempt saved its own transaction for this payout first; nothing sent');
@@ -200,7 +222,8 @@ async function verifyStakeTransfer(signature, minLamports) {
   if (idx === -1) throw new Error('Stake did not pay the escrow');
   const lamports = tx.meta.postBalances[idx] - tx.meta.preBalances[idx];
   if (lamports < minLamports) throw new Error(`Stake too small (${lamports} < ${minLamports} lamports)`);
-  return { payer: accountKeys[0].toString(), lamports };
+  // blockhash: which stake quote this payment was built from (SOL mode prices it at that quote's rate, money.js)
+  return { payer: accountKeys[0].toString(), lamports, blockhash: tx.transaction.message.recentBlockhash };
 }
 
 async function getLatestBlockhash() {
@@ -417,4 +440,4 @@ async function getRecentSigs() {
 
 module.exports = { getEscrowPublicKey, getRecentSigs, withdraw, attemptPayout, getEscrowBalance, getAddressBalance, getEscrowDiagnostics, verifyStakeTransfer, getLatestBlockhash, forwardRpc, submitStake, NETWORK, setDb, seedUsedSignatures,
                    rpcRequestError, RPC_RELAY_METHODS, RPC_RELAY_MAX_BYTES, stakeTxInfo, stakeSigStatus, blockhashValid,
-                   PAYOUT_SUPERSEDED, connection };
+                   PAYOUT_SUPERSEDED, PAYOUT_WAIT, connection, withRetry };
