@@ -4,7 +4,7 @@
    seed). A MONEY PATH: a wrong or stale rate pays the wrong amount of real SOL.
 
    Three independent public sources, each read every 15 s (one request each, never batched):
-     Jupiter Price API v3 (on-chain liquidity), Coinbase spot, CoinGecko simple price.
+     Jupiter Price API v3 (on-chain liquidity), Coinbase spot, Kraken last trade.
    A reading counts only while it is under 60 s old. The rate is the median of the largest group of fresh
    readings whose highest is within 1.5 percent of its lowest, and it is given only when that group has two or more. Anything else (one source
    left, two that disagree, everything stale) answers PRICE_WAIT: no new stake is quoted and no payout is built
@@ -28,8 +28,14 @@ const SOURCES = Object.freeze([
     read: (j) => num(j && j[SOL_MINT] && j[SOL_MINT].usdPrice) },
   { name: 'coinbase', url: 'https://api.coinbase.com/v2/prices/SOL-USD/spot',
     read: (j) => (j && j.data && j.data.currency === 'USD' ? num(j.data.amount) : null) },
-  { name: 'coingecko', url: 'https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd',
-    read: (j) => num(j && j.solana && j.solana.usd) },
+  /* Kraken's last trade. CoinGecko was the third source until switch night: its free tier answered the server's
+     15 s polls with HTTP 429 from the first minute (shared AWS address), leaving only two sources. */
+  { name: 'kraken', url: 'https://api.kraken.com/0/public/Ticker?pair=SOLUSD',
+    read: (j) => {
+      if (!j || !Array.isArray(j.error) || j.error.length || !j.result) return null;
+      const t = j.result.SOLUSD || j.result[Object.keys(j.result)[0]];
+      return num(t && Array.isArray(t.c) ? t.c[0] : null);
+    } },
 ]);
 
 function priceWait(why) {

@@ -26,7 +26,7 @@ Set the default back to `'usdc'` (or `MONEY_MODE=usdc` in .env) and restart, und
 stakes, exactly as above. Escrow needs USDC again (it was converted on the night), so buy some first.
 
 ## What SOL mode does differently
-- Price: Jupiter + Coinbase + CoinGecko every 15 s, 60 s freshness, two within 1.5 percent. No good price: no new
+- Price: Jupiter + Coinbase + Kraken every 15 s, 60 s freshness, two within 1.5 percent. No good price: no new
   stake quote (503 before any wallet prompt), no new payout transaction (rows wait in the drainer's slow lane).
 - A stake quote's rate is locked to its blockhash; the verify prices what landed at it. A short stake from one cent
   up is refunded, never kept.

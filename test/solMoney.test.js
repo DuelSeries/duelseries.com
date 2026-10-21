@@ -41,13 +41,17 @@ test('price: each source reply is read, a bad reply keeps nothing', async () => 
   const replies = {
     'https://api.jup.ag/price/v3?ids=So11111111111111111111111111111111111111112': { So11111111111111111111111111111111111111112: { usdPrice: 107.58 } },
     'https://api.coinbase.com/v2/prices/SOL-USD/spot': { data: { amount: '107.61', currency: 'USD' } },
-    'https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd': { solana: { usd: 'nope' } },
+    'https://api.kraken.com/0/public/Ticker?pair=SOLUSD': { error: ['EGeneral:Too many requests'], result: { SOLUSD: { c: ['107.6', '1'] } } },
   };
   const fetchImpl = async (url) => ({ ok: true, json: async () => replies[url] });
   const p = createSolPrice({ fetchImpl, now: () => T0, log: null });
   await p.poll();
   assert.deepStrictEqual([...p._last.keys()].sort(), ['coinbase', 'jupiter']);
   assert.ok(Math.abs(p.current().usd - 107.595) < 1e-9);
+  replies['https://api.kraken.com/0/public/Ticker?pair=SOLUSD'] = { error: [], result: { SOLUSD: { c: ['107.6', '0.5'] } } };
+  await p.poll();
+  assert.strictEqual(p._last.get('kraken').usd, 107.6);
+  assert.strictEqual(p.current().usd, 107.6);   // median of three: 107.58, 107.6, 107.61
 });
 
 test('conversion is integer-exact: stakes round up, payouts round down, never off by float noise', () => {
