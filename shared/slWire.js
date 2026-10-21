@@ -597,15 +597,23 @@
 
   // `pv` = the protocol version the client holds when the first event is applied. An `init` that
   // carries `pv` switches it for the events after it, as the client does (game.js:7308).
+  // One writer reused by every call (bytes() copies out, and nothing in putEvent calls back in): the server encodes
+  // each event of a tick on its own (server/sl/slRecordCache.js), so a death burst was thousands of 256-byte buffers.
+  var scratch = null;
   function encodeBundle(events, pv) {
     if (!Array.isArray(events)) fail('events', events);
-    var cur = needPv(pv), w = new Writer();
+    var cur = needPv(pv), w = scratch || new Writer();
+    scratch = null;                     // held by this call; a throw below leaves the next call a fresh one
+    w.n = 0;
     w.u8(VERSION);
     for (var i = 0; i < events.length; i++) {
       var o = putEvent(w, events[i], cur);
       if (o.type === 'init' && o.pv !== undefined) cur = o.pv;
     }
-    return w.bytes();
+    var out = w.bytes();
+    if (w.b.length > 65536) w.b = new Uint8Array(256); // a big bundle does not pin its buffer
+    scratch = w;
+    return out;
   }
 
   function projectEvent(ev, pv) {
