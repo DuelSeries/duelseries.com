@@ -102,7 +102,7 @@ test('Knockout: no skin argument is a null skin (a caller that never heard of sk
   assert.ok(room && room.bot, 'a bot match');
   const ps = room.publicState();
   assert.equal(ps.players.find(p => p.id === A.id).skin, 'ruby');
-  assert.equal(ps.players.find(p => p.id === room.bot.id).skin, null, 'the bot wears nothing');
+  assert.equal(ps.players.find(p => p.id !== A.id).skin, null, 'the bot wears nothing');
 
   const lob2 = new KnockoutLobby(rig().io);
   const B = sock('ko-B2'), C = sock('ko-C2');
