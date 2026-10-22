@@ -61,6 +61,10 @@ const CARD_READ_S = ['best_rank'];
 // colour (Owen 2026-10-16 chat redo): the live snake's cs, else its skin's table colour.
 const CHAT_READ_S = ['os', 'rrs', 'ggs', 'bbs'];
 const WRITE_S = ['render_mode', 'xm', 'ym'];
+// slxQuality.js alone reads and writes their quality wish and switch (Owen 2026-10-21 Graphics quality): the two keys
+// their socket open sets from the stored "qual" (slLoop.js onSocketOpen), so a change in the lobby's Settings applies
+// without a reload. Their own fades do the rest.
+const QUALITY_S = ['want_quality', 'high_quality'];
 // The Spectate pages alone (slxWatch.js, slxBr.js's watcher; Owen 2026-10-16 "next buttons that instantly swap") cut
 // their death hold once their close has run for a switch: dead_mtm back to -1, so their loop connects the next Play at
 // once (slLoop step 3) instead of after the 1600 ms hold and the menu fade. That one write, to -1 only.
@@ -120,12 +124,12 @@ test('frozen members: only the 15.1 seams', () => {
       assert.ok(READ_S.includes(m[1]) || WRITE_S.includes(m[1]) || PICTURE_S.includes(m[1]) ||
         (f === 'slxPaid.js' && PAID_READ_S.includes(m[1])) || (f === 'slxBr.js' && BR_READ_S.includes(m[1])) ||
         (f === 'slxHud.js' && HUD_READ_S.includes(m[1])) || (f === 'slxCard.js' && CARD_READ_S.includes(m[1])) ||
-        (f === 'slxChat.js' && CHAT_READ_S.includes(m[1])),
+        (f === 'slxChat.js' && CHAT_READ_S.includes(m[1])) || (f === 'slxQuality.js' && QUALITY_S.includes(m[1])),
         f + ': S.' + m[1]);
     }
     for (const m of s.matchAll(/\bS\.([A-Za-z_$][\w$]*)\s*=(?!=)/g)) {
       const quick = QUICK_FILES.includes(f) && m[1] === 'dead_mtm' && /^\s*=\s*-1;/.test(s.slice(m.index + m[0].length - 1));
-      assert.ok(WRITE_S.includes(m[1]) || quick, f + ': writes S.' + m[1]);
+      assert.ok(WRITE_S.includes(m[1]) || quick || (f === 'slxQuality.js' && QUALITY_S.includes(m[1])), f + ': writes S.' + m[1]);
     }
     for (const m of s.matchAll(/\bslither\.([A-Za-z_$][\w$]*)/g)) assert.ok(SLITHER_FIELDS.includes(m[1]), f + ': slither.' + m[1]);
     for (const m of s.matchAll(/\bhooks\.([A-Za-z_$][\w$]*)/g)) assert.ok(HOOKS.includes(m[1]), f + ': hooks.' + m[1]);

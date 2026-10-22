@@ -1161,6 +1161,14 @@ body.ingame>.howveil,body.ingame>.meveil,body.ingame>.apscreen,body.ingame>.bshe
 .sw[aria-checked="true"]::after{transform:translateX(18px);background:var(--ink)}
 .sw:disabled{opacity:.4;cursor:default}
 .sw:focus-visible{outline:2px solid var(--bone);outline-offset:2px}
+/* Settings' Graphics group: two choices in one pill, the chosen one in bone like an on switch. */
+.gfxrow{flex-wrap:wrap}
+.gfxrow>div:first-child{min-width:190px}
+.gfxrow>.seg{flex:none}
+.seg{flex:none;display:inline-flex;gap:2px;padding:3px;border-radius:var(--rf);background:var(--s3)}
+.seg button{padding:6px 12px;border-radius:var(--rf);font-size:13px;font-weight:600;color:var(--tx2);white-space:nowrap;transition:background .15s,color .15s}
+.seg button[aria-pressed="true"]{background:var(--bone);color:var(--ink)}
+.seg button:focus-visible{outline:2px solid var(--bone);outline-offset:2px}
 /* Settings' Sound group: the volume slider sits where a switch would. */
 .vol{flex:none;width:min(170px,42vw);height:26px;margin:0;accent-color:var(--bone);cursor:pointer}
 .vol:disabled{opacity:.4;cursor:default}
@@ -2772,8 +2780,8 @@ body.scr-anim { overflow-x:hidden }
      a single shared stub is the same node on both sides of a swipe, so the
      drag had nothing to move and the gesture did nothing between them. -->
 <!-- ══ SETTINGS ══ -->
-<!-- Only settings that do something. There is no graphics tier to pick, and a
-     switch that changes nothing is worse than no switch. -->
+<!-- Only settings that do something: a switch that changes nothing is worse
+     than no switch. -->
 <main id="settings-screen" class="wrap">
   <div class="head"><div><h2>Settings</h2></div></div>
   <div class="setgrid">
@@ -2797,6 +2805,18 @@ body.scr-anim { overflow-x:hidden }
         <input type="range" class="vol" id="set-vol" min="0" max="100" step="5" value="70" aria-labelledby="set-vol-l"></div>
       <div class="swrow set-pc"><div><b id="set-hov-l">Hover sounds</b><span>A soft tick when the mouse moves onto a button.</span></div>
         <button type="button" class="sw" id="set-hov" role="switch" aria-checked="true" aria-labelledby="set-hov-l" onclick="setHov(this)"></button></div>
+    </section>
+
+    <!-- Graphics quality (Owen 2026-10-21): slither's own low quality, stored in
+         its own key "qual" ('0' is Low). High is today's look. An open game
+         picks a change up at once (public/js/slx/slxQuality.js). -->
+    <section class="panel" aria-labelledby="set-gfx-h">
+      <h3 class="sh" id="set-gfx-h">Graphics</h3>
+      <div class="swrow gfxrow"><div><b id="set-gfx-l">Quality</b><span>Low turns off the food glow in slither so big fights stay smooth on slower PCs.</span></div>
+        <div class="seg" id="set-gfx" role="group" aria-labelledby="set-gfx-l">
+          <button type="button" data-q="1" aria-pressed="true" onclick="setGfx(this)">High (default)</button>
+          <button type="button" data-q="0" aria-pressed="false" onclick="setGfx(this)">Low (faster)</button>
+        </div></div>
     </section>
 
     <!-- The in-game clip recorder (public/js/clip/clipRec.js) reads these when a
@@ -4892,6 +4912,17 @@ function drawSettings(){
   drawAcct();
   drawClipSet();
   drawSndSet();
+  drawGfxSet();
+}
+/* Graphics quality: slither's own storage key "qual", '0' is Low and no key is
+   High (their default). Per device, like their client keeps it. */
+function drawGfxSet(){
+  const low=lsGet('qual')==='0';
+  document.querySelectorAll('#set-gfx button').forEach(b=>b.setAttribute('aria-pressed',String((b.dataset.q==='0')===low)));
+}
+function setGfx(b){
+  lsPut('qual',b.dataset.q==='0'?'0':null);
+  drawGfxSet();
 }
 /* Clips: the recorder in each game reads dsClipsOn ('0' is off) and dsClipsMic
    ('1' is on) when it starts. Turning clips back on forgets an old "this PC
