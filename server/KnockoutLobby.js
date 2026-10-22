@@ -20,36 +20,24 @@ const { KnockoutRoom, KO } = require('./KnockoutRoom');
 const { refundBound } = require('./stakeRules');
 const { pickName } = require('./botNames');
 
-/* HOW LONG A REAL PERSON GETS TO TURN UP.
+/* HOW LONG A REAL PERSON GETS TO TURN UP: a minute, with a countdown, and then
+   a bot on a free table (Owen 2026-10-21). The wait used to be a random 9 to 22
+   seconds, and two people who queued 35 s apart each got a bot of their own;
+   the reasons and the rules are in server/duelQueue.js, shared with
+   Battleship. BOT_AFTER_MS and BOT_AFTER_MIN_MS keep their names and are the
+   same minute now: a bot that is announced has no reason to arrive on a
+   random beat.
 
-   Six seconds, which is what this was, sounds like plenty and is not. Owen and
-   a friend pressed Play "at the same time" and both ended up against bots:
-   between opening the page, the socket connecting and the widget settling,
-   two people clicking together land in the queue several seconds apart, and
-   whoever got there first was already in a bot match before the second arrived.
-
-   Fifteen was long enough for two people coordinating over a phone call and
-   still short enough that somebody alone is not left staring. But a fixed
-   fifteen was itself a tell: the opponent turned up on the same beat every
-   time, and a person never does. So each wait is drawn between the two below,
-   about fifteen on average. It matters less than it looks, because a second
-   person arriving inside the first minute pulls the first out of their bot
-   match anyway (see rescueFromBot). */
-const BOT_AFTER_MIN_MS = 9000;     // the shortest wait before one turns up on a FREE table
-const BOT_AFTER_MS = 22000;        // and the longest
-
-/* PAID TABLES NEVER GET A BOT.
-
-   The bot has no wallet and stakes nothing. Put a dollar in against it and
-   either you win a dollar out of escrow that nobody paid in, or you lose a
-   dollar to a machine. There is no version of that which is a game, and the
-   second one is the house booking a wager, which is a different and licensed
-   business. So a paid seat waits for a person.
-
-   And it does not wait for ever. Nobody is going to sit in front of a spinner
-   indefinitely, and a stake that has already settled on-chain cannot just be
-   forgotten, so after this long the seat is given up and the money goes back. */
-const PAID_WAIT_MS = 60000;
+   PAID TABLES NEVER GET A BOT. The bot has no wallet and stakes nothing. Put a
+   dollar in against it and either you win a dollar out of escrow that nobody
+   paid in, or you lose a dollar to a machine, which is the house booking a
+   wager. So a paid seat waits for a person, past its minute, until it is
+   cancelled (an instant refund) or left so long that it is handed back anyway
+   (PAID_GIVE_UP_MS). */
+const duelQueue = require('./duelQueue');
+const { FREE_WAIT_MS, PAID_WAIT_MS, PAID_GIVE_UP_MS } = duelQueue;
+const BOT_AFTER_MIN_MS = FREE_WAIT_MS;
+const BOT_AFTER_MS = FREE_WAIT_MS;
 
 /* HOW FAR THIS PIECE CAN GO BEFORE THE EDGE, along the line it is about to be
    fired down. Ray against circle, solved for the positive root.
@@ -82,9 +70,9 @@ function botNameAgainst(entries) {
   return pickName(Math.random(), { maxLen: BOT_NAME_MAX, taken: (lc) => theirs.has(lc) });
 }
 
-/* How long a free seat waits for its bot: drawn once, at enqueue. */
+/* How long a free seat waits for its bot: the minute its countdown shows. */
 function botWait() {
-  return BOT_AFTER_MIN_MS + Math.random() * (BOT_AFTER_MS - BOT_AFTER_MIN_MS);
+  return FREE_WAIT_MS;
 }
 
 /* How many people can watch one match. Each watcher is one more copy of every
@@ -142,12 +130,19 @@ class KnockoutLobby {
   /* paid: what landed on-chain for this seat (the entry token's paid), which bounds a refund.
      skin: the bought skin this seat wears, already proved against the skin pass by the caller; null is the free look. */
   enqueue(socket, name, wallet, stake, worth, now, paid, skin) {
+    /* Queueing again from a socket that already waits on a PAID seat gives that one back first: dequeue
+       alone forgot a stake that had already settled on-chain (Fable review 2026-10-21). */
+    const prior = this.queue.find(e => e.socket.id === socket.id);
+    if (prior && prior.worth > 0) this.refund(prior, 'left the queue');
     this.dequeue(socket.id);
+    // Stopping for a restart (shutdownSettle): nothing new is held, so the caller refunds a paid seat.
+    if (this.stopping) return false;
     /* Watching and queueing are one or the other. Somebody who was watching
        and pressed Play stops watching first, so the two never overlap. */
     this.unwatch(socket.id);
     this.queue.push({
       socket, name, wallet, since: typeof now === 'number' ? now : Date.now(), botWait: botWait(),
+      resumeKey: duelQueue.newResumeKey(),   // a reconnect shows it to take this seat back (duelQueue.resumeSeat)
       stake: Number(stake) > 0 ? Number(stake) : 0,
       worth: Number(worth) > 0 ? Number(worth) : 0,
       paid: Number(paid) > 0 ? Number(paid) : undefined,
@@ -161,13 +156,59 @@ class KnockoutLobby {
       const freed = this.rescueFromBot(mine);
       if (freed) {
         this.dequeue(socket.id);
-        const room = this.makeMatch([freed, mine], false, now);
+        const room = this.startMatch([freed, mine], false, now);
         /* Anybody who was watching the bot match was watching that person,
            and the person is here now, so the watchers come too. */
-        this.moveWatchers(freed.fromRoom, room);
+        if (room) this.moveWatchers(freed.fromRoom, room);
       }
     }
-    return this.queue.some(e => e.socket.id === socket.id);
+    /* Taken: waiting, at a table, or (a match that could not start) already refunded by startMatch. Only a
+       stopping lobby says false, having touched nothing, so the caller refunds it through the stake row. */
+    return true;
+  }
+
+  /* A reconnect taking its seat back by the key it was sent (duelQueue.resumeSeat), and that key. */
+  resume(socket, key) { return duelQueue.resumeSeat(this, socket, key); }
+  resumeKeyOf(socketId) {
+    const e = this.queue.find(q => q.socket.id === socketId);
+    return e ? e.resumeKey : null;
+  }
+
+  /* Whether this socket's seat is held anywhere: waiting, or at a table. */
+  holds(socketId) {
+    return this.queue.some(e => e.socket.id === socketId) || !!this.roomOf(socketId);
+  }
+
+  /* Who is waiting at each rung, people only (duelQueue.waitingByRung). */
+  waitingByRung() { return duelQueue.waitingByRung(this.queue); }
+
+  /* A restart's owed refunds for every paid seat this process holds (duelQueue.shutdownRows). */
+  shutdownSettle(why) { return duelQueue.shutdownRows(this, 'knockout', why); }
+
+  /* makeMatch, and if it throws, nobody is left holding nothing. The entries
+     are already out of the queue by now, so a throw used to be a paid seat
+     that was neither queued, at a table, nor refunded (the token-to-queue gap,
+     2026-09-22). A seat no registered room holds is refunded, once; a free one
+     is told the match did not start. */
+  startMatch(entries, withBot, now) {
+    try {
+      return this.makeMatch(entries, withBot, now);
+    } catch (err) {
+      console.error('[KO] a match could not start: ' + (err && err.stack ? err.stack : err));
+      for (const e of entries) {
+        if (!e || !e.socket) continue;
+        /* A match that did start holds the seat. One registered but never started (start threw) is
+           taken down and marked settled, so it can neither pay nor strand the stakes it was given. */
+        const rid = this.bySocket.get(e.socket.id);
+        const r = rid ? this.rooms.get(rid) : null;
+        if (r && r.state !== 'waiting') continue;
+        if (r) { r.settled = true; this.rooms.delete(rid); }
+        this.bySocket.delete(e.socket.id);
+        if (e.worth > 0) this.refund(e, 'the match could not start');
+        else send(e.socket, 'ko:unqueued', { refunded: false, why: 'the match could not start' });
+      }
+      return null;
+    }
   }
 
   dequeue(socketId) {
@@ -188,18 +229,11 @@ class KnockoutLobby {
      opponent always beats a bot, so this runs before the timer that hands one
      out. */
   pump(now) {
-    const byStake = new Map();
-    for (const e of this.queue) {
-      const k = String(e.stake || 0);
-      if (!byStake.has(k)) byStake.set(k, []);
-      byStake.get(k).push(e);
-    }
-    for (const group of byStake.values()) {
-      while (group.length >= 2) {
-        const a = group.shift(), b = group.shift();
-        this.dequeue(a.socket.id); this.dequeue(b.socket.id);
-        this.makeMatch([a, b], false, now);
-      }
+    if (this.stopping) return;
+    // Same rung, two different people (two tabs of one wallet never meet), oldest first.
+    for (const [a, b] of duelQueue.pairUp(this.queue)) {
+      this.dequeue(a.socket.id); this.dequeue(b.socket.id);
+      this.startMatch([a, b], false, now);
     }
   }
 
@@ -215,16 +249,17 @@ class KnockoutLobby {
       /* A paid seat waits for a person, and then gives up and gets its money
          back. A free one gets a bot, because there is nothing to lose. */
       if (e.stake > 0) {
-        if (t - e.since < PAID_WAIT_MS) continue;
+        // Past its minute it keeps looking (Owen 2026-10-21); only an abandoned seat is given up.
+        if (t - e.since < PAID_GIVE_UP_MS) continue;
         this.dequeue(e.socket.id);
         this.refund(e, 'nobody joined that table');
         continue;
       }
-      /* The wait drawn at enqueue; an entry without one (made by hand) waits the longest. */
+      /* The minute set at enqueue; an entry without one (made by hand) waits the same. */
       const wait = typeof e.botWait === 'number' && Number.isFinite(e.botWait) ? e.botWait : BOT_AFTER_MS;
       if (t - e.since < wait) continue;
       this.dequeue(e.socket.id);
-      this.makeMatch([e], true, t);
+      this.startMatch([e], true, t);
     }
     for (const room of [...this.rooms.values()]) {
       /* Aim BEFORE the clock is advanced, so the bot's arrows are in before the
@@ -321,6 +356,7 @@ class KnockoutLobby {
   refund(entry, why) {
     if (!entry || entry.refunded) return;
     entry.refunded = true;
+    duelQueue.noteRefund(this, entry);   // so a late reconnect is told where the money went
     try { entry.socket.emit('ko:unqueued', { refunded: entry.worth > 0, why: why || '' }); }
     catch (_) {}
     if (entry.worth > 0 && typeof this.onRefund === 'function') {
@@ -632,6 +668,7 @@ class KnockoutLobby {
 /* Hung off the class as well as exported, so a caller that already has the
    class does not need a second import just to say how long a paid seat waits. */
 KnockoutLobby.PAID_WAIT_MS = PAID_WAIT_MS;
+KnockoutLobby.FREE_WAIT_MS = FREE_WAIT_MS;
 KnockoutLobby.WATCH_CAP = WATCH_CAP;
 
-module.exports = { KnockoutLobby, BOT_AFTER_MS, BOT_AFTER_MIN_MS, PAID_WAIT_MS, WATCH_CAP };
+module.exports = { KnockoutLobby, BOT_AFTER_MS, BOT_AFTER_MIN_MS, PAID_WAIT_MS, PAID_GIVE_UP_MS, FREE_WAIT_MS, WATCH_CAP };

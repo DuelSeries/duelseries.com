@@ -95,7 +95,7 @@ test('every way out of a paid queue hands the money back', () => {
     const { lob, refunds } = lobby();
     const s = sock('A');
     lob.enqueue(s, 'Owen', 'W1', 1, 1);
-    if (exit === 'timeout') lob.tick(Date.now() + PAID_WAIT_MS + 1);
+    if (exit === 'timeout') lob.tick(Date.now() + L.PAID_GIVE_UP_MS + 1);
     else lob.leave('A');
     assert.strictEqual(refunds.length, 1, 'refunded on ' + exit);
     assert.strictEqual(refunds[0].amount, 1);
@@ -109,7 +109,7 @@ test('a stake is only ever handed back once', () => {
   lob.enqueue(sock('A'), 'Owen', 'W1', 1, 1);
   lob.leave('A');
   lob.leave('A');
-  lob.tick(Date.now() + PAID_WAIT_MS + 1);
+  lob.tick(Date.now() + L.PAID_GIVE_UP_MS + 1);
   assert.strictEqual(refunds.length, 1);
 });
 
@@ -160,7 +160,7 @@ test('once your fleet is down, the bot is never the thing keeping you waiting fo
   }
 });
 
-test('the bot looks like a player: a person kind of name, never yours, a wait that is never the same twice', () => {
+test('the bot has a person kind of name, never yours, and turns up when the minute is up (Owen 2026-10-21)', () => {
   const names = new Set();
   const waits = [];
   for (let i = 0; i < 200; i++) {
@@ -168,7 +168,7 @@ test('the bot looks like a player: a person kind of name, never yours, a wait th
     const T0 = Date.now();
     lob.enqueue(sock('A'), 'jake', 'W1', 0, 0);
     let t = T0;
-    while (!lob.roomOf('A') && t < T0 + 60000) { t += 200; lob.tick(t); }
+    while (!lob.roomOf('A') && t < T0 + 61000) { t += 200; lob.tick(t); }
     waits.push(t - T0);
     const room = lob.roomOf('A');
     const n = room.players.get(room.bot.id).name;
@@ -178,8 +178,8 @@ test('the bot looks like a player: a person kind of name, never yours, a wait th
     assert.ok(String(room.bot.id).startsWith('bot_'), 'still a bot underneath');
   }
   assert.ok(names.size > 100, 'not the same few names: ' + names.size);
-  assert.ok(Math.min(...waits) >= BOT_AFTER_MIN_MS - 50 && Math.max(...waits) <= BOT_AFTER_MS + 250, waits.join(','));
-  assert.ok(new Set(waits).size > 30, 'drawn, not fixed');
+  assert.ok(Math.min(...waits) >= L.FREE_WAIT_MS && Math.max(...waits) <= L.FREE_WAIT_MS + 250, waits.join(','));
+  assert.strictEqual(BOT_AFTER_MIN_MS, BOT_AFTER_MS, 'the minute the screen counts down, not a random beat');
 });
 
 test('the bot takes a drawn second or two a shot (longer after a sink), and its id never reaches a client', () => {

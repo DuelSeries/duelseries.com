@@ -842,7 +842,7 @@ function paintTop() {
     return;
   }
   $('youName').textContent = st.you ? st.you.name : 'You';
-  $('themName').textContent = st.them ? st.them.name : 'Opponent';
+  $('themName').textContent = (st.them ? st.them.name : 'Opponent') + (st.vsBot ? ' (bot)' : '');
   $('myTitle').textContent = (st.you ? st.you.name : 'You') + ' · your waters';
   $('foeTitle').textContent = (st.them ? st.them.name : 'Opponent') + ' · their waters';
   ticks($('youBar'), st.squaresLeftMine);
@@ -881,22 +881,83 @@ setInterval(paintClock, 250);
 /* Every connect, the first and every reconnect: a seat, or in watch mode a
    match to watch (the server forgets a watcher whose socket dropped). */
 let myId = null;          // my socket id as of the last connect, for reading my own seat off the result
-socket.on('connect', () => { myId = socket.id; if (WATCH) { swapping = false; watch(null); } else queue(); });
+socket.on('connect', () => {
+  myId = socket.id;
+  if (WATCH) { swapping = false; watch(null); return; }
+  // A reconnect while waiting takes the same seat back by the key the server sent (see knockout.js).
+  if (waiting && resumeKey) { queue(null, resumeKey); return; }
+  queue();
+});
+
+/* THE WAIT (Owen 2026-10-21), the same as Knockout's: a minute on screen, then a bot on a free table,
+   while a paid one keeps looking for a person and Cancel gives the buy-in back at once. */
+const WAIT_MS = 60000;
+let waiting = false, waitPaid = false, waitEndsAt = 0, waitTimer = 0, resumeKey = null;
+function clockText(ms) {
+  const s = Math.max(0, Math.ceil(ms / 1000));
+  return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+}
+function paintWait() {
+  if (!waiting) return;
+  const left = waitEndsAt - Date.now();
+  const table = '$' + myStake.toFixed(2) + ' table. ';
+  if (left > 0) {
+    $('waitMain').textContent = 'Looking for a player… ' + clockText(left);
+    $('waitSub').textContent = waitPaid
+      ? table + 'Real players only, never a bot. Cancel any time for a full refund.'
+      : 'Free table. If nobody joins, you\'ll play a bot.';
+  } else if (waitPaid) {
+    $('waitMain').textContent = 'Still looking for a player';
+    $('waitSub').textContent = table + 'Nobody yet. Cancel any time for a full refund.';
+  } else {
+    $('waitMain').textContent = 'Nobody joined. Playing a bot…';
+    $('waitSub').textContent = 'Free table. Starting against a bot now.';
+  }
+}
+function startWait(ms) {
+  waiting = true;
+  waitEndsAt = Date.now() + Math.max(0, ms);
+  clearInterval(waitTimer);
+  waitTimer = setInterval(paintWait, 250);
+  paintWait();
+}
+function stopWait() {
+  waiting = false;
+  clearInterval(waitTimer);
+}
+socket.on('bs:queued', (q = {}) => {
+  if (WATCH || st) return;                 // matched already: the wait card is not coming back
+  if (typeof q.resumeKey === 'string') resumeKey = q.resumeKey;
+  const total = Number(q.waitMs) > 0 ? Number(q.waitMs) : WAIT_MS;
+  startWait(total - (Number(q.waitingMs) || 0));
+});
+
+/* "Playing a bot", said as the match starts and kept on the name above (Owen 2026-10-21). */
+let botNoteTimer = 0;
+function botNote() {
+  const n = $('botNote');
+  if (!n) return;
+  n.hidden = false;
+  clearTimeout(botNoteTimer);
+  botNoteTimer = setTimeout(() => { n.hidden = true; }, 5000);
+}
 
 /* `token`: a paid Play again's fresh entry, from the lobby's wallet. Without
-   one, the buy-in this page was opened with, the first time only. */
-function queue(token) {
+   one, the buy-in this page was opened with, the first time only. `resume`: a
+   reconnect's key, asking for the seat it already had. */
+function queue(token, resume) {
   overShown = false;
   lastOver = null;
   DSEnd.hide();
   chatShow(false);
   $('wait').hidden = false;
   waitSpin(true);
-  $('waitMain').textContent = 'Looking for an opponent';
-  $('waitSub').textContent = myStake > 0
-    ? '$' + myStake.toFixed(2) + ' table. Waiting for a real opponent.'
-    : 'Free table. Nothing staked.';
-  socket.emit('bs:queue', Object.assign({ name: myName, wallet: myWallet, stake: myStake, entryToken: token || myEntryToken }, shopFields()));
+  waitPaid = myStake > 0;
+  $('waitCancel').textContent = waitPaid ? 'Cancel and refund' : 'Back to the lobby';
+  if (!resume) startWait(WAIT_MS);
+  else paintWait();
+  socket.emit('bs:queue', Object.assign({ name: myName, wallet: myWallet, stake: myStake,
+    entryToken: token || myEntryToken, resume: resume || undefined }, shopFields()));
   /* One use only: re-sending it on a Play again would ask the server to spend a
      token it has already burned. */
   myEntryToken = null;
@@ -969,7 +1030,12 @@ function soundFor(view) {
 socket.on('bs:state', (view) => {
   if (WATCH) { watchState(view); return; }
   const first = !st;
-  if (first) matchAt = Date.now();
+  if (first) {
+    matchAt = Date.now();
+    stopWait();
+    resumeKey = null;                      // the seat is a match now, not a place in the queue
+    if (view && view.vsBot) botNote();
+  }
   const wasPlacing = st && st.state === 'placing';
   soundFor(view);
   st = view;
@@ -1025,10 +1091,16 @@ socket.on('bs:refused', ({ why } = {}) => {
      not take), and the wait card is what is on screen, so it is said there and
      not in the hidden rail. */
   if (!WATCH && !st) {
+    // A paid reconnect whose seat could not be taken back: never "unpaid", it was paid (see knockout.js).
+    const lost = waiting && waitPaid && resumeKey;
+    stopWait(); resumeKey = null; waitPaid = false;
     $('wait').hidden = false;
     waitSpin(false);
     $('waitMain').textContent = 'Not seated';
-    $('waitSub').textContent = sentence(why) || 'The table did not let you in.';
+    $('waitSub').textContent = lost
+      ? 'Your connection dropped while you waited. Your buy-in goes back to your wallet.'
+      : (sentence(why) || 'The table did not let you in.');
+    $('waitCancel').textContent = 'Back to the lobby';
     return;
   }
   $('railMsg').textContent = why ? 'Refused: ' + why : 'That was refused.';
@@ -1042,13 +1114,28 @@ function sentence(s) {
 }
 
 socket.on('bs:unqueued', ({ refunded, why } = {}) => {
-  if (!refunded) return;
+  if (WATCH || st) return;
+  if (!refunded) {
+    if (why !== 'the match could not start') return;
+    stopWait(); resumeKey = null;
+    $('wait').hidden = false;
+    waitSpin(false);
+    $('waitMain').textContent = 'Could not start the match';
+    $('waitSub').textContent = 'Go back to the lobby and press Play again.';
+    $('waitCancel').textContent = 'Back to the lobby';
+    return;
+  }
+  stopWait(); resumeKey = null; waitPaid = false;
   $('wait').hidden = false;
   waitSpin(false);                      // no longer looking
   $('waitMain').textContent = 'Buy-in refunded';
-  $('waitSub').textContent = why === 'nobody joined that table'
-    ? 'Nobody joined that table, so your buy-in went back to your wallet.'
-    : 'Your buy-in went back to your wallet.';
+  $('waitSub').textContent = ({
+    'nobody joined that table': 'Nobody joined that table, so your buy-in went back to your wallet.',
+    'left the queue': 'Cancelled. Your full buy-in went back to your wallet.',
+    'connection dropped': 'Your connection dropped while you waited, so your buy-in went back to your wallet.',
+    'the match could not start': 'The match could not start, so your buy-in went back to your wallet.',
+  })[why] || 'Your buy-in went back to your wallet.';
+  $('waitCancel').textContent = 'Back to the lobby';
 });
 
 socket.on('bs:over', (m) => {
@@ -1270,7 +1357,19 @@ function toLobby() {
   if (window.parent && window.parent !== window) window.parent.postMessage('game:done', '*');
   else location.href = '/';
 }
-$('waitCancel').addEventListener('click', toLobby);
+// Cancel on a waiting paid seat refunds first and says so; the next press goes to the lobby (see knockout.js).
+$('waitCancel').addEventListener('click', () => {
+  if (waiting && waitPaid && !st && !WATCH) {
+    stopWait(); waitPaid = false; resumeKey = null;
+    waitSpin(true);
+    $('waitMain').textContent = 'Cancelling…';
+    $('waitSub').textContent = 'Giving your buy-in back.';
+    $('waitCancel').textContent = 'Back to the lobby';
+    socket.emit('bs:unqueue');
+    return;
+  }
+  toLobby();
+});
 
 /* SPECTATE, from a result card. The page reads its watch mark once, as it
    boots, so this does exactly what the lobby's Spectate does for this rung

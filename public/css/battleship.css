@@ -440,3 +440,12 @@ body.placing .dsc-phone { --dsc-t: calc(100vh - 160px); }              /* under 
   .dsc-phone, body.placing .dsc-phone { --dsc-l: 10px; }
 }
 
+
+/* "Playing a bot": said over the start of a match against the free table's bot (Owen 2026-10-21). */
+#botNote {
+  position: fixed; left: 50%; top: 72px; z-index: 19; transform: translateX(-50%);
+  padding: 8px 16px; border-radius: 999px; pointer-events: none;
+  background: rgba(0,0,0,0.72); color: var(--tx); font-size: 15px; font-weight: 650;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.5);
+}
+#botNote[hidden] { display: none; }

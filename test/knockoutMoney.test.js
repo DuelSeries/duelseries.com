@@ -16,7 +16,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { KnockoutLobby, PAID_WAIT_MS, BOT_AFTER_MS } = require('../server/KnockoutLobby');
+const { KnockoutLobby, PAID_WAIT_MS, PAID_GIVE_UP_MS, BOT_AFTER_MS } = require('../server/KnockoutLobby');
 const { KnockoutRoom, KO } = require('../server/KnockoutRoom');
 
 const io = { to: () => ({ emit: () => {} }) };
@@ -133,10 +133,16 @@ test('a paid seat that nobody joins gets its money back', () => {
   const T0 = Date.now();
   lob.enqueue(s, 'Owen', 'W1', 1, 1, T0);
 
-  lob.tick(T0 + PAID_WAIT_MS - 1);
+  /* Past its minute it keeps looking for a person (Owen 2026-10-21: keep waiting, Cancel refunds);
+     only a seat left that long is handed back, and never given a bot. */
+  lob.tick(T0 + PAID_WAIT_MS + 1);
+  assert.strictEqual(refunds.length, 0, 'still looking after the minute');
+  assert.strictEqual(lob.queue.length, 1);
+  assert.strictEqual(lob.rooms.size, 0, 'and no bot, ever');
+  lob.tick(T0 + PAID_GIVE_UP_MS - 1);
   assert.strictEqual(refunds.length, 0, 'not while it is still waiting');
 
-  lob.tick(T0 + PAID_WAIT_MS + 1);
+  lob.tick(T0 + PAID_GIVE_UP_MS + 1);
   assert.strictEqual(refunds.length, 1, 'refunded once the wait is up');
   assert.strictEqual(refunds[0].amount, 1);
   assert.strictEqual(refunds[0].wallet, 'W1');
@@ -214,7 +220,7 @@ test('every way out of a paid queue hands the money back', () => {
   for (const exit of ['leave', 'disconnect', 'timeout']) {
     const { lob, refunds } = lobby();
     lob.enqueue(sock('A'), 'Owen', 'W1', 1, 1);
-    if (exit === 'timeout') lob.tick(Date.now() + PAID_WAIT_MS + 1);
+    if (exit === 'timeout') lob.tick(Date.now() + PAID_GIVE_UP_MS + 1);
     else lob.leave('A');                       // both the button and the drop route here
     assert.strictEqual(refunds.length, 1, 'refunded when they ' + exit);
     assert.strictEqual(refunds[0].amount, 1);

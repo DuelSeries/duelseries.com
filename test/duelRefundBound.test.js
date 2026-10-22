@@ -10,8 +10,9 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
-const { KnockoutLobby, PAID_WAIT_MS: KO_WAIT } = require('../server/KnockoutLobby');
-const { BattleshipLobby, PAID_WAIT_MS: BS_WAIT } = require('../server/BattleshipLobby');
+// A paid seat keeps looking past its minute (Owen 2026-10-21); the wait that ends in a refund is the give-up.
+const { KnockoutLobby, PAID_GIVE_UP_MS: KO_WAIT } = require('../server/KnockoutLobby');
+const { BattleshipLobby, PAID_GIVE_UP_MS: BS_WAIT } = require('../server/BattleshipLobby');
 const { refundBound } = require('../server/stakeRules');
 
 const io = { to: () => ({ emit: () => {} }) };

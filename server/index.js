@@ -3191,7 +3191,15 @@ app.get('/api/sl/cashout/:cid', (req, res) => {
    settles in its own try, so a throw in one never keeps the others' rows from the
    journal, and the one wait covers the money of all of them in flight
    (agInflight). Installed while any paid directory exists. */
-const paidShutdownDirs = [AG_PAID_ON ? agArenas : null, slPaid, PAPER_PAID ? paperArenas : null];
+/* The two duels too (2026-10-21): a queued paid seat or a paid table being played lived only in this
+   process, its stake row already 'consumed', so every deploy lost it with nothing owed. Their lobbies'
+   shutdownSettle stops them and hands back one 100% refund row per paid seat (server/duelQueue.js). */
+/* Each row is journaled first (the money journal's owed close, replayed at boot), so a crash, or a write the
+   exit window does not finish, is still owed once at the next boot. */
+knockoutLobby.journal = agJournal;
+battleshipLobby.journal = agJournal;
+const paidShutdownDirs = [AG_PAID_ON ? agArenas : null, slPaid, PAPER_PAID ? paperArenas : null,
+  knockoutLobby, battleshipLobby];
 if (paidShutdownDirs.some(Boolean)) {
   const paidAll = slPaidBoot.composePaidShutdown(paidShutdownDirs);
   agShutdown.installAgShutdown({
@@ -3398,29 +3406,34 @@ function liveExtras() {
     } catch (_) {}
     out.push({ id: 'tanks:free', game: 'tanks', region: REGION, players: humans, bots });
   }
-  if (typeof knockoutLobby !== 'undefined' && knockoutLobby) {
-    /* Counting only the HUMANS on a disc. A bot stand-in sits in a room's
-       players map like anybody else, so counting the map would have an empty
-       game reporting two people playing it. */
-    let inGame = 0;
+  /* THE TWO DUELS, ONE ROW PER RUNG. `waiting` is the people in the queue at that rung (two tabs of one
+     wallet are one person) and `players` is them plus the HUMANS at its tables: a bot stand-in sits in a
+     room's players map like anybody else, so counting the map would have an empty game reporting two
+     people playing it. The free row is always there (the board pins it); a paid rung is listed only
+     while somebody is waiting or playing at it, carries its stake (so the board sorts it first and the
+     deploy check sees a human on a paid table), and says closed under the owner's ko:/bs:paid:off. */
+  const duelRows = (game, lobby, paidOpen) => {
+    const inGame = {};
+    let waiting = {};
     try {
-      for (const r of knockoutLobby.rooms.values()) {
-        for (const id of r.players.keys()) if (!String(id).startsWith('bot_')) inGame++;
+      for (const r of lobby.rooms.values()) {
+        const k = String(r.stake || 0);
+        for (const id of r.players.keys()) if (!String(id).startsWith('bot_')) inGame[k] = (inGame[k] || 0) + 1;
       }
+      waiting = lobby.waitingByRung();
     } catch (_) {}
-    out.push({ id: 'knockout:free', game: 'knockout', region: REGION,
-      players: (knockoutLobby.queue ? knockoutLobby.queue.length : 0) + inGame, bots: 0 });
-  }
-  if (typeof battleshipLobby !== 'undefined' && battleshipLobby) {
-    let inGame = 0;
-    try {
-      for (const r of battleshipLobby.rooms.values()) {
-        for (const id of r.players.keys()) if (!String(id).startsWith('bot_')) inGame++;
-      }
-    } catch (_) {}
-    out.push({ id: 'battleship:free', game: 'battleship', region: REGION,
-      players: (battleshipLobby.queue ? battleshipLobby.queue.length : 0) + inGame, bots: 0 });
-  }
+    out.push({ id: game + ':free', game, region: REGION,
+      players: (waiting['0'] || 0) + (inGame['0'] || 0), waiting: waiting['0'] || 0, bots: 0 });
+    for (const k of new Set(Object.keys(waiting).concat(Object.keys(inGame)))) {
+      const stake = Number(k);
+      if (!(stake > 0)) continue;
+      out.push({ id: game + ':s' + k, game, region: REGION, stake,
+        players: (waiting[k] || 0) + (inGame[k] || 0), waiting: waiting[k] || 0, bots: 0,
+        state: paidOpen ? 'open' : 'closed' });
+    }
+  };
+  if (typeof knockoutLobby !== 'undefined' && knockoutLobby) duelRows('knockout', knockoutLobby, koPaidOpen);
+  if (typeof battleshipLobby !== 'undefined' && battleshipLobby) duelRows('battleship', battleshipLobby, bsPaidOpen);
   return out;
 }
 
@@ -4907,9 +4920,27 @@ io.on('connection', (socket) => {
      clamped there rather than believed, so a patched client that sends a pull
      of ten thousand gets the same shot as a player who dragged to the edge of
      their screen. */
-  on('ko:queue', ({ name, wallet, stake, entryToken, shop, skinPass } = {}) => {
+  on('ko:queue', ({ name, wallet, stake, entryToken, shop, skinPass, resume } = {}) => {
     if (!socketRL(socket, 'koq', 1000)) return;
     if (ops.get().maintenance) { socket.emit('maintenance', ops.get()); return; }
+
+    /* A RECONNECT WHILE WAITING takes its seat back by the key only that seat was sent
+       (server/duelQueue.js resumeSeat): the same place, minute and stake, no new token. A paid seat
+       the old socket's drop already refunded is told so, rather than refused as unpaid. Anything
+       else falls through to an ordinary queue. */
+    const back = knockoutLobby.resume(socket, resume);
+    if (back && back.resumed) {
+      const e = back.resumed;
+      if (e.worth > 0 && e.wallet) socket._walletAddress = e.wallet;
+      socket.emit('ko:queued', {
+        waitingMs: Date.now() - e.since, stake: e.stake, worth: e.worth, resumeKey: e.resumeKey,
+        waitMs: e.stake > 0 ? KnockoutLobby.PAID_WAIT_MS : KnockoutLobby.FREE_WAIT_MS,
+        botAfterMs: e.stake > 0 ? 0 : KnockoutLobby.FREE_WAIT_MS,
+        paidWaitMs: e.stake > 0 ? KnockoutLobby.PAID_WAIT_MS : 0,
+      });
+      return;
+    }
+    if (back && back.refunded) { socket.emit('ko:unqueued', { refunded: true, why: 'connection dropped' }); return; }
 
     /* A BOUGHT SKIN IS PROVED, NOT CLAIMED, the same as a stake. The page names a skin and sends the lobby's skin
        pass (docs/skin-purchases.md); the seat wears it only when the pass is genuine, unexpired and lists
@@ -4945,15 +4976,38 @@ io.on('connection', (socket) => {
 
       /* A paid seat's prize or refund goes to the wallet that paid (from the token), never to
          a wallet the client names; a free seat pays nothing, so its name is only a label. */
-      knockoutLobby.enqueue(socket, sanitizeName(name),
-        worth > 0 ? payTo : (strOr(wallet, null) || socket._walletAddress || null), rung, worth, undefined, paid, skin);
-      socket.emit('ko:queued', {
-        waitingMs: knockoutLobby.queuedFor(socket.id) || 0,
-        stake: rung, worth,
-        /* So the screen can say how long it will wait before giving the money
-           back, rather than the player finding out by being refunded. */
-        paidWaitMs: rung > 0 ? KnockoutLobby.PAID_WAIT_MS : 0,
-      });
+      /* NOTHING IS LEFT HOLDING NOTHING (the token-to-queue gap). The stake row is claimed by now, so
+         a seat the queue did not take must say so (false), and enterPaid refunds it through the row,
+         once. enqueue says false only while stopping for a restart, having touched nothing; a throw
+         that left the seat nowhere is the same answer. A match that could not start is refunded by
+         the lobby itself (startMatch), so it is taken, never refunded twice. */
+      let took;
+      try {
+        took = knockoutLobby.enqueue(socket, sanitizeName(name),
+          worth > 0 ? payTo : (strOr(wallet, null) || socket._walletAddress || null), rung, worth, undefined, paid, skin);
+      } catch (e) {
+        console.error('[KO] queue threw:', e && e.stack ? e.stack : e);
+        took = knockoutLobby.holds(socket.id);
+      }
+      if (took === false) {
+        if (!entry) socket.emit('ko:refused', { why: 'the game is restarting for an update, try again in a minute' });
+        return false;
+      }
+      /* Only while still waiting: a seat matched on the spot already has its ko:start, and a
+         queued after it would put the wait card back over the match. */
+      const waited = knockoutLobby.queuedFor(socket.id);
+      if (waited !== null) {
+        socket.emit('ko:queued', {
+          waitingMs: waited,
+          stake: rung, worth,
+          resumeKey: knockoutLobby.resumeKeyOf(socket.id),   // to this socket only: a reconnect's proof
+          /* The countdown the screen shows: a minute, then a bot on a free table; a paid
+             one keeps looking past it (and Cancel refunds at once). */
+          waitMs: rung > 0 ? KnockoutLobby.PAID_WAIT_MS : KnockoutLobby.FREE_WAIT_MS,
+          botAfterMs: rung > 0 ? 0 : KnockoutLobby.FREE_WAIT_MS,
+          paidWaitMs: rung > 0 ? KnockoutLobby.PAID_WAIT_MS : 0,
+        });
+      }
       // After the queue holds the seat (never between the token and it): joinAlerts never throws.
       joinAlerts.joined({ game: 'knockout', stake: rung, name: sanitizeName(name), wallet: payTo, queued: true });
     };
@@ -5029,9 +5083,24 @@ io.on('connection', (socket) => {
      won — is decided in BattleshipRoom and pushed back per player. The one
      thing that must never travel is the opponent's layout, which is why state
      is sent with viewFor rather than broadcast to the room. */
-  on('bs:queue', ({ name, wallet, stake, entryToken, shop, skinPass } = {}) => {
+  on('bs:queue', ({ name, wallet, stake, entryToken, shop, skinPass, resume } = {}) => {
     if (!socketRL(socket, 'bsq', 1000)) return;
     if (ops.get().maintenance) { socket.emit('maintenance', ops.get()); return; }
+
+    // A reconnect while waiting takes its seat back (see ko:queue).
+    const back = battleshipLobby.resume(socket, resume);
+    if (back && back.resumed) {
+      const e = back.resumed;
+      if (e.worth > 0 && e.wallet) socket._walletAddress = e.wallet;
+      socket.emit('bs:queued', {
+        waitingMs: Date.now() - e.since, stake: e.stake, worth: e.worth, resumeKey: e.resumeKey,
+        waitMs: e.stake > 0 ? BattleshipLobby.PAID_WAIT_MS : BattleshipLobby.FREE_WAIT_MS,
+        botAfterMs: e.stake > 0 ? 0 : BattleshipLobby.FREE_WAIT_MS,
+        paidWaitMs: e.stake > 0 ? BattleshipLobby.PAID_WAIT_MS : 0,
+      });
+      return;
+    }
+    if (back && back.refunded) { socket.emit('bs:unqueued', { refunded: true, why: 'connection dropped' }); return; }
 
     // A bought skin is proved, not claimed (see ko:queue): the seat's fleet wears it only on a genuine pass, else null.
     const skin = skinPasses.wornFrom('battleship', {
@@ -5054,14 +5123,31 @@ io.on('connection', (socket) => {
         if (entry.walletAddress) socket._walletAddress = entry.walletAddress;
       }
 
-      /* A paid seat's prize or refund goes to the wallet that paid (from the token). */
-      battleshipLobby.enqueue(socket, sanitizeName(name),
-        worth > 0 ? payTo : (strOr(wallet, null) || socket._walletAddress || null), rung, worth, paid, skin);
-      socket.emit('bs:queued', {
-        waitingMs: battleshipLobby.queuedFor(socket.id) || 0,
-        stake: rung, worth,
-        paidWaitMs: rung > 0 ? BattleshipLobby.PAID_WAIT_MS : 0,
-      });
+      /* A paid seat's prize or refund goes to the wallet that paid (from the token). Nothing is left
+         holding nothing: the same rule as ko:queue (false = not taken, refunded through the row). */
+      let took;
+      try {
+        took = battleshipLobby.enqueue(socket, sanitizeName(name),
+          worth > 0 ? payTo : (strOr(wallet, null) || socket._walletAddress || null), rung, worth, paid, skin);
+      } catch (e) {
+        console.error('[BS] queue threw:', e && e.stack ? e.stack : e);
+        took = battleshipLobby.holds(socket.id);
+      }
+      if (took === false) {
+        if (!entry) socket.emit('bs:refused', { why: 'the game is restarting for an update, try again in a minute' });
+        return false;
+      }
+      const waited = battleshipLobby.queuedFor(socket.id);   // only while still waiting, as in ko:queue
+      if (waited !== null) {
+        socket.emit('bs:queued', {
+          waitingMs: waited,
+          stake: rung, worth,
+          resumeKey: battleshipLobby.resumeKeyOf(socket.id),   // to this socket only: a reconnect's proof
+          waitMs: rung > 0 ? BattleshipLobby.PAID_WAIT_MS : BattleshipLobby.FREE_WAIT_MS,
+          botAfterMs: rung > 0 ? 0 : BattleshipLobby.FREE_WAIT_MS,
+          paidWaitMs: rung > 0 ? BattleshipLobby.PAID_WAIT_MS : 0,
+        });
+      }
       // After the queue holds the seat (never between the token and it): joinAlerts never throws.
       joinAlerts.joined({ game: 'battleship', stake: rung, name: sanitizeName(name), wallet: payTo, queued: true });
     };

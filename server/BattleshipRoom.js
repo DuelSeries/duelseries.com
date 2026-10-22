@@ -535,6 +535,8 @@ class BattleshipRoom {
       fleet: FLEET.map(s => ({ key: s.key, name: s.name, len: s.len })),
       you: me ? { name: me.name, side: me.side, skin: me.skin || null } : null,
       them: foe ? { name: foe.name, side: foe.side, skin: foe.skin || null } : null,
+      // The opponent is the lobby's bot: said, not hidden (Owen 2026-10-21), so the screen says "Playing a bot".
+      vsBot: !!this.bot,
       yourTurn: this.state === 'playing' && this.turn === socketId,
       placed: !!(myBoard && myBoard.placed),
       theyPlaced: !!(foeBoard && foeBoard.placed),

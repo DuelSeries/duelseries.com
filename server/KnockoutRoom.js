@@ -674,6 +674,9 @@ class KnockoutRoom {
       maxPull: KO.MAX_PULL,
       phaseMs: Math.max(0, this.phaseEndsAt - Date.now()),
       aimMs: KO.AIM_MS,
+      /* The opponent is the lobby's bot (a free table after a minute alone). Said, not hidden (Owen 2026-10-21:
+         the player has to know it is a bot), so the screen can say "Playing a bot". */
+      vsBot: !!this.bot,
       players: [...this.players.entries()].map(([id, p]) => ({
         id: this.publicId(id), name: p.name, side: p.side, left: this.piecesOf(id).length,
         /* The bought skin this seat wears, or null: how every screen (watchers too) dresses its pieces. */

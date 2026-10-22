@@ -878,3 +878,69 @@ test('knockout and battleship: a watcher sees the chat but cannot type, and seat
   }
 });
 
+
+/* THE QUEUE'S WAIT CARD (Owen 2026-10-21): a minute counted down, what happens at 0:00 said before it
+   happens, a paid Cancel that refunds first, a reconnect asking for the same seat back by its key, and
+   "Playing a bot" when the opponent is one. Both pages, free and paid. */
+for (const [file, q, queued, unqueue, unqueued] of [
+  ['knockout.js', 'ko:queue', 'ko:queued', 'ko:unqueue', 'ko:unqueued'],
+  ['battleship.js', 'bs:queue', 'bs:queued', 'bs:unqueue', 'bs:unqueued'],
+]) {
+  test(file + ': the free wait counts down a minute and says a bot comes at 0:00', () => {
+    const page = boot(file, { playerName: 'Owen' });
+    page.deliver('connect');
+    assert.strictEqual(page.sent(q).length, 1);
+    assert.match(page.$('waitMain').textContent, /^Looking for a player… (1:00|0:59)$/);
+    assert.match(page.$('waitSub').textContent, /you'll play a bot/);
+    assert.strictEqual(page.$('waitCancel').textContent, 'Back to the lobby');
+    const key = 'ab'.repeat(16);
+    page.deliver(queued, { waitMs: 60000, waitingMs: 15000, resumeKey: key, stake: 0 });
+    assert.match(page.$('waitMain').textContent, /… 0:4[45]$/, 'the server\'s numbers');
+    page.deliver('connect');                                  // a reconnect while waiting
+    const again = page.sent(q);
+    assert.strictEqual(again.length, 2);
+    assert.strictEqual(again[1][1].resume, key, 'asks for the same seat back');
+  });
+
+  test(file + ': a paid wait never promises a bot, and Cancel refunds before it leaves', () => {
+    const page = boot(file, { playerName: 'Owen', stake: '1', entryToken: 'tok-1' });
+    page.deliver('connect');
+    assert.match(page.$('waitSub').textContent, /Real players only, never a bot/);
+    assert.strictEqual(page.$('waitCancel').textContent, 'Cancel and refund');
+    page.deliver(queued, { waitMs: 60000, waitingMs: 60000, resumeKey: 'cd'.repeat(16), stake: 1 });
+    assert.strictEqual(page.$('waitMain').textContent, 'Still looking for a player');
+    page.$('waitCancel').click();
+    assert.strictEqual(page.sent(unqueue).length, 1, 'refund asked for');
+    assert.strictEqual(page.posted.length, 0, 'still on the page to be told');
+    page.deliver(unqueued, { refunded: true, why: 'left the queue' });
+    assert.strictEqual(page.$('waitMain').textContent, 'Buy-in refunded');
+    assert.match(page.$('waitSub').textContent, /full buy-in went back/);
+    page.$('waitCancel').click();
+    assert.ok(page.posted.includes('game:done'), 'then back to the lobby');
+  });
+}
+
+test('the start of a match against the bot says "Playing a bot" on both pages', () => {
+  const ko = boot('knockout.js', { playerName: 'Owen' });
+  ko.deliver('connect');
+  const lob = new KnockoutLobby({ to: () => ({ emit() {} }) });
+  const me = { id: 'page-socket-1', join() {}, emit() {} };
+  lob.enqueue(me, 'Owen', null, 0, 0, 1e9);
+  lob.tick(1e9 + 60000);
+  const st = lob.roomOf('page-socket-1').publicState();
+  assert.strictEqual(st.vsBot, true);
+  ko.deliver('ko:start', JSON.parse(JSON.stringify(st)));
+  assert.strictEqual(ko.$('botNote').hidden, false);
+  assert.match(ko.$('themName').textContent, / \(bot\)$/);
+
+  const bs = boot('battleship.js', { playerName: 'Owen' });
+  bs.deliver('connect');
+  const blob = new BattleshipLobby({ to: () => ({ emit() {} }) });
+  blob.enqueue(me, 'Owen', null, 0, 0);
+  blob.tick(Date.now() + 61000);
+  const view = blob.roomOf('page-socket-1').viewFor('page-socket-1');
+  assert.strictEqual(view.vsBot, true);
+  bs.deliver('bs:state', JSON.parse(JSON.stringify(view)));
+  assert.strictEqual(bs.$('botNote').hidden, false);
+  assert.match(bs.$('themName').textContent, / \(bot\)$/);
+});

@@ -2,6 +2,13 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-10-21-duel-queue",
+      "date": "2026-10-21",
+      "tag": "fix",
+      "title": "Knockout and Battleship find you a real player",
+      "body": "When you press Play in Knockout or Battleship you now get a full minute to find another player, with a countdown on screen. If someone else queues in that minute, you two play each other. Two people queuing close together no longer end up in separate games.\n\nOpen lobbies now shows how many people are waiting for a duel, so you can jump in and play them."
+    },
+    {
       "id": "2026-10-21-money-in-sol",
       "date": "2026-10-21",
       "tag": "heads-up",

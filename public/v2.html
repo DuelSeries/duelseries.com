@@ -524,6 +524,9 @@ body.ingame>.howveil,body.ingame>.meveil,body.ingame>.apscreen,body.ingame>.bshe
 .lcount{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;
   color:var(--tx3);margin-right:14px;white-space:nowrap}
 .lcount.on{color:var(--tx)}
+/* People in a duel's queue (Owen 2026-10-21): money gold, so a table somebody is waiting at stands out. */
+.lcount.lqueue{color:var(--money)}
+.lcount.on.lqueue .ldot{background:var(--money)}
 .ldot{width:6px;height:6px;border-radius:50%;background:var(--s3);flex:0 0 auto}
 /* Lit AND beating, but only when the number is real. An empty room gets a dead
    grey dot and no movement, so the pulse means something: it is the difference
@@ -4344,8 +4347,10 @@ function paintCounts(){
     const v=c?c[el.dataset.pc]:undefined;
     if(typeof v!=='number'||!Number.isFinite(v)){el.hidden=true;return}
     const n=Math.max(0,Math.floor(v));
-    el.querySelector('b').textContent=String(n);
-    el.setAttribute('aria-label',n+' playing now');
+    /* A duel's people waiting for a match (Owen 2026-10-21), said on the card too. */
+    const w=window.V2Board&&V2Board.waiting?(V2Board.waiting[el.dataset.pc]||0):0;
+    el.querySelector('b').textContent=String(n)+(w>0?' · '+w+' waiting':'');
+    el.setAttribute('aria-label',n+' playing now'+(w>0?', '+w+' waiting for a match':''));
     /* The green dot: shown and beating while anyone is in, gone at 0. Every
        poll repaints, so it comes and goes with the count. */
     el.classList.toggle('on',n>0);

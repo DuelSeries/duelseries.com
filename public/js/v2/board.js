@@ -68,11 +68,22 @@
        when anyone is in there, and the figure in the same mono the money uses —
        and the word only exists for a screen reader, which is the one reader that
        needs it spelled out. */
-    const live = n > 0 ? ' on' : '';
+    /* A duel's people in the queue (Owen 2026-10-21: "show the number of players waiting"), lit, and the
+       playing badge then counts only the ones already in a match. With both at 0 the row still says 0 playing. */
+    const w = Math.max(0, Math.floor(Number(l.waiting) || 0));
+    const inMatch = Math.max(0, n - w);
+    const waitBadge = w > 0
+      ? '<span class="lcount on lqueue"><span class="ldot" aria-hidden="true"></span>' +
+        '<span class="num">' + w + '</span> waiting</span>'
+      : '';
     /* The word is on the badge, not hidden behind it. This count is the only
        one on the screen now — the one that used to sit under the game's name is
        gone — so it has to say what it is counting rather than leave a bare
        figure floating next to a button. */
+    const playBadge = w > 0 && inMatch === 0 ? ''
+      : '<span class="lcount' + (inMatch > 0 ? ' on' : '') + '">' +
+        '<span class="ldot" aria-hidden="true"></span>' +
+        '<span class="num">' + inMatch + '</span> playing</span>';
     return '<div class="lr">' +
       '<div class="lswatch">' + (window.V2_SWATCH ? window.V2_SWATCH(l.game) : '') + '</div>' +
       '<div class="lmid">' +
@@ -84,9 +95,7 @@
           '<b class="lstake num">' + money(l.stake) + '</b></span>' +
       '</div>' +
       '<span class="sp" style="flex:1"></span>' +
-      '<span class="lcount' + live + '">' +
-        '<span class="ldot" aria-hidden="true"></span>' +
-        '<span class="num">' + n + '</span> playing</span>' +
+      waitBadge + playBadge +
       '<button class="enter" onclick="V2Board.join(' +
         JSON.stringify(l.id).replace(/"/g, '&quot;') + ')">Enter</button>' +
       '</div>';
@@ -173,12 +182,22 @@
       /* The pinned row keeps its own id, stake and door — those are what make
          it work — and takes only its population from the server. */
       const live = EXTRAS.find(e => e.id === p.id);
-      rows.push(live ? Object.assign({}, p, { players: live.players, bots: live.bots }) : p);
+      rows.push(live ? Object.assign({}, p, { players: live.players, bots: live.bots, waiting: live.waiting || 0 }) : p);
+    });
+    /* A paid duel rung with somebody waiting or playing (knockout:s0.5, ...): listed while it is, so a
+       person can see the table and take it, and sorted first below like any paid room. */
+    EXTRAS.forEach(e => {
+      if ((e.game !== 'knockout' && e.game !== 'battleship') || !(Number(e.stake) > 0)) return;
+      if (!(playing(e) > 0) || !isOpen(e) || rows.some(r => r.id === e.id)) return;
+      if (window.DS_LOCKED && window.DS_LOCKED.isLocked(e.game)) return;
+      rows.push(e);
     });
     /* Paid rooms with anyone in them first, the biggest buy-in on top (Owen 2026-10-17); everything else keeps its order. */
     const paid = rows.filter(l => Number(l.stake) > 0 && playing(l) > 0)
       .sort((a, b) => Number(b.stake) - Number(a.stake) || playing(b) - playing(a));
-    return paid.concat(rows.filter(l => !paid.includes(l)));
+    /* Then a free duel with somebody waiting for an opponent (Owen 2026-10-21): the row a person can act on. */
+    const waitingFree = rows.filter(l => !paid.includes(l) && Number(l.waiting) > 0);
+    return paid.concat(waitingFree, rows.filter(l => !paid.includes(l) && !waitingFree.includes(l)));
   }
 
   function draw() {
@@ -200,7 +219,9 @@
   }
 
   function join(id) {
-    const l = PINNED.find(p => p.id === id) || LOBBIES.find(x => x.id === id);
+    /* A paid duel rung comes from the extras (it has a stake, so Enter stakes it through the wallet). */
+    const l = PINNED.find(p => p.id === id) || LOBBIES.find(x => x.id === id)
+      || EXTRAS.find(x => x.id === id && Number(x.stake) > 0 && (x.game === 'knockout' || x.game === 'battleship'));
     if (!l || !isOpen(l)) return;
     if (window.DS_LOCKED && window.DS_LOCKED.isLocked(l.game)) return;
     if (window.V2Play) return window.V2Play.enter(l);
@@ -226,5 +247,11 @@
   window.V2Board = { load: load, draw: draw, join: join, start: start, stop: stop,
                      playableStakes: playableStakes, rowsToShow: rowsToShow,
                      get lobbies() { return LOBBIES; },
-                     get counts() { return COUNTS; } };
+                     get counts() { return COUNTS; },
+                     /* People in a duel's queue, every rung, for the game cards: { knockout: 1 }. */
+                     get waiting() {
+                       const out = {};
+                       EXTRAS.forEach(e => { if (Number(e.waiting) > 0) out[e.game] = (out[e.game] || 0) + Number(e.waiting); });
+                       return out;
+                     } };
 })();

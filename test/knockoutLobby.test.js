@@ -68,20 +68,18 @@ test('the bot looks like a player: a person kind of name, never its opponent nam
   assert.ok(seen.size > 100, 'not the same few names: ' + seen.size);
 });
 
-test('the bot turns up after a wait that is never the same twice, 9 to 22 seconds', () => {
-  const waits = [];
-  for (let i = 0; i < 200; i++) {
-    const lob = new KnockoutLobby(io);
-    const T0 = 1e9;
-    lob.enqueue(sock('A'), 'Owen', null, 0, 0, T0);
-    let t = T0;
-    while (!lob.roomOf('A') && t < T0 + 60000) { t += 200; lob.tick(t); }
-    waits.push(t - T0);
-  }
-  assert.ok(Math.min(...waits) >= BOT_AFTER_MIN_MS && Math.max(...waits) <= BOT_AFTER_MS + 200, waits.join(','));
-  assert.ok(new Set(waits).size > 30, 'drawn, not fixed');
-  const avg = waits.reduce((a, b) => a + b, 0) / waits.length;
-  assert.ok(avg > 13000 && avg < 18000, 'about fifteen on average: ' + avg);
+test('the bot turns up when the minute the screen counts down is up, and not before (Owen 2026-10-21)', () => {
+  const lob = new KnockoutLobby(io);
+  const T0 = 1e9;
+  lob.enqueue(sock('A'), 'Owen', null, 0, 0, T0);
+  lob.tick(T0 + 59999);
+  assert.ok(!lob.roomOf('A'), 'still looking for a person at 0:01');
+  lob.tick(T0 + 60000);
+  const room = lob.roomOf('A');
+  assert.ok(room && room.bot, 'a bot at 0:00');
+  assert.strictEqual(room.publicState().vsBot, true, 'and the screen is told it is a bot');
+  assert.strictEqual(BOT_AFTER_MIN_MS, 60000);
+  assert.strictEqual(BOT_AFTER_MS, 60000);
 });
 
 test('the bot locking in tells the other screen, and no message a client gets names the bot id', () => {
