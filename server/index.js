@@ -607,8 +607,7 @@ const refundExpiredEntry = require('./entryExpiry').createExpiryRefund({
   db,
   ledger: stakeLedger,
   devRefund: PAPER_DEV_TOKENS
-    ? (t) => (t.onlyGame === 'slither' ? slPayout : t.onlyGame === 'agar' ? agPayout
-      : t.onlyGame === 'chomp' ? chompPayout : paperPayout).refund({ wallet: t.walletAddress, name: 'Player', micro: Math.round(Number(t.worth) * 1e6), paid: t.paid, why: 'unspent' })
+    ? (t) => (t.onlyGame === 'slither' ? slPayout : t.onlyGame === 'chomp' ? chompPayout : t.onlyGame === 'agar' ? agPayout : paperPayout).refund({ wallet: t.walletAddress, name: 'Player', micro: Math.round(Number(t.worth) * 1e6), paid: t.paid, why: 'unspent' })
     : null,
 });
 
@@ -1000,9 +999,10 @@ app.post('/api/submit-stake', entryFeeLimiter, express.json({ limit: '256kb' }),
         return res.status(400).json({ error: 'Missing wallet address' });
       }
       const rung = tierFor(want);
-      const onlyGame = devGame === 'agar' ? 'agar' : devGame === 'chomp' ? 'chomp' : 'paper';
-      // the sl door's scope (slPaidDoor GAME): opened by no other door, refunded by slPayout when it expires
-      const scope = devGame === 'slither' ? 'slither' : onlyGame;
+      const onlyGame = devGame === 'agar' ? 'agar' : 'paper';
+      // the sl door's scope (slPaidDoor GAME): opened by no other door, refunded by slPayout when it expires;
+      // Chomp's ('chomp'): opened by the Chomp door only, refunded by chompPayout
+      const scope = devGame === 'slither' ? 'slither' : devGame === 'chomp' ? 'chomp' : onlyGame;
       const entryToken = entryStore.mint({ stake: rung, worth: rung, paid: rung, walletAddress, onlyGame: scope });
       console.warn(`[PAPER] DEV token ${rung} (${scope}) for ${walletAddress.slice(0, 8)}`);
       return res.json({ ok: true, entryToken, worth: rung, stake: rung, paid: rung, dev: true });
@@ -2850,7 +2850,8 @@ function replayAgJournal() {
        review item a) go the same way on Paper's own path (paper_floor), as its
        hourly sweep sends an uncollected coin to the house. */
     bookFloor: (rec) => {
-      const payout = String(rec.key).startsWith('ppfloor:') ? paperPayout : slPayout;
+      const payout = String(rec.key).startsWith('ppfloor:') ? paperPayout
+        : String(rec.key).startsWith('chfloor:') ? chompPayout : slPayout;
       rec.bySource.forEach((s, i) => payout.sweepFloor({ sweepId: rec.key + ':' + i, micro: s.micro,
         srcWallet: s.srcWallet, srcName: s.srcName, label: rec.room, pid: rec.why || 'restart' }));
     },
@@ -3227,8 +3228,10 @@ app.get('/api/sl/cashout/:cid', (req, res) => {
    machinery whole: the same door (agPaidDoor, Chomp's prefix 'c', the 'chomp' token scope), the same money controller
    (agMoney, extended by chompMoney: a catch drops the victim's coins on the maze, a chomper takes the coins on its
    tile), the 90/10 cash-out through the parameterized payout below, the money journal, agInflight, the owed-row
-   drainer, the Bot bank's bounty bots and the shutdown and crash refunds. Coins nobody takes go back to whoever
-   dropped them (an hour, a restart, a crash), never to the house. CHOMP=off closes the game, CHOMP_PAID=0 the paid
+   drainer, the Bot bank's bounty bots and the shutdown and crash refunds. Coins nobody takes (an hour, a restart
+   or crash) go to the house (Owen 2026-10-26), as Paper's and slither's floor does, except in a room bots played in,
+   where they go back to whoever dropped them, and a bot's own money is never the house's (the paid-bots rule).
+   An emergency close gives every coin back to its dropper. CHOMP=off closes the game, CHOMP_PAID=0 the paid
    rungs; the instant off switch is the owner console's chomp:paid:off, saved across restarts. Defined here, before
    the shutdown wiring, so its paid rooms are settled with the other games'. */
 const chompPayout = require('./paperPayout').create({
@@ -3276,6 +3279,9 @@ const chompMoneyHooks = {
     joinAlerts.joined({ game: 'chomp', stake, name, wallet });
   },
   onHouse: chompPayout.houseIncident,
+  /* A coin nobody took within the hour, in a room no bot ever played in (Owen 2026-10-26: unclaimed coins go to
+     the house), on the rake's own path as chomp_floor income. */
+  onSweep: chompPayout.sweepFloor,
   journal: agJournal,
 };
 const chompGame = require('./chomp/chompBoot').openChomp({
@@ -3731,7 +3737,8 @@ app.get('/api/live', (_req, res) => {
     }
     const slRungs = slPaidRows.filter(r => r && r.state === 'open').map(r => r.stake);
     const lobbies = liveBoard({ skipFree: slRows.length > 0, slRungs })
-      .concat(slRows, slPaidRows, paperArenas.boardRows(), agRows, chompRows);
+      .concat(slRows, slPaidRows, paperArenas.boardRows(), agRows);
+    lobbies.push(...chompRows);
     const extras = liveExtras();
     /* Card counts: every human of the game plus the bots in its rows, from these
        same rows, so a card never reads 0 above a row saying 20 playing. */

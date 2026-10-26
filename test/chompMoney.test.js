@@ -2,8 +2,8 @@
 // Paid Chomp's money (server/chomp/chompMoney.js on agar.io's agMoney, in a real ChompRoom): a catch drops ALL the
 // victim's coins on the maze, a chomper on a coin's tile takes it, hold Q 3 s cashes out 90/10 while moving, a caught
 // holder drops instead, an unready seat is refunded, a dropped seat goes dormant and is cashed out, a restart, crash
-// or emergency gives every balance and every coin back, an hour-old coin goes back to its dropper, and bounty bots
-// keep the books of whose money they hold. After every step: the ledger closes (money in = money held + money out).
+// or emergency gives every balance back, coins nobody took go to the house (Owen 2026-10-26) except in a room bots
+// played in (back to the dropper) or at an emergency (back), and bounty bots keep the books of whose money they hold. After every step: the ledger closes (money in = money held + money out).
 const test = require('node:test');
 const assert = require('node:assert');
 const R = require('../shared/chompRules');
@@ -17,7 +17,7 @@ const SEED = 500000;
 
 function recorder() {
   const calls = { cashout: [], refund: [], transfer: [], breach: [], stake: [], house: [], owed: [], seedBack: [],
-    seedSpent: [], closed: [] };
+    seedSpent: [], closed: [], sweep: [], floor: [] };
   const hooks = {
     onCashout: (o) => calls.cashout.push(o),
     onRefund: (o) => calls.refund.push(o),
@@ -29,6 +29,8 @@ function recorder() {
     onOwed: (row, live) => calls.owed.push(Object.assign({ live }, row)),
     onSeedBack: (micro, why, label, live) => calls.seedBack.push({ micro, why, live }),
     onSeedSpent: (micro) => calls.seedSpent.push(micro),
+    onSweep: (x) => calls.sweep.push(x),
+    onFloor: (rec) => calls.floor.push(rec),
     onAccountOpen: () => {},
     onAccountConfirmed: () => {},
     onAccountClosed: (a, outcome, extra) => calls.closed.push({ pid: a.pid, wallet: a.wallet, outcome, extra }),
@@ -245,24 +247,38 @@ test('a dropped seat plays on 5 s, goes still and catchable, then is cashed out 
   assert.strictEqual(w.calls.closed.find((c) => c.pid === acct.pid).outcome, 'settled');
 });
 
-test('a restart gives every balance and every coin back as keyed owed rows; nothing stays in the room', () => {
+test('a restart gives every open balance back as keyed owed rows; the coins on the maze are one floor record for the house', () => {
   const w = world();
   const a = join(w, 'ann');
-  const b = join(w, 'bob');
+  join(w, 'bob');
   putAt(a.p, 6, 1);
   catchByGhost(w, a.p);
   const rows = w.r.money.shutdownSettle('shutdown');
-  const byWallet = {};
-  for (const row of rows) {
-    assert.match(row.key, /^agowed:[0-9a-f-]{36}$/);
-    assert.match(row.reason, /^refund chomp /);
-    byWallet[row.wallet] = (byWallet[row.wallet] || 0) + row.micro;
-  }
-  assert.strictEqual(byWallet['W-ann'], SEED, 'ann\'s coins back to ann');
-  assert.strictEqual(byWallet['W-bob'], SEED, 'bob\'s balance back to bob');
+  assert.strictEqual(rows.length, 1);
+  assert.match(rows[0].key, /^agowed:[0-9a-f-]{36}$/);
+  assert.match(rows[0].reason, /^refund chomp /);
+  assert.deepStrictEqual([rows[0].wallet, rows[0].micro], ['W-bob', SEED], 'bob\'s balance back to bob');
+  assert.strictEqual(w.calls.floor.length, 1);
+  assert.match(w.calls.floor[0].key, /^chfloor:[0-9a-f-]{36}$/);
+  assert.strictEqual(w.calls.floor[0].micro, SEED);
+  assert.deepStrictEqual(w.calls.floor[0].bySource.map((x) => [x.srcWallet, x.micro]), [['W-ann', SEED]]);
   assert.strictEqual(w.r.money.bank.totalMicro(), 0);
   conserved(w);
-  assert.strictEqual(w.calls.house.length, 0, 'the house takes nothing');
+});
+
+test('in a room a bounty bot played in, a restart gives the coins back to whoever dropped them (never the house)', () => {
+  const w = world();
+  const bot = w.r._spawnBot();
+  w.r.money.seedBot(bot.id, SEED, bot.name);
+  w.r._removeBot(bot);
+  const a = join(w, 'ann');
+  putAt(a.p, 6, 1);
+  catchByGhost(w, a.p);
+  const rows = w.r.money.shutdownSettle('crash');
+  assert.strictEqual(rows.filter((r) => r.wallet === 'W-ann').reduce((t, r) => t + r.micro, 0), SEED);
+  assert.strictEqual(w.calls.floor.length, 0);
+  assert.strictEqual(w.calls.sweep.length, 0);
+  conserved(w);
 });
 
 test('an emergency refunds every balance at once and gives every coin back', () => {
@@ -278,7 +294,7 @@ test('an emergency refunds every balance at once and gives every coin back', () 
   assert.strictEqual(b.s.of('c:closed')[0].refundedMicro, SEED);
 });
 
-test('a coin nobody took within the hour goes back to whoever dropped it, never the house', () => {
+test('a coin nobody took within the hour goes to the house as floor income; in a bot room back to its dropper', () => {
   const w = world();
   const a = join(w, 'ann');
   putAt(a.p, 6, 1);
@@ -287,10 +303,22 @@ test('a coin nobody took within the hour goes back to whoever dropped it, never 
   assert.strictEqual(w.r.money.coins().length, 4, 'not yet');
   w.r.money.sweepFloor(w.clock.t + 3600001);
   assert.strictEqual(w.r.money.coins().length, 0);
-  assert.strictEqual(w.calls.owed.reduce((t, x) => t + x.micro, 0), SEED);
-  assert.ok(w.calls.owed.every((x) => x.wallet === 'W-ann' && x.live === true));
-  assert.strictEqual(w.calls.house.length, 0);
+  assert.strictEqual(w.calls.sweep.reduce((t, x) => t + x.micro, 0), SEED);
+  assert.ok(w.calls.sweep.every((x) => x.srcWallet === 'W-ann' && typeof x.sweepId === 'string'));
+  assert.strictEqual(w.calls.owed.length, 0);
   conserved(w);
+  // the same in a room a bounty bot played in: back to the dropper
+  const w2 = world();
+  const bot = w2.r._spawnBot();
+  w2.r.money.seedBot(bot.id, SEED, bot.name);
+  const b = join(w2, 'bob');
+  putAt(b.p, 6, 1);
+  catchByGhost(w2, b.p);
+  w2.r.money.sweepFloor(w2.clock.t + 3600001);
+  assert.strictEqual(w2.calls.sweep.length, 0);
+  assert.strictEqual(w2.calls.owed.filter((x) => x.wallet === 'W-bob').reduce((t, x) => t + x.micro, 0), SEED);
+  assert.ok(w2.calls.owed.every((x) => x.live === true));
+  conserved(w2);
 });
 
 test('bounty bots: a caught bot\'s coins carry its seed; a person who takes one spends the seed; a bot that takes a person\'s coin owes it back', () => {

@@ -15,7 +15,8 @@
 //   floor  paid snake's floor gold { t, key ('slfloor:<uuid>'), room, why ('shutdown' or 'crash'), micro, bySource:
 //          at a restart or crash    [{ srcWallet, srcName, micro }], boot, at }: Owen's answer of 2026-10-14 (the house
 //                                   keeps it, booked as slither floor income), with no time to book it in the exit window;
-//                                   paid Paper's floor coins the same way, keyed 'ppfloor:<uuid>' (booked as paper floor)
+//                                   paid Paper's floor coins the same way, keyed 'ppfloor:<uuid>' (booked as paper floor),
+//                                   and paid Chomp's coins, keyed 'chfloor:<uuid>' (booked as chomp floor)
 //   booked written into a REPLAY file by the replay, just before it books that file's floor record: { t, key, at }
 //
 // At the next boot the file is renamed out of the way at once (rotate), then, once the database is up (replay):
@@ -63,8 +64,9 @@ const DEFAULT_FILE = path.join(__dirname, '..', 'data', 'ag-money-journal.log');
 // slPaid/slMoney.js _refundOwed); a close needs a key too, and agar's emergency close passes none.
 // 'botfloor': a paid snake room bots played in gives its floor back to the droppers (slMoney _returnFloor).
 const OWED_WHYS = Object.freeze(['shutdown', 'crash', 'emergency', 'orphan', 'botfloor']);
-// slfloor: paid snake's floor gold; ppfloor: paid Paper's floor coins (its shutdown and crash settle, PaperRoom)
-const FLOOR_KEY_RE = /^(slfloor|ppfloor):[0-9a-f-]{36}$/;
+// slfloor: paid snake's floor gold; ppfloor: paid Paper's floor coins (its shutdown and crash settle, PaperRoom);
+// chfloor: paid Chomp's coins on the maze (chompMoney shutdownSettle)
+const FLOOR_KEY_RE = /^(slfloor|ppfloor|chfloor):[0-9a-f-]{36}$/;
 const PAYOUT_STATES = Object.freeze(['sent', 'failed']);
 const isMicro = (v) => Number.isSafeInteger(v) && v > 0;
 

@@ -16,11 +16,14 @@
 // The sim stays money-free: the room reports facts in sim order ({ t: 'drop', victim, spots, by, byName, ghost } and
 // { t: 'pick', pid, k }) and afterStep applies them once per tick, after the step.
 //
-// Coins nobody takes (FLOOR_BACK, CHOSEN pending Owen): after FLOOR_SWEEP_MS, and at a restart, crash or emergency,
-// a coin goes back to whoever dropped it as a keyed owed row ('agowed:' + uuid, journaled through hooks.onOwed, the
-// drainer pays it), never to the house: in Chomp the ghosts are ours, so the house never earns from a ghost catch;
-// its only income is the 10% of a cash-out. A bounty bot's coin: its Bot bank seed back to the bank (onSeedBack), the
-// players' money it held back to those players.
+// Coins nobody takes (Owen 2026-10-26, "To the house"), as Paper's coins and slither's floor gold: after
+// FLOOR_SWEEP_MS a person's coin goes to the house (hooks.onSweep, chomp_floor income), and at a restart or crash every
+// person's coin is one money-journal floor record (hooks.onFloor, key 'chfloor:' + uuid) booked to the house at the
+// next boot. Two exceptions keep the paid-bots rule (the house never earns from bots, Owen 2026-10-16): in a room a
+// bounty bot has played in (botRoom), a person's coin goes back to whoever dropped it as a keyed owed row ('agowed:' +
+// uuid, journaled through hooks.onOwed, the drainer pays it), and a bot's own coin always splits back: its Bot bank seed
+// to the bank (onSeedBack), the players' money it held to those players. An emergency close (our fault) gives every coin
+// back to its dropper.
 
 const { AgMoney } = require('../ag/agMoney');
 const { AgBank } = require('../ag/agBank');
@@ -129,6 +132,12 @@ class ChompMoney extends AgMoney {
     });
     this.coinFrom = new Map();   // coin id -> Map src -> micro: whose money a bounty bot's coin is
     this.coinEvents = [];        // for the room to send: { a: coin } added, { r: id, by } gone (by: the taker, 0 swept)
+    this.botRoom = false;        // a bounty bot has played here: no person's coin ever goes to the house
+  }
+
+  seedBot(pid, micro, name) {
+    super.seedBot(pid, micro, name);
+    this.botRoom = true;
   }
 
   // ---------------------------------------------------------------------------------------------------------
@@ -253,13 +262,13 @@ class ChompMoney extends AgMoney {
   // ---------------------------------------------------------------------------------------------------------
   // Coins nobody takes.
 
-  // Every coin at least maxAgeMs old goes back (see the header). -> the rows written
+  // Every coin at least maxAgeMs old leaves the maze (see the header). -> the owed rows written
   sweepFloor(now, maxAgeMs = CHOMP_MONEY.FLOOR_SWEEP_MS.value) {
     const rows = [];
     for (const coin of this.bank.pickups()) {
       if (now - coin.droppedAt < maxAgeMs) continue;
       try {
-        rows.push(...this._coinBack(coin.pid, 'floor', true));
+        rows.push(...this._coinOut(coin.pid, 'floor', true, null));
       } catch (e) {
         this.log.error('[CHOMP] floor sweep of coin ' + coin.pid + ' threw', e && e.message);
       }
@@ -267,8 +276,36 @@ class ChompMoney extends AgMoney {
     return rows;
   }
 
-  // One coin leaves the room: a seed part back to the bot bank, every player's part owed back to that player as a
-  // keyed row (onOwed journals it; live: written now). -> the rows
+  // One coin leaves the room (see the header). why: 'floor' (the hour), 'shutdown' or 'crash' (house coins gather in
+  // `house`, a Map srcWallet -> { srcWallet, srcName, micro }, for one floor record), 'emergency' (always back).
+  // -> the owed rows
+  _coinOut(cid, why, live, house) {
+    const coin = this.bank.getPickup(cid);
+    if (!coin) return [];
+    const toHouse = !this.botRoom && !this.coinFrom.has(cid) && why !== 'emergency' && coin.srcWallet;
+    if (!toHouse) return this._coinBack(cid, why, live);
+    const s = this.bank.sweepPickup(cid);
+    if (!s) return [];
+    this.coinEvents.push({ r: cid, by: 0 });
+    if (house) {
+      const e = house.get(s.srcWallet) || { srcWallet: s.srcWallet, srcName: s.srcName || '', micro: 0 };
+      e.micro += s.micro;
+      house.set(s.srcWallet, e);
+      return [];
+    }
+    try {
+      this.hooks.onSweep({ sweepId: this.uuid(), micro: s.micro, srcWallet: s.srcWallet, srcName: s.srcName || '',
+        label: this.label, pid: cid });
+    } catch (e) {
+      this.log.error('[CHOMP] SWEEP CRITICAL coin ' + cid + ' ' + s.micro + ' micro not booked (' + this.label + '): ' +
+        (e && e.message));
+      this._breach({ kind: 'sweep', micro: s.micro });
+    }
+    return [];
+  }
+
+  // One coin back to whoever it belongs to: a seed part to the bot bank, every player's part owed back to that player
+  // as a keyed row (onOwed journals it; live: written now). -> the rows
   _coinBack(cid, why, live) {
     const s = this.bank.sweepPickup(cid);
     if (!s) return [];
@@ -317,15 +354,30 @@ class ChompMoney extends AgMoney {
     return rows;
   }
 
-  // agMoney's exits, then every coin on the maze goes back the same way.
+  // agMoney's exits, then every coin on the maze: back to its owners (rows), or the house's in one floor record that
+  // the next boot books (a record the journal cannot take is logged with its amount; the money stays in escrow,
+  // unbooked, as Paper's).
   shutdownSettle(why = 'shutdown') {
     const kind = why === 'crash' ? 'crash' : 'shutdown';
     const rows = super.shutdownSettle(why);
+    const house = new Map();
     for (const coin of this.bank.pickups()) {
       try {
-        rows.push(...this._coinBack(coin.pid, kind, false));
+        rows.push(...this._coinOut(coin.pid, kind, false, house));
       } catch (e) {
         this.log.error('[CHOMP] SHUTDOWN coin ' + coin.pid + ' not settled', e && e.message);
+      }
+    }
+    if (house.size) {
+      const bySource = Array.from(house.values());
+      const micro = bySource.reduce((t, x) => t + x.micro, 0);
+      const rec = { key: 'chfloor:' + this.uuid(), why: kind, micro, bySource };
+      try {
+        this.hooks.onFloor(rec);
+        this.log.warn('[CHOMP] SHUTDOWN-FLOOR ' + micro + ' micro ' + this.label + ' ' + rec.key + ' (booked at the next boot)');
+      } catch (e) {
+        this.log.error('[CHOMP] SHUTDOWN-FLOOR CRITICAL ' + micro + ' micro ' + this.label + ' not journaled, it stays in ' +
+          'escrow unbooked: ' + (e && e.message));
       }
     }
     return rows;

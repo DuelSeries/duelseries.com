@@ -55,7 +55,7 @@ class ChompArenas {
     this.stopping = false;
     this.moneyHooks = moneyHooks;
     if (this.paidEnabled) {
-      for (const k of ['onCashout', 'onRefund', 'onTransfer', 'onBreach', 'onStake', 'onHouse', 'onOwed']) {
+      for (const k of ['onCashout', 'onRefund', 'onTransfer', 'onBreach', 'onStake', 'onHouse', 'onOwed', 'onSweep']) {
         if (!moneyHooks || typeof moneyHooks[k] !== 'function') throw new Error('ChompArenas: money hook ' + k + ' must be a function');
       }
     }
@@ -148,6 +148,14 @@ class ChompArenas {
       },
       onSeedSpent: (micro) => { if (this.botBank) this.botBank.spent(micro); },
       onOwed: (row, live) => h.onOwed(Object.assign({ label: label() }, row), live),
+      onSweep: (x) => h.onSweep(Object.assign({ label: label() }, x)),
+      // a restart's or crash's coins for the house: one money-journal floor record, booked at the next boot
+      onFloor: (rec) => {
+        const j = h.journal;
+        if (!j || typeof j.floor !== 'function' || !j.floor(Object.assign({ room: label() }, rec))) {
+          throw new Error('the journal did not take the floor record');
+        }
+      },
       onAccountOpen: (acct) => this._accountOpened(roomOf(), acct),
       onAccountConfirmed: (acct) => this._accountConfirmed(roomOf(), acct),
       onAccountClosed: (acct, outcome, extra) => this._accountClosed(roomOf(), acct, outcome, extra),

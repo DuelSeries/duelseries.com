@@ -1,6 +1,6 @@
 # Chomp: the Pac-Man-style arena
 
-Hidden at `/chomp` (not in the lobby), free only, since 2026-10-25. Owen's brief: look exactly like Pac-Man and play
+Hidden at `/chomp` (not in the lobby) since 2026-10-25; paid rungs since 2026-10-26. Owen's brief: look exactly like Pac-Man and play
 exactly like Pac-Man, in one big shared maze ("Arena, cash out anytime"), money later.
 
 ## The line we keep (IP)
@@ -22,7 +22,8 @@ is called Chomp.
 | `server/chomp/chompRoom.js` | the sim: eating, power, collisions, fruit, pellet respawn, bots fill, late turns |
 | `server/chomp/chompGhosts.js` | the four personalities, scatter/chase, fright, house, eyes |
 | `server/chomp/chompBots.js` | house bots (flee, hunt when powered, nearest dot by BFS) |
-| `server/chomp/chompBoot.js` | the `/chomp` namespace, rate limits, per-IP cap, sleep when empty; `CHOMP=off` closes it |
+| `server/chomp/chompBoot.js` | the `/chomp` namespace, rate limits, per-IP cap, the paid door; `CHOMP=off` closes it |
+| `server/chomp/chompArenas.js`, `chompMoney.js` | the paid rungs and their money (see below) |
 | `public/chomp.html`, `public/js/chomp/*` | the page: title card, prediction, interpolation, renderer, HUD, sounds |
 | `test/chomp.test.js` | maze shape, movement, targeting, eyes get home, bot arena run, wire, late turns |
 
@@ -43,28 +44,41 @@ ticks from its state. Turns are lined up with the tile the key went down in (`ch
 `lateTurn` rewinds up to 250 ms for one already passed). Measured headless at 90 ms RTT with jitter: 3% of checks
 corrected, most of them a tick of jitter.
 
-## The money version (plan only, not built)
+## The money version (built 2026-10-26)
 
-Reuse the paid machinery agar.io and Paper already run; nothing new in the money paths.
+Paid rungs $0.50 and $1 (`CHOMP_PAID`, on by default; instant off switch `chomp:paid:off` in the owner console,
+saved across restarts). Nothing new in the money paths: paid agar.io's machinery is reused whole.
 
-1. **Buy-in = worth.** The stake ladder ($0.50, $1.00) through the existing paid door: stake on-chain, the server mints
-   the one-time entry token, `consumeAtStake` sets your worth from the token only. One paid seat per wallet.
-2. **Coins on the maze.** Worth is shown as gold coins on your chomper's HUD and in the board (`DSCount`). Paid rooms
-   draw coins in the slither gold (`breathing gold + $`), never mistakable for dots.
-3. **Eating a player** (with your power pellet on) drops ALL their coins on the tiles around where they were eaten,
-   like slither's death drop; whoever touches a coin takes it (the eater is usually first). Coins never vanish: every
-   coin is a ledger row until picked up or swept to the house at room close.
-4. **A ghost catching you** (Owen's pick): you are out and your coins drop the same way. Ghosts never hold money.
-5. **Hold Q to cash out** (Owen): a 3 s hold, the shared gold "Three Count" ring (`DSEnd.ring`) fills around your
-   chomper and you **keep moving** while it fills; getting eaten or caught during the hold drops your coins as usual.
-   Phone: a held Cash out button. Paid out 90/10 through the parameterized payout (`paperPayout`), owed-row drainer,
-   journal replay on restart, crash refunds, the same as agar.io.
-6. **Bots never cash out**, carry no money unless funded from the Bot bank (paid-room bots rules), and never eat a
-   person's coins in a paid room.
-7. **Anti-collusion:** every coin pickup of another wallet's coins goes through `CollusionMonitor`.
-8. **Power pellets in paid rooms** keep the dossier timings; the 18-tile fright radius and pellet respawn may need
-   tuning so a paid room cannot be farmed by camping an energizer (decide after a playtest).
-9. **Disconnect:** the agar.io rule (frozen 3 min, then cashed out 90/10 to the wallet).
+| Piece | Where |
+|---|---|
+| door (one-time entry token, stake row claim, refunds, resume key, one seat per wallet) | `server/ag/agPaidDoor.js` with `ev: 'c'`, `game: 'chomp'` |
+| accounts, hold-Q cash-out, grace and dormant, release, emergency, shutdown, bounty bots | `server/ag/agMoney.js`, extended by `server/chomp/chompMoney.js` |
+| coins on the maze | `ChompBank` (agBank over PaperBank floor coins): `dropCoins`, `collect`, a per-tile index |
+| directory (rungs, maps, outcomes, cooldown, bots, sweep, `/api/live` rows) | `server/chomp/chompArenas.js` (agArenas' paid half) |
+| 90/10 payout, refunds, house floor and breach income | `server/paperPayout.js` instance `chompPayout` (game `chomp`, prefix `c`) |
+| crash journal, owed-row drainer, liability sum, drain status, shutdown refunds | shared with agar, Paper and paid snake (`server/index.js`) |
+| page hand-off, restake, resume after a reload | `public/js/ag/agPaid.js` (`game: 'chomp'`), `public/js/chomp/chompPaid.js` |
+
+Rules (Owen 2026-10-25/26):
+
+1. **Buy-in = worth**, from the consumed token only. One open paid seat per wallet.
+2. **A catch drops everything.** A ghost, or a player eating you with a power pellet, closes your account into coins
+   on the path tiles around you (one coin per $0.125, 4 to 16, the death tile first); whoever steps on a coin's tile
+   takes it. Coins are drawn in the shared DuelSeries gold with a $, never like a dot.
+3. **Hold Q 3 s** (180 ticks; a held Cash out button on a phone) to cash out 90/10 while you keep moving; caught during
+   the hold, your coins drop instead (death wins a same-tick tie).
+4. **Coins nobody takes go to the house** (Owen 2026-10-26): after an hour as `chomp_floor` income, at a restart or
+   crash as one journal floor record (`chfloor:` key) booked at the next boot. Except: in a room a bounty bot ever
+   played in they go back to whoever dropped them (owed rows), a bot's own money never goes to the house (seed back to
+   the Bot bank, players' money back to them), and an emergency close gives every coin back.
+5. **Disconnect**: the agar rule (5 s grace moving on, then still and catchable for 3 minutes, then cashed out 90/10).
+   A restart or crash refunds every open balance 100% (owed rows).
+6. **Bots** are the owner's bounty bots only (Control, room #0 of a rung, seeded from the Bot bank, never cash out,
+   never back once caught); they go for coins first.
+7. Paid rooms use the same 3x3 maze as the free room (Owen 2026-10-26).
+
+Tests: `test/chompMoney.test.js` (ledger, every exit, bots, a fuzz run), `test/chompPaidDoor.test.js` (door,
+directory, switches).
 
 ## Open, for later
 

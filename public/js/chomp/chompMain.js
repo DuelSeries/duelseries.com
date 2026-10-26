@@ -731,7 +731,11 @@
       framed: framed, parent: window.parent, origin: location.origin
     });
     pcard.onAgain = function () { flow.restake(); };
-    window.addEventListener('message', function (e) { flow.onMessage(e); });
+    // only the lobby around this page, on this origin (agPaid onMessage checks the request's nonce too)
+    window.addEventListener('message', function (e) {
+      if (e.origin !== location.origin || e.source !== window.parent) return;
+      flow.onMessage(e);
+    });
     window.addEventListener('pagehide', function () { flow.onPageHide(); });
     window.addEventListener('pageshow', function (e) { flow.onPageShow(e); });
     flow.start();

@@ -24,6 +24,7 @@ function hooks() {
       onStake: (s) => calls.stake.push(s),
       onHouse: (x) => calls.house.push(x),
       onOwed: (row, live) => calls.owed.push(Object.assign({ live }, row)),
+      onSweep: () => {},
       journal: { open: (a, room) => calls.journal.push(['open', a.jid, room]), close: (a, o) => calls.journal.push(['close', a.jid, o]) },
     },
   };
