@@ -15,15 +15,18 @@
 // volatile, SNAP_HZ), c:dots {e, b} (eaten / back), c:ev [events], c:lb [[id, score]], c:me {s, l, rk, n},
 // c:over {score, rank, of, secs}, c:refused {why}.
 //
-// The room sleeps while nobody is connected (no CPU for an empty hidden page) and wakes on the first connection.
+// The free room is warm from boot like the other games' (bots playing before anyone comes), its bot count on the day
+// curve (server/botPopulation.js, 'chomp'). c:chat {text} goes through the shared chat guard (server/chatGuard.js):
+// out as c:chat {name, c, text, me} to everyone, a refusal as c:chatnote {text} to the sender alone.
 
 const R = require('../../shared/chompRules');
+const chatGuard = require('../chatGuard').shared;
+const { gameBotTarget } = require('../botPopulation');
 const { ChompRoom, SNAP_EVERY } = require('./chompRoom');
 const { socketClientIp } = require('../clientAddr');
 
 const PER_IP = 10;                 // CHOSEN: sockets one address may hold on /chomp
-const RATE = { join: 500, dir: 12, leave: 500 };   // CHOSEN: least ms between two events of a kind (flood stops)
-const SLEEP_AFTER_MS = 60 * 1000;  // CHOSEN: keep running a minute after the last socket leaves
+const RATE = { join: 500, dir: 12, leave: 500, chat: 300 };   // CHOSEN: least ms between two events of a kind (flood stops)
 
 function switchOn(env) {
   const v = String(env.CHOMP == null ? '' : env.CHOMP).trim().toLowerCase();
@@ -37,7 +40,7 @@ function isInt(v, lo, hi) { return Number.isInteger(v) && v >= lo && v <= hi; }
 function openChomp({ io, env = process.env, helpers = {} }) {
   if (!switchOn(env)) { console.log('[CHOMP] off'); return null; }
   const nsp = io.of('/chomp');
-  const room = new ChompRoom({ nsp });
+  const room = new ChompRoom({ nsp, botFill: () => gameBotTarget('chomp') });
   const rl = helpers.socketRL || ((s, key, ms) => {
     const now = Date.now(); s._rl = s._rl || {};
     if (s._rl[key] && now - s._rl[key] < ms) return false;
@@ -47,7 +50,7 @@ function openChomp({ io, env = process.env, helpers = {} }) {
   const perIp = new Map();
 
   // ---- the loop: fixed 60 Hz steps against the wall clock, so a late timer catches up instead of slowing the game
-  let timer = null, last = 0, acc = 0, lastSocketAt = Date.now();
+  let timer = null, last = 0, acc = 0;
   const stepMs = 1000 / R.TICK_HZ;
   function frame() {
     const now = Date.now();
@@ -58,10 +61,8 @@ function openChomp({ io, env = process.env, helpers = {} }) {
       room.step();
       if (room.tick % SNAP_EVERY === 0) send();
     }
-    if (nsp.sockets.size === 0 && now - lastSocketAt > SLEEP_AFTER_MS) { clearInterval(timer); timer = null; }
   }
-  function wake() {
-    lastSocketAt = Date.now();
+  function start() {
     if (timer) return;
     last = Date.now(); acc = 0;
     timer = setInterval(frame, 8);
@@ -95,7 +96,6 @@ function openChomp({ io, env = process.env, helpers = {} }) {
     const n = (perIp.get(ip) || 0) + 1;
     if (n > PER_IP) { socket.emit('c:refused', { why: 'limit' }); socket.disconnect(true); return; }
     perIp.set(ip, n);
-    wake();
     socket.emit('c:init', room.init());
 
     function on(ev, fn) {
@@ -120,6 +120,16 @@ function openChomp({ io, env = process.env, helpers = {} }) {
       const c = isInt(msg.c, 0, room.A.W - 1) ? msg.c : null, r = isInt(msg.r, 0, room.A.H - 1) ? msg.r : null;
       room.input(p, msg.d, msg.s, c, r);
     });
+    on('c:chat', (msg) => {
+      if (!rl(socket, 'c:chat', RATE.chat)) return;
+      const p = room.bySocket.get(socket.id);
+      if (!p || p.dying || typeof msg.text !== 'string') return;
+      const r = chatGuard.check(socket.id, msg.text, Date.now());
+      if (!r.ok) { if (r.note) socket.emit('c:chatnote', { text: r.note }); return; }
+      const line = { name: p.name, c: p.color, text: r.text };
+      socket.broadcast.emit('c:chat', line);
+      socket.emit('c:chat', Object.assign({ me: 1 }, line));
+    });
     on('c:leave', () => {
       if (!rl(socket, 'c:leave', RATE.leave)) return;
       room.removePlayer(room.bySocket.get(socket.id));
@@ -128,11 +138,12 @@ function openChomp({ io, env = process.env, helpers = {} }) {
       room.removePlayer(room.bySocket.get(socket.id));
       const left = (perIp.get(ip) || 1) - 1;
       if (left <= 0) perIp.delete(ip); else perIp.set(ip, left);
-      lastSocketAt = Date.now();
+      chatGuard.forget(socket.id);
     });
   });
 
   room.fillBots();
+  start();
   console.log(`[CHOMP] open: ${room.A.mx}x${room.A.my} modules, ${room.ghosts.length} ghosts`);
   return { room, nsp, close() { if (timer) clearInterval(timer); timer = null; } };
 }

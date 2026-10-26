@@ -330,10 +330,11 @@
     if (!hud) return;
     // Measured against the Dossier capture: the arcade's glyphs sit 1 px right of Press Start 2P's in the 8 px cell,
     // and the score row 1 px lower. 1UP blinks 16 frames on, 16 off while playing (jspacman Text.js).
-    if (!hud.blink || Math.floor(tick / 16) % 2 === 0) g.drawImage(text('1UP', C.white), 3 * T + 1, 0);
+    // spectating: no 1UP or score of your own (the Spectate bar's Lobby chip sits there)
+    if (!hud.watch && (!hud.blink || Math.floor(tick / 16) % 2 === 0)) g.drawImage(text('1UP', C.white), 3 * T + 1, 0);
     g.drawImage(text('HIGH SCORE', C.white), 9 * T + 1, 0);
     var sc = hud.score > 0 ? String(hud.score) : '00';
-    g.drawImage(text(sc, C.white), 7 * T - sc.length * T + 1, T + 1);
+    if (!hud.watch) g.drawImage(text(sc, C.white), 7 * T - sc.length * T + 1, T + 1);
     if (hud.high > 0) { var hs = String(hud.high); g.drawImage(text(hs, C.white), 17 * T - hs.length * T + 1, T + 1); }
     for (var i = 0; i < hud.lives; i++) g.drawImage(life(), 2 * T + i * 16, BH - HUD_BOTTOM + 2);
     if (hud.fruit) g.drawImage(cherry(), BW - 4 * T, BH - HUD_BOTTOM);

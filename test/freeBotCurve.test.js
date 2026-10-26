@@ -14,7 +14,7 @@ const quiet = { error() {}, warn() {}, log() {} };
 const DAY = Date.UTC(2026, 9, 21, 4); // midnight Eastern (EDT)
 
 test('each game stays in its range, low before dawn, high in the evening, and never jumps', () => {
-  for (const game of ['agar', 'paper']) {
+  for (const game of ['agar', 'paper', 'chomp']) {
     const { lo, hi } = P.GAME_CURVES[game];
     let prev = null, min = Infinity, max = -Infinity;
     for (let m = 0; m < 24 * 60 * 3; m++) {

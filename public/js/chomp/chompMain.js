@@ -52,7 +52,13 @@
   function connect() {
     socket = window.io('/chomp');
     socket.on('c:init', onInit);
-    socket.on('c:you', function (m) { myId = m.id; (m.metas || []).forEach(setMeta); predicting = false; phase = 'play'; titleEl.hidden = true; readyUntil = performance.now() + 1500; Snd.play('ch.ready'); });
+    socket.on('c:chat', function (m) {
+      if (!chat) return;
+      var others = draw ? draw.L.players.length - 1 : 5;
+      chat.add({ name: m.name, text: m.text, me: !!m.me, color: m.me ? '#ffff00' : (draw ? draw.L.players[(m.c % others) + 1] : '#dedeff') });
+    });
+    socket.on('c:chatnote', function (m) { if (chat && m && m.text) chat.add({ kind: 'sys', text: m.text }); });
+    socket.on('c:you', function (m) { closeWatch(); myId = m.id; (m.metas || []).forEach(setMeta); predicting = false; phase = 'play'; titleEl.hidden = true; readyUntil = performance.now() + 1500; Snd.play('ch.ready'); });
     socket.on('c:s', onSnap);
     socket.on('c:dots', onDots);
     socket.on('c:ev', onEvents);
@@ -137,6 +143,8 @@
 
   function pop(x, y, text, color, ms) { pops.push({ x: x, y: y, text: text, color: color, at: performance.now(), ms: ms || 1000 }); }
 
+  // The shared end card (dsEnd.js), the buttons in the other games' order: Lobby (Menu on a direct visit), Spectate,
+  // Play again.
   function onOver(m) {
     phase = 'over'; predicting = false; myId = 0;
     if (!window.DSEnd) { titleEl.hidden = false; phase = 'title'; return; }
@@ -146,11 +154,51 @@
       hero: fmt(m.score), unit: 'points',
       facts: [['Rank', '#' + m.rank + ' of ' + m.of], ['Time', Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0')]],
       buttons: [
-        { id: 'again', text: 'Play again', primary: true, onClick: function () { window.DSEnd.hide(); join(); } },
-        { id: 'menu', text: 'Menu', onClick: function () { window.DSEnd.hide(); phase = 'title'; titleEl.hidden = false; } }
+        { id: 'lobby', text: inLobby ? 'Lobby' : 'Menu', onClick: function () { window.DSEnd.hide(); backToLobby(); } },
+        { id: 'watch', text: 'Spectate', onClick: function () { window.DSEnd.hide(); startWatch(); } },
+        { id: 'again', text: 'Play again', primary: true, onClick: function () { window.DSEnd.hide(); join(); } }
       ]
     });
   }
+
+  // ---- the lobby around the page (its free games open in the lobby's #game-frame) and Spectate
+  var inLobby = false;
+  try { inLobby = !!window.frameElement && window.frameElement.id === 'game-frame'; } catch (e) { inLobby = false; }
+  function backToLobby() {
+    closeWatch();
+    if (inLobby && window.parent) { window.parent.postMessage('game:done', '*'); return; }
+    phase = 'title'; titleEl.hidden = false;
+  }
+  var watchId = 0, watchName = null;
+  function watchList() {
+    var s = snaps[snaps.length - 1];
+    if (!s) return [];
+    var score = new Map(lbRows.map(function (r) { return [r[0], r[1]]; }));
+    return s.players.filter(function (p) { return !(p.flags & Wire.F.DYING); })
+      .map(function (p) { return p.id; })
+      .sort(function (a, b) { return (score.get(b) || 0) - (score.get(a) || 0) || a - b; });
+  }
+  function stepWatch(d) {
+    var list = watchList(), bar = window.DSWatchBar;
+    if (!list.length) { watchId = 0; watchName = null; if (bar) bar.empty(); return; }
+    var i = list.indexOf(watchId);
+    watchId = list[i < 0 ? 0 : (i + d + list.length) % list.length];
+    var meta = metas.get(watchId);
+    watchName = meta ? meta.n : '';
+    if (bar) bar.watching(watchName || 'Player');
+  }
+  function startWatch() {
+    phase = 'watch'; titleEl.hidden = true; predicting = false;
+    if (window.DSWatchBar) window.DSWatchBar.open({
+      game: 'chomp', stake: 0,
+      onPrev: function () { stepWatch(-1); },
+      onNext: function () { stepWatch(1); },
+      onLobby: function () { backToLobby(); }
+    });
+    watchId = 0;
+    stepWatch(0);
+  }
+  function closeWatch() { if (window.DSWatchBar && window.DSWatchBar.shown()) window.DSWatchBar.close(); }
 
   function join() {
     if (!socket) return;
@@ -373,13 +421,17 @@
     // camera
     var target = null;
     if (predicting && me) target = { x: me.x + smooth.x, y: me.y + smooth.y };
-    else if (w) {
+    else if (w && phase === 'watch') {
+      var wb = w.b.pmap.get(watchId);
+      if (!wb || (wb.flags & Wire.F.DYING)) { if (tick % 30 === 0) stepWatch(1); }
+      else { var wp = lerp(w.a.pmap.get(watchId), wb, w.k); target = { x: wp.x, y: wp.y }; }
+    } else if (w) {
       var follow = lbRows.length ? w.b.pmap.get(lbRows[0][0]) : w.b.players[0];
       if (follow) target = { x: follow.x, y: follow.y };
     }
     if (!target) target = { x: A.W / 2, y: A.H / 2 };
     if (!camSet) { cam.x = target.x; cam.y = target.y; camSet = true; }
-    var kf = predicting ? 1 : 0.04;
+    var kf = predicting ? 1 : phase === 'watch' ? 0.2 : 0.04;
     cam.x += (target.x - cam.x) * kf; cam.y += (target.y - cam.y) * kf;
     var vw = canvas.width / draw.S, vh = canvas.height / draw.S - (pixel ? 5 : 0);
     var cx = vw >= A.W + 2 ? A.W / 2 : Math.max(vw / 2 - 1, Math.min(A.W - vw / 2 + 1, cam.x));
@@ -394,7 +446,7 @@
       var high = lbRows.length ? lbRows[0][1] : 0;
       scene.hud = phase === 'play' || phase === 'over'
         ? { score: myScore, high: Math.max(high, myScore), lives: Math.max(0, myLives - 1), fruit: true, blink: phase === 'play' }
-        : { score: 0, high: high, lives: 0, fruit: true };
+        : { score: 0, high: high, lives: 0, fruit: true, watch: phase === 'watch' };
       if (predicting && me && me.dir < 0 && phase === 'play') scene.banner = { text: 'READY!', color: draw.C.yellow, x: me.x, y: me.y - 6 };
     }
     draw.frame(scene);
@@ -457,6 +509,22 @@
 
   nameEl.value = store('chomp.name') || '';
   if (attract) titleEl.hidden = true;
+  // the shared chat (dsChat.js): T to type, a button on phones; only a seated chomper sends
+  var chat = window.DSChat ? window.DSChat.mount({
+    send: function (t) { if (!socket || !socket.connected) return false; socket.emit('c:chat', { text: t }); return true; },
+    canSend: function () { return phase === 'play' && predicting; },
+    pc: { left: 16, bottom: 56 },
+    phoneAt: { left: 10, top: 64 }
+  }) : null;
+  function syncChat() { if (chat) chat.visible(phase === 'play' || phase === 'watch'); }
+  setInterval(syncChat, 250);
+  // the lobby's Spectate (play.js WATCH_PAGE) leaves dsWatch=chomp for the page it opens
+  try {
+    if (sessionStorage.getItem('dsWatch') === 'chomp') {
+      sessionStorage.removeItem('dsWatch');
+      setTimeout(startWatch, 600);
+    }
+  } catch (e) { /* storage blocked: the title card shows */ }
   window.ChompPage = {
     state: function () { return { phase: phase, myId: myId, predicting: predicting, me: me, score: myScore, lives: myLives, stats: stats, snaps: snaps.length, look: draw && draw.L.id }; },
     setLook: function (n) { lookName = n; if (A) { draw = n === 'pixel' && window.ChompPixel ? new window.ChompPixel(canvas, A) : new Draw(canvas, A, n); resize(); } } };

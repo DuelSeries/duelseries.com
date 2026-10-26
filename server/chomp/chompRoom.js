@@ -52,6 +52,7 @@ class ChompRoom {
     this.dotsGone = [];
     this.dotsBack = [];
     this.events = [];
+    // bots wanted: a number (tests) or a function read each fill (the day curve, server/botPopulation.js)
     this.botFill = opts.botFill != null ? opts.botFill : R.BOT_FILL;
     for (const m of this.A.modules) { m.fruitCount = 0; m.fruitUntil = 0; }
     // spawn candidates: every plain path tile outside the ring around the house
@@ -190,7 +191,7 @@ class ChompRoom {
     for (const g of this.ghosts) Ghosts.step(g, this.A, this, DT);
     this.collide();
     if (this.tick % 30 === 0) { this.respawnPellets(); this.stepFruit(); }
-    if (this.tick % 120 === 0) this.fillBots();
+    if (this.tick % 15 === 0) this.fillBots(1);
   }
 
   stepMode() {
@@ -379,20 +380,21 @@ class ChompRoom {
     return false;
   }
 
-  fillBots() {
+  // Top the room up to the bot target, at most `step` bots a call (the room calls it every 250 ms with 1, the way
+  // agar.io's free room fills, so bots arrive one at a time). Bots over the target are not removed: they leave as
+  // they are caught (one life), like agar.io's.
+  fillBots(step = Infinity) {
     let humans = 0, bots = [];
     for (const p of this.players.values()) { if (p.bot) bots.push(p); else humans++; }
-    const want = Math.max(0, this.botFill - humans);
-    while (bots.length < want) {
+    const target = typeof this.botFill === 'function' ? this.botFill() : this.botFill;
+    const want = Math.max(0, target - humans);
+    let added = 0;
+    while (bots.length < want && added++ < step) {
       const taken = new Set([...this.players.values()].map(p => p.name.toLowerCase()));
       const name = pickName(this.rng(), { maxLen: NAME_MAX, taken: n => taken.has(n) });
       const b = this.addPlayer({ name, bot: true });
       if (!b) break;
       bots.push(b);
-    }
-    if (bots.length > want) {
-      bots.sort((a, b) => a.score - b.score);
-      for (const b of bots.slice(0, bots.length - want)) if (!b.dying) this.removePlayer(b);
     }
   }
 
