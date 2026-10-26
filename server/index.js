@@ -61,18 +61,15 @@ money.allowAccountRentFor(REVENUE_WALLET);
 // Money to or from it is the house's, so a player's wallet history never lists it as their own.
 Usdc.markHouseAddress(REVENUE_WALLET);
 
-// Move a rake cut out of the escrow to the revenue wallet. Best-effort + non-blocking: the player's
-// payout already happened, so a failed sweep is queued to the failed-payout drainer (retried
-// idempotently, money never lost). The very first sweep also creates the revenue wallet's USDC ATA.
-function sweepRake(amountUsdc, label) {
-  if (!(amountUsdc > 0)) return;
-  money.withdraw(REVENUE_WALLET, amountUsdc)
-    .then((sig) => console.log(`[RAKE] swept ${Number(amountUsdc).toFixed(6)} ${money.unit} -> revenue wallet (${label}) sig ${String(sig).slice(0, 12)}`))
-    .catch((e) => {
-      console.error(`[RAKE] sweep failed (${label}) for ${amountUsdc}: ${e.message}`);
-      db.recordFailedPayout(REVENUE_WALLET, amountUsdc, 'rake-sweep', `rake ${label}: ${e.message}`, e.broadcast).catch(() => {});
-    });
-}
+/* The owner's phone push once a house cut has landed in the revenue wallet (server/earnAlerts.js): batched,
+   never a wallet or a name in it, and it can never touch a payout. Off: NTFY_EARN_OFF=1. */
+const earnAlerts = require('./earnAlerts').createEarnAlerts({ push: notify.pushOwner, todayTotal: () => db.getHouseEarnedToday() });
+
+// Move a rake cut out of the escrow to the revenue wallet (server/rakeSweep.js): best-effort and
+// non-blocking, a failed sweep is queued to the failed-payout drainer (retried idempotently).
+const sweepRake = require('./rakeSweep').createRakeSweeper({
+  money, db, revenueWallet: REVENUE_WALLET, onSwept: (amount, label) => earnAlerts.earned(amount, label),
+});
 
 // (Phase 4d: the old per-account Privy SERVER wallet provisioning was removed — players use
 // their own client-side Privy embedded wallet now, so no server wallet is created on login.)
@@ -4361,6 +4358,12 @@ const payoutDrainer = require('./payoutDrainer').createPayoutDrainer({
   money,
   // SOL mode: "nothing signed, try later" (no good SOL price, or dust to an empty wallet): the slow lane, never dropped
   noAccountCode: money.waitCode || Usdc.RECIPIENT_NO_USDC_ACCOUNT,
+  // a rake sweep that failed and has now landed: the owner's earnings push, like a first-time sweep
+  onPaid: (row) => {
+    if (row.wallet_address === REVENUE_WALLET && row.name === 'rake-sweep') {
+      earnAlerts.earned(Number(row.amount_sol), require('./earnAlerts').labelFromRakeReason(row.reason));
+    }
+  },
 });
 /* One drain at a time (security review 2026-10-15, "drainer double pay"): this tick and kickDrain
    below both land here, and a call made while a drain is running merges into one follow-up run

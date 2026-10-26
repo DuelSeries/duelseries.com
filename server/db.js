@@ -813,6 +813,17 @@ async function getHouseRevenueDaily(days = 30) {
   return r.rows.map(x => ({ day: x.day, total: parseFloat(x.total) }));
 }
 
+// Money the house took in today, Toronto time, in dollars (the owner's earnings push, server/earnAlerts.js):
+// every positive row (rake, floor sweeps, skins), never the bot costs.
+async function getHouseEarnedToday() {
+  const r = await pool.query(
+    `SELECT COALESCE(SUM(amount_usdc),0) AS total FROM house_revenue
+      WHERE amount_usdc > 0
+        AND created_at >= (date_trunc('day', NOW() AT TIME ZONE 'America/Toronto') AT TIME ZONE 'America/Toronto')`
+  );
+  return parseFloat(r.rows[0].total);
+}
+
 // Most recent revenue events for the dashboard's live feed.
 async function getRecentHouseRevenue(limit = 30) {
   const r = await pool.query(
@@ -1198,7 +1209,7 @@ module.exports = {
   markStakeSig, claimStakeSig, claimStakeSeat, refundStakeOwed, listUnsettledStakes,
   claimStakeVerify, confirmStakeVerify, closeStakeVerify, listStakeVerifies,
   isPlayerWallet,
-  recordFailedPayout, recordOwedOnce, getFailedPayouts, sumOwedPayouts, claimDuePayout, savePayoutSignature, markPayoutPaid,
+  recordFailedPayout, recordOwedOnce, getHouseEarnedToday, getFailedPayouts, sumOwedPayouts, claimDuePayout, savePayoutSignature, markPayoutPaid,
   deferPayoutNoAccount, returnPayoutToLane,
   features, NO_USDC_ACCOUNT,
   recordEarnings,

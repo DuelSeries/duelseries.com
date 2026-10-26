@@ -34,8 +34,11 @@
 
 const SUPERSEDED = 'payout-superseded';
 
+/* onPaid(row): optional, runs once a row's payout has landed and the row is marked paid (index.js: the
+   owner's earnings push when the row was a rake sweep). A throw from it is swallowed here, so it can
+   never reach the catch below and look like a failed payout. */
 function createPayoutDrainer({ db, money, noAccountCode, log = console, perTick = 5, maxClaims = 40,
-                               stallMs = 10 * 60 * 1000, now = () => Date.now() }) {
+                               stallMs = 10 * 60 * 1000, now = () => Date.now(), onPaid = null }) {
   async function tryRow(row) {
     const slow = row.lane === 'slow';
     try {
@@ -45,6 +48,7 @@ function createPayoutDrainer({ db, money, noAccountCode, log = console, perTick 
       const r = await money.attemptPayout(row, (b) => db.savePayoutSignature(row.id, b, prev));
       if (r && r.paid) {
         await db.markPayoutPaid(row.id, r.sig);
+        if (onPaid) { try { onPaid(row); } catch (_) { /* a lost push, never a payout */ } }
         // Earnings count on actual payout: record now that the recovery landed (it was not
         // recorded at failure time), so the board reflects this real payout exactly once.
         // Not for a refund (reason begins 'refund'): that is the player's own entry going home.
