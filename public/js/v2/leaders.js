@@ -9,8 +9,9 @@
    server reads the database once a minute at most, so this asks once a minute
    while the Social tab is on screen, which is what "live" means here.
 
-   ?leaderboard=preview swaps in the sample players made in this browser by
-   socialPreview.js, tagged "Preview" wherever they show.
+   The sample players (socialPreview.js: everyone while config.js
+   SAMPLE_BOARD is on, else ?leaderboard=preview in one browser) take its
+   place, tagged "Sample" with a one-line note, and never marked LIVE.
 
    Its own styles, like earnings.js: one file to read, one to delete. */
 (function () {
@@ -37,7 +38,7 @@
     '.lb-live.off{color:var(--tx3)}' +
     '.lb-live.off i{background:var(--tx3);animation:none!important;box-shadow:none}' +
     '.lb-tag{display:inline-block;margin-left:8px;vertical-align:middle;position:relative;top:-3px;' +
-      'font:600 11px/1 var(--f);color:var(--ink);background:var(--money);border-radius:var(--rf);padding:4px 8px;letter-spacing:0}' +
+      'font:600 12px/1 var(--f);color:var(--ink);background:var(--money);border-radius:var(--rf);padding:4px 8px;letter-spacing:0}' +
     /* The top 3: one card, three rows, the amount where the eye ends. */
     '.lb-card{background:var(--s1);border-radius:var(--r3);padding:6px}' +
     '.lbrow{display:grid;grid-template-columns:30px minmax(0,1fr) auto;gap:12px;align-items:center;width:100%;' +
@@ -105,15 +106,16 @@
       '<span class="am" data-cu="lb-' + esc(r.name) + '">' + money(r.amount) + '</span></button>';
   }
 
-  // The heading's marks: LIVE (grey while the last read failed) and Preview.
+  // The heading's marks: LIVE (grey while the last read failed), or Sample instead of it.
   function drawMarks() {
     const live = $('soc-live');
     if (live) {
+      live.hidden = !!P();
       live.classList.toggle('off', failed && !P());
       live.title = failed && !P() ? 'Not updating: the last read failed' : 'Updates every minute';
     }
     const h = live && live.parentNode;
-    if (h && P() && !h.querySelector('.lb-tag')) h.insertAdjacentHTML('beforeend', '<span class="lb-tag">Preview</span>');
+    if (h && P() && !h.querySelector('.lb-tag')) h.insertAdjacentHTML('beforeend', '<span class="lb-tag">' + P().tag + '</span>');
   }
 
   function draw() {
@@ -133,8 +135,7 @@
     }
     box.innerHTML = '<div class="lb-card lb-first">' + top.slice(0, 3).map(rowHTML).join('') + '</div>' +
       (top.length > 3 ? '<button type="button" class="lb-all" aria-haspopup="dialog">View full leaderboard</button>' : '') +
-      (P() ? '<div class="lb-note">Preview: sample players made in this browser only. ' +
-             'Nobody else sees them, and the real board shows only real cash-outs.</div>' : '');
+      (P() ? '<div class="lb-note">' + P().note + '</div>' : '');
   }
 
   async function refresh() {
@@ -166,12 +167,12 @@
     const top = (data && data.top) || [];
     return '<span class="lb-grab"></span>' +
       '<div class="lb-sh"><h3>Top earners</h3>' +
-        '<span class="lb-live' + (failed && !P() ? ' off' : '') + '"><i></i>LIVE</span>' +
-        (P() ? '<span class="lb-tag">Preview</span>' : '') +
+        (P() ? '<span class="lb-tag">' + P().tag + '</span>'
+             : '<span class="lb-live' + (failed ? ' off' : '') + '"><i></i>LIVE</span>') +
         '<button type="button" class="lb-x" aria-label="Close">&times;</button></div>' +
       '<div class="lb-list">' + top.slice(0, 10).map(rowHTML).join('') + '</div>' +
       '<div class="lb-note">' + (P()
-        ? 'Preview: sample players made in this browser only.'
+        ? P().note
         : 'What players took home from paid cash-outs, after the 10% cut. Updates every minute.') + '</div>';
   }
   function drawSheet() {

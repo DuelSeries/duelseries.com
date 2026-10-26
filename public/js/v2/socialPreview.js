@@ -15,6 +15,12 @@
    only thing stored; the players are made again from the seed on each load.
    Every other browser, and the server, only ever see the real board.
 
+   For everyone (Owen, 2026-10-26, to get feedback on the full board in the
+   real game): config.js SAMPLE_BOARD = true turns it on for every visitor.
+   Then every place it shows says "Sample" and "Sample players to preview the
+   board.", and never LIVE: sample winnings on a real-money site are only ever
+   shown labelled as sample data. The lobby strip, Wallet and server stay real.
+
    Fifty players, a long tail from a few dollars up to a few thousand with a
    clear top 3. Each has a profile whose cash-outs add up to the board's figure
    to the cent, in bursts with quiet stretches between (so the graph's squeeze
@@ -27,8 +33,12 @@
   const ON = (function () {
     if (has('off')) { try { localStorage.removeItem(KEY); } catch (_) {} return false; }
     if (has('preview')) { try { localStorage.setItem(KEY, '1'); } catch (_) {} return true; }
+    if (window.DSConfig && window.DSConfig.SAMPLE_BOARD === true) return true;   // config.js: everyone
     try { return localStorage.getItem(KEY) === '1'; } catch (_) { return false; }
   })();
+  // Every screen showing these players carries this tag and this line (leaders.js, social.js).
+  const TAG = 'Sample';
+  const NOTE = 'Sample players to preview the board.';
   const DAY = 864e5;
   const NAMES = ['neonviper', 'Kestrel', 'mossy_t', 'ByteNomad', 'juno.k', 'Ravenfield', 'pixelpaz',
     'Tomasz', 'orbital', 'sundial22', 'Marlowe', 'lumen', 'quietfox', 'Halvard', 'zinc', 'Ottoline',
@@ -174,6 +184,6 @@
 
   window.V2SocialPreview = {
     on: ON,
-    board: board, search: search, profile: profile, amountOf: amountOf, rankOf: rankOf, total: total,
+    board: board, search: search, profile: profile, amountOf: amountOf, rankOf: rankOf, total: total, tag: TAG, note: NOTE,
   };
 })();

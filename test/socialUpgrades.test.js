@@ -305,15 +305,46 @@ test('preview: the sample players never leave the browser', () => {
   assert.deepStrictEqual(src.match(/localStorage\.\w+\([^)]*\)/g),
     ["localStorage.removeItem(KEY)", "localStorage.setItem(KEY, '1')", "localStorage.getItem(KEY)"],
     'the one stored thing is the on flag');
-  assert.ok(/if \(pv\) \{ drawWin\(\{ on: true, total: pv\.total\(\), preview: true \}\); return; \}/.test(read('public/js/v2/social.js')),
-    'Global player winnings in the preview is drawn without asking the server, tagged Preview');
+  assert.ok(/if \(pv\) \{ drawWin\(\{ on: true, total: pv\.total\(\), preview: pv \}\); return; \}/.test(read('public/js/v2/social.js')),
+    'Global player winnings in the preview is drawn without asking the server, tagged Sample');
   const lead = read('public/js/v2/leaders.js');
   assert.ok(/if \(p\) \{ data = p\.board\(10\); failed = false; draw\(\); drawSheet\(\); return; \}/.test(lead),
     'the preview board is drawn without asking the server');
   const soc = read('public/js/v2/social.js');
   assert.ok(/let p = \(pv && pv\.profile\(name\)\) \|\| PROFILES\.get\(name\);/.test(soc),
     'a sample profile is made here, never fetched');
-  assert.ok(/Preview<\/span> sample player/.test(soc) && /lb-tag">Preview/.test(lead), 'tagged Preview on screen');
+  assert.ok(/'<span class="lb-tag p-tag">' \+ PV\(\)\.tag \+ '<\/span> sample player'/.test(soc) &&
+    /'<span class="lb-tag">' \+ P\(\)\.tag \+ '<\/span>'/.test(lead), 'tagged Sample on screen');
+  // Sample figures are never marked LIVE: the board heading, the full board and Global player winnings.
+  assert.ok(/live\.hidden = !!P\(\);/.test(lead));
+  assert.ok(/\(P\(\) \? '<span class="lb-tag">' \+ P\(\)\.tag \+ '<\/span>'\s*: '<span class="lb-live'/.test(lead));
+  assert.ok(/\(d\.preview \? '' : '<span class="win-live">/.test(soc) && /<div class="win-note">' \+ d\.preview\.note/.test(soc));
+});
+
+test('sample board: config.js SAMPLE_BOARD shows it to every visitor, labelled Sample', () => {
+  const open = (search, cfg) => {
+    const win = { location: { search }, document: { getElementById: () => ({ classList: { add() {} } }) } };
+    win.window = win;
+    vm.createContext(win);
+    if (cfg) vm.runInContext(cfg, win);
+    vm.runInContext(read('public/js/v2/socialPreview.js'), win);
+    return win.V2SocialPreview;
+  };
+  const cfg = read('public/js/v2/config.js');
+  assert.ok(/^\s*SAMPLE_BOARD: (true|false),$/m.test(cfg), 'a one-line switch');
+  const on = open('', cfg.replace(/SAMPLE_BOARD: (true|false)/, 'SAMPLE_BOARD: true'));
+  assert.strictEqual(on.on, true, 'on for a fresh browser');
+  assert.strictEqual(on.tag, 'Sample');
+  assert.strictEqual(on.note, 'Sample players to preview the board.');
+  assert.strictEqual(on.board(50).top.length, 50);
+  assert.strictEqual(open('', cfg.replace(/SAMPLE_BOARD: (true|false)/, 'SAMPLE_BOARD: false')).on, false, 'false = the real board');
+  const html = read('public/v2.html');
+  assert.ok(html.indexOf('/js/v2/config.js') > 0 && html.indexOf('/js/v2/config.js') < html.indexOf('/js/v2/socialPreview.js'),
+    'config.js loads before socialPreview.js');
+  // The strip and the Wallet never read the sample players.
+  for (const f of ['public/js/v2/earnings.js', 'public/js/v2/stats.js', 'public/js/v2/wallet.js']) {
+    assert.ok(!/V2SocialPreview|SAMPLE_BOARD/.test(read(f)), f + ' stays real');
+  }
 });
 
 test('search and profiles share a rate limit: a person typing never meets it, a script does', () => {

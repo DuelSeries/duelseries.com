@@ -27,9 +27,10 @@
                                     players' landed cash-outs only; {on:false} while
                                     the strip's off switch is on
 
-   ?leaderboard=preview fills the board, search, profiles and Global player
-   winnings with sample players made in this browser only (socialPreview.js);
-   never sent anywhere. It stays on in that browser until ?leaderboard=off. */
+   The sample players (socialPreview.js) fill the board, search, profiles
+   and Global player winnings, tagged Sample: for everyone while config.js
+   SAMPLE_BOARD is on, else in one browser after ?leaderboard=preview (until
+   ?leaderboard=off). Made in the browser, never sent anywhere. */
 
 (function () {
   const PROFILES = new Map();          // name -> profile, so reopening is free
@@ -109,9 +110,10 @@
     }
     if (!box.querySelector('.win-v')) {
       box.innerHTML = '<div class="win-top"><span class="win-k">Global player winnings' +
-        (d.preview ? '<span class="win-tag">Preview</span>' : '') + '</span>' +
-        '<span class="win-live"><i aria-hidden="true"></i>LIVE</span></div>' +
-        '<span class="win-vw"><span class="win-v num" data-cu="soc-win" data-cu-rise></span><span class="win-up num" aria-hidden="true"></span></span>';
+        (d.preview ? '<span class="win-tag">' + d.preview.tag + '</span>' : '') + '</span>' +
+        (d.preview ? '' : '<span class="win-live"><i aria-hidden="true"></i>LIVE</span>') + '</div>' +
+        '<span class="win-vw"><span class="win-v num" data-cu="soc-win" data-cu-rise></span><span class="win-up num" aria-hidden="true"></span></span>' +
+        (d.preview ? '<div class="win-note">' + d.preview.note + '</div>' : '');
     }
     box.hidden = false;
     const v = box.querySelector('.win-v'), up = box.querySelector('.win-up');
@@ -135,10 +137,10 @@
   }
 
   function pullWin() {
-    /* The preview's own total, tagged Preview: the sample players' figures
-       added up in this browser (socialPreview.js), never the server's. */
+    /* The sample players' figures added up (socialPreview.js), never the
+       server's: tagged Sample with its note, and no LIVE mark. */
     const pv = PV();
-    if (pv) { drawWin({ on: true, total: pv.total(), preview: true }); return; }
+    if (pv) { drawWin({ on: true, total: pv.total(), preview: pv }); return; }
     if (winBusy) return;
     winBusy = true;
     fetch(WIN_URL, { cache: 'no-store' })
@@ -274,7 +276,7 @@
     el('p-name').textContent = p.name;
     const rank = knownRank(p.name);
     el('p-sub').innerHTML = (rank ? 'Rank <span class="num">' + rank + '</span>' : '') +
-      (p.preview ? (rank ? ', ' : '') + '<span class="lb-tag p-tag">Preview</span> sample player' : '');
+      (p.preview ? (rank ? ', ' : '') + '<span class="lb-tag p-tag">' + PV().tag + '</span> sample player' : '');
     el('p-net').textContent = money(p.totalEarnings);
     el('p-tiles').innerHTML = winRateTile(p.winRate) + [
       ['Games played', String(p.gamesPlayed || 0)],
