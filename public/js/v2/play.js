@@ -520,7 +520,7 @@
       }
       const frame = document.getElementById('game-frame');
       if (!frame) { say('That game could not be opened. Refresh and try again.'); return; }
-      if (window.phEvent) window.phEvent('game_started', { game: game, lobbyType: brPage ? 'br' : 'free', guest: guest });
+      if (window.phEvent) window.phEvent('game_started', Object.assign({ game: game, lobbyType: brPage ? 'br' : 'free' }, guest ? { guest: true } : {}));
       /* The keyboard goes to the game: the frame takes the focus once it loads (and again a moment later), as the
          widget's launch does (wallet-widget/src/main.jsx), else Space and Q land on this page's Play button under
          the frame and never reach the game. The button lets go of the focus now, so Space cannot press it again. */
