@@ -3081,7 +3081,7 @@ const brLastPodium = createLastPodiumStore({
   file: process.env.BR_PODIUM_PATH || path.join(path.dirname(agJournal.file), 'br-last-podium.json'),
 });
 /* What a restart must not forget (Owen 2026-10-16): the match in flight (a boot
-   that finds one voids it and pushes Owen), the night the 8:05 timer last went
+   that finds one voids it and pushes Owen), the slot the 6 hour timer last went
    off, and each prize's send ('paying' written before the money moves). See
    server/slBr/brJournal.js. BR_JOURNAL_PATH moves it. */
 const { createBrJournal } = require('./slBr/brJournal');
@@ -3111,7 +3111,7 @@ const slBr = slArenas ? new SlBrArena(slArenas.laws, {
   paidBusy: () => !!slArenas.paidBusyNow,
   lastStore: brLastPodium,
 }) : null;
-/* Filled from boot like the old room, so 8:05 never starts in an empty arena. */
+/* Filled from boot like the old room, so a slot never starts in an empty arena. */
 if (slBr && brOnNew) slBr.startRoom();
 if (slBr && slOpened.sockets) {
   slOpened.sockets.setBr({
@@ -3456,7 +3456,9 @@ function liveBattleRoyale() {
   const room = activeBr();
   if (!room) return null;
   const st = room.publicState();
-  const { hour, minute, second } = easternNow();
+  const a = brAutoArgs(room);
+  const { hour, minute, second } = a.et;
+  const next = brAutoStart.nextSlot(a.et, a);
   return {
     /* Which engine runs it: 'sl' opens /sl (the lobby's play.js), 'old' /game.html. */
     engine: brOnSl() ? 'sl' : 'old',
@@ -3476,9 +3478,14 @@ function liveBattleRoyale() {
     podium: st.podium,
     /* The match's prize was held for Owen (fewer than two proven wallets). */
     prizeHeld: !!st.prizeHeld,
-    /* Tonight's 8:05 start is due and has not happened yet (it waits out a
-       match that is finishing): the Events clock says Starting, not Tomorrow. */
-    autoPending: brAutoStart.pending(brAutoArgs(room)),
+    /* This slot's start is due and has not happened yet (it waits out a
+       match that is finishing): the Events clock says Starting, not 6 hours. */
+    autoPending: brAutoStart.pending(a),
+    /* The 30 s join window before a slot (and a due start waiting on an open
+       arena): the lobby pulses the Events tab, shows the join toast and plays
+       its sound (public/js/v2/brCall.js) while this is true. */
+    joinOpen: brAutoStart.joinOpen(a),
+    joinWindowSec: Math.round(BR_JOIN_WINDOW_MS / 1000),
     /* The page's between-lives poll (public/js/slx/slxBr.js) shows these. */
     prize: st.prize,
     soloRun: !!st.soloRun,
@@ -3487,9 +3494,12 @@ function liveBattleRoyale() {
     joinable: room.acceptingPlayers(),
     /* The wall clock, from the box that runs the schedule. Eastern hour and
        minute rather than a UTC offset, for the daylight-saving reason written
-       at BR_AUTOSTART_HOUR. */
-    startHour: BR_AUTOSTART_HOUR,
-    startMin: BR_AUTOSTART_MIN,
+       at BR_AUTOSTART_HOUR. startHour/startMin are the NEXT slot's, so every
+       clock that counts to them (Events, the /sl card) follows the 6 hours. */
+    startHour: next.hour,
+    startMin: next.minute,
+    every: BR_EVERY_HOURS,
+    nextInSec: next.secs,
     etHour: hour,
     etMin: minute,
     /* The Events countdown re-anchors on every 3 s poll; without the second it
@@ -3619,7 +3629,7 @@ app.get('/api/live', (_req, res) => {
    before, and only a client that names a stake reaches these. That is what
    makes this safe to deploy before the ladder has been tested with real money
    — nothing routes here until a client asks. */
-/* ── The nightly event: the clock, and the prize ─────────────────────────────
+/* ── The battle royale: the clock, and the prize ─────────────────────────────
 
    Eastern wall clock read straight from Intl, never UTC plus a fixed offset. A
    hardcoded -5 is wrong for two thirds of the year and -4 for the other third,
@@ -3627,7 +3637,8 @@ app.get('/api/live', (_req, res) => {
    says which hour was right. Working in wall-clock seconds means the daylight
    saving switch takes care of itself. Same reasoning as the lobby countdown. */
 const BR_PRIZE_USDC = C.BR_PRIZE_USDC;
-const BR_AUTOSTART_HOUR = C.BR_AUTOSTART_HOUR, BR_AUTOSTART_MIN = C.BR_AUTOSTART_MIN;  // 8:05pm Eastern
+const BR_AUTOSTART_HOUR = C.BR_AUTOSTART_HOUR, BR_AUTOSTART_MIN = C.BR_AUTOSTART_MIN;  // the first slot, Eastern
+const BR_EVERY_HOURS = C.BR_EVERY_HOURS, BR_JOIN_WINDOW_MS = C.BR_JOIN_WINDOW_MS;     // 2, 8, 2, 8; 30 s to join
 let _brFmt = null;
 try {
   _brFmt = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York',
@@ -3796,11 +3807,13 @@ setInterval(() => {
   }
 }, 10 * 1000);
 
-/* The Events countdown hitting zero (Owen 2026-10-16): once a night at 8:05 ET
-   it starts a match if anything is in the arena, bots included, unless one is
-   already running, in which case it does nothing that night. The rule is
-   server/slBr/brAutoStart.js; the night it went off is saved (brJournal), so a
-   restart in the 8 PM hour does not fire it again. Every second, so a match
+/* The Events countdown hitting zero: every 6 hours (Owen 2026-10-25; 2 AM,
+   8 AM, 2 PM, 8 PM ET) it starts a match if anything is in the arena, bots
+   included, unless one is already running, in which case that slot is skipped
+   (Owen 2026-10-16). The 30 s before each slot are the join window the lobby
+   calls everyone in for (liveBattleRoyale joinOpen). The rule is
+   server/slBr/brAutoStart.js; the slot it went off for is saved (brJournal),
+   so a restart in that hour does not fire it again. Every second, so a match
    starts on the second the Events clock shows zero. */
 const brAutoStart = require('./slBr/brAutoStart');
 function brAutoArgs(room) {
@@ -3809,9 +3822,11 @@ function brAutoArgs(room) {
     canStart: room.canStart(),
     maintenance: !!ops.get().maintenance,
     et: easternNow(),
-    lastDay: brJournal.autoDay(),
+    lastSlot: brJournal.autoDay(),
     startHour: BR_AUTOSTART_HOUR,
     startMin: BR_AUTOSTART_MIN,
+    every: BR_EVERY_HOURS,
+    windowMs: BR_JOIN_WINDOW_MS,
   };
 }
 setInterval(() => {
@@ -3820,9 +3835,9 @@ setInterval(() => {
   const a = brAutoArgs(room);
   const d = brAutoStart.decide(a);
   if (d.act === 'none' || d.act === 'wait') return;
-  if (d.markDay) brJournal.setAutoDay(a.et.day);
+  if (d.markDay) brJournal.setAutoDay(d.slot);
   if (d.act === 'start') room.startMatch(d.why);
-  else console.log('[BR] 8:05 timer: ' + d.why + ', nothing started tonight');
+  else console.log('[BR] ' + d.slot + ' slot: ' + d.why + ', skipped');
 }, 1000);
 
 const { LobbyRegistry } = require('./LobbyRegistry');

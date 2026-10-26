@@ -6,8 +6,8 @@
 //
 //   live     the match counting down or running ({ matchId, startedAt, seats, wallets, people }), cleared when it is
 //            decided or stopped. Found at boot it means a restart cut the match off: index.js voids it and pushes Owen.
-//   autoDay  the Eastern day the 8:05 timer last went off (started a match or found one running), so a restart in the
-//            8 PM hour does not fire it a second time that night.
+//   autoDay  the slot (YYYY-MM-DDTHH, Eastern) the 6 hour timer last went off (started a match or found one running), so a restart in the
+//            slot's hour does not fire it a second time (a plain day from before the 6 hour schedule matches no slot).
 //   prizes   the last PRIZES_KEPT prizes by match id: 'paying' is written BEFORE the money is sent, then 'paid' (with
 //            the signature) or 'failed'. A 'paying' found at boot means the send may or may not have landed: index.js
 //            pushes Owen to check before settling by hand, marks it 'unknown', and NEVER sends it again. Every match id

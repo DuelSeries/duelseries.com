@@ -61,7 +61,7 @@ class SlBrArena extends SlArenas {
 
   // Ticks the room now, before anybody sits in it (the server calls this at boot): the bots fill it to the day's
   // curve, then the idle pause keeps them, so a person who arrives at 8:04 pm walks into a full arena rather than
-  // an empty one that the 8:05 start would lock (the old room ticked from boot the same way). A replacement room
+  // an empty one that a slot's start would lock (the old room ticked from boot the same way). A replacement room
   // is started too.
   startRoom() {
     this.running = true;

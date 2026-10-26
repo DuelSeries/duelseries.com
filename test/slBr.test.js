@@ -528,9 +528,10 @@ test("a watcher's leaderboard never marks a row as its own (their client would w
   assert.ok(lbs.some((l) => l.rank >= 1), "the watched snake's rank still goes (their rank line)");
 });
 
-test('msUntilNextStart counts to the next 8:05 pm Eastern', () => {
-  const ms = msUntilNextStart(Date.UTC(2026, 9, 16, 23, 0)); // 19:00 EDT
-  assert.strictEqual(ms, 65 * 60 * 1000);
+test('msUntilNextStart counts to the next slot of the 6 hour schedule (2 AM, 8 AM, 2 PM, 8 PM Eastern)', () => {
+  assert.strictEqual(msUntilNextStart(Date.UTC(2026, 9, 16, 23, 0)), 60 * 60 * 1000); // 19:00 EDT: 8 PM
+  assert.strictEqual(msUntilNextStart(Date.UTC(2026, 9, 16, 15, 30, 10)), (150 * 60 - 10) * 1000); // 11:30:10: 2 PM
+  assert.strictEqual(msUntilNextStart(Date.UTC(2026, 9, 17, 1, 0)), 5 * 3600 * 1000); // 21:00: 2 AM
 });
 
 // ---------------------------------------------------------------------------------------------------------------

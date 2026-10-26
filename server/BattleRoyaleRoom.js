@@ -21,6 +21,7 @@
 const C = require('../shared/constants');
 const GameRoom = require('./GameRoom');
 const { easternNow } = require('./botPopulation');
+const { nextSlot } = require('./slBr/brAutoStart');
 
 const SEC = 1000;
 
@@ -32,18 +33,12 @@ const SEC = 1000;
    simply an hour out with nothing on screen to say which hour was right. */
 function msUntilNextStart(at) {
   const { hour, minute } = easternNow(at);
-  const now = hour * 60 + minute;
-  const start = C.BR_AUTOSTART_HOUR * 60 + C.BR_AUTOSTART_MIN;
-  let mins = start - now;
-  /* STRICTLY less than zero, not "or equal".
-     `<=` sent the one minute that matters a full day into the future: caught at
-     exactly 20:05 Eastern, where the answer should be "starting now" and the
-     death card instead read "next battle royale starts in 24h 0m 0s". Zero is a
-     real answer — it means this minute — and only a negative gap is tomorrow. */
-  if (mins < 0) mins += 24 * 60;
-  /* To the minute, because that is all the Eastern clock gives. Seconds would
-     be invented precision, and the client counts them down locally anyway. */
-  return mins * 60 * SEC;
+  /* The next slot of the 6 hour schedule (server/slBr/brAutoStart.js). Zero
+     at the start minute itself, not six hours: caught live at exactly 20:05
+     Eastern, a `<=` wrap made the death card read "next battle royale starts
+     in 24h 0m 0s" at the moment it was starting. To the minute, because that
+     is all this clock gives; the client counts the seconds down locally. */
+  return nextSlot({ hour, minute, second: 0 }).secs * SEC;
 }
 
 const BR = {

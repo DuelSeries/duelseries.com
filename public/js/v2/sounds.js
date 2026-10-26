@@ -100,6 +100,11 @@
       unlock:     [{ o: 'n', d: 0.45, v: 0.06, a: 0.2, e: 0.12, hp: [2000, 9000] }]
                     .concat(arp([84, 88, 91, 96], 0.06, { o: 'fm', at: 0.3, m: 3.5, i: 1.5, d: 0.6, v: 0.07, e: 0.18 }),
                             chord([72, 79, 84], 0.52, 0.9, 0.05), [coin(0.54, 3951, 0.05)]),
+      /* The battle royale's join window opening (brCall.js, Owen 2026-10-25): a rising bell call over a swell of
+         air, the loudest thing the lobby says that is not money; and the soft tick of its last 5 seconds. */
+      brcall:     [air(0, 0.55, 0.1, 500, 4200)].concat(arp([79, 84, 88, 91], 0.075, { o: 'fm', m: 3.5, i: 1.4, d: 0.6, v: 0.09, e: 0.18 }),
+                    chord([84, 91, 96], 0.34, 1.0, 0.05)),
+      brtick:     [{ o: 's', f: [1900, 1650], d: 0.045, v: 0.09, e: 0.014 }, { o: 'n', d: 0.012, v: 0.025, bp: [4600, 1.4], e: 0.003 }],
       clip:       [{ o: 'n', d: 0.012, v: 0.3, bp: [3000, 3], e: 0.003 }, { o: 'n', at: 0.05, d: 0.014, v: 0.22, bp: [2200, 3], e: 0.004 },
                    bell(93, 0.08, 0.45, 0.07, { i: 1 })],
     }));
@@ -124,7 +129,7 @@
   /* A toast that a click just caused (Copied, Saved) already had its click
      sound; only money and errors speak over it. A busy "working" card is quiet. */
   const SPECIAL = [[/^Withdraw confirmed/, 'sent'], [/^Funds added/, 'deposit'], [/^Unlocked/, 'unlock'],
-    [/^Converted/, 'converted'], [/^(Clip sent|Sent for review)/, 'clip']];
+    [/^Converted/, 'converted'], [/^(Clip sent|Sent for review)/, 'clip'], [/^Battle royale starting/, 'brcall']];
   function toast(kind, sticky, title) {
     if (sticky && kind === 'info') return;
     const sp = typeof title === 'string' && SPECIAL.find(x => x[0].test(title));

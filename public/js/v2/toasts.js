@@ -3,7 +3,7 @@
    wrong, bone for a step still running. The colour carries the outcome and the
    icon repeats it, so neither depends on telling two colours apart.
 
-     DSToast.show({ kind, title, amount, detail, code, ms, sticky, game })
+     DSToast.show({ kind, title, amount, detail, code, ms, sticky, game, onTap })
        kind    'ok' | 'money' | 'err' | 'info'
        amount  shown first, in the money gold ('+$5.00 USDC')
        detail  plain words after it
@@ -126,7 +126,11 @@
     const t = document.createElement('div');
     fill(t, o);
     const c = { node: t, key: key, o: o, timer: 0, left: 0, since: 0 };
-    t.addEventListener('click', () => close(c));
+    t.addEventListener('click', () => {
+      const tap = c.o && c.o.onTap;   // a card that goes somewhere (brCall.js: Events); every card closes on a tap
+      close(c);
+      if (typeof tap === 'function') { try { tap(); } catch (_) {} }
+    });
     // A pointer resting on it holds it; leaving gives back what was left, never less than a moment.
     t.addEventListener('pointerenter', (e) => {
       if (e.pointerType !== 'mouse' || !live.includes(c)) return;

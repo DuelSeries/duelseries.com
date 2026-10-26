@@ -9,7 +9,7 @@
 //   reopening   the circle travels back out to the arena; then waiting again
 //
 // Owen's rules (2026-10-16): ONE match at a time: nothing starts one unless the arena is waiting, so while a match
-// counts down, runs, or is finishing, the owner's Start and the 8:05 timer are refused. A match may start with only
+// counts down, runs, or is finishing, the owner's Start and the slot timer are refused. A match may start with only
 // bots in the arena (MIN_SNAKES snakes on the map, people or bots). It ends when ONE SNAKE IS LEFT, bots counted: a
 // person must outlast every bot to win, and a bot that wins is paid nothing (onDecided is only told of a person).
 // The prize rules are unchanged: nothing for a match that started with one person or none (soloRun), and a match whose
@@ -35,6 +35,7 @@ const C = require('../../shared/constants');
 const { easternNow } = require('../botPopulation');
 const { createZone, cruiseOf } = require('./brZone');
 const { createHeldBorder } = require('./brBorder');
+const { nextSlot } = require('./brAutoStart');
 
 const SEC = 1000;
 
@@ -54,9 +55,7 @@ function msUntilNextStart(at) {
   const t = at === undefined ? Date.now() : at;
   const { hour, minute } = easternNow(t);
   const second = new Date(t).getSeconds();
-  let secs = (C.BR_AUTOSTART_HOUR * 60 + C.BR_AUTOSTART_MIN) * 60 - ((hour * 60 + minute) * 60 + second);
-  if (secs < 0) secs += 24 * 3600;
-  return secs * SEC;
+  return nextSlot({ hour, minute, second }).secs * SEC;
 }
 
 function createBrMatch(opts) {
@@ -217,7 +216,7 @@ function createBrMatch(opts) {
       m._prevAlive = null;
       zone.clear();
       holdBorder(true);
-      // A room with nobody in it may be in its idle pause (the 8:05 timer can start a match of bots alone): the match
+      // A room with nobody in it may be in its idle pause (the slot timer can start a match of bots alone): the match
       // must run to its end with nobody watching, or the arena would sit in 'countdown' with its doors shut.
       if (room && typeof room.start === 'function') room.start();
       broadcast(now);

@@ -662,10 +662,10 @@ test('the start-time countdown does not send the start minute a day away', () =>
     'at the start minute the answer is now, not a day from now');
 
   const aMinuteAfter = instantAt(C.BR_AUTOSTART_HOUR, C.BR_AUTOSTART_MIN + 1);
-  assert.equal(msUntilNextStart(aMinuteAfter), (24 * 60 - 1) * 60000,
-    'a minute past it, the next one really is tomorrow');
+  assert.equal(msUntilNextStart(aMinuteAfter), (C.BR_EVERY_HOURS * 60 - 1) * 60000,
+    'a minute past it, the next one really is the next slot');
 
-  const aMinuteBefore = instantAt(C.BR_AUTOSTART_HOUR, C.BR_AUTOSTART_MIN - 1);
+  const aMinuteBefore = instantAt(C.BR_AUTOSTART_HOUR - 1, 59);
   assert.equal(msUntilNextStart(aMinuteBefore), 60000, 'a minute before, one minute');
 });
 

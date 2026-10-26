@@ -283,12 +283,18 @@ const CONSTANTS = {
      ⚠️ THE TOP OF THIS RANGE COSTS CPU. Every bot is a snake the server
      simulates and ships. Raising BOT_MAX is not free; it is the one number here
      that can put a room near the measured per-lobby ceiling. */
-  /* WHEN THE NIGHTLY EVENT STARTS ITSELF, Eastern wall clock. Lived in
+  /* WHEN THE BATTLE ROYALE STARTS ITSELF, Eastern wall clock. Lived in
      server/index.js, which meant the room could not tell anyone when the next
      one was — it only knew whether one was running now. Here, so the room, the
-     lobby and the auto-starter all read the same two numbers. */
-  BR_AUTOSTART_HOUR: 20,
-  BR_AUTOSTART_MIN: 5,
+     lobby and the auto-starter all read the same numbers.
+     Every BR_EVERY_HOURS hours from BR_AUTOSTART_HOUR:MIN (Owen 2026-10-25:
+     "a battle royale every 6 hours"): 2 AM, 8 AM, 2 PM and 8 PM. The last
+     BR_JOIN_WINDOW_MS before each is the join window the lobby calls everyone
+     in for (server/slBr/brAutoStart.js joinOpen). */
+  BR_AUTOSTART_HOUR: 2,
+  BR_AUTOSTART_MIN: 0,
+  BR_EVERY_HOURS: 6,
+  BR_JOIN_WINDOW_MS: 30 * 1000,
 
   BOT_MIN: 22,
   /* BACK TO THE HUNDRED ORIGINALLY ASKED FOR, because the thing that made it

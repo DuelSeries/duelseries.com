@@ -1175,6 +1175,16 @@ body.ingame>.howveil,body.ingame>.meveil,body.ingame>.apscreen,body.ingame>.bshe
 /* Something new behind a tab: a small red dot on its icon. */
 .ni.isnew::after{content:"";position:absolute;left:26px;top:9px;width:7px;height:7px;border-radius:50%;
   background:#e5534b;box-shadow:0 0 0 2px var(--bg)}
+/* The battle royale's 30 s join window (public/js/v2/brCall.js): the Events tab turns gold and beats once a
+   second, a ring going out from it, on the PC bar and the phone's. For everyone, reduced motion included (Owen's
+   PC reports it and an alert that skips there looks broken), so the timing carries its own !important pair. */
+.ni.brcall{color:var(--money);background:rgba(240,168,48,.16)}
+.ni.brcall::before{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+  animation:brcallring 1s ease-out infinite}
+.ni.brcall svg{animation:brcallicon 1s ease-in-out infinite}
+.ni.brcall::before,.ni.brcall svg{animation-duration:1s!important;animation-iteration-count:infinite!important}
+@keyframes brcallring{0%{box-shadow:0 0 0 0 rgba(240,168,48,.7)}100%{box-shadow:0 0 0 10px rgba(240,168,48,0)}}
+@keyframes brcallicon{0%,100%{transform:scale(1)}40%{transform:scale(1.18)}}
 
 /* Clips, look A: a wall of clips, Top clippers on the right. The video plays
    from X, YouTube or TikTok in a sheet (public/js/v2/clips.js). */
@@ -2257,6 +2267,7 @@ body.scr-anim { overflow-x:hidden }
     pulling=true;
     fetch('/api/live').then(function(r){ return r.json() }).then(function(j){
       BR=j&&j.br?j.br:null; BRAT=Date.now(); tick(true);
+      if(window.V2BrCall) V2BrCall.feed(BR);
     }).catch(function(){}).then(function(){ pulling=false });
   }
 
@@ -2328,7 +2339,7 @@ body.scr-anim { overflow-x:hidden }
 
     /* No answer from the server yet: no clock, and Spectate keeps its space,
        invisible, so nothing jumps when the answer lands. */
-    if(!BR){ caption('Tonight'); line.textContent=''; showClock(false); setClock(null);
+    if(!BR){ caption('Next match'); line.textContent=''; showClock(false); setClock(null);
              if(watch) watch.style.visibility='hidden'; return; }
     if(watch) watch.style.visibility='';
 
@@ -2345,7 +2356,7 @@ body.scr-anim { overflow-x:hidden }
        "8 to 9 PM" whatever the server said, and the match starts at 8:05. */
     var at=BR.startHour!=null?((BR.startHour%12||12)+':'+('0'+(BR.startMin||0)).slice(-2)
              +' '+(BR.startHour<12?'AM':'PM')):'';
-    if(at) setText('ev-when','Nightly at '+at+' ET');
+    if(at) setText('ev-when','Every 6 hours, next at '+at+' ET');
 
     /* THE PODIUM. Tonight's empty seats while a match is on; otherwise the
        last match's top 3, which the server keeps until the next match starts. */
@@ -2364,15 +2375,11 @@ body.scr-anim { overflow-x:hidden }
     else if(starting) caption('Starting','live');
     else if(after) caption(BR.winner ? BR.winner.name+(BR.prize>0?' won $'+BR.prize:' won')
                                      : 'Nobody survived', BR.winner?'gold':'');
-    else caption(pod?'Last match':'Tonight');
+    else caption(pod?'Last match':'Next match');
 
-    /* Seconds to the next scheduled start; past tonight's, that is tomorrow's.
-       A match can also be started by hand in the afternoon, which is why the
-       word is worked out and not assumed. */
+    /* Seconds to the next slot of the 6 hour schedule (startHour/startMin
+       are the next slot's, from the server). */
     var left=untilStart();
-    /* Tonight's 8:05 start is due and has not happened (it waits out a match
-       that is finishing): it is tonight, and the clock stands at zero. */
-    var tomorrow=!BR.autoPending && left!=null && nowS()%86400+left>=86400;
 
     if(starting){
       clockMode(false); showClock(true);
@@ -2386,6 +2393,11 @@ body.scr-anim { overflow-x:hidden }
       clockMode(true); showClock(ends!==null);
       line.textContent = ends===null ? '' : ends>0 ? 'Ends in' : 'Final circle';
       if(ends!==null){ setText('ev-m',pad(Math.floor(ends/60))); setText('ev-s',pad(ends%60)); }
+    } else if(BR.joinOpen && st==='waiting' && left>0 && left<=(BR.joinWindowSec||30)){
+      /* The 30 s join window before a slot: the lobby is calling everyone in (brCall.js). */
+      clockMode(false); showClock(true);
+      line.textContent='Join now, starts in';
+      setClock(left);
     } else if(BR.autoPending && (st==='waiting'||after)){
       clockMode(false); showClock(true);
       line.textContent='Starting now';
@@ -2394,7 +2406,7 @@ body.scr-anim { overflow-x:hidden }
       clockMode(false); showClock(true);
       line.textContent = after ? 'Next match in'
                        : BR.humans ? (BR.humans+' joined, starts in')
-                       : ((tomorrow?'Tomorrow':'Tonight')+', starts in');
+                       : 'Next match in';
       setClock(left);
     }
 
@@ -2408,9 +2420,8 @@ body.scr-anim { overflow-x:hidden }
     if(join){
       join.disabled = !BR.joinable;
       join.classList.toggle('hot', !!BR.joinable && st==='waiting' && left!=null && left<=600);
-      var day=tomorrow?'tomorrow':'tonight';
       (document.getElementById('ev-join-t')||join).textContent = BR.joinable ? (wide?'Join Battle Royale':'Join')
-                       : after ? (wide?'Next match '+day:(tomorrow?'Tomorrow':'Tonight'))
+                       : after ? (wide?'Next match at '+at:'Next match')
                        : 'Doors shut';
       setText('ev-join-s', BR.joinable ? 'Free entry'
                          : after ? at
@@ -2980,6 +2991,7 @@ body.scr-anim { overflow-x:hidden }
 <script src="/js/v2/sounds.js"></script>
 <script src="/js/v2/countUp.js"></script>
 <script src="/js/v2/toasts.js"></script>
+<script src="/js/v2/brCall.js"></script>
 <script src="/js/v2/maint.js"></script>
 <script src="/js/v2/chart.js"></script>
 <script src="/js/v2/socialPreview.js"></script>
@@ -4765,6 +4777,7 @@ const NAV=[
  {id:'wallet', t:'Wallet',  d:'Add funds, withdrawals and your transaction history.',
   p:'M3 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2H5a2 2 0 0 1-2-2m14 6h.01'},
  {id:'events', t:'Events',  d:'Tournaments and one-off games with a prize on them.',
+  call:()=>!!(window.V2BrCall&&V2BrCall.on()),
   p:'M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2'},
  /* Shown as Leaderboards (Owen 2026-10-16); the id stays 'social' so the
     router, the swipe order and old links keep working. */
@@ -4802,7 +4815,7 @@ const NAV=[
 let route='play';
 function drawNav(){
   document.getElementById('nav').innerHTML=NAV.map(n=>
-    `<button class="ni${n.id===route?' on':''}${n.pc?' pconly':''}${n.dot&&n.dot()?' isnew':''}" data-tab="${n.id}" onclick="go('${n.id}')" aria-label="${n.t}">
+    `<button class="ni${n.id===route?' on':''}${n.pc?' pconly':''}${n.dot&&n.dot()?' isnew':''}${n.call&&n.call()?' brcall':''}" data-tab="${n.id}" onclick="go('${n.id}')" aria-label="${n.t}">
        <svg viewBox="0 0 24 24"><path d="${n.p}"/></svg><span class="lbl">${n.t}</span><span class="tip">${n.t}</span>
      </button>`).join('');
 }

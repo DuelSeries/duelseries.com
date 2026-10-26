@@ -2,6 +2,17 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-10-25-battle-royale-every-6-hours",
+      "date": "2026-10-25",
+      "tag": "event",
+      "title": "Battle royale every 6 hours",
+      "body": "The battle royale now runs four times a day: 2 AM, 8 AM, 2 PM and 8 PM Eastern. The Events tab counts down to the next one.\n\nWhen one is about to start you get 30 seconds to join. The Events tab glows and pulses, a card pops up that takes you straight there, and a sound plays so you don't miss it.",
+      "image": {
+        "src": "/updates/battle-royale-every-6-hours.webp",
+        "alt": "The Events tab counting down the last seconds to join a battle royale"
+      }
+    },
+    {
       "id": "2026-10-21-graphics-quality",
       "date": "2026-10-21",
       "tag": "new",
