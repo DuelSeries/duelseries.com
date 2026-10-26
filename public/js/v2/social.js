@@ -27,8 +27,9 @@
                                     players' landed cash-outs only; {on:false} while
                                     the strip's off switch is on
 
-   ?leaderboard=preview fills the board, search and profiles with sample
-   players made in this browser only (socialPreview.js); never sent anywhere. */
+   ?leaderboard=preview fills the board, search, profiles and Global player
+   winnings with sample players made in this browser only (socialPreview.js);
+   never sent anywhere. It stays on in that browser until ?leaderboard=off. */
 
 (function () {
   const PROFILES = new Map();          // name -> profile, so reopening is free
@@ -134,6 +135,10 @@
   }
 
   function pullWin() {
+    /* The preview's own total, tagged Preview: the sample players' figures
+       added up in this browser (socialPreview.js), never the server's. */
+    const pv = PV();
+    if (pv) { drawWin({ on: true, total: pv.total(), preview: true }); return; }
     if (winBusy) return;
     winBusy = true;
     fetch(WIN_URL, { cache: 'no-store' })

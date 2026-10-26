@@ -243,14 +243,17 @@ test('preview: without the link there are no sample players at all', () => {
   }
 });
 
-test('preview: twenty sample players, $1 to $10 with cents, and profiles that add up', () => {
+test('preview: fifty sample players, a few dollars to a few thousand, and profiles that add up', () => {
   const { P, classes } = previewWindow('?leaderboard=preview');
   assert.strictEqual(P.on, true);
-  const all = Array.from(P.board(20).top);
-  assert.strictEqual(all.length, 20);
+  const all = Array.from(P.board(50).top);
+  assert.strictEqual(all.length, 50);
   const amounts = all.map((r) => r.amount);
-  assert.ok(amounts.every((a) => a >= 1 && a < 10 && Math.abs(Math.round(a * 100) - a * 100) < 1e-6), 'dollars and cents');
-  assert.strictEqual(new Set(amounts).size, 20, 'no ties');
+  assert.ok(amounts.every((a) => a >= 1 && a < 10000 && Math.abs(Math.round(a * 100) - a * 100) < 1e-6), 'dollars and cents');
+  assert.ok(amounts[0] > 4000 && amounts[2] > 2000 && amounts[3] < amounts[2] / 1.5 && amounts[49] < 10, 'a clear top 3 and a long tail');
+  assert.strictEqual(new Set(amounts).size, 50, 'no ties');
+  const cents = amounts.reduce((s, a) => s + Math.round(a * 100), 0);
+  assert.strictEqual(Math.round(P.total() * 100), cents, 'Global player winnings is the board added up');
   assert.deepStrictEqual(amounts, amounts.slice().sort((a, b) => b - a), 'biggest first');
   assert.strictEqual(P.board().top.length, 10, 'the full board is the top 10');
   for (const r of all) {
@@ -258,17 +261,52 @@ test('preview: twenty sample players, $1 to $10 with cents, and profiles that ad
     assert.strictEqual(p.preview, true, 'every sample profile says it is one');
     const sum = p.games.reduce((s, g) => s + Math.round(g.amount * 100), 0);
     assert.strictEqual(sum, Math.round(r.amount * 100), r.name + ' cash-outs add up to the board');
-    assert.ok(p.winRate.won <= p.winRate.entered);
+    const w = p.winRate;
+    assert.ok(w.won <= w.entered && w.entered <= p.gamesPlayed);
+    assert.strictEqual(w.games.reduce((s, g) => s + g.entered, 0), w.entered, r.name + ' per-game rounds add up');
+    assert.strictEqual(w.games.reduce((s, g) => s + g.won, 0), w.won, r.name + ' per-game wins add up');
+    assert.ok(w.games.some((g) => g.game === r.game), r.name + ' board game is one they played');
   }
-  assert.deepStrictEqual(Array.from(P.search('NE')), ['neonviper', 'fennec', 'Ottoline'], 'starts-with first, any case');
+  assert.deepStrictEqual(Array.from(P.search('NE')), ['neonviper', 'fennec', 'Delphine', 'Ottoline', 'skyline_9'],
+    'starts-with first, any case');
   assert.ok(classes.includes('ph-no-capture'), 'kept out of analytics and session replay');
+});
+
+test('preview: opening the link once keeps it on in that browser, ?leaderboard=off clears it', () => {
+  const store = {};
+  const ls = { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); },
+               removeItem: (k) => { delete store[k]; } };
+  const open = (search, storage) => {
+    const win = { location: { search }, localStorage: storage,
+                  document: { getElementById: () => ({ classList: { add() {} } }) } };
+    win.window = win;
+    vm.createContext(win);
+    vm.runInContext(read('public/js/v2/socialPreview.js'), win);
+    return win.V2SocialPreview;
+  };
+  assert.strictEqual(open('', ls).on, false, 'a fresh browser sees only the real board');
+  assert.strictEqual(open('?leaderboard=preview', ls).on, true);
+  assert.deepStrictEqual(store, { dsLbPreview: '1' }, 'only the on flag is stored, never the players');
+  assert.strictEqual(open('', ls).on, true, 'stays on without the link');
+  assert.strictEqual(open('?leaderboard=off', ls).on, false);
+  assert.deepStrictEqual(store, {}, 'off clears it');
+  assert.strictEqual(open('', ls).on, false);
+  const broken = { getItem() { throw new Error('blocked'); }, setItem() { throw new Error('blocked'); },
+                   removeItem() { throw new Error('blocked'); } };
+  assert.strictEqual(open('?leaderboard=preview', broken).on, true, 'blocked storage still shows the link');
+  assert.strictEqual(open('', broken).on, false);
 });
 
 test('preview: the sample players never leave the browser', () => {
   const src = read('public/js/v2/socialPreview.js');
-  for (const bad of ['fetch(', 'XMLHttpRequest', 'sendBeacon', 'localStorage', 'sessionStorage', 'WebSocket', 'io(', 'posthog.']) {
+  for (const bad of ['fetch(', 'XMLHttpRequest', 'sendBeacon', 'sessionStorage', 'WebSocket', 'io(', 'posthog.']) {
     assert.ok(!src.includes(bad), 'socialPreview.js has no ' + bad);
   }
+  assert.deepStrictEqual(src.match(/localStorage\.\w+\([^)]*\)/g),
+    ["localStorage.removeItem(KEY)", "localStorage.setItem(KEY, '1')", "localStorage.getItem(KEY)"],
+    'the one stored thing is the on flag');
+  assert.ok(/if \(pv\) \{ drawWin\(\{ on: true, total: pv\.total\(\), preview: true \}\); return; \}/.test(read('public/js/v2/social.js')),
+    'Global player winnings in the preview is drawn without asking the server, tagged Preview');
   const lead = read('public/js/v2/leaders.js');
   assert.ok(/if \(p\) \{ data = p\.board\(10\); failed = false; draw\(\); drawSheet\(\); return; \}/.test(lead),
     'the preview board is drawn without asking the server');
