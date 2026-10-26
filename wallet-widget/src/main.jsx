@@ -1,7 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { PrivyProvider, usePrivy, useLogin, useUser, useIdentityToken } from '@privy-io/react-auth';
+import { PrivyProvider, usePrivy, useLogin, useUser, useIdentityToken, useLoginWithSiws } from '@privy-io/react-auth';
 import { useWallets as useSolanaWallets, useCreateWallet as useCreateSolanaWallet, useSignTransaction, useSignMessage, useFundWallet } from '@privy-io/react-auth/solana';
+import { getWallets } from '@wallet-standard/app';
 import { createSolanaRpc, createSolanaRpcSubscriptions } from '@solana/kit';
 import bs58 from 'bs58';
 import { ComputeBudgetProgram, PublicKey, SystemProgram, Transaction, VersionedTransaction } from '@solana/web3.js';
@@ -12,6 +13,9 @@ import { holdBackCoinbase } from './holdCoinbase.mjs';
 import { buildSkinPayment } from './skinPay.mjs';
 import { makeWalletSetup } from './walletSetup.mjs';
 import { SEND_FEE_LAMPORTS, leavesReserve } from './solReserve.mjs';
+import { WALLETS, detectedWallets, isPhone, sheetRows, pick, signInWith, walletFor, accountFor,
+         signTransactionWith, signMessageWith, isRefusal } from './browserWallets.mjs';
+import { DEVICE_ACTIONS, loadDeviceKey, createDeviceKey, forgetDeviceKey, signWithDeviceKey } from './deviceKey.mjs';
 // The shared gold popup card (public/js/shared/dsDialog.js), bundled so the lobby needs no extra tag.
 import '../../public/js/shared/dsDialog.js';
 
@@ -99,14 +103,64 @@ async function swapRun(requestId, wallet, signTransaction) {
 
 const short = (a) => (a ? a.slice(0, 4) + '…' + a.slice(-4) : '');
 
+/* p, or a plain failure after ms: a wallet or Privy request that never answers must not hold a card up forever. */
+function inTime(p, ms, msg) {
+  let t;
+  return Promise.race([p, new Promise((_, no) => { t = setTimeout(() => no(new Error(msg)), ms); })])
+    .finally(() => clearTimeout(t));
+}
+
+/* Privy's own (email and Google) wallet, as Privy names it: 'privy' today, 'privy-v2' in its types, connector
+   'embedded'. Anything else is a browser wallet the player signed in with. */
+const isPrivyWallet = (a) => !!a && (/^privy/.test(String(a.walletClientType || '')) || /^embedded/.test(String(a.connectorType || '')));
+
 function solanaAddress(user) {
   if (!user) return null;
   const accts = user.linkedAccounts || [];
   const isSol = (a) => a && a.type === 'wallet' && a.chainType === 'solana';
-  const w = accts.find((a) => isSol(a) && a.walletClientType === 'privy') || accts.find(isSol);
+  const w = accts.find((a) => isSol(a) && isPrivyWallet(a)) || accts.find(isSol);
   if (w?.address) return w.address;
   if (user.wallet?.chainType === 'solana') return user.wallet.address;
   return null;
+}
+
+/* The linked account behind that address: its walletClientType is 'privy' for the email and Google wallet, the
+   browser wallet's name for Connect wallet ('phantom', 'solflare', ...). */
+function linkedSolana(user, address) {
+  if (!user || !address) return null;
+  return (user.linkedAccounts || []).find((a) => a && a.type === 'wallet' && a.chainType === 'solana' && a.address === address)
+    || (user.wallet && user.wallet.address === address ? user.wallet : null);
+}
+
+/* Connect wallet (browserWallets.mjs). The Wallet Standard registry every Solana extension joins; Privy's
+   connectors read the same one. */
+const registry = typeof window !== 'undefined' ? getWallets() : null;
+const labelOfClient = (c) => ((WALLETS.find((k) => k.client === c) || {}).label) || 'your wallet';
+
+/* Whether the Privy app takes Solana wallet sign-in (the dashboard's Login methods > Wallets > Solana). Off, the
+   sheet would offer a sign-in Privy refuses, so Sign in stays email and Google only until it is on. Read from the
+   app's public config (the same GET Privy's own client makes), once a page; unreadable counts as off. */
+let _walletLogin = null;
+function walletLoginOn() {
+  if (!_walletLogin) {
+    // 4 s at most: a slow or hung answer must never keep Sign in (email and Google included) from opening
+    const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+    const timer = setTimeout(() => { if (ctl) ctl.abort(); }, 4000);
+    _walletLogin = Promise.race([
+      fetch('https://auth.privy.io/api/v1/apps/' + APP_ID, { headers: { 'privy-app-id': APP_ID }, signal: ctl ? ctl.signal : undefined })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => !!(j && j.solana_wallet_auth === true)),
+      new Promise((resolve) => setTimeout(() => resolve(false), 4500)),
+    ]).catch(() => false).finally(() => clearTimeout(timer));
+    _walletLogin.then((on) => { if (!on) setTimeout(() => { _walletLogin = null; }, 60000); });
+  }
+  return _walletLogin;
+}
+
+/* This page with signin=wallet, for a phone opening it inside a wallet app: the sheet opens itself there. */
+function hereWithSignin() {
+  try { const u = new URL(window.location.href); u.searchParams.set('signin', 'wallet'); return u.toString(); }
+  catch (_) { return window.location.href; }
 }
 
 // Stake the entry fee (paid lobbies) from the embedded wallet into the escrow, verify it
@@ -444,6 +498,7 @@ function WalletPanel() {
   const { fundWallet } = useFundWallet();
   const { createWallet } = useCreateSolanaWallet();
   const { refreshUser } = useUser();
+  const { generateSiwsMessage, loginWithSiws } = useLoginWithSiws();
   const [balance, setBalance] = useState(null);  // USDC mode: the USDC. SOL mode: the dollar value of the SOL.
   const [sol, setSol] = useState(null);    // the wallet's SOL (beside a USDC balance, or the money itself in SOL mode)
   const [usdc, setUsdc] = useState(null);  // SOL mode: old USDC still in the wallet (null: none, or not read)
@@ -460,15 +515,60 @@ function WalletPanel() {
   const stakeRef = useRef(null);
   const busyRef = useRef(false); // synchronous guard: no double-staking on rapid Play clicks
 
-  const wallet = solWallets && solWallets[0];
-  const address = (wallet && wallet.address) || solanaAddress(user);
+  /* The installed browser wallets, kept current as extensions register (an extension can load after the page). */
+  const [detected, setDetected] = useState(() => detectedWallets(registry));
+  useEffect(() => {
+    if (!registry) return undefined;
+    const sync = () => setDetected(detectedWallets(registry));
+    const offs = [registry.on('register', sync), registry.on('unregister', sync)];
+    sync();
+    return () => offs.forEach((off) => { try { off(); } catch (_) {} });
+  }, []);
+
+  /* The player's wallet is the signed-in account's, and only that: a browser wallet that is merely connected
+     never stands in for it. Email and Google: Privy's own wallet object. Connect wallet: { address, external,
+     clientType, std, name }, signed through the browser wallet itself (browserWallets.mjs). */
+  const address = authenticated ? solanaAddress(user) : null;
+  const linked = linkedSolana(user, address);
+  const clientType = linked && linked.walletClientType;
+  const isExternal = !!(address && linked && !isPrivyWallet(linked));
+  const extStd = isExternal ? walletFor(detected, address, clientType) : null;
+  const extWallet = useMemo(() => (isExternal
+    ? { address, external: true, clientType, std: extStd, name: (extStd && extStd.name) || labelOfClient(clientType) }
+    : null), [isExternal, address, clientType, extStd]);
+  const wallet = extWallet || (address ? (solWallets || []).find((w) => w.address === address) || null : null);
+
+  /* One signer for both kinds of wallet, the shape Privy's hooks take ({ transaction, wallet }, { message, wallet }).
+     A browser wallet signs with the account the player signed in with, or says plainly why it cannot. */
+  const signTx = useCallback(async (args) => {
+    const w = args && args.wallet;
+    if (w && w.external) {
+      if (!w.std) throw new Error(w.name + ' is not in this browser. Open DuelSeries where ' + w.name + ' is installed, or sign out and sign in again.');
+      return signTransactionWith(w.std, w.address, args.transaction);
+    }
+    return signTransaction(args);
+  }, [signTransaction]);
+  const signMsg = useCallback(async (args) => {
+    const w = args && args.wallet;
+    if (w && w.external) {
+      if (!w.std) throw new Error(w.name + ' is not in this browser. Open DuelSeries where ' + w.name + ' is installed, or sign out and sign in again.');
+      return signMessageWith(w.std, w.address, args.message);
+    }
+    return signMessage(args);
+  }, [signMessage]);
+
+  /* A browser wallet that already trusts this site is connected quietly on load, so a stake later needs its one
+     approval and no connect popup first. */
+  useEffect(() => {
+    if (extStd && address) accountFor(extStd, address, { silent: true }).catch(() => {});
+  }, [extStd, address]);
 
   /* Signed in with no wallet (walletSetup.mjs: Privy's on-login create can stall for good, and
      its login() does nothing for a session already signed in). The wallet is made here: right
      after login, on the next visit of anyone already stuck, and on every Sign in press. The gold
      card says what is happening, and a failure offers Try again instead of a spinner forever. */
   const privyRef = useRef(null);
-  privyRef.current = { ready, authenticated, user, login, createWallet, refreshUser };
+  privyRef.current = { ready, authenticated, user, login, createWallet, refreshUser, generateSiwsMessage, loginWithSiws };
   const setupRef = useRef(null);
   if (!setupRef.current) {
     setupRef.current = makeWalletSetup({
@@ -525,8 +625,136 @@ function WalletPanel() {
       }
     }
     if (p.authenticated) { if (!solanaAddress(p.user)) setUpWallet(); return; }
-    p.login();
+    if (!(await walletLoginOn())) { p.login(); return; }
+    await signInSheet();
   };
+
+  /* The sign-in sheet: exactly two choices (Owen 2026-10-26), Google or email (Privy's own sign-in, as before) and
+     Connect wallet, which opens the three wallets, the installed ones first and marked Detected. Back on the wallet
+     sheet returns to the two choices. One sheet at a time. */
+  const sheetOpen = useRef(false);
+  const signingIn = useRef(false);
+  useEffect(() => { walletLoginOn(); }, []);   // asked on load, so the first Sign in press opens at once
+  const signInSheet = async () => {
+    const D = window.DSDialog;
+    if (!D || typeof D.choose !== 'function') { privyRef.current.login(); return; }
+    if (sheetOpen.current || signingIn.current) return;
+    sheetOpen.current = true;
+    const phone = isPhone();
+    let det = [];
+    let id;
+    try {
+      for (;;) {
+        const first = await D.choose({
+          title: 'Sign in',
+          primary: { id: 'privy', label: 'Continue with Google or email' },
+          secondary: { id: 'wallet', label: 'Connect wallet' },
+          cancel: 'Not now',
+        });
+        if (first !== 'wallet') { id = first; break; }
+        det = detectedWallets(registry);
+        id = await D.choose({
+          title: 'Connect wallet',
+          line: phone ? 'Pick your wallet. It opens DuelSeries in its app.' : 'Pick your wallet.',
+          items: sheetRows(det, phone),
+          cancel: 'Back',
+          cancelId: 'back',
+        });
+        if (id !== 'back') break;   // a wallet, or closed (Escape, another card): only Back returns to the two choices
+      }
+    } finally { sheetOpen.current = false; }
+    if (!id) return;
+    if (id === 'privy') { privyRef.current.login(); return; }
+    const what = pick(id, det, phone, { url: hereWithSignin(), origin: window.location.origin });
+    if (what.kind === 'signin') { await browserSignIn(what.wallet); return; }
+    if (what.kind === 'open') { window.location.href = what.url; return; }
+    if (what.kind === 'install') {
+      try { window.open(what.url, '_blank', 'noopener'); } catch (_) {}
+      if (window.DSToast) window.DSToast.show({ kind: 'info', title: 'Install ' + what.label, detail: 'Then reload this page and sign in with it' });
+    }
+  };
+
+  /* Sign in with an installed browser wallet: its connect, then Privy's sign-in message signed in it, then one more
+     approval for the device key (deviceKey.mjs) so games know it is them without a popup on every join. */
+  const browserSignIn = async (std) => {
+    const D = window.DSDialog;
+    const name = std.name;
+    signingIn.current = true;
+    try {
+      const addr = await inTime(signInWith(std, {
+        generateSiwsMessage: (a) => privyRef.current.generateSiwsMessage(a),
+        loginWithSiws: (a) => privyRef.current.loginWithSiws(a),
+        onStep: (step) => D && D.busy({
+          title: 'Signing in with ' + name,
+          line: step === 'connect' ? 'Approve the connection in ' + name
+              : step === 'sign' ? 'Sign the message in ' + name + '. It moves no money.'
+              : 'Checking your signature',
+        }),
+      }), 120000, name + " didn't answer. Open it and try again.");
+      try { window.phEvent && window.phEvent('wallet_signin', { wallet: name }); } catch (_) {}
+      await deviceKeyFor(std, addr, D);
+      if (D) D.close();
+      if (window.DSToast) window.DSToast.show({ kind: 'ok', title: 'Signed in with ' + name, code: short(addr) });
+    } catch (e) {
+      if (D) D.close();
+      if (isRefusal(e)) return;
+      console.warn('[wallet-widget] browser wallet sign-in failed:', (e && e.message) || e);
+      try { window.phEvent && window.phEvent('wallet_signin_failed', { wallet: name, error: String((e && e.message) || e).slice(0, 200) }); } catch (_) {}
+      if (D) D.alert({ title: "Couldn't sign in", line: ((e && e.message) || 'Something went wrong.') + ' Try again.' });
+    } finally {
+      signingIn.current = false;
+    }
+  };
+
+  /* The device key: one approval in the browser wallet, good for 30 days. Refused or failed, the player still plays
+     and paid rounds still count (the entry proves the wallet); a free round's stats and an event prize need it, so a
+     game join asks again (duelWalletSignAction) and the lobby offers it (below). One ask at a time. */
+  const keyAsk = useRef(null);
+  const deviceKeyFor = (std, addr, D) => {
+    if (loadDeviceKey(localStorage, addr)) return Promise.resolve(true);
+    if (keyAsk.current) return keyAsk.current;
+    if (D) D.busy({ title: 'One more approval', line: 'Approve in ' + std.name + ' so games know it is you without asking again. It can never move money.' });
+    const p = inTime(createDeviceKey(localStorage, addr, (bytes) => signMessageWith(std, addr, bytes).then((r) => r.signature)),
+      120000, std.name + " didn't answer.")
+      .then(() => {
+        // the skin pass asked at sign-in, before there was a key, got nothing: ask again now (skinBuy.js)
+        try { if (window.DSSkins) window.DSSkins.ensurePass(true).catch(() => {}); } catch (_) {}
+        return true;
+      }, () => {
+        const t = String(Date.now());
+        try { localStorage.setItem('duel.devkey.ask.' + addr, t); localStorage.setItem('duel.devkey.no.' + addr, t); } catch (_) {}
+        return false;
+      })
+      .finally(() => { keyAsk.current = null; });
+    keyAsk.current = p;
+    return p;
+  };
+
+  /* No device key yet for a signed-in browser wallet (refused at sign-in, past its 30 days, or a fresh browser):
+     a toast to tap, at most once a day, never a popup on its own. */
+  useEffect(() => {
+    if (!isExternal || !extStd || !address || signingIn.current) return undefined;
+    if (loadDeviceKey(localStorage, address)) return undefined;
+    let last = 0;
+    try { last = Number(localStorage.getItem('duel.devkey.ask.' + address)) || 0; } catch (_) {}
+    if (Date.now() - last < 24 * 60 * 60 * 1000) return undefined;
+    const t = setTimeout(() => {
+      if (!window.DSToast || loadDeviceKey(localStorage, address) || signingIn.current) return;
+      try { localStorage.setItem('duel.devkey.ask.' + address, String(Date.now())); } catch (_) {}
+      window.DSToast.show({ kind: 'info', title: 'One approval left', detail: 'Tap so your games count for stats and event prizes', ms: 9000,
+        onTap: () => { deviceKeyFor(extStd, address, window.DSDialog).finally(() => window.DSDialog && window.DSDialog.close()); } });
+    }, 2500);
+    return () => clearTimeout(t);
+  }, [isExternal, extStd, address]);
+
+  /* Opened inside a wallet app from the sheet on a phone (signin=wallet): the sheet opens itself, once. */
+  useEffect(() => {
+    if (!ready) return;
+    let want = false;
+    try { const u = new URL(window.location.href); want = u.searchParams.get('signin') === 'wallet';
+      if (want) { u.searchParams.delete('signin'); window.history.replaceState(null, '', u.toString()); } } catch (_) {}
+    if (want && !authenticated) signIn();
+  }, [ready]);
 
   const applyBalances = (b) => { setBalance(b.balance); setSol(b.sol); setUsdc(b.usdc); setSolUsd(b.solUsd); };
   useEffect(() => {
@@ -553,9 +781,11 @@ function WalletPanel() {
   }, []);
 
   useEffect(() => {
-    window.duelWallet = { ready, authenticated, address, balance, unit, sol, swap: swapCfg, mode, usdc, solUsd };
+    // external: signed in with a browser wallet (walletName 'Phantom', ...), not the email and Google wallet
+    window.duelWallet = { ready, authenticated, address, balance, unit, sol, swap: swapCfg, mode, usdc, solUsd,
+                          external: isExternal, walletName: extWallet ? extWallet.name : null };
     window.dispatchEvent(new CustomEvent('duelwallet:change', { detail: window.duelWallet }));
-  }, [ready, authenticated, address, balance, unit, sol, swapCfg, mode, usdc, solUsd]);
+  }, [ready, authenticated, address, balance, unit, sol, swapCfg, mode, usdc, solUsd, isExternal, extWallet]);
 
   // Hide the widget while the game iframe covers the screen; re-show on return to lobby.
   useEffect(() => {
@@ -608,7 +838,7 @@ function WalletPanel() {
   const walletRef = useRef(null);
   walletRef.current = wallet;
   const signRef = useRef(null);
-  signRef.current = signTransaction;
+  signRef.current = signTx;
   const restakeRef = useRef(null);
   if (!restakeRef.current) {
     const frameFor = (game) => document.getElementById(game === 'agar' ? 'agar-frame' : 'game-frame');
@@ -671,12 +901,15 @@ function WalletPanel() {
        nameMessage() byte for byte. */
     window.duelWalletSignName = async (name) => {
       if (!wallet || !address) return null;
+      // A browser wallet would show a popup for this, even when the lobby syncs a saved name on its own: the server
+      // takes the Privy token for a name instead (play.js pushName), which names this same wallet.
+      if (wallet.external) return null;
       const ts = Date.now();
       const msg = 'DuelSeries: change display name\n'
                 + 'wallet: ' + address + '\n'
                 + 'name: ' + name + '\n'
                 + 'at: ' + ts;
-      const { signature } = await signMessage({
+      const { signature } = await signMsg({
         message: new TextEncoder().encode(msg),
         wallet,
         options: { uiOptions: { showWalletUIs: false } },
@@ -689,6 +922,23 @@ function WalletPanel() {
        The string must match server/ownerAuth.js actionMessage() byte for byte. */
     window.duelWalletSignAction = async (action, args) => {
       if (!wallet || !address) return null;
+      /* A browser wallet signs play:identify and skins:pass with its device key (deviceKey.mjs), never a popup on a
+         game join; with no key yet, no proof (the round plays, paid rounds still count). Anything else it signs
+         itself, with its own approval. */
+      if (wallet.external && DEVICE_ACTIONS.includes(action)) {
+        let d = loadDeviceKey(localStorage, address);
+        /* No key yet: a game join (play:identify, a player's own act) asks for it, once, so the round counts and an
+           event prize can pay (a Battle Royale pays only proven wallets). A skin pass never asks on its own. Refused
+           in the last hour: not asked again yet. */
+        let no = 0;
+        try { no = Number(localStorage.getItem('duel.devkey.no.' + address)) || 0; } catch (_) {}
+        if (!d && action === 'play:identify' && wallet.std && Date.now() - no > 60 * 60 * 1000) {
+          if (await deviceKeyFor(wallet.std, address, null)) d = loadDeviceKey(localStorage, address);
+        }
+        return signWithDeviceKey(d, action, args);
+      }
+      // What a page asks on its own and only an owner can use (the owner's wallet is never a browser wallet): no popup.
+      if (wallet.external && (action === 'clips:queue' || action === 'owner:alerts')) return null;
       const ts = Date.now();
       const a = args || {};
       const msg = 'DuelSeries owner action\n'
@@ -696,7 +946,7 @@ function WalletPanel() {
                 + 'args: ' + JSON.stringify(a) + '\n'
                 + 'wallet: ' + address + '\n'
                 + 'at: ' + ts;
-      const { signature } = await signMessage({
+      const { signature } = await signMsg({
         message: new TextEncoder().encode(msg),
         wallet,
         options: { uiOptions: { showWalletUIs: false } },
@@ -704,7 +954,15 @@ function WalletPanel() {
       return { action, args: a, wallet: address, ts, sig: bs58.encode(signature) };
     };
     window.duelWalletLogin = signIn;
-    window.duelWalletLogout = () => logout();
+    /* Sign out. A browser wallet's device key goes too (a shared computer keeps no way to play as it), and the
+       extension is told this page is done with it. */
+    window.duelWalletLogout = () => {
+      if (wallet && wallet.external) {
+        forgetDeviceKey(localStorage, address);
+        try { const d = wallet.std && wallet.std.features['standard:disconnect']; if (d) d.disconnect(); } catch (_) {}
+      }
+      return logout();
+    };
     window.duelWalletRefresh = async () => {
       if (!address) return null;
       const b = await fetchBalances(address);
@@ -722,7 +980,7 @@ function WalletPanel() {
       const CHANGED = 'The money settings changed while this was open. Close it and try again.';
       if (cfg.mode === 'usdc') {
         if (asset === 'sol') throw new Error(CHANGED);
-        return sendUsdc(toAddress, amount, cfg.usdcMint, cfg.decimals, wallet, signTransaction);
+        return sendUsdc(toAddress, amount, cfg.usdcMint, cfg.decimals, wallet, signTx);
       }
       if (cfg.mode !== 'sol') throw new Error('Could not read the money settings. Try again in a moment.');
       if (asset !== 'sol' && asset !== 'usdc') throw new Error(CHANGED);
@@ -732,13 +990,13 @@ function WalletPanel() {
       if (asset === 'usdc') {
         // The fee, and the receiver's USDC account rent when it has none (the sender pays it), and the reserve after
         if (!leavesReserve(haveLamports, USDC_ACCOUNT_RENT, SEND_FEE_LAMPORTS)) throw new Error(SOL_SEND_LOW);
-        return sendUsdc(toAddress, amount, cfg.usdcMint, cfg.decimals, wallet, signTransaction);
+        return sendUsdc(toAddress, amount, cfg.usdcMint, cfg.decimals, wallet, signTx);
       }
       const lamports = Math.round(Number(amount) * 1e9);
       if (!(lamports > 0)) throw new Error('Enter an amount to send.');
       if (haveLamports < lamports + SEND_FEE_LAMPORTS) throw new Error('That is more SOL than your wallet has after the network fee.');
       if (!leavesReserve(haveLamports, lamports, SEND_FEE_LAMPORTS)) throw new Error(SOL_SEND_LOW);
-      return sendSol(toAddress, amount, wallet, signTransaction);
+      return sendSol(toAddress, amount, wallet, signTx);
     };
     /* Add funds: Privy's own funding sheet, "Add funds to your DuelSeries wallet", with Pay with
        card and Receive funds (Owen, 2026-10-15, like playpulp.io). The asset is SOL because MoonPay
@@ -757,7 +1015,7 @@ function WalletPanel() {
         chain: 'solana:mainnet', asset: 'native-currency', amount: String(start),
         card: { preferredProvider: 'moonpay' },
         uiConfig: {
-          landing: { title: 'Add funds to your DuelSeries wallet' },
+          landing: { title: wallet && wallet.external ? 'Add funds to your ' + wallet.name + ' wallet' : 'Add funds to your DuelSeries wallet' },
           receiveFundsTitle: solMode ? 'Receive SOL' : 'Receive SOL or USDC',
           receiveFundsSubtitle: solMode
             ? 'Send SOL on Solana to this address. Your balance shows in dollars on your Wallet tab.'
@@ -777,7 +1035,7 @@ function WalletPanel() {
        outAmount }, then reads the balances again. */
     window.duelWalletSwapRun = async (q) => {
       if (!wallet) throw new Error('Wallet not ready — try again in a moment.');
-      const r = await swapRun(q && q.requestId, wallet, signTransaction);
+      const r = await swapRun(q && q.requestId, wallet, signTx);
       fetchBalances(wallet.address).then(applyBalances).catch(() => {});
       return r;
     };
@@ -794,9 +1052,9 @@ function WalletPanel() {
     // Signs a skin's payment from the server's quote; resolves the signed bytes (base64). Sends nothing.
     window.duelWalletSignSkin = (quote) => {
       if (!wallet) return Promise.reject(new Error('Connect your wallet first.'));
-      return signSkinPayment(quote, wallet, signTransaction);
+      return signSkinPayment(quote, wallet, signTx);
     };
-  }, [wallet, signTransaction, signMessage, address, login, logout, fundWallet, identityToken, getAccessToken]);
+  }, [wallet, signTx, signMsg, address, login, logout, fundWallet, identityToken, getAccessToken]);
 
   // Keep the Privy access token in localStorage so same-origin admin pages + game iframes can
   // authenticate owner-only actions (the server verifies it → OWNER_WALLET). Refreshed on a timer.
@@ -822,7 +1080,7 @@ function WalletPanel() {
     setWhat({ game, stake: Number(stakeSpec(sel).stake) });
     setBusy(true); setErr(''); setStatus('');
     try {
-      await stakeAndPlay(game, sel, wallet, signTransaction, setStatus, () => setPlaying(true));
+      await stakeAndPlay(game, sel, wallet, signTx, setStatus, () => setPlaying(true));
     } catch (e) {
       const m = (e && e.message) || 'Stake failed';
       setErr(/insufficient funds|\brent\b|TokenAccountNotFound|could not find account/i.test(m)
@@ -925,6 +1183,8 @@ function App() {
         // Wallets are made by the widget (walletSetup.mjs), not Privy's on-login screen, which can
         // stall for good on "Creating your wallet" when its wallet frame loads late.
         embeddedWallets: { ethereum: { createOnLogin: 'off' }, solana: { createOnLogin: 'off' }, showWalletUIs: false },
+        // Privy's own screens show no wallets (EVM or Solana): its modal is Google and email only. Connect wallet
+        // signs in through browserWallets.mjs (Privy SIWS) and signs through the browser wallet itself.
         appearance: { walletChainType: 'solana-only' },
         solana: {
           rpcs: {

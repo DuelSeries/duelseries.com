@@ -2,6 +2,20 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-10-26-connect-wallet",
+      "date": "2026-10-26",
+      "tag": "new",
+      "title": "Sign in with your own wallet",
+      "body": "Sign in now has two choices: Continue with Google or email, the same as before, or Connect wallet.\n\nConnect wallet works with Phantom, Solflare and Backpack. A wallet already installed in your browser shows as Detected. It becomes your DuelSeries wallet, and you approve each game in it.\n\nOn a phone, tap a wallet and DuelSeries opens inside that wallet's app.",
+      "image": {
+        "src": "/updates/connect-wallet.webp",
+        "alt": "The Connect wallet sheet listing Phantom, Solflare and Backpack"
+      },
+      "gallery": [
+        { "src": "/updates/connect-wallet-sign-in.webp", "alt": "The Sign in sheet with Continue with Google or email and Connect wallet" }
+      ]
+    },
+    {
       "id": "2026-10-26-paper-arena-grows",
       "date": "2026-10-26",
       "tag": "new",

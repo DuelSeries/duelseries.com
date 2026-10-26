@@ -291,11 +291,14 @@ async function walletFromIdToken(accessToken, identityToken) {
   if (!privyServer) return { wallet: null, reason: 'privy-not-configured' };
   if (!accessToken && !identityToken) return { wallet: null, reason: 'no-token' };
 
+  /* The Privy wallet first, then any other Solana wallet (a Connect wallet player's Phantom): the same rule the
+     wallet widget uses (wallet-widget/src/main.jsx solanaAddress), so both sides name the same player. */
   const solanaOf = user => {
-    for (const a of ((user && user.linkedAccounts) || [])) {
-      if (a && a.type === 'wallet' && (a.chainType === 'solana' || a.chain_type === 'solana') && a.address) return a.address;
-    }
-    return null;
+    const sol = ((user && user.linkedAccounts) || []).filter(a => a && a.type === 'wallet'
+      && (a.chainType === 'solana' || a.chain_type === 'solana') && typeof a.address === 'string' && a.address);
+    const own = sol.find(a => /^privy/.test(String(a.walletClientType || a.wallet_client_type || ''))
+      || /^embedded/.test(String(a.connectorType || a.connector_type || '')));
+    return (own || sol[0] || {}).address || null;
   };
 
   if (identityToken) {
@@ -353,10 +356,11 @@ async function isOwnerToken(idToken) {
    depends on nothing outside this process: no Privy, no app id, no network, no
    expiry. The token stays as a second route so anything already working keeps
    working. */
-/* A signature over a sign-in, a player identify or a skins pass is never owner auth, even from the
-   owner's wallet: a sign-in that fails before its proof is spent must not leave a two-minute pass to
-   the console (Fable review 2026-10-16). */
-const NOT_OWNER_AUTH = /^(owner:session:|play:|skins:)/;
+/* A signature over a sign-in, a player identify, a skins pass or the Clips tab's own read (clips:mine,
+   signed on its own when the tab opens) is never owner auth, even from the owner's wallet: a sign-in
+   that fails before its proof is spent must not leave a two-minute pass to the console (Fable review
+   2026-10-16, clips: 2026-10-26). */
+const NOT_OWNER_AUTH = /^(owner:session:|play:|skins:|clips:)/;
 function ownerFromSignature(body) {
   if (body && typeof body.action === 'string' && NOT_OWNER_AUTH.test(body.action)) return null;
   const wallet = ownerAuth.walletForAction(body);
@@ -1134,7 +1138,8 @@ app.post('/api/skins/pass', sigLimiter, express.json({ limit: '4kb' }), async (r
   if (!proof || typeof proof !== 'object' || Array.isArray(proof) || proof.action !== 'skins:pass') {
     return res.status(400).json({ error: 'Malformed request' });
   }
-  const wallet = ownerAuth.walletForAction(proof);
+  // the wallet's own signature, or its device key's (a browser wallet: ownerAuth.walletForPlayerAction)
+  const wallet = ownerAuth.walletForPlayerAction(proof);
   if (!wallet) return res.status(401).json({ error: 'Could not confirm your wallet. Try again.' });
   try {
     const items = (await db.getOwnedCosmetics(wallet)).filter((i) => skinCatalog.parseItem(i) || /^[a-z0-9]+:[a-z0-9]+$/.test(i));
@@ -3098,6 +3103,8 @@ clipsMod.mountClipRoutes(app, {
   store: clipStore,
   isOwner: (w) => OWNER_WALLETS.has(w),
   walletForAction: (b) => ownerAuth.walletForAction(b),
+  // clips:mine only: a browser wallet's device key may sign it (ownerAuth.walletForPlayerAction)
+  walletForMine: (b) => ownerAuth.walletForPlayerAction(b),
   nameOf: async (w) => { const p = await db.getMyProfile(w); return (p && p.name) || ''; },
   limiter: sigLimiter,
   readLimiter: socialLimiter,
@@ -3148,9 +3155,10 @@ if (slBr && slOpened.sockets) {
   slOpened.sockets.setBr({
     arenas: slBr,
     /* The same one-time proofs the main namespace accepts (socketIdentity):
-       the widget's silent play:identify signature by the player's own wallet. */
+       the widget's silent play:identify signature by the player's own wallet (or its device key's, a browser
+       wallet: ownerAuth.walletForPlayerAction). */
     identify: (p) => (p && p.action === 'play:identify'
-      ? ownerAuth.walletForAction(p) : nameProof.verifyIdentityProof(p)),
+      ? ownerAuth.walletForPlayerAction(p) : nameProof.verifyIdentityProof(p)),
   });
 }
 /* The owner's Start, one rule for every door to it: the console and the Events
@@ -4103,6 +4111,8 @@ const lobbyConnections = new Set();
 const socketIdentity = require('./socketIdentity').createSocketIdentity({
   verifyIdentityProof: (p) => nameProof.verifyIdentityProof(p),
   walletForAction: (p) => ownerAuth.walletForAction(p),
+  // play:identify only: a browser wallet's device key may sign it (ownerAuth.walletForPlayerAction); owner alerts never
+  walletForIdentify: (p) => ownerAuth.walletForPlayerAction(p),
   isOwner: (w) => OWNER_WALLETS.has(w),
   alertKey: OWNER_WALLET,
   ownerSockets: lobbySocketsByGoogleId,

@@ -40,15 +40,19 @@ const IDENTIFY_ACTION = 'play:identify';
 
 /* verifyIdentityProof(body) -> wallet | null   (nameProof.verifyIdentityProof)
    walletForAction(body) -> wallet | null       (ownerAuth.walletForAction)
+   walletForIdentify(body) -> wallet | null     (ownerAuth.walletForPlayerAction: walletForAction, or a browser wallet's
+                                                device key; optional, walletForAction when absent. The owner's alerts
+                                                never read it)
    isOwner(wallet) -> bool                      (the server's owner list)
    alertKey                                     the key the alert lookups use (OWNER_WALLET)
    ownerSockets                                 lobbySocketsByGoogleId
    ticketWallet(ticket) -> { wallet, session } | null   (ownerSession.ticketWallet: spends the ticket; optional)
    sessionLive(session) -> bool                 (ownerSession.isLive; optional) */
-function createSocketIdentity({ verifyIdentityProof, walletForAction, isOwner, alertKey, ownerSockets,
+function createSocketIdentity({ verifyIdentityProof, walletForAction, walletForIdentify, isOwner, alertKey, ownerSockets,
   ticketWallet, sessionLive, log = console } = {}) {
   if (typeof verifyIdentityProof !== 'function') throw new Error('socketIdentity: verifyIdentityProof is required');
   if (typeof walletForAction !== 'function') throw new Error('socketIdentity: walletForAction is required');
+  const identifyWallet = typeof walletForIdentify === 'function' ? walletForIdentify : walletForAction;
   if (typeof isOwner !== 'function') throw new Error('socketIdentity: isOwner is required');
   if (!ownerSockets || typeof ownerSockets.set !== 'function') throw new Error('socketIdentity: ownerSockets is required');
 
@@ -92,7 +96,7 @@ function createSocketIdentity({ verifyIdentityProof, walletForAction, isOwner, a
         // Either shape: what the lobby's wallet widget already signs silently today,
         // window.duelWalletSignAction('play:identify', {}) (ownerAuth's message, signed by the PLAYER's own wallet;
         // walletForAction returns whoever signed it, owner or not), or nameProof.identityMessage.
-        w = proof.action === IDENTIFY_ACTION ? walletForAction(proof) : verifyIdentityProof(proof);
+        w = proof.action === IDENTIFY_ACTION ? identifyWallet(proof) : verifyIdentityProof(proof);
       } catch (e) {
         w = null;
       }

@@ -87,6 +87,62 @@ function walletForAction(body, now) {
   return wallet;
 }
 
+/* ── a browser wallet's device key (Connect wallet, 2026-10-26) ──────────────
+   The Privy wallet signs play:identify and skins:pass silently, on every game
+   join. Phantom, Solflare, Backpack and Coinbase Wallet cannot: each signature
+   is a popup, and one on every join (raced against a 2 s clock in game.js)
+   would leave a popup hanging and the round with no stats. So a browser
+   wallet signs ONE message, deviceMessage below, naming a key this browser
+   made and an end date at most 31 days off, and that key then signs the
+   actions a page asks for on its own in its place: those two, and clips:mine
+   (the Clips tab reading the player's own clips). Only those: what a device
+   key signs is never an owner action, a clip upload or delete, a name or
+   anything that moves money; walletForAction above never reads a delegation
+   at all, so every owner route refuses one. */
+const DEVICE_ACTIONS = new Set(['play:identify', 'skins:pass', 'clips:mine']);
+const DEVICE_MAX_MS = 31 * 24 * 60 * 60 * 1000;
+// The exact string the browser wallet shows and signs (wallet-widget/src/deviceKey.mjs), byte for byte.
+function deviceMessage(wallet, key, until) {
+  return 'duelseries.com: let this browser show games it is me\n'
+       + 'It can never move money.\n'
+       + 'wallet: ' + wallet + '\n'
+       + 'device key: ' + key + '\n'
+       + 'until: ' + until;
+}
+
+/* The wallet behind a PLAYER proof: walletForAction's direct signature, or a device key's signature carried by
+   the wallet's own delegation (body.dk = { key, until, sig }). The delegation is checked first, then the
+   action's signature by the key, then the signature is spent, as above. */
+function walletForPlayerAction(body, now) {
+  now = now || Date.now();
+  const dk = body && typeof body === 'object' ? body.dk : undefined;
+  if (dk === undefined || dk === null) return walletForAction(body, now);
+  if (typeof dk !== 'object' || Array.isArray(dk)) return null;
+  const action = field(body, 'action');
+  if (!DEVICE_ACTIONS.has(action)) return null;
+  const wallet = field(body, 'wallet').trim();
+  const sig    = field(body, 'sig').trim();
+  const ts     = Number(field(body, 'ts')) || NaN;
+  const key    = field(dk, 'key').trim();
+  const dsig   = field(dk, 'sig').trim();
+  const until  = Number(field(dk, 'until')) || NaN;
+  if (!wallet || !sig || !key || !dsig || !isFinite(ts) || !isFinite(until)) return null;
+  if (!isWalletString(wallet) || !isWalletString(key) || !isSigString(sig) || !isSigString(dsig)) return null;
+  if (key === wallet) return null;
+  if (Math.abs(now - ts) > WINDOW_MS) return null;
+  if (until <= now || until - now > DEVICE_MAX_MS) return null;
+  const args = (body && body.args) || {};
+  try {
+    const wpub = bs58.decode(wallet), kpub = bs58.decode(key);
+    if (wpub.length !== 32 || kpub.length !== 32) return null;
+    const enc = (s) => new TextEncoder().encode(s);
+    if (!ed25519.verify(bs58.decode(dsig), enc(deviceMessage(wallet, key, until)), wpub)) return null;
+    if (!ed25519.verify(bs58.decode(sig), enc(actionMessage(action, args, wallet, ts)), kpub)) return null;
+  } catch (_) { return null; }
+  if (!spend(sig, now)) return null;
+  return wallet;
+}
+
 /* ── the audit log ──────────────────────────────────────────────────────────
    Every owner action that actually ran, in memory, newest first. Not a
    compliance artifact — a way to answer "why is the game in maintenance" and
@@ -110,4 +166,5 @@ function audit(action, args, who, ok, note) {
   if (auditLog.length > 200) auditLog.length = 200;
 }
 
-module.exports = { actionMessage, walletForAction, audit, auditLog, WINDOW_MS };
+module.exports = { actionMessage, walletForAction, deviceMessage, walletForPlayerAction, DEVICE_ACTIONS, DEVICE_MAX_MS,
+                   audit, auditLog, WINDOW_MS };

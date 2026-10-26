@@ -444,7 +444,7 @@ async function resolveXMedia(id, { fetchImpl = globalThis.fetch, timeoutMs = 600
    an approved clip, the only folder CloudFront can read. inbox/ empties itself after 7 days and ok/ after 45
    (bucket rules). The upload stays in inbox/ after the check: its link can write it only once (If-None-Match), so
    while it is there the link can do nothing more. */
-function mountClipRoutes(app, { store, isOwner, walletForAction, nameOf, limiter, readLimiter, resolveX = resolveXMedia,
+function mountClipRoutes(app, { store, isOwner, walletForAction, walletForMine, nameOf, limiter, readLimiter, resolveX = resolveXMedia,
                                 audit = () => {}, log = console, uploads = null, site = 'https://duelseries.com',
                                 sweepMs = 5 * 60 * 1000, uploadLimiter = null }) {
   const pass = (req, res, next) => next();
@@ -453,6 +453,8 @@ function mountClipRoutes(app, { store, isOwner, walletForAction, nameOf, limiter
   const signed = (req, action) => {
     const b = req.body;
     if (!b || typeof b !== 'object' || b.action !== action) return null;
+    // the player's own list may also be read with a browser wallet's device key (walletForMine); nothing else may
+    if (action === 'clips:mine' && typeof walletForMine === 'function') return walletForMine(b);
     return walletForAction(b);
   };
   const fetchMedia = (clip) => {
