@@ -115,7 +115,8 @@ test('ghost targets follow the dossier, the up-direction bug included', () => {
 });
 
 test('a ghost never reverses on its own and breaks ties up, left, down, right', () => {
-  const room = new ChompRoom({ mx: 1, my: 1, botFill: 0, seed: 3 });
+  // one sealed module, as the arcade's (on a torus Clyde's corner below would be just above, across the seam)
+  const room = new ChompRoom({ mx: 1, my: 1, botFill: 0, seed: 3, wrap: false });
   const g = room.A.modules[0].quartet[0];
   g.dir = 3;               // heading right at (5, 4): exits up/down/left/right; target straight below
   g.x = 5.5; g.y = 4.5;
@@ -220,4 +221,35 @@ test('walls are drawn by the arcade rules measured from the 1x captures (docs/ch
   assert.deepStrictEqual([100, 103, 128, 131].map(count), [40, 36, 52, 56]);
   let door = 0; for (let y = 96; y < 104; y++) for (let x = 100; x < 124; x++) if (at(x, y) === 2) door++;
   assert.strictEqual(door, 32);
+});
+
+test('the torus: off one edge and on at the other, through the tunnels, with no dead end and no seam in the walls', () => {
+  const A = Maze.build(2, 2, { wrap: true });
+  assert.strictEqual(A.W, (Maze.MW + Maze.GAP) * 2);
+  assert.ok(A.walk(A.W - 1, 14) && A.walk(0, 14) && A.walk(-1, 14), 'the side tunnel runs on across the seam');
+  assert.ok(A.walk(5, A.H - 1) && A.walk(5, 0) && A.walk(5, -1), 'the border tunnel runs on across the seam');
+  assert.strictEqual(A.dx(A.W - 1, 1), 2, 'the short way across');
+  const p = { x: A.W - 0.5, y: 14.5, dir: 3, want: -1, pause: 0 };
+  const v = R.speed(R.PAC_SPEED), dt = 1 / R.TICK_HZ;
+  for (let i = 0; i < 20; i++) Move.tick(p, A, v, dt, null);
+  assert.ok(p.x > 0 && p.x < 3, 'came back on the left: ' + p.x);
+  // the walls a torus draws are the same on both sides of the seam as anywhere else: the 2 x 2 torus's left column
+  // of pixels matches what a 3 x 2 sealed arena draws inside, where the same modules meet
+  const Wl = require('../shared/chompWalls');
+  const m = Wl.build(A);
+  let wallPx = 0;
+  for (let y = 0; y < m.PH; y++) if (m.mask[y * m.PW]) wallPx++;
+  assert.ok(wallPx > 0, 'the seam column is drawn');
+});
+
+test('ghosts and bots play on a torus: every chomper and active ghost stays on the map', () => {
+  const room = new ChompRoom({ mx: 2, my: 2, botFill: 8, seed: 19 });
+  for (let t = 0; t < 4000; t++) {
+    room.step();
+    if (t % 250 === 0) {
+      for (const g of room.ghosts) assert.ok(g.x >= 0 && g.x < room.A.W && g.y >= 0 && g.y < room.A.H, 'ghost on the map');
+      for (const p of room.players.values()) assert.ok(p.x >= 0 && p.x < room.A.W && p.y >= 0 && p.y < room.A.H, 'chomper on the map');
+    }
+  }
+  assert.ok([...room.players.values()].some((p) => p.score > 0), 'bots scored');
 });

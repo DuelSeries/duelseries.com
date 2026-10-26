@@ -26,24 +26,26 @@ const EPS = 1e-7;
 
 function makeGhosts(A) {
   const ghosts = [];
-  for (const m of A.modules) {
-    m.quartet = [];
-    KINDS.forEach((kind, ki) => {
-      const s = Maze.GHOST_START[kind];
-      const g = {
-        index: ghosts.length, kind, ki, home: m,
-        x: m.ox + s.x, y: m.oy + s.y,
-        dir: 1,                              // DOSSIER: ghosts move left once outside
-        state: kind === 'blinky' ? 'active' : 'house',
-        bob: ki % 2 ? 0 : 2,                 // house bobbing: up first or down first
-        fright: 0, reverse: false, dk: -1, plan: -1,
-      };
-      ghosts.push(g);
-      m.quartet.push(g);
-    });
-    m.house = { dots: 0, lastDotTick: 0 };
-  }
+  for (const m of A.modules) ghosts.push(...makeModuleGhosts(m, ghosts.length));
   return ghosts;
+}
+
+// One module's quartet at its start spots (a fresh arena, or a module the arena grew by, chompRoom resize).
+function makeModuleGhosts(m, first) {
+  m.quartet = [];
+  KINDS.forEach((kind, ki) => {
+    const s = Maze.GHOST_START[kind];
+    m.quartet.push({
+      index: first + ki, kind, ki, home: m,
+      x: m.ox + s.x, y: m.oy + s.y,
+      dir: 1,                              // DOSSIER: ghosts move left once outside
+      state: kind === 'blinky' ? 'active' : 'house',
+      bob: ki % 2 ? 0 : 2,                 // house bobbing: up first or down first
+      fright: 0, reverse: false, dk: -1, plan: -1,
+    });
+  });
+  m.house = { dots: 0, lastDotTick: 0 };
+  return m.quartet;
 }
 
 function scatterTile(g) {
@@ -71,10 +73,11 @@ function targetFor(g, room, mode) {
   if (g.kind === 'inky') {
     const piv = aheadTile(p, R.INKY_AHEAD);
     const b = g.home.quartet[0];
-    const bc = Math.floor(b.x), br = Math.floor(b.y);
-    return [2 * piv[0] - bc, 2 * piv[1] - br];
+    // the vector from Blinky to the pivot, doubled (the short way across a torus seam)
+    const A = room.A;
+    return [piv[0] + A.dx(Math.floor(b.x), piv[0]), piv[1] + A.dy(Math.floor(b.y), piv[1])];
   }
-  const dx = Math.floor(g.x) - pc, dy = Math.floor(g.y) - pr;
+  const dx = room.A.dx(pc, Math.floor(g.x)), dy = room.A.dy(pr, Math.floor(g.y));
   if (dx * dx + dy * dy >= R.CLYDE_NEAR * R.CLYDE_NEAR) return [pc, pr];
   return scatterTile(g);
 }
@@ -92,9 +95,11 @@ function homeField(A, m) {
     const k = q[h], kc = k % W, kr = (k - kc) / W;
     for (const [dx, dy] of DIRS) {
       const nc = kc + dx, nr = kr + dy;
-      if (!A.walk(nc, nr) || f[nr * W + nc] >= 0) continue;
-      f[nr * W + nc] = f[k] + 1;
-      q.push(nr * W + nc);
+      if (!A.walk(nc, nr)) continue;
+      const nk = A.k(nc, nr);
+      if (f[nk] >= 0) continue;
+      f[nk] = f[k] + 1;
+      q.push(nk);
     }
   }
   m.homeField = f;
@@ -110,7 +115,7 @@ function decide(g, A, room, c, r) {
     for (let d = 0; d < 4; d++) {
       const nc = c + DIRS[d][0], nr = r + DIRS[d][1];
       if (!A.walk(nc, nr)) continue;
-      const v = f[nr * A.W + nc];
+      const v = f[A.k(nc, nr)];
       if (v >= 0 && v < bestD) { bestD = v; best = d; }
     }
     return best;
@@ -130,7 +135,7 @@ function decide(g, A, room, c, r) {
     if (d === back) continue;
     const nc = c + DIRS[d][0], nr = r + DIRS[d][1];
     if (!A.walk(nc, nr)) continue;
-    const dx = nc - t[0], dy = nr - t[1], dd = dx * dx + dy * dy;
+    const dx = A.dx(t[0], nc), dy = A.dy(t[1], nr), dd = dx * dx + dy * dy;
     if (dd < bestD) { bestD = dd; best = d; }
   }
   return best >= 0 ? best : back;
@@ -201,6 +206,7 @@ function step(g, A, room, dt) {
       continue;
     }
     g.x += v[0] * rem; g.y += v[1] * rem; rem = 0;
+    if (A.wrap) { g.x = A.wx(g.x); g.y = A.wy(g.y); }
   }
 }
 
@@ -219,4 +225,4 @@ function releaseHouses(A, room) {
   }
 }
 
-module.exports = { KINDS, STATE, makeGhosts, step, decide, targetFor, releaseHouses, scatterTile };
+module.exports = { KINDS, STATE, makeGhosts, makeModuleGhosts, step, decide, targetFor, releaseHouses, scatterTile };

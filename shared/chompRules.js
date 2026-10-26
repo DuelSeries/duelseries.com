@@ -76,8 +76,13 @@
     FRUIT_S: [9, 10],
 
     // ---- the arena (all ARENA / CHOSEN)
-    MODULES_X: 3,                // CHOSEN: modules across and down (each one 28 x 31 tiles with its own four ghosts)
-    MODULES_Y: 3,
+    MODULES_X: 2,                // Owen 2026-10-26: the arena starts at 2 x 2 modules (each 28 x 31 tiles with its own
+    MODULES_Y: 2,                //   four ghosts), a torus, and grows a module row or column at a time with the crowd
+    PLAYERS_PER_MODULE: 3,       // CHOSEN: chompers (people and bots) a module holds before the arena grows
+    MODULES_MAX: 49,             // CHOSEN: at most 7 x 7 modules (203 x 224 tiles, inside the wire's 511 tiles)
+    RESIZE_EVERY_S: 2,           // CHOSEN: how often the arena checks whether to grow or shrink
+    RESIZE_GAP_S: 30,            // CHOSEN: at least this long between two resizes (no flapping as people come and go)
+    SEAM_CLEAR: 14,              // CHOSEN: tiles every chomper must be from where a module row or column goes in or out
     DOT_RESPAWN_S: 30,           // CHOSEN: an eaten dot comes back after this long
     ENERGIZER_RESPAWN_S: 40,     // CHOSEN
     RESPAWN_CLEAR: 4,            // CHOSEN: a pellet only reappears with no player within this many tiles

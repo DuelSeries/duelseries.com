@@ -66,6 +66,8 @@
       if (Math.abs(ny2 - p.y) > EPS) p.moving = true;
       p.y = ny2;
     }
+    // a torus (chompMaze wrap): off one edge, on at the opposite one
+    if (A.wrap) { p.x = A.wx(p.x); p.y = A.wy(p.y); }
   }
 
   // One tick. speed in tiles per second; dots is the arena's live dot array (or null); eat(k, kind) is called when

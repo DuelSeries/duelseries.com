@@ -13,17 +13,21 @@
 //   - The ghost house is a double box 3 px apart with square corners; its door is a 16 x 2 bar in the gap.
 //
 // build(A) -> { PW, PH, mask } with mask[y * PW + x] 0 nothing, 1 wall, 2 door. Pure, so the tests can check it.
+// A torus (A.wrap) is traced on a copy padded by PAD tiles of the map's own far side all round (past the padding is
+// solid), then cropped: every tile of the map is drawn with its real neighbours across the seam, and the padding
+// absorbs the edge of the copy.
 (function (root) {
   'use strict';
   var Maze = (typeof module === 'object' && module.exports) ? require('./chompMaze') : root.ChompMaze;
   var T = 8;
   var ROUND4 = [[2, 1], [3, 1], [1, 2], [1, 3]];     // the 4 px round, as (along leaving, back along arriving)
 
+  var PAD = 6;   // CHOSEN: tiles of padding round a torus copy (the deepest rule reaches 3 tiles: the 3 x 3 opening)
+
   function build(A) {
     var W = A.W, H = A.H, PW = W * T, PH = H * T;
     var mask = new Uint8Array(PW * PH);
     function put(x, y, v) { if (x >= 0 && y >= 0 && x < PW && y < PH) mask[y * PW + x] = v || 1; }
-    function wallAt(c, r) { return c < 0 || r < 0 || c >= W || r >= H || A.cell[r * W + c] === Maze.WALL; }
 
     // frame tiles: walls joined, inside their own module, to the module's border ring
     var frame = new Uint8Array(W * H);
@@ -46,29 +50,49 @@
     });
     // the one-tile spacers between modules are frame too, so neighbouring modules' frames join into one thick wall
     if (A.spacer) for (var sk = 0; sk < W * H; sk++) if (A.spacer[sk] && A.cell[sk] === Maze.WALL) frame[sk] = 1;
-    function frameRaw(c, r) { return c < 0 || r < 0 || c >= W || r >= H || !!frame[r * W + c]; }
+
+    // The grid the outlines are traced on: the map itself, or on a torus the map padded with its own far side.
+    var P = A.wrap ? PAD : 0;
+    var GW = W + 2 * P, GH = H + 2 * P, GPW = GW * T, GPH = GH * T;
+    var gmask = P ? new Uint8Array(GPW * GPH) : mask;
+    function gput(x, y, v) { if (x >= 0 && y >= 0 && x < GPW && y < GPH) gmask[y * GPW + x] = v || 1; }
+    // the map's tile key of grid tile (c, r), or -1 past the grid (solid)
+    function keyOf(c, r) {
+      if (c < 0 || r < 0 || c >= GW || r >= GH) return -1;
+      return P ? A.k(c - P, r - P) : r * W + c;
+    }
+    function wallAt(c, r) { var k = keyOf(c, r); return k < 0 || A.cell[k] === Maze.WALL; }
+    function frameRaw(c, r) { var k = keyOf(c, r); return k < 0 || !!frame[k]; }
     // opening by 3 x 3: erode (all 9 frame), then dilate (any of 9 eroded). Tiles 2 past the edge are frame for free.
-    var EW = W + 4, er = new Uint8Array(EW * (H + 4));
-    for (var r = -2; r < H + 2; r++) for (var c = -2; c < W + 2; c++) {
+    var EW = GW + 4, er = new Uint8Array(EW * (GH + 4));
+    for (var r = -2; r < GH + 2; r++) for (var c = -2; c < GW + 2; c++) {
       var all = true;
       for (var dy = -1; dy <= 1 && all; dy++) for (var dx = -1; dx <= 1 && all; dx++) if (!frameRaw(c + dx, r + dy)) all = false;
       if (all) er[(r + 2) * EW + c + 2] = 1;
     }
-    function eroded(c, r) { return c < -2 || r < -2 || c >= W + 2 || r >= H + 2 || !!er[(r + 2) * EW + c + 2]; }
+    function eroded(c, r) { return c < -2 || r < -2 || c >= GW + 2 || r >= GH + 2 || !!er[(r + 2) * EW + c + 2]; }
     function frameThick(c, r) {
-      if (c < 0 || r < 0 || c >= W || r >= H) return true;
-      if (!frame[r * W + c]) return false;
+      var fk = keyOf(c, r);
+      if (fk < 0) return true;
+      if (!frame[fk]) return false;
       for (var dy = -1; dy <= 1; dy++) for (var dx = -1; dx <= 1; dx++) if (eroded(c + dx, r + dy)) return true;
       return false;
     }
 
     trace(wallAt, 0);
     trace(frameThick, 3);
+    // a torus: the padded copy cropped back to the map
+    if (P) {
+      for (var py = 0; py < PH; py++) {
+        var src = (py + P * T) * GPW + P * T;
+        mask.set(gmask.subarray(src, src + PW), py * PW);
+      }
+    }
 
     // the outline of a tile set: contour edges between tile centres, walked into loops, stroked at a depth
     function trace(solid, depth) {
       function inside(c, r) { return solid(c, r) && solid(c + 1, r) && solid(c, r + 1) && solid(c + 1, r + 1); }
-      var VW = W + 3;
+      var VW = GW + 3;
       function vk(c, r) { return (r + 1) * VW + (c + 1); }
       function vc(v) { return [v % VW - 1, Math.floor(v / VW) - 1]; }
       var adj = new Map();
@@ -78,12 +102,12 @@
         adj.get(a).push({ to: b, e: e });
         adj.get(b).push({ to: a, e: e });
       }
-      for (var r = -1; r <= H; r++) for (var c = -1; c <= W; c++) {
-        if (c < W) {
+      for (var r = -1; r <= GH; r++) for (var c = -1; c <= GW; c++) {
+        if (c < GW) {
           var below = inside(c, r), above = inside(c, r - 1);
           if (below !== above) link(vk(c, r), vk(c + 1, r), { h: 1, n: [0, below ? 1 : -1] });
         }
-        if (r < H) {
+        if (r < GH) {
           var right = inside(c, r), left = inside(c - 1, r);
           if (right !== left) link(vk(c, r), vk(c, r + 1), { h: 0, n: [right ? 1 : -1, 0] });
         }
@@ -136,10 +160,10 @@
         var P = pts[i], Q = pts[(i + 1) % m];
         var dx = P.k.dOut[0], dy = P.k.dOut[1];
         var len = Math.abs(Q.x - P.x) + Math.abs(Q.y - P.y);
-        for (var t = P.g; t <= len - Q.g; t++) put(P.x + dx * t, P.y + dy * t);
+        for (var t = P.g; t <= len - Q.g; t++) gput(P.x + dx * t, P.y + dy * t);
         var a = [-P.k.dIn[0], -P.k.dIn[1]], b = P.k.dOut;
-        if (P.g === 2) put(P.x + a[0] + b[0], P.y + a[1] + b[1]);
-        if (P.g === 4) ROUND4.forEach(function (ij) { put(P.x + ij[0] * b[0] + ij[1] * a[0], P.y + ij[0] * b[1] + ij[1] * a[1]); });
+        if (P.g === 2) gput(P.x + a[0] + b[0], P.y + a[1] + b[1]);
+        if (P.g === 4) ROUND4.forEach(function (ij) { gput(P.x + ij[0] * b[0] + ij[1] * a[0], P.y + ij[0] * b[1] + ij[1] * a[1]); });
       }
     }
 

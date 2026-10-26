@@ -43,7 +43,7 @@ function firstStep(room, c, r, goal, limit, avoidBack, backDir) {
     if (avoidBack && d === backDir) continue;
     const nc = c + DIRS[d][0], nr = r + DIRS[d][1];
     if (!A.walk(nc, nr)) continue;
-    const k = nr * W + nc;
+    const k = A.k(nc, nr);
     if (b.mark[k] === stamp) continue;
     b.mark[k] = stamp; b.first[k] = d; b.q[tail++] = k;
   }
@@ -54,7 +54,7 @@ function firstStep(room, c, r, goal, limit, avoidBack, backDir) {
     for (let d = 0; d < 4; d++) {
       const nc = kc + DIRS[d][0], nr = kr + DIRS[d][1];
       if (!A.walk(nc, nr)) continue;
-      const nk = nr * W + nc;
+      const nk = A.k(nc, nr);
       if (b.mark[nk] === stamp) continue;
       b.mark[nk] = stamp; b.first[nk] = b.first[k]; b.q[tail++] = nk;
     }
@@ -67,12 +67,12 @@ function threats(room, p) {
   const out = [];
   for (const g of room.ghosts) {
     if (g.state !== 'active' || g.fright > 0) continue;
-    if (Math.abs(g.x - p.x) + Math.abs(g.y - p.y) <= DANGER) out.push(g);
+    if (Math.abs(room.A.dx(p.x, g.x)) + Math.abs(room.A.dy(p.y, g.y)) <= DANGER) out.push(g);
   }
   if (p.power <= 0) {
     for (const q of room.players.values()) {
       if (q === p || q.power <= 0 || q.dying || q.over) continue;
-      if (Math.abs(q.x - p.x) + Math.abs(q.y - p.y) <= DANGER) out.push(q);
+      if (Math.abs(room.A.dx(p.x, q.x)) + Math.abs(room.A.dy(p.y, q.y)) <= DANGER) out.push(q);
     }
   }
   return out;
@@ -95,7 +95,7 @@ function think(room, p) {
     for (const d of exits) {
       const nx = c + 0.5 + DIRS[d][0] * 2, ny = r + 0.5 + DIRS[d][1] * 2;
       let s = Infinity;
-      for (const t of danger) s = Math.min(s, Math.abs(t.x - nx) + Math.abs(t.y - ny));
+      for (const t of danger) s = Math.min(s, Math.abs(A.dx(nx, t.x)) + Math.abs(A.dy(ny, t.y)));
       if (s > bestS) { bestS = s; best = d; }
     }
     p.want = best;
@@ -106,13 +106,13 @@ function think(room, p) {
   if (p.power > R.TICK_HZ) {
     const prey = new Set();
     for (const g of room.ghosts) {
-      if (g.state === 'active' && g.fright > R.TICK_HZ && Math.abs(g.x - p.x) + Math.abs(g.y - p.y) <= HUNT) {
+      if (g.state === 'active' && g.fright > R.TICK_HZ && Math.abs(A.dx(p.x, g.x)) + Math.abs(A.dy(p.y, g.y)) <= HUNT) {
         prey.add(Math.floor(g.y) * A.W + Math.floor(g.x));
       }
     }
     for (const q of room.players.values()) {
       if (q === p || q.power > 0 || q.safe > 0 || q.dying || q.over) continue;
-      if (Math.abs(q.x - p.x) + Math.abs(q.y - p.y) <= HUNT) prey.add(Math.floor(q.y) * A.W + Math.floor(q.x));
+      if (Math.abs(A.dx(p.x, q.x)) + Math.abs(A.dy(p.y, q.y)) <= HUNT) prey.add(Math.floor(q.y) * A.W + Math.floor(q.x));
     }
     if (prey.size) {
       const d = firstStep(room, c, r, kk => prey.has(kk), 400, false, -1);

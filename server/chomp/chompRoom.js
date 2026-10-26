@@ -50,7 +50,8 @@ class ChompRoom {
   constructor(opts = {}) {
     this.nsp = opts.nsp || null;           // socket.io namespace (null in tests)
     this.rng = opts.rng || mulberry(opts.seed || (Date.now() & 0xffffff));
-    this.A = Maze.build(opts.mx || R.MODULES_X, opts.my || R.MODULES_Y);
+    // a torus (Owen 2026-10-26: walk off any edge and come back on the other), unless a test asks for the sealed arena
+    this.A = Maze.build(opts.mx || R.MODULES_X, opts.my || R.MODULES_Y, { wrap: opts.wrap !== false });
     this.dots = new Uint8Array(this.A.dot0);
     this.ghosts = Ghosts.makeGhosts(this.A);
     this.players = new Map();               // id -> player
@@ -160,7 +161,7 @@ class ChompRoom {
     if (p.dir < 0 || d === p.dir || d === Move.opp(p.dir) || !hasTile) { p.want = d; return; }
     const pc = Math.floor(p.x), pr = Math.floor(p.y), v = R.DIRS[p.dir];
     for (let k = 1; k <= 3; k++) {
-      if (pc + v[0] * k === c && pr + v[1] * k === r) { p.pend = { d, c, r, until: this.tick + R.LATE_TURN_TICKS }; return; }
+      if (this.A.wc(pc + v[0] * k) === c && this.A.wr(pr + v[1] * k) === r) { p.pend = { d, c, r, until: this.tick + R.LATE_TURN_TICKS }; return; }
     }
     p.want = d;
     if (pc !== c || pr !== r) this.lateTurn(p, d, c, r);
@@ -209,13 +210,14 @@ class ChompRoom {
 
   dangerDist(x, y, self) {
     let best = Infinity;
+    const A = this.A;
     for (const g of this.ghosts) {
       if (g.state !== 'active' || g.fright > 0) continue;
-      best = Math.min(best, Math.hypot(g.x - x, g.y - y));
+      best = Math.min(best, Math.hypot(A.dx(x, g.x), A.dy(y, g.y)));
     }
     for (const q of this.players.values()) {
       if (q === self || q.power <= 0 || q.dying || q.over) continue;
-      best = Math.min(best, Math.hypot(q.x - x, q.y - y));
+      best = Math.min(best, Math.hypot(A.dx(x, q.x), A.dy(y, q.y)));
     }
     return best;
   }
@@ -226,7 +228,7 @@ class ChompRoom {
     let best = null, bestD = range * range;
     for (const p of this.players.values()) {
       if (p.dying || p.over || p.safe > 0 || this.shielded.has(p.id)) continue;
-      const dx = p.x - x, dy = p.y - y, d = dx * dx + dy * dy;
+      const dx = this.A.dx(x, p.x), dy = this.A.dy(y, p.y), d = dx * dx + dy * dy;
       if (d <= bestD) { bestD = d; best = p; }
     }
     return best;
@@ -341,7 +343,7 @@ class ChompRoom {
     const r2 = R.FRIGHT_RADIUS * R.FRIGHT_RADIUS;
     for (const g of this.ghosts) {
       if (g.state !== 'active' && g.state !== 'house' && g.state !== 'leaving') continue;
-      const dx = g.x - p.x, dy = g.y - p.y;
+      const dx = this.A.dx(p.x, g.x), dy = this.A.dy(p.y, g.y);
       if (dx * dx + dy * dy > r2) continue;
       g.fright = t;
       if (g.state === 'active') g.reverse = true;     // DOSSIER: chase/scatter -> frightened reverses
@@ -438,7 +440,7 @@ class ChompRoom {
   dropSpots(p) {
     const A = this.A, W = A.W;
     let c0 = Math.floor(p.x), r0 = Math.floor(p.y);
-    if (!A.walk(c0, r0)) { c0 = Math.round(p.x - 0.5); r0 = Math.round(p.y - 0.5); }
+    if (!A.walk(c0, r0)) { c0 = A.wc(Math.round(p.x - 0.5)); r0 = A.wr(Math.round(p.y - 0.5)); }
     const out = [];
     if (!A.walk(c0, r0)) return out;
     const seen = new Set([r0 * W + c0]);
@@ -449,7 +451,7 @@ class ChompRoom {
         const k = r * W + c;
         if (!this.nearHouse[k] || step === 0) out.push([c, r, k]);
         for (const [dc, dr] of R.DIRS) {
-          const nc = c + dc, nr = r + dr, nk = nr * W + nc;
+          const nc = A.wc(c + dc), nr = A.wr(r + dr), nk = nr * W + nc;
           if (!A.walk(nc, nr) || seen.has(nk)) continue;
           seen.add(nk);
           next.push([nc, nr]);
@@ -499,7 +501,7 @@ class ChompRoom {
   someoneNear(k, d) {
     const c = k % this.A.W, r = Math.floor(k / this.A.W);
     for (const p of this.players.values()) {
-      if (Math.abs(p.x - c - 0.5) <= d && Math.abs(p.y - r - 0.5) <= d) return true;
+      if (Math.abs(this.A.dx(c + 0.5, p.x)) <= d && Math.abs(this.A.dy(r + 0.5, p.y)) <= d) return true;
     }
     return false;
   }
@@ -619,7 +621,7 @@ class ChompRoom {
 
   init() {
     const out = {
-      mx: this.A.mx, my: this.A.my, tick: this.tick, hz: R.TICK_HZ, metas: this.metas(),
+      mx: this.A.mx, my: this.A.my, wrap: this.A.wrap ? 1 : 0, tick: this.tick, hz: R.TICK_HZ, metas: this.metas(),
       dots: Buffer.from(this.dots), fruit: this.A.modules.filter(m => this.tick < m.fruitUntil).map(m => m.index),
     };
     if (this.money) {

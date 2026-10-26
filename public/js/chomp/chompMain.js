@@ -82,7 +82,7 @@
       chat.add({ name: m.name, text: m.text, me: !!m.me, color: m.me ? '#ffff00' : (draw ? draw.L.players[(m.c % others) + 1] : '#dedeff') });
     });
     socket.on('c:chatnote', function (m) { if (chat && m && m.text) chat.add({ kind: 'sys', text: m.text }); });
-    socket.on('c:you', function (m) { closeWatch(); myId = m.id; (m.metas || []).forEach(setMeta); predicting = false; phase = 'play'; titleEl.hidden = true; readyUntil = performance.now() + 1500; Snd.play('ch.ready'); });
+    socket.on('c:you', function (m) { closeWatch(); myId = m.id; (m.metas || []).forEach(setMeta); predicting = false; phase = 'play'; titleEl.hidden = true; readyUntil = performance.now() + 1500; cueSpawn(); Snd.play('ch.ready'); });
     socket.on('c:s', onSnap);
     socket.on('c:dots', onDots);
     socket.on('c:ev', onEvents);
@@ -162,7 +162,7 @@
     myMoney = Number(p.micro) || 0;
     lifeT0 = performance.now();
     if (lock) lock.setMoney(true);
-    readyUntil = performance.now() + 1500; Snd.play('ch.ready');
+    readyUntil = performance.now() + 1500; cueSpawn(); Snd.play('ch.ready');
     syncCashBtn();
   }
   function usd(micro) { return window.DSEnd ? window.DSEnd.usd(micro) : '$' + (micro / 1e6).toFixed(2); }
@@ -192,9 +192,9 @@
 
   function onInit(m) {
     stakeNow = Number(m.stake) > 0 ? Number(m.stake) : 0;
-    var fresh = !A || A.mx !== m.mx || A.my !== m.my;
+    var fresh = !A || A.mx !== m.mx || A.my !== m.my || A.wrap !== !!m.wrap;
     if (fresh) {
-      A = Maze.build(m.mx, m.my);
+      A = Maze.build(m.mx, m.my, { wrap: !!m.wrap });
       draw = lookName === 'pixel' && window.ChompPixel ? new window.ChompPixel(canvas, A) : new Draw(canvas, A, lookName);
       resize();
     }
@@ -255,7 +255,7 @@
         if (e.id === myId) { Snd.play('ch.death'); predicting = false; myPower = 0; }
       } else if (e.k === 'spawn') {
         dying.delete(e.id);
-        if (e.id === myId) { readyUntil = now + 1500; Snd.play('ch.ready'); }
+        if (e.id === myId) { readyUntil = now + 1500; cueSpawn(); Snd.play('ch.ready'); }
       } else if (e.k === 'power') {
         if (e.id === myId) scaredUntil = now + R.FRIGHT_S * 1000;
       } else if (e.k === 'fruit') {
@@ -446,7 +446,7 @@
     if (!inp) {
       // nothing of ours applied yet this life: just follow the server
       if (Math.abs(me.x - rec.x) > 0.001 || Math.abs(me.y - rec.y) > 0.001 || me.dir !== rec.dir) {
-        smooth.x += me.x - rec.x; smooth.y += me.y - rec.y;
+        smooth.x += A.dx(rec.x, me.x); smooth.y += A.dy(rec.y, me.y);
         me.x = rec.x; me.y = rec.y; me.dir = rec.dir;
       }
       return;
@@ -455,7 +455,7 @@
     var h = hist.get(Lk);
     stats.checks++;
     // CHOSEN: within a sixth of a tile on the same heading is jitter (we run a tick or two off the server), not an error
-    if (h && Math.abs(h.x - rec.x) < 0.17 && Math.abs(h.y - rec.y) < 0.17 && h.dir === rec.dir) return;
+    if (h && Math.abs(A.dx(rec.x, h.x)) < 0.17 && Math.abs(A.dy(rec.y, h.y)) < 0.17 && h.dir === rec.dir) return;
     var ox = me.x, oy = me.y;
     stats.fixes++;
     stats.fixDist += Math.abs(h ? h.x - rec.x : 0) + Math.abs(h ? h.y - rec.y : 0);
@@ -470,7 +470,7 @@
     }
     me.x = st.x; me.y = st.y; me.dir = st.dir; me.want = st.want;
     if (me.dir >= 0) me.face = me.dir;
-    smooth.x += ox - me.x; smooth.y += oy - me.y;
+    smooth.x += A.dx(me.x, ox); smooth.y += A.dy(me.y, oy);
     if (Math.abs(smooth.x) + Math.abs(smooth.y) > 3) smooth.x = smooth.y = 0;
   }
 
@@ -488,13 +488,14 @@
   }
   function lerp(p, q, k) {
     if (!p) return { x: q.x, y: q.y };
-    if (Math.abs(p.x - q.x) + Math.abs(p.y - q.y) > 2) return { x: q.x, y: q.y };
-    return { x: p.x + (q.x - p.x) * k, y: p.y + (q.y - p.y) * k };
+    var dx = A.dx(p.x, q.x), dy = A.dy(p.y, q.y);    // the short way: across a torus seam it is a small step
+    if (Math.abs(dx) + Math.abs(dy) > 2) return { x: q.x, y: q.y };
+    return { x: p.x + dx * k, y: p.y + dy * k };
   }
 
   function mouthFor(id, x, y, moving) {
     var lp = lastPos.get(id), ph = mouthPhase.get(id) || 0;
-    if (lp) ph += Math.abs(x - lp.x) + Math.abs(y - lp.y);
+    if (lp) ph += Math.abs(A.dx(lp.x, x)) + Math.abs(A.dy(lp.y, y));
     lastPos.set(id, { x: x, y: y });
     mouthPhase.set(id, ph);
     if (!moving) return 0.25;
@@ -597,17 +598,31 @@
     if (!camSet) { cam.x = target.x; cam.y = target.y; camSet = true; }
     // a paid seat that just ended keeps its spot on screen (the coins it dropped are there)
     var kf = predicting ? 1 : phase === 'watch' ? 0.2 : paidMode && phase === 'over' ? 0 : 0.04;
-    cam.x += (target.x - cam.x) * kf; cam.y += (target.y - cam.y) * kf;
-    var vw = canvas.width / draw.S, vh = canvas.height / draw.S - (pixel ? 5 : 0);
-    var cx = vw >= A.W + 2 ? A.W / 2 : Math.max(vw / 2 - 1, Math.min(A.W - vw / 2 + 1, cam.x));
-    var cy = vh >= A.H + 2 ? A.H / 2 : Math.max(vh / 2 - 1, Math.min(A.H - vh / 2 + 1, cam.y));
+    cam.x += A.dx(cam.x, target.x) * kf; cam.y += A.dy(cam.y, target.y) * kf;
+    var cx, cy;
+    if (A.wrap) {
+      // Owen 2026-10-26: the camera stays on you (a torus has no edge for it to stop at), from the first frame
+      cam.x = A.wx(cam.x); cam.y = A.wy(cam.y);
+      cx = cam.x; cy = cam.y;
+      var ux = function (o) { o.x = cx + A.dx(cx, o.x); o.y = cy + A.dy(cy, o.y); };
+      players.forEach(ux); ghosts.forEach(ux); fruit.forEach(ux);
+    } else {
+      var vw = canvas.width / draw.S, vh = canvas.height / draw.S - (pixel ? 5 : 0);
+      cx = vw >= A.W + 2 ? A.W / 2 : Math.max(vw / 2 - 1, Math.min(A.W - vw / 2 + 1, cam.x));
+      cy = vh >= A.H + 2 ? A.H / 2 : Math.max(vh / 2 - 1, Math.min(A.H - vh / 2 + 1, cam.y));
+    }
+    // where your chomper is on screen (the short way from the camera): the hold ring and the spawn cue go there
+    var meX = predicting && me ? cx + A.dx(cx, me.x + smooth.x) : 0, meY = predicting && me ? cy + A.dy(cy, me.y + smooth.y) : 0;
     // points that pop: a ghost's for 60 ticks (the arcade's freeze while it shows), fruit's for 80 (jspacman)
     var ps = [];
     pops = pops.filter(function (q) { return now - q.at < q.ms; });
-    pops.forEach(function (q) { ps.push({ x: q.x, y: q.y, text: q.text, color: q.color, a: 1 }); });
+    pops.forEach(function (q) { ps.push({ x: cx + A.dx(cx, q.x), y: cy + A.dy(cy, q.y), text: q.text, color: q.color, a: 1 }); });
     pending.forEach(function (exp, k) { if (now > exp) { pending.delete(k); dotsView[k] = dotsServer[k]; } });
+    var coinsNear = A.wrap ? coinList.map(function (co) {
+      return { c: Math.floor(cx + A.dx(cx, co.c + 0.5)), r: Math.floor(cy + A.dy(cy, co.r + 0.5)) };
+    }) : coinList;
     var scene = { cam: { x: cx, y: cy }, t: now, tick: tick, dots: dotsView, players: players, ghosts: ghosts, fruit: fruit, pops: ps,
-      coins: coinList };
+      coins: coinsNear };
     if (pixel && !attract) {
       var high = lbRows.length ? lbRows[0][1] : 0;
       scene.hud = phase === 'play' || phase === 'over'
@@ -620,7 +635,7 @@
         scene.hud.highMoney = usd(Math.max(high, mine));
         scene.hud.fruit = false;
       }
-      if (predicting && me && me.dir < 0 && phase === 'play') scene.banner = { text: 'READY!', color: draw.C.yellow, x: me.x, y: me.y - 6 };
+      if (predicting && me && me.dir < 0 && phase === 'play') scene.banner = { text: 'READY!', color: draw.C.yellow, x: meX, y: meY - 6 };
     }
     draw.frame(scene);
     if (!pixel) hud(now);
@@ -629,13 +644,36 @@
       var hp = hold ? hold.progress() : 0;
       if (hp > 0 && window.DSEnd && draw.view) {
         var v = draw.view;
-        var rx = (v.ox + (me.x + smooth.x) * v.T) * v.k, ry = (v.oy + (me.y + smooth.y) * v.T) * v.k;
+        var rx = (v.ox + meX * v.T) * v.k, ry = (v.oy + meY * v.T) * v.k;
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         window.DSEnd.ring(ctx, rx, ry, 12 * v.k, hp, now, { lw: 2.2 * v.k, mobile: isTouch });
       }
+      spawnCue(now, meX, meY);
     }
     syncCashBtn();
     if (myPower > 0 && Math.floor(now / 400) !== hud.lastBeat) { hud.lastBeat = Math.floor(now / 400); Snd.play('ch.scared'); }
+  }
+
+  // Owen 2026-10-26: "if I die before I even find my character": for SPAWN_CUE_MS after you come on the maze, two
+  // rings in your colour close in on your chomper (drawn over the scene, at screen sharpness), while the spawn blink
+  // keeps every ghost off you.
+  var SPAWN_CUE_MS = 2000, spawnAt = 0;
+  function cueSpawn() { spawnAt = performance.now(); }
+  function spawnCue(now, x, y) {
+    var t = now - spawnAt;
+    if (!spawnAt || t < 0 || t > SPAWN_CUE_MS || !draw || !draw.view) return;
+    var v = draw.view, sx = (v.ox + x * v.T) * v.k, sy = (v.oy + y * v.T) * v.k;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.lineWidth = Math.max(2, v.k * 1.5);
+    for (var i = 0; i < 2; i++) {
+      var u = ((t / 700) + i * 0.5) % 1;                 // each ring closes from 40 px to 12 px (arcade px) in 0.7 s
+      ctx.globalAlpha = (1 - u) * (1 - t / SPAWN_CUE_MS * 0.5);
+      ctx.strokeStyle = draw.L.me;
+      ctx.beginPath();
+      ctx.arc(sx, sy, (12 + 28 * (1 - u)) * v.k, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
   }
 
   function fmt(n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }

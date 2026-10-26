@@ -34,6 +34,16 @@ is called Chomp.
 - Money version ghosts: **a ghost kills you and your coins drop on the maze** for anyone to grab.
 - Cash-out: **hold Q, the gold ring fills around you while you keep moving, like slither.io**.
 
+## The map is a torus (Owen 2026-10-26)
+
+"One continuous map, it works like a globe": `Maze.build(mx, my, { wrap: true })` gives every module a spacer to its
+right and below (the last ones too) and runs the tunnels on across the seam, so walking off any edge comes back on the
+opposite one. Every distance (ghost targets, prey, danger, fright radius, bots, coin drops) is the short way across
+the seam (`A.dx`, `A.dy`), positions wrap after each move (`A.wx`, `A.wy`), and the walls are traced on a copy padded
+with the map's far side (`chompWalls.js`). The page keeps the camera on you from the first frame (no edge to stop at),
+draws everything the short way from the camera, and shows a "you are here" pulse for 2 s at every spawn (with the 3 s
+spawn blink). The arena starts at 2 x 2 modules (Owen); growing it with the crowd comes next.
+
 ## Netcode in one paragraph
 
 The server sims at 60 Hz and sends a 20 Hz binary snapshot (volatile, sent before any reliable emit so it is not

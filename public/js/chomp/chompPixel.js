@@ -250,12 +250,16 @@
     c.width = c.height = px;
     var g = c.getContext('2d'), img = g.createImageData(px, px), d = img.data;
     var wall = hexRGB(C.blue), door = hexRGB(C.pink);
+    var wrap = this.A.wrap;
     for (var y = 0; y < px; y++) {
       var gy = cy * px + y;
-      if (gy >= Wm.PH) break;
+      // a torus: a chunk past the map's edge shows the map's far side (chunks are keyed by their unwrapped place)
+      if (wrap) gy = ((gy % Wm.PH) + Wm.PH) % Wm.PH;
+      else if (gy >= Wm.PH) break;
       for (var x = 0; x < px; x++) {
         var gx = cx * px + x;
-        if (gx >= Wm.PW) break;
+        if (wrap) gx = ((gx % Wm.PW) + Wm.PW) % Wm.PW;
+        else if (gx >= Wm.PW) break;
         var v = Wm.mask[gy * Wm.PW + gx];
         if (!v) continue;
         var rgb = v === 2 ? door : wall, o = (y * px + x) * 4;
@@ -280,8 +284,10 @@
     var ox = Math.floor(BW / 2) - Math.round(s.cam.x * T), oy = Math.floor((top + bottom) / 2) - Math.round(s.cam.y * T);
     g.save();
     g.beginPath(); g.rect(0, top, BW, bottom - top); g.clip();
-    var c0 = Math.max(0, Math.floor(-ox / T) - 1), c1 = Math.min(A.W - 1, Math.ceil((BW - ox) / T) + 1);
-    var r0 = Math.max(0, Math.floor((top - oy) / T) - 1), r1 = Math.min(A.H - 1, Math.ceil((bottom - oy) / T) + 1);
+    var c0 = Math.floor(-ox / T) - 1, c1 = Math.ceil((BW - ox) / T) + 1;
+    var r0 = Math.floor((top - oy) / T) - 1, r1 = Math.ceil((bottom - oy) / T) + 1;
+    // sealed: only the map; a torus: every tile on screen, the map's far side past its edge (the camera stays on you)
+    if (!A.wrap) { c0 = Math.max(0, c0); c1 = Math.min(A.W - 1, c1); r0 = Math.max(0, r0); r1 = Math.min(A.H - 1, r1); }
     for (var cy = Math.floor(r0 / CH); cy <= Math.floor(r1 / CH); cy++) {
       for (var cx = Math.floor(c0 / CH); cx <= Math.floor(c1 / CH); cx++) g.drawImage(this.chunk(cx, cy), ox + cx * CH * T, oy + cy * CH * T);
     }
@@ -289,7 +295,7 @@
     var dots = s.dots, blinkOn = Math.floor(s.tick / TK.blink) % 2 === 0, en = energizer();
     g.fillStyle = C.peach;
     for (var r = r0; r <= r1; r++) for (var c = c0; c <= c1; c++) {
-      var v = dots[r * A.W + c];
+      var v = dots[A.wrap ? A.k(c, r) : r * A.W + c];
       if (v === 1) g.fillRect(ox + c * T + 3, oy + r * T + 3, 2, 2);
       else if (v === 2 && blinkOn) g.drawImage(en, ox + c * T, oy + r * T);
     }
