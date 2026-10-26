@@ -48,6 +48,14 @@
   .hint { margin: 20px 0 0; font-size: 9px; line-height: 1.8; color: #9a9aff; }
   #toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); padding: 12px 16px; font-size: 10px;
            background: #000; border: 2px solid var(--wall); border-radius: 6px; }
+  /* paid rooms: the hint chip (agPaid's #ag-paid-hint) and the phone's held Cash out button, in the coins' gold */
+  #ag-paid-hint { position: fixed; left: 50%; top: 64px; transform: translateX(-50%); z-index: 1100; padding: 10px 14px;
+                  font-size: 10px; color: #f5b335; background: #000; border: 2px solid #f5b335; border-radius: 6px; }
+  #ag-paid-hint[hidden], #cashout[hidden] { display: none; }
+  #cashout { position: fixed; right: max(14px, env(safe-area-inset-right, 0px)); bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+             z-index: 900; padding: 16px 14px; font: 10px 'Press Start 2P', monospace; color: #1a1000; background: #f5b335;
+             border: 0; border-radius: 10px; box-shadow: 0 0 0 3px #8a5a12 inset; touch-action: none; -webkit-user-select: none; user-select: none; }
+  #cashout.held { background: #ffd76e; }
 </style>
 </head>
 <body>
@@ -59,7 +67,7 @@
     <label for="name">Your name</label>
     <input id="name" maxlength="15" autocomplete="off" spellcheck="false" placeholder="Player">
     <button id="play" type="button">Play</button>
-    <p class="hint">Arrow keys or WASD to steer.<br>On a phone, swipe.</p>
+    <p class="hint">Arrow keys or WASD to steer.<br>On a phone, drag your thumb.</p>
   </div>
 </div>
 <div id="toast" hidden></div>
@@ -77,6 +85,8 @@
 <script src="/js/chomp/chompDraw.js"></script>
 <script src="/js/chomp/chompPixel.js"></script>
 <script src="/js/chomp/chompSound.js"></script>
+<script src="/js/ag/agPaid.js"></script>
+<script src="/js/chomp/chompPaid.js"></script>
 <script src="/js/chomp/chompMain.js"></script>
 </body>
 </html>

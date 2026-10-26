@@ -2,6 +2,7 @@
 // House bots for Chomp's free arena (all CHOSEN): they play like chompers, pressing a direction at each new tile.
 //   - a ghost (not blue) or a powered player close by: run, taking the exit that keeps the most room from it
 //   - powered: hunt the nearest blue ghost or player within reach
+//   - in a paid room: the nearest coin within reach (money on the maze)
 //   - otherwise: the nearest dot, energizer or fruit by corridor distance (breadth-first, bounded)
 // Each bot has its own slips (sometimes it misses a threat, sometimes it wanders), so they can be caught and beaten.
 
@@ -13,6 +14,7 @@ const DIRS = R.DIRS;
 const DANGER = 6;          // tiles: a threat this close is run from
 const HUNT = 12;           // tiles: how far a powered bot looks for prey
 const SEARCH = 900;        // tiles: the dot search stops after this many
+const COIN_SEARCH = 400;   // tiles: how far a paid room's bot looks for coins
 
 function brain(rng) {
   return {
@@ -116,6 +118,12 @@ function think(room, p) {
       const d = firstStep(room, c, r, kk => prey.has(kk), 400, false, -1);
       if (d >= 0) { p.want = d; return; }
     }
+  }
+
+  // a paid room's bounty bot goes for coins on the maze first (they are money, chompMoney)
+  if (room.money) {
+    const d = firstStep(room, c, r, kk => room.money.hasCoinAt(kk), COIN_SEARCH, false, -1);
+    if (d >= 0) { p.want = d; return; }
   }
 
   const fruitAt = new Set();

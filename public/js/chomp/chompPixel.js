@@ -5,7 +5,9 @@
 //
 //   new ChompPixel(canvas, A)   A from ChompMaze.build
 //   .resize(cssW, cssH, dpr)    picks the scale k (device px per arcade px)
-//   .frame(scene)               scene: { cam {x, y} tiles, tick (60 Hz count), dots, ghosts, players, fruit, pops, hud }
+//   .frame(scene)               scene: { cam {x, y} tiles, tick (60 Hz count), dots, ghosts, players, fruit, pops, hud,
+//                                        coins (paid rooms: [{ c, r }] tiles holding money) }
+//   .view                       after a frame: { ox, oy, k, T } (screen px = (o + tiles * T) * k), for the page's ring
 (function (root) {
   'use strict';
   var Maze = root.ChompMaze, Walls = root.ChompWalls;
@@ -116,6 +118,22 @@
   }
 
   // Energizer: an 8 px disc on its tile (52 pixels, as measured), dots 2 x 2 at the tile's centre pixels.
+  // A paid room's coin (ours, not the arcade's: money never looks like a dot): a 9 px gold disc with a bronze rim and a
+  // struck $, in the shared DuelSeries gold (public/js/shared/dsEnd.js R_GOLD), breathing between two shades.
+  var COIN = { gold: '#f5b335', hi: '#ffd76e', rim: '#8a5a12', ink: '#5a3606' };
+  var DOLLAR = ['.###.', '#.#..', '.###.', '..#.#', '.###.'];
+  function coin(bright) {
+    return sprite('$' + (bright ? 1 : 0), 9, 9, function (i, j) {
+      var x = i - 4, y = j - 4, d = x * x + y * y;
+      if (d > 18) return null;
+      if (d > 11) return COIN.rim;
+      var gx = i - 2, gy = j - 2;
+      if (gx >= 0 && gx < 5 && gy >= 0 && gy < 5 && DOLLAR[gy][gx] === '#') return COIN.ink;
+      if (i === 4 && (j === 1 || j === 7)) return COIN.ink;
+      return bright && x + y < -2 ? COIN.hi : COIN.gold;
+    });
+  }
+
   function energizer() { return sprite('e', 8, 8, function (i, j) { var x = i - 3.5, y = j - 3.5; return x * x + y * y <= 16 ? C.peach : null; }); }
 
   function segDist(x, y, ax, ay, bx, by) {
@@ -275,6 +293,15 @@
       if (v === 1) g.fillRect(ox + c * T + 3, oy + r * T + 3, 2, 2);
       else if (v === 2 && blinkOn) g.drawImage(en, ox + c * T, oy + r * T);
     }
+    // coins (paid rooms) over the dots, under everything that moves
+    if (s.coins && s.coins.length) {
+      var cs = coin(Math.floor(s.tick / 24) % 2 === 0);
+      for (var ci = 0; ci < s.coins.length; ci++) {
+        var co = s.coins[ci];
+        if (co.c < c0 || co.c > c1 || co.r < r0 || co.r > r1) continue;
+        g.drawImage(cs, ox + co.c * T - 1, oy + co.r * T - 1);
+      }
+    }
     var self = this;
     function at(spr, x, y, dx, dy) { g.drawImage(spr, ox + Math.floor(x * T) - 8 + (dx || 0), oy + Math.floor(y * T) - 8 + (dy || 0)); }
     (s.fruit || []).forEach(function (f) { at(cherry(), f.x, f.y); });
@@ -308,6 +335,7 @@
     m.setTransform(1, 0, 0, 1, 0, 0);
     m.imageSmoothingEnabled = false;
     m.drawImage(this.buf, 0, 0, BW * this.k, BH * this.k);
+    this.view = { ox: ox, oy: oy, k: this.k, T: T, top: HUD_TOP, bottom: BH - HUD_BOTTOM };
     // names over the other chompers (the arcade has none): at screen sharpness, half a tile tall, so a name never
     // outweighs the 13 px chomper under it
     var k = this.k, fs = Math.max(9, 4 * k);
@@ -333,9 +361,11 @@
     // spectating: no 1UP or score of your own (the Spectate bar's Lobby chip sits there)
     if (!hud.watch && (!hud.blink || Math.floor(tick / 16) % 2 === 0)) g.drawImage(text('1UP', C.white), 3 * T + 1, 0);
     g.drawImage(text('HIGH SCORE', C.white), 9 * T + 1, 0);
-    var sc = hud.score > 0 ? String(hud.score) : '00';
-    if (!hud.watch) g.drawImage(text(sc, C.white), 7 * T - sc.length * T + 1, T + 1);
-    if (hud.high > 0) { var hs = String(hud.high); g.drawImage(text(hs, C.white), 17 * T - hs.length * T + 1, T + 1); }
+    // a paid room shows money where the scores go (yours, and the richest chomper's), in the coins' gold
+    var sc = hud.money != null ? hud.money : hud.score > 0 ? String(hud.score) : '00';
+    if (!hud.watch) g.drawImage(text(sc, hud.money != null ? COIN.gold : C.white), 7 * T - sc.length * T + 1, T + 1);
+    if (hud.highMoney != null) g.drawImage(text(hud.highMoney, COIN.gold), 17 * T - hud.highMoney.length * T + 1, T + 1);
+    else if (hud.high > 0) { var hs = String(hud.high); g.drawImage(text(hs, C.white), 17 * T - hs.length * T + 1, T + 1); }
     for (var i = 0; i < hud.lives; i++) g.drawImage(life(), 2 * T + i * 16, BH - HUD_BOTTOM + 2);
     if (hud.fruit) g.drawImage(cherry(), BW - 4 * T, BH - HUD_BOTTOM);
   };
@@ -352,6 +382,6 @@
   Pixel.C = C;
   Pixel.TK = TK;
   Pixel.OTHERS = OTHERS;
-  Pixel.sprites = { chomper: chomper, ghost: ghost, energizer: energizer, cherry: cherry, text: text, life: life, points: points };
+  Pixel.sprites = { chomper: chomper, ghost: ghost, energizer: energizer, cherry: cherry, text: text, life: life, points: points, coin: coin };
   root.ChompPixel = Pixel;
 })(typeof self !== 'undefined' ? self : this);

@@ -66,8 +66,11 @@ class AgMoney {
   // shielded, still: the Sets the sim was built with (paid option); now: wall clock ms
   // tell(socketId, event, payload): emit to that seat's socket (the room resolves it); onClosed(acct, outcome, extra):
   // the room drops the seat, tells the page and removes the sim player
+  // Reuse by another game (Chomp, server/chomp/chompMoney.js): holdTicks (the held ticks a cash-out needs at that
+  // game's tick rate), holdStill (false: a holder keeps moving) and game (the word in owed reasons). Their defaults
+  // are agar's own, so agar runs exactly as before.
   constructor({ sim, stake, label, hooks, shielded, still, now = Date.now, log = console, tell, onClosed,
-    uuid = () => crypto.randomUUID() } = {}) {
+    uuid = () => crypto.randomUUID(), holdTicks = AG_MONEY.HOLD_TICKS.value, holdStill = true, game = 'agar' } = {}) {
     if (!sim) throw new Error('AgMoney: sim is required');
     if (!(Number(stake) > 0)) throw new Error('AgMoney: a paid room needs a stake above 0');
     if (!(shielded instanceof Set) || !(still instanceof Set)) throw new Error('AgMoney: shielded and still must be Sets');
@@ -86,6 +89,10 @@ class AgMoney {
     this.tell = typeof tell === 'function' ? tell : () => {};
     this.onClosed = typeof onClosed === 'function' ? onClosed : () => {};
     this.uuid = uuid;
+    if (!Number.isSafeInteger(holdTicks) || holdTicks < 1) throw new Error('AgMoney: holdTicks must be a whole number above 0');
+    this.holdNeed = holdTicks;
+    this.holdStill = holdStill !== false;
+    this.game = String(game || 'agar');
     this.accounts = new Map();     // pid -> account (open only)
     // Bounty bots (Owen 2026-10-17): pid -> { pid, name, from: Map src -> micro }. A bot's bank account opens with the
     // room's stake from the owner's bot bank (seedBot; from[BANK_SRC] is that seed). It eats and is eaten like a person
@@ -158,7 +165,7 @@ class AgMoney {
         continue;
       }
       const key = 'agowed:' + this.uuid();
-      const reason = 'refund agar botfloor ' + String(why || '') + ' ' + this.label + ' ' + key;
+      const reason = 'refund ' + this.game + ' botfloor ' + String(why || '') + ' ' + this.label + ' ' + key;
       const row = { key, wallet: src, name: '', micro, reason };
       try {
         this.hooks.onOwed(row, live);
@@ -346,8 +353,8 @@ class AgMoney {
         if (!acct.holding) {
           acct.holding = true;
           acct.holdTicks = 0;
-          this.still.add(acct.pid);
-          this.tell(acct.socketId, 'ag:holding', { on: 1, need: AG_MONEY.HOLD_TICKS.value });
+          if (this.holdStill) this.still.add(acct.pid);
+          this.tell(acct.socketId, 'ag:holding', { on: 1, need: this.holdNeed });
         }
         acct.holdTicks++;
       } else if (acct.holding) {
@@ -360,7 +367,7 @@ class AgMoney {
     if (!acct.holding) return;
     acct.holding = false;
     acct.holdTicks = 0;
-    if (acct.state === 'live') this.still.delete(acct.pid);
+    if (acct.state === 'live' && this.holdStill) this.still.delete(acct.pid);
     if (tellIt && acct.socketId) this.tell(acct.socketId, 'ag:holding', { on: 0 });
   }
 
@@ -386,7 +393,7 @@ class AgMoney {
     // 3. finished holds; the eats above ran first, so death wins a same-tick tie (Q24)
     this._phase('holds', () => {
       for (const acct of Array.from(this.accounts.values())) {
-        if (!acct.holding || acct.holdTicks < AG_MONEY.HOLD_TICKS.value) continue;
+        if (!acct.holding || acct.holdTicks < this.holdNeed) continue;
         if (acct.state !== 'live' || acct.socketId === null || !this.hasLiveCell(acct.pid)) {
           this._stopHold(acct, true);
           continue;
@@ -702,7 +709,7 @@ class AgMoney {
         const state = acct.state;
         const { back, extra } = state === 'unconfirmed' ? this._unconfirmedSplit(acct, got) : { back: got, extra: 0 };
         const key = 'agowed:' + acct.jid;
-        const reason = 'refund agar ' + kind + ' ' + this.label + ' ' + key;
+        const reason = 'refund ' + this.game + ' ' + kind + ' ' + this.label + ' ' + key;
         this._close(acct, 'refunded', { why: kind, refundedMicro: back, key, reason });
         if (back > 0) rows.push({ key, wallet: acct.wallet, name: acct.name, micro: back, reason, state });
         this._extraToHouse(acct, extra, kind + '-extra');

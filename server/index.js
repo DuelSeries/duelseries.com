@@ -607,7 +607,8 @@ const refundExpiredEntry = require('./entryExpiry').createExpiryRefund({
   db,
   ledger: stakeLedger,
   devRefund: PAPER_DEV_TOKENS
-    ? (t) => (t.onlyGame === 'slither' ? slPayout : t.onlyGame === 'agar' ? agPayout : paperPayout).refund({ wallet: t.walletAddress, name: 'Player', micro: Math.round(Number(t.worth) * 1e6), paid: t.paid, why: 'unspent' })
+    ? (t) => (t.onlyGame === 'slither' ? slPayout : t.onlyGame === 'agar' ? agPayout
+      : t.onlyGame === 'chomp' ? chompPayout : paperPayout).refund({ wallet: t.walletAddress, name: 'Player', micro: Math.round(Number(t.worth) * 1e6), paid: t.paid, why: 'unspent' })
     : null,
 });
 
@@ -963,7 +964,8 @@ app.post('/api/submit-stake', entryFeeLimiter, express.json({ limit: '256kb' }),
       /* devGame names the game a DEV token is scoped to (PAPER_DEV_TOKENS only, PAID-AGAR-DESIGN.md 5.7):
          absent, 'paper', 'agar' or 'slither' (paid snake on the sl engine, PAID-SL-DESIGN.md 6), nothing
          else, checked before anything reads it. */
-      || (devGame !== undefined && devGame !== 'paper' && devGame !== 'agar' && devGame !== 'slither')) {
+      || (devGame !== undefined && devGame !== 'paper' && devGame !== 'agar' && devGame !== 'slither'
+          && devGame !== 'chomp')) {
     return res.status(400).json({ error: 'Malformed request' });
   }
   // No new stake while maintenance is on, refused before anything is broadcast (stakePaused).
@@ -998,7 +1000,7 @@ app.post('/api/submit-stake', entryFeeLimiter, express.json({ limit: '256kb' }),
         return res.status(400).json({ error: 'Missing wallet address' });
       }
       const rung = tierFor(want);
-      const onlyGame = devGame === 'agar' ? 'agar' : 'paper';
+      const onlyGame = devGame === 'agar' ? 'agar' : devGame === 'chomp' ? 'chomp' : 'paper';
       // the sl door's scope (slPaidDoor GAME): opened by no other door, refunded by slPayout when it expires
       const scope = devGame === 'slither' ? 'slither' : onlyGame;
       const entryToken = entryStore.mint({ stake: rung, worth: rung, paid: rung, walletAddress, onlyGame: scope });
@@ -1396,6 +1398,9 @@ const ALL_ROOMS = () => {
      worth (away and frozen ones included) and settling rooms are in all(), so
      drainStatus counts agar money before a push. */
   if (typeof agArenas !== 'undefined' && agArenas) out.push(...agArenas.all());
+  /* Chomp's paid rooms (settling ones too): a room's `snakes` lists every open account with its worth and its
+     `floorWorth` the coins on its maze, so drainStatus counts both before a push. The free arena holds no money. */
+  if (typeof chompArenas !== 'undefined' && chompArenas) out.push(...chompArenas.all().filter((r) => r.money));
   /* The new slither.io free room (server/sl, only while SL_ENABLED opened it):
      the same playerCount / botCount / botsAllowed / addBot / clearBots; its
      snakes carry worth 0, so drainStatus counts its players and never money. */
@@ -1515,6 +1520,8 @@ function consoleGames(ko, bs) {
       rungs: paidBotRows(rows(paperArenas ? paperArenas.all() : [], []), 'paper') },
     { id: 'agar', name: 'agar.io', duel: false, paid: door(agArenas, agPaidSwitch, 'agar:paid'),
       rungs: paidBotRows(rows(agArenas ? agArenas.all() : [], []), 'ag') },
+    ...(chompArenas ? [{ id: 'chomp', name: 'Chomp', duel: false, paid: door(chompArenas, chompPaidSwitch, 'chomp:paid'),
+      rungs: paidBotRows(rows(chompArenas.all(), []), 'chomp') }] : []),
     { id: 'knockout', name: 'Knockout', duel: true,
       paid: ownerConsole.paidDoor({ enabled: true, open: koPaidOpen, stopping: false }, koPaidSwitch.saved(), 'ko:paid'),
       rungs: ownerConsole.duelRows(ko) },
@@ -1529,7 +1536,8 @@ function consoleGames(ko, bs) {
    bots:set sends back ('paidbots:<game>:<rung>'), its held count and live bots.
    Bots there never hold money (each game's rule, tested per game). */
 function paidBotDir(game) {
-  const d = game === 'sl' ? slPaid : game === 'ag' ? agArenas : game === 'paper' ? paperArenas : null;
+  const d = game === 'sl' ? slPaid : game === 'ag' ? agArenas : game === 'paper' ? paperArenas
+    : game === 'chomp' ? chompArenas : null;
   return d && d.paidEnabled && typeof d.setBotTarget === 'function' ? d : null;
 }
 function paidBotRows(rungs, game) {
@@ -1606,6 +1614,7 @@ function opsSnapshot(req, signed) {
         : r.lobbyType === 'tanks' ? 'Awesome Tanks'
         : String(r.lobbyType).startsWith('paper_') ? 'Paper'
         : String(r.lobbyType).startsWith('ag_') ? 'agar.io'
+        : String(r.lobbyType).startsWith('ch_') ? 'Chomp'
         : String(r.lobbyType).startsWith('sl_') ? 'slither.io (new)' : 'slither.io',
     players: r.playerCount !== undefined ? r.playerCount : (r.players ? r.players.size : 0),
     bots: r.botCount !== undefined ? r.botCount : 0,
@@ -1676,6 +1685,7 @@ function emitMaintenance() {
   io.emit('maintenance', m);
   if (agArenas) io.of('/ag').emit('maintenance', m);
   if (slArenas) io.of('/sl').emit('maintenance', m);
+  if (chompArenas) io.of('/chomp').emit('maintenance', m);
 }
 const UPDATE_BANNER = 'Updating, back in a few minutes';
 const UPDATE_ANNOUNCE = 'Update coming, finish up or cash out.';
@@ -1845,7 +1855,7 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
       const r = ownerConsole.setBots(room, args);
       /* A paid row's id ('paidbots:...') names no room, so setBots above refused it
          touching nothing; the game's paid directory takes it instead. */
-      const pb = typeof args.room === 'string' ? /^paidbots:(sl|ag|paper):(\d+(?:\.\d+)?)$/.exec(args.room) : null;
+      const pb = typeof args.room === 'string' ? /^paidbots:(sl|ag|paper|chomp):(\d+(?:\.\d+)?)$/.exec(args.room) : null;
       if (pb) {
         const d = paidBotDir(pb[1]);
         if (!d) return refuse('Paid bots are not open for that game');
@@ -1854,8 +1864,8 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
         const r = d.setBotTarget(Number(pb[2]), raw);
         if (!r.ok) return refuse(r.why);
         broadcastLobbyState();
-        const gname = pb[1] === 'sl' ? 'slither.io' : pb[1] === 'ag' ? 'agar.io' : 'Paper.io';
-        if (pb[1] === 'sl' || pb[1] === 'ag' || pb[1] === 'paper') {
+        const gname = pb[1] === 'sl' ? 'slither.io' : pb[1] === 'ag' ? 'agar.io' : pb[1] === 'chomp' ? 'Chomp' : 'Paper.io';
+        if (pb[1] === 'sl' || pb[1] === 'ag' || pb[1] === 'paper' || pb[1] === 'chomp') {
           const bb = botBank.view();
           return done(gname + ' $' + pb[2] + ': ' + r.live + ' bot' + (r.live === 1 ? '' : 's') + ' playing, each worth $' + pb[2] +
             ' from the bot bank (now $' + bb.balance.toFixed(2) + ', $' + bb.spentToday.toFixed(2) + ' of $' + bb.cap.toFixed(2) +
@@ -1974,6 +1984,28 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
       const kept = paperPaidSwitch.save(true);
       console.warn('[PAPER] owner console: paid door OPEN' + (kept.ok ? '' : ' (the saved close NOT cleared: ' + kept.why + ')'));
       return done('Paid Paper open.' + (kept.ok ? ''
+        : ' The saved close could not be cleared (' + kept.why + '), so the next restart opens it closed again.'));
+    }
+    /* Paid Chomp's instant door switch, agar's contract: off, every NEW paid join is refunded at the door
+       ('not-open') and the paid rows say closed, while seated players keep playing, resume and cash out; saved, so
+       it outlives a restart until chomp:paid:on. On only reopens rungs that CHOMP_PAID built at boot. */
+    case 'chomp:paid:off': {
+      if (!chompArenas || !chompArenas.paidEnabled) return refuse('Paid Chomp is not on (CHOMP_PAID)');
+      chompArenas.paidOpen = false;
+      const kept = chompPaidSwitch.save(false);
+      console.warn('[CHOMP] owner console: paid door CLOSED' + (kept.ok ? ' (saved)' : ' (NOT saved: ' + kept.why + ')'));
+      return done('Paid Chomp closed to new players. Seated players finish. ' +
+        (kept.ok ? 'It stays closed across restarts and deploys until you press Open.'
+          : 'The close could not be saved (' + kept.why + '), so it lasts only until the next restart; for a lasting ' +
+            'close set CHOMP_PAID=0 in .env.'));
+    }
+    case 'chomp:paid:on': {
+      if (!chompArenas || !chompArenas.paidEnabled) return refuse('Paid Chomp is not on (CHOMP_PAID)');
+      if (chompArenas.stopping) return refuse('The server is restarting');
+      chompArenas.paidOpen = true;
+      const kept = chompPaidSwitch.save(true);
+      console.warn('[CHOMP] owner console: paid door OPEN' + (kept.ok ? '' : ' (the saved close NOT cleared: ' + kept.why + ')'));
+      return done('Paid Chomp open.' + (kept.ok ? ''
         : ' The saved close could not be cleared (' + kept.why + '), so the next restart opens it closed again.'));
     }
     /* Paid Knockout's and paid Battleship's door switches, the same contract
@@ -2802,7 +2834,8 @@ const agOwnerAlert = require('./ag/agAlert').createAgOwnerAlert({
   },
   /* Paid slither and battle royale share this sender (sl_*, br_* rooms), so the title names the game. */
   push: (text, safe) => notify.pushOwner(text, { title: /^(sl|br)_/.test(String((safe && safe.lobbyType) || ''))
-    ? 'slither.io money alert' : 'agar.io money alert', priority: 'high' }),
+    ? 'slither.io money alert' : /^ch_/.test(String((safe && safe.lobbyType) || ''))
+      ? 'Chomp money alert' : 'agar.io money alert', priority: 'high' }),
 });
 /* agShutdown, agInflight and agJournal are built above the Paper block (paid Paper
    shares them since security review item a). */
@@ -3004,7 +3037,7 @@ if (slPaid && typeof slPaid.startBots === 'function') {
 }
 /* A seed moved from the Bot bank wallet landed in escrow: each game spawns the bots that were waiting for it. */
 botBank.onReady(() => {
-  for (const d of [slPaid, agArenas, paperArenas]) {
+  for (const d of [slPaid, agArenas, paperArenas, chompArenas]) {
     if (d && typeof d.resumeBots === 'function') {
       try { d.resumeBots(); } catch (e) { console.error('[BOTBANK] bots not resumed:', e && e.message); }
     }
@@ -3188,6 +3221,86 @@ app.get('/api/sl/cashout/:cid', (req, res) => {
    settles in its own try, so a throw in one never keeps the others' rows from the
    journal, and the one wait covers the money of all of them in flight
    (agInflight). Installed while any paid directory exists. */
+/* ── Chomp (Owen 2026-10-25): the Pac-Man-style shared arena at /chomp ─────────────
+   Its own namespace /chomp and its own files (server/chomp, public/chomp.html, public/js/chomp). The free arena reads
+   no stake, token, wallet or payout. The paid rungs ($0.50, $1, server/chomp/chompArenas.js) reuse paid agar.io's
+   machinery whole: the same door (agPaidDoor, Chomp's prefix 'c', the 'chomp' token scope), the same money controller
+   (agMoney, extended by chompMoney: a catch drops the victim's coins on the maze, a chomper takes the coins on its
+   tile), the 90/10 cash-out through the parameterized payout below, the money journal, agInflight, the owed-row
+   drainer, the Bot bank's bounty bots and the shutdown and crash refunds. Coins nobody takes go back to whoever
+   dropped them (an hour, a restart, a crash), never to the house. CHOMP=off closes the game, CHOMP_PAID=0 the paid
+   rungs; the instant off switch is the owner console's chomp:paid:off, saved across restarts. Defined here, before
+   the shutdown wiring, so its paid rooms are settled with the other games'. */
+const chompPayout = require('./paperPayout').create({
+  money: PAPER_DEV_TOKENS ? paperDevMoney : money,
+  db,
+  trackEarning: PAPER_DEV_TOKENS
+    ? (e) => console.log(`[CHOMP] DEV earning ${e.source} ${e.amountUsdc} (${e.lobbyType}) not recorded`)
+    : trackEarning,
+  sweepRake: PAPER_DEV_TOKENS
+    ? (amt, label) => console.log(`[CHOMP] DEV rake ${amt} (${label}) not swept`)
+    : sweepRake,
+  io: io.of('/chomp'),     // emitTo uses socket ids, which are per namespace
+  REGION,
+  game: 'chomp',
+  prefix: 'c',
+  floorSource: 'chomp_floor',
+  breachSource: 'chomp_breach',
+  tag: '[CHOMP]',
+});
+const chompPaidSwitch = createPaidSwitchStore({
+  file: process.env.CHOMP_PAID_SWITCH_PATH || path.join(path.dirname(agJournal.file), 'chomp-paid-switch.json'),
+  tag: '[CHOMP]', what: 'paid Chomp',
+});
+const chompMoneyHooks = {
+  /* A coin or a bounty bot's money owed back to a player: journaled first as a keyed close, so a crash replays it
+     once; live, also written now (recordOwedOnce, paid by the drainer); at a restart the rows go back to the
+     shutdown writer (agMoneyHooks.onOwed's rule). */
+  onOwed: (row, live) => {
+    agJournal.close({ jid: require('crypto').randomUUID(), wallet: row.wallet, name: row.name || '' }, 'refunded',
+      { why: 'botfloor', key: row.key, refundedMicro: row.micro, reason: row.reason }, row.label || '');
+    if (live) {
+      return db.recordOwedOnce(row.key, row.wallet, row.micro / 1e6, row.name || 'Player', row.reason).then(() => kickDrain())
+        .catch((e) => console.error('[CHOMP] OWED ' + row.key + ' not written yet, the journal has it:', e && e.message));
+    }
+    return null;
+  },
+  onCashout: (order) => agInflight.track(chompPayout.payCashout(order)),
+  onRefund: (info) => agInflight.track(chompPayout.refund(info)),
+  /* One record per (dropper life, taker) bucket, in dollars. */
+  onTransfer: (t) => collusion.record(t.srcWallet, t.dstWallet, t.micro / 1e6, { lobbyType: t.lobbyType || t.label }),
+  onBreach: agOwnerAlert,
+  /* The buy-in row, written on c:ready (a seat refunded before it readied leaves no stake on the profile). */
+  onStake: ({ wallet, worth, name, stake }) => {
+    recordEntry({ ok: true, worth, walletAddress: wallet }, 'chomp');
+    joinAlerts.joined({ game: 'chomp', stake, name, wallet });
+  },
+  onHouse: chompPayout.houseIncident,
+  journal: agJournal,
+};
+const chompGame = require('./chomp/chompBoot').openChomp({
+  io,
+  env: process.env,
+  helpers: { socketRL, sanitizeName, ops, notifyJoin: (name) => joinAlerts.joined({ game: 'chomp', stake: 0, name }) },
+  money: {
+    hooks: chompMoneyHooks,
+    door: {
+      /* The 'chomp' door: a token scoped to another game (a dev token) does not open it. */
+      consumeAtStake: (token, stake) => entryStore.consumeAtStake(token, stake, 'chomp'),
+      ledger: stakeLedger,
+      refund: chompPayout.refund,
+      track: agInflight.track,
+    },
+  },
+  paidSwitch: chompPaidSwitch,
+  botStore: require('./paidBotStore').createBotStore({ file: path.join(path.dirname(agJournal.file), 'chomp-paid-bots.json') }),
+  botBank,
+});
+const chompArenas = chompGame ? chompGame.arenas : null;
+const CHOMP_PAID_ON = !!(chompGame && chompGame.paid);
+/* Chomp is not in the lobby yet (Owen OKs it first): /api/live lists only its paid rows then (players = open
+   accounts, so deploy rule 4b sees anyone seated), never its free row, which would put it on the Open lobbies list. */
+const CHOMP_IN_LOBBY = false;
 /* The two duels too (2026-10-21): a queued paid seat or a paid table being played lived only in this
    process, its stake row already 'consumed', so every deploy lost it with nothing owed. Their lobbies'
    shutdownSettle stops them and hands back one 100% refund row per paid seat (server/duelQueue.js). */
@@ -3196,7 +3309,7 @@ app.get('/api/sl/cashout/:cid', (req, res) => {
 knockoutLobby.journal = agJournal;
 battleshipLobby.journal = agJournal;
 const paidShutdownDirs = [AG_PAID_ON ? agArenas : null, slPaid, PAPER_PAID ? paperArenas : null,
-  knockoutLobby, battleshipLobby];
+  CHOMP_PAID_ON ? chompArenas : null, knockoutLobby, battleshipLobby];
 if (paidShutdownDirs.some(Boolean)) {
   const paidAll = slPaidBoot.composePaidShutdown(paidShutdownDirs);
   agShutdown.installAgShutdown({
@@ -3228,10 +3341,7 @@ app.get('/ag', (_req, res) => {
   res.sendFile(path.join(__dirname, '../public/ag.html'));
 });
 
-/* ── Chomp (Owen 2026-10-25): a Pac-Man-style shared arena, hidden at /chomp, free only, not in the lobby yet.
-   Its own namespace /chomp and its own files (server/chomp, public/chomp.html, public/js/chomp); it reads no stake,
-   token, wallet or payout. CHOMP=off closes it (server/chomp/chompBoot.js). */
-const chompGame = require('./chomp/chompBoot').openChomp({ io, env: process.env, helpers: { socketRL, sanitizeName } });
+/* Chomp's page (the game is opened with its money above, before the shutdown wiring). */
 app.get('/chomp', (_req, res) => {
   if (!chompGame) return res.status(404).sendFile(path.join(__dirname, '../public/404.html'));
   res.sendFile(path.join(__dirname, '../public/chomp.html'));
@@ -3608,9 +3718,20 @@ app.get('/api/live', (_req, res) => {
         unknown.push('slpaid');
       }
     }
+    /* Chomp's rows (server/chomp), in their own try: one per rung, players = every open account on a paid rung
+       (away ones too, rule 4b). Its free row only once Chomp is in the lobby (CHOMP_IN_LOBBY). */
+    let chompRows = [];
+    if (chompArenas) {
+      try {
+        chompRows = chompArenas.boardRows().filter(r => CHOMP_IN_LOBBY || Number(r.stake) > 0);
+      } catch (e) {
+        console.error('[LIVE] chomp rows', e.message);
+        unknown.push('chomp');
+      }
+    }
     const slRungs = slPaidRows.filter(r => r && r.state === 'open').map(r => r.stake);
     const lobbies = liveBoard({ skipFree: slRows.length > 0, slRungs })
-      .concat(slRows, slPaidRows, paperArenas.boardRows(), agRows);
+      .concat(slRows, slPaidRows, paperArenas.boardRows(), agRows, chompRows);
     const extras = liveExtras();
     /* Card counts: every human of the game plus the bots in its rows, from these
        same rows, so a card never reads 0 above a row saying 20 playing. */
@@ -4024,6 +4145,8 @@ function sumLiveSelfCustodyStakes() {
   /* Paid agar.io: each paid room's whole bank (every open account, away and
      frozen ones included), settling rooms too (agArenas.all()); free rooms add 0. */
   if (agArenas) for (const r of agArenas.all()) total += r.liveStakeTotal ? r.liveStakeTotal() : 0;
+  /* Paid Chomp: each paid room's whole bank (open accounts and the coins on its maze), settling rooms too. */
+  if (chompArenas) for (const r of chompArenas.all()) total += r.liveStakeTotal();
   /* Paper: each arena's whole bank, which is every live square (a seat in its
      disconnect grace included) PLUS floor money nobody has picked up yet, each
      dollar once. A coin swept to the house after the hour has left the bank,
@@ -4331,6 +4454,9 @@ everyStaggered(() => paperArenas.sweep(Date.now()), 60000, 29000, 'paper-sweep')
    overflow room. 16.5 mod 30 sits in the widest free gap, 2.5s from lobby-sweep
    (44, so 14) and 2.5s from lb-flush (19); stake-sweep already holds 22. */
 if (agArenas) everyStaggered(() => agArenas.sweep(Date.now()), 60000, 16500, 'ag-sweep');
+/* Chomp's paid rooms: coins an hour old go back to their droppers, an empty overflow room closes. 7.5 mod 30 sits
+   3.5s from payouts (11) and 4.5s from solvency (3). */
+if (chompArenas) everyStaggered(() => chompArenas.sweep(Date.now()), 60000, 7500, 'chomp-sweep');
 /* The new slither.io free room (only while SL_ENABLED opened it): replaces a
    room that closed itself. 26 mod 30 sits 3s from paper-sweep (29) and 4s from
    stake-sweep (22). */

@@ -87,8 +87,11 @@ function wantsPaid(msg) {
 // arenas: AgArenas (paid rungs, maps, paidOpen); consumeAtStake(token, stake) -> entry (entryStore, 'agar' door);
 // ledger: stakeLedger (claimSeat, refund) or null; refund(info): agPayout.refund for dev and non-durable tokens;
 // ops: { get() -> { maintenance } }; cleanName(raw) -> string | null; clientIp(socket); now: clock for the limiter
+// Reuse by another game (Chomp, server/chomp/chompBoot.js): ev (its event prefix), game (the word in a refund's
+// reason) and text (its own wording of some answers). Their defaults are agar's, so agar's door is as before.
 function createAgPaidDoor({ arenas, consumeAtStake, ledger = null, refund, ops = null, cleanName, clientIp = null,
-  now = Date.now, log = console, track = (p) => p } = {}) {
+  now = Date.now, log = console, track = (p) => p, ev = 'ag', game = 'agar', text = null, tag = '[AG]' } = {}) {
+  const words = text ? Object.assign({}, TEXT, text) : TEXT;
   if (!arenas) throw new Error('agPaidDoor: arenas is required');
   if (typeof consumeAtStake !== 'function') throw new Error('agPaidDoor: consumeAtStake must be a function');
   if (typeof refund !== 'function') throw new Error('agPaidDoor: refund must be a function');
@@ -98,7 +101,7 @@ function createAgPaidDoor({ arenas, consumeAtStake, ledger = null, refund, ops =
 
   function refuse(socket, why, extra) {
     try {
-      socket.emit('ag:refused', Object.assign({ why, text: TEXT[why] || why, refunded: false }, extra || {}));
+      socket.emit(ev + ':refused', Object.assign({ why, text: words[why] || why, refunded: false }, extra || {}));
     } catch (e) { /* the socket is gone */ }
   }
 
@@ -111,10 +114,10 @@ function createAgPaidDoor({ arenas, consumeAtStake, ledger = null, refund, ops =
   // restarts), else through the agar payout (dev tokens: the fake withdraw). What landed, capped at the rung.
   function refundEntry(entry, why, name) {
     try {
-      if (entry.stakeSig && ledger) return track(ledger.refund(entry.stakeSig, 'refund agar ' + why, entry.claimKey));
+      if (entry.stakeSig && ledger) return track(ledger.refund(entry.stakeSig, 'refund ' + game + ' ' + why, entry.claimKey));
       return track(refund({ wallet: entry.walletAddress, name, micro: toMicro(entry.worth), paid: entry.paid, why }));
     } catch (e) {
-      log.error('[AG] DOOR CRITICAL refund threw, owed ' + entry.worth + ' to ' + entry.walletAddress + ' (' + why +
+      log.error(tag + ' DOOR CRITICAL refund threw, owed ' + entry.worth + ' to ' + entry.walletAddress + ' (' + why +
         '): ' + (e && e.message));
       return null;
     }
@@ -137,12 +140,12 @@ function createAgPaidDoor({ arenas, consumeAtStake, ledger = null, refund, ops =
     if (was.why === 'cashedout' || was.why === 'settled') {
       const grossMicro = Number(was.grossMicro) || 0;
       const cutMicro = Math.floor(grossMicro / HOUSE_CUT_DIV);
-      socket.emit('ag:cashedout', { grossMicro, cutMicro, netMicro: grossMicro - cutMicro, cashoutId: was.cashoutId,
+      socket.emit(ev + ':cashedout', { grossMicro, cutMicro, netMicro: grossMicro - cutMicro, cashoutId: was.cashoutId,
         resumed: true, auto: was.why === 'settled' });
       return;
     }
     if (was.why === 'eaten') {
-      socket.emit('ag:dead', { lostMicro: Number(was.lostMicro) || 0, by: was.by || '', resumed: true });
+      socket.emit(ev + ':dead', { lostMicro: Number(was.lostMicro) || 0, by: was.by || '', resumed: true });
       return;
     }
     refuse(socket, was.why, { refunded: !!was.refunded });
@@ -194,7 +197,7 @@ function createAgPaidDoor({ arenas, consumeAtStake, ledger = null, refund, ops =
           try {
             enter(socket, msg);
           } catch (e) {
-            log.error('[AG] re-sent paid join', e && e.stack ? e.stack : e);
+            log.error(tag + ' re-sent paid join', e && e.stack ? e.stack : e);
           }
         });
         return;
@@ -233,7 +236,7 @@ function createAgPaidDoor({ arenas, consumeAtStake, ledger = null, refund, ops =
           return refuse(socket, 'settled', { refunded: true });
         }
         seatEntry(socket, token, stake, name, proof, entry);
-      }).catch((e) => log.error('[AG] durable paid join', e && e.stack ? e.stack : e));
+      }).catch((e) => log.error(tag + ' durable paid join', e && e.stack ? e.stack : e));
       track(claim);
       if (proof) {
         claiming.set(proof, claim);
@@ -258,7 +261,7 @@ function createAgPaidDoor({ arenas, consumeAtStake, ledger = null, refund, ops =
     try {
       seatSteps(socket, token, stake, name, proof, entry, st);
     } catch (e) {
-      log.error('[AG] paid seat threw after the token was spent' + (st.settled ? ' (already settled)' : ', refunding'),
+      log.error(tag + ' paid seat threw after the token was spent' + (st.settled ? ' (already settled)' : ', refunding'),
         e && e.stack ? e.stack : e);
       if (!st.settled) refundAndRefuse(socket, token, entry, 'seat-failed', name, st);
     }
@@ -283,7 +286,7 @@ function createAgPaidDoor({ arenas, consumeAtStake, ledger = null, refund, ops =
       if (ok) {
         seated(socket, ws.room);
         try {
-          socket.emit('ag:refunded', { why: 'reattach', text: TEXT.reattach });
+          socket.emit(ev + ':refunded', { why: 'reattach', text: words.reattach });
         } catch (e) { /* told on the seat anyway */ }
         return;
       }
@@ -293,7 +296,7 @@ function createAgPaidDoor({ arenas, consumeAtStake, ledger = null, refund, ops =
     if (!arenas.paidOpen) return refundAndRefuse(socket, token, entry, 'not-open', name, st);
     // 12. the release cooldown
     if (arenas.releaseCooldown(entry.walletAddress)) {
-      log.warn('[AG] COOLDOWN ' + String(entry.walletAddress).slice(0, 8) + ' ' + stake);
+      log.warn(tag + ' COOLDOWN ' + String(entry.walletAddress).slice(0, 8) + ' ' + stake);
       return refundAndRefuse(socket, token, entry, 'cooldown', name, st);
     }
     // 13. a room and a safe spot
@@ -315,7 +318,7 @@ function createAgPaidDoor({ arenas, consumeAtStake, ledger = null, refund, ops =
         }
       }
     } catch (e) {
-      log.error('[AG] paid seat failed', room && room.lobbyType, e && e.message);
+      log.error(tag + ' paid seat failed', room && room.lobbyType, e && e.message);
       return refundAndRefuse(socket, token, entry, 'seat-failed', name, st);
     }
     if (r === 'no-room') return refundAndRefuse(socket, token, entry, 'no-room', name, st);
@@ -325,9 +328,9 @@ function createAgPaidDoor({ arenas, consumeAtStake, ledger = null, refund, ops =
     // 14.
     seated(socket, room);
     try {
-      socket.emit('ag:joined', room.joinedPayload(r, false));
+      socket.emit(ev + ':joined', room.joinedPayload(r, false));
     } catch (e) {
-      log.error('[AG] ag:joined', e && e.message);
+      log.error(tag + ' ' + ev + ':joined', e && e.message);
     }
   }
 

@@ -125,6 +125,13 @@
   // consumed, and a join cut off mid-claim is refunded 'join-lost' once the claim lands (agPaidDoor step 9).
   var AUTO_REFUND = { restarting: true, entry: true, unavailable: true, 'join-timeout': true, limit: true };
 
+  function merge(a, b) {
+    var out = {}, k;
+    for (k in a) if (Object.prototype.hasOwnProperty.call(a, k)) out[k] = a[k];
+    for (k in b) if (Object.prototype.hasOwnProperty.call(b, k)) out[k] = b[k];
+    return out;
+  }
+
   function money(stake) {
     var n = Number(stake);
     return '$' + (isFinite(n) && n > 0 ? n : 0).toFixed(2);
@@ -221,6 +228,11 @@
   function createFlow(o) {
     var h = o.handoff || {};
     var win = o.win || root;
+    // Reuse by another game's page (Chomp, public/js/chomp/chompPaid.js): o.game names the game in the lobby's restake
+    // and the analytics event, o.text and o.refused reword some lines. Unset, everything is agar's as before.
+    var game = typeof o.game === 'string' && o.game ? o.game : 'agar';
+    var T = o.text ? merge(TEXT, o.text) : TEXT;
+    var RF = o.refused ? merge(REFUSED, o.refused) : REFUSED;
     var st = {
       phase: 'connecting',    // connecting | joining | seated | live | reconnecting | end
       stake: h.stake || 0,
@@ -276,8 +288,8 @@
 
     // ---- joining ----
     function showJoining() {
-      if (st.joinToken) card().showWait(TEXT.joiningTitle(st.stake), TEXT.joining);
-      else card().showWait(TEXT.resumingTitle, TEXT.resuming);
+      if (st.joinToken) card().showWait(T.joiningTitle(st.stake), T.joining);
+      else card().showWait(T.resumingTitle, T.resuming);
     }
     // extra: { entryToken } or { resumeKey }. A join that cannot go out now (the link is down) stays pending and goes
     // out on the next connection.
@@ -309,7 +321,7 @@
         sendJoin({ resumeKey: st.resumeKey });
         return;
       }
-      end('gone', TEXT.noAnswerTitle, TEXT.noAnswer);
+      end('gone', T.noAnswerTitle, T.noAnswer);
     }
     // The door answered (ag:joined, ag:refused, or a remembered outcome): the token is spent or refunded either way.
     function answered() {
@@ -322,7 +334,7 @@
       if (!pending()) return;
       var hadKey = !!st.joinKey;
       answered();
-      end('gone', TEXT.noAnswerTitle, TEXT.noAnswer, hadKey ? TEXT.noAnswerSeat : TEXT.unused);
+      end('gone', T.noAnswerTitle, T.noAnswer, hadKey ? T.noAnswerSeat : T.unused);
     }
 
     // ---- end states ----
@@ -343,13 +355,13 @@
     }
     function refusedView(p) {
       var why = typeof p.why === 'string' ? p.why : '';
-      var t = Object.prototype.hasOwnProperty.call(REFUSED, why) ? REFUSED[why] : null;
+      var t = Object.prototype.hasOwnProperty.call(RF, why) ? RF[why] : null;
       var title = t ? t[0] : 'Not seated';
       var text = t ? t[1] : (typeof p.text === 'string' && p.text ? p.text : 'The table did not let you in.');
       var extra = '';
-      if (p.refunded === true) extra = TEXT.refunded;
-      else if (why === 'expired') extra = TEXT.expired;
-      else if (AUTO_REFUND[why]) extra = TEXT.unused;
+      if (p.refunded === true) extra = T.refunded;
+      else if (why === 'expired') extra = T.expired;
+      else if (AUTO_REFUND[why]) extra = T.unused;
       return { title: title, text: text, extra: extra };
     }
 
@@ -377,20 +389,20 @@
         // The seat still holds money: the page stays shut until the card offers the way back (agLobby's own trap lets
         // go DROP_MS after a drop, so without this the Lobby chip would come back long before the card's button).
         lock(true);
-        card().showWait(TEXT.reconnectTitle, TEXT.resuming);
+        card().showWait(T.reconnectTitle, T.resuming);
         later('giveUp', function () {
           if (st.phase !== 'reconnecting') return;
           lock(false);
-          card().showWait(TEXT.reconnectTitle, TEXT.reconnect, { lobby: true });
+          card().showWait(T.reconnectTitle, T.reconnect, { lobby: true });
         }, GIVE_UP_MS);
         return;
       }
       if (pending()) {
-        card().showWait(TEXT.reconnectTitle, st.joinToken ? TEXT.joining : TEXT.resuming);
+        card().showWait(T.reconnectTitle, st.joinToken ? T.joining : T.resuming);
         later('giveUp', function () {
           if (!pending()) return;
           lock(false);
-          card().showWait(TEXT.reconnectTitle, st.joinToken ? TEXT.unused : TEXT.reconnect, { lobby: true });
+          card().showWait(T.reconnectTitle, st.joinToken ? T.unused : T.reconnect, { lobby: true });
         }, GIVE_UP_MS);
       }
     }
@@ -413,7 +425,7 @@
           lock(false);   // the seat is open: agLobby's own exit trap holds the page from here (ag:joined with a stake)
           o.enterPlay(p);
           if (p.resumed !== true && typeof o.phEvent === 'function') {
-            try { o.phEvent('game_started', { game: 'agar', stake: st.stake }); } catch (e) { /* analytics never breaks the game */ }
+            try { o.phEvent('game_started', { game: game, stake: st.stake }); } catch (e) { /* analytics never breaks the game */ }
           }
           return;
         case 'ag:refused':
@@ -438,7 +450,7 @@
           end('refused', w.title, w.text, w.extra);
           return;
         case 'ag:refunded':
-          if (p.why === 'reattach' && o.chip) o.chip.show(TEXT.reattach, NOTICE_MS, win);
+          if (p.why === 'reattach' && o.chip) o.chip.show(T.reattach, NOTICE_MS, win);
           return;
         case 'ag:dead':
           answered();
@@ -458,7 +470,7 @@
           return;
         case 'ag:replaced':
           clearResume();
-          end('gone', TEXT.replacedTitle, TEXT.replaced);
+          end('gone', T.replacedTitle, T.replaced);
           return;
         default:
           return;
@@ -486,13 +498,13 @@
       st.nonce = newNonce(win);
       lock(true);
       var c = card();
-      c.setAgain({ text: TEXT.againAsk, disabled: true });
+      c.setAgain({ text: T.againAsk, disabled: true });
       c.setLobbyLocked(true);
       if (c.setBuying) c.setBuying(true);
       c.setError('');
       later('restake', restakeSlow, RESTAKE_WAIT_MS);
       try {
-        o.parent.postMessage({ type: 'duel:restake', game: 'agar', stake: st.stake, nonce: st.nonce }, '*');
+        o.parent.postMessage({ type: 'duel:restake', game: game, stake: st.stake, nonce: st.nonce }, '*');
       } catch (e) {
         restakeFailed('');
         return false;
@@ -505,8 +517,8 @@
       lock(false);
       var c = card();
       c.setLobbyLocked(false);
-      c.setAgain({ text: TEXT.againSlow, disabled: true });
-      c.setError(TEXT.againSlowLine);
+      c.setAgain({ text: T.againSlow, disabled: true });
+      c.setError(T.againSlowLine);
     }
     function restakeFailed(message) {
       st.restaking = false;
@@ -535,7 +547,7 @@
         sendJoin({ entryToken: d.entryToken });
         if (typeof o.reconnect === 'function') o.reconnect();   // a socket the server closed comes back for it
       } else if (d.type === 'duel:restake:error') {
-        restakeFailed(String(d.message || TEXT.againFailed));
+        restakeFailed(String(d.message || T.againFailed));
       }
     }
 
@@ -545,7 +557,7 @@
     function escape() {
       if (!o.chip) return;
       if (st.phase === 'live' || st.phase === 'seated') {
-        o.chip.show(o.touch && o.touch() ? TEXT.escTouch : TEXT.escKeys, ESC_HINT_MS, win);
+        o.chip.show(o.touch && o.touch() ? T.escTouch : T.escKeys, ESC_HINT_MS, win);
       }
     }
 
@@ -558,16 +570,16 @@
       storageDel(o.store, 'entryToken');
       storageDel(o.store, RESUME_KEY);
       if (st.lost) {
-        end('refused', TEXT.lostTitle, TEXT.lost, TEXT.lostLine);
+        end('refused', T.lostTitle, T.lost, T.lostLine);
         return;
       }
       lock(!!(st.token || st.resumeKey));
-      if (st.token) card().showWait(TEXT.joiningTitle(st.stake), TEXT.joining);
-      else card().showWait(TEXT.resumingTitle, TEXT.resuming);
+      if (st.token) card().showWait(T.joiningTitle(st.stake), T.joining);
+      else card().showWait(T.resumingTitle, T.resuming);
       later('giveUp', function () {
         if (st.phase !== 'connecting') return;
         lock(false);
-        card().showWait(TEXT.reconnectTitle, st.token ? TEXT.unused : TEXT.reconnect, { lobby: true });
+        card().showWait(T.reconnectTitle, st.token ? T.unused : T.reconnect, { lobby: true });
       }, GIVE_UP_MS);
     }
 

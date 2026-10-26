@@ -1,5 +1,11 @@
-// Chomp's page: the socket, the title card, input (arrows/WASD, swipes), your own chomper predicted with the
-// server's movement code, everyone else drawn a little in the past between snapshots, the HUD and the sounds.
+// Chomp's page: the socket, the title card, input (arrows/WASD, the phone's thumb stick), your own chomper predicted
+// with the server's movement code, everyone else drawn a little in the past between snapshots, the HUD and the sounds.
+//
+// Paid (only when the lobby's wallet left a paid hand-off: chompPaid.js, on agar.io's client flow public/js/ag/
+// agPaid.js): the socket connects with auth { paid: 1 } and joins through the paid door with the entry token (or a
+// resume key after a reload); no title card; c:ready once its own chomper is drawn; the coins on the maze, money in
+// the HUD and the board, hold Q (a held Cash out button on a phone) with the gold ring while it moves on; the paid end
+// cards; and no way back to the lobby while money is in the room (it leaves only by cash-out).
 //
 // Prediction: every key press is numbered and logged with the local tick it happened on. The server echoes the last
 // number it applied and how many ticks ago, which says which of our own past ticks its position belongs to; if ours
@@ -21,6 +27,15 @@
   var titleEl = document.getElementById('title');
   var nameEl = document.getElementById('name');
   var playEl = document.getElementById('play');
+
+  // ---- paid hand-off (chompPaid.js); null pieces on the free page
+  var PAID = window.ChompPaid && window.ChompPaid.available ? window.ChompPaid : null;
+  var hand = PAID ? PAID.handoff() : { paid: false };
+  var paidMode = !!hand.paid;
+  var isTouch = false;
+  try { isTouch = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches); } catch (e) { isTouch = false; }
+  var flow = null, pcard = null, lock = null, hold = null;
+  var stakeNow = 0, myMoney = 0, coins = new Map(), coinList = [], deadTimer = null;
 
   var A = null, draw = null, socket = null;
   var myId = 0, metas = new Map();
@@ -50,7 +65,10 @@
 
   // ---- net
   function connect() {
-    socket = window.io('/chomp');
+    var opts = undefined;
+    if (paidMode) opts = { auth: { paid: 1 } };
+    else if (watchStake > 0) opts = { auth: { watchStake: watchStake } };
+    socket = opts ? window.io('/chomp', opts) : window.io('/chomp');
     socket.on('c:init', onInit);
     socket.on('c:chat', function (m) {
       if (!chat) return;
@@ -63,15 +81,110 @@
     socket.on('c:dots', onDots);
     socket.on('c:ev', onEvents);
     socket.on('c:lb', function (rows) { lbRows = rows || []; showBoard(); });
-    socket.on('c:me', function (m) { myScore = m.s; myLives = m.l; myRank = m.rk; roomN = m.n; showBoard(); });
+    socket.on('c:me', function (m) { myScore = m.s; myLives = m.l; myRank = m.rk; roomN = m.n; if (m.m != null) myMoney = m.m; showBoard(); });
     socket.on('c:over', onOver);
-    socket.on('c:refused', function (m) { toast(m && m.why === 'full' ? 'The arena is full. Try again in a moment.' : 'Too many tabs open here.'); });
-    socket.on('disconnect', function () { predicting = false; if (phase === 'play') { phase = 'title'; titleEl.hidden = false; } });
+    socket.on('c:refused', function (m) {
+      if (flow) { if (m && m.closed === true) seatEnded(); flow.onEvent('ag:refused', m); return; }
+      if (m && m.why === 'nobody') { toast('Nobody is playing at that stake right now.'); return; }
+      toast(m && m.why === 'full' ? 'The arena is full. Try again in a moment.' : m && m.why === 'maintenance'
+        ? 'DuelSeries is updating. Try again in a few minutes.' : 'Too many tabs open here.');
+    });
+    socket.on('c:coins', onCoins);
+    socket.on('c:holding', function (p) { if (hold) hold.server(p); });
+    socket.on('c:joined', function (p) { if (flow) flow.onEvent('ag:joined', p); });
+    socket.on('c:dead', onPaidDead);
+    socket.on('c:cashedout', function (p) {
+      var life = { secs: Math.round((performance.now() - (lifeT0 || performance.now())) / 1000), score: myScore };
+      seatEnded();
+      if (pcard) pcard.showCashed(p, p && p.resumed ? null : life);
+      if (flow) flow.onEvent('ag:cashedout', p);
+      Snd.play('ch.life');
+    });
+    socket.on('c:paid', function (p) { if (pcard && p) pcard.paid(p.sig, null); });
+    socket.on('c:payerror', function (p) { if (pcard) pcard.payError(p && p.message); });
+    socket.on('c:closed', function (p) { seatEnded(); if (pcard) pcard.showClosed(p); if (flow) flow.onEvent('ag:closed', p); });
+    socket.on('c:refunded', function (p) { if (flow) flow.onEvent('ag:refunded', p); });
+    socket.on('c:replaced', function (p) { seatEnded(); if (flow) flow.onEvent('ag:replaced', p); });
+    socket.on('connect', function () { if (flow) flow.onConnect(); });
+    socket.on('disconnect', function () {
+      predicting = false;
+      if (hold) hold.reset();
+      if (flow) { if (lock) lock.drop(); flow.onDisconnect(); return; }
+      if (phase === 'play') { phase = 'title'; titleEl.hidden = false; }
+    });
+  }
+
+  // ---- paid
+  var lifeT0 = 0;
+  // The seat ended (cashed out, caught, closed, released, replaced): money is out of the room.
+  var lastMyId = 0;
+  function seatEnded() {
+    if (myId) lastMyId = myId;
+    if (lock) lock.setMoney(false);
+    if (hold) hold.reset();
+    syncCashBtn();
+    phase = 'over'; predicting = false; myId = 0; myMoney = 0;
+  }
+  function onPaidDead(p) {
+    var mine = myId, wait = p && p.resumed ? 0 : Math.round(R.DEATH_S * 1000) + 200;
+    seatEnded();
+    if (mine) dying.set(mine, performance.now());
+    clearTimeout(deadTimer);
+    // the card after the death animation, then the flow (its Play again goes on the card just shown)
+    deadTimer = setTimeout(function () {
+      if (pcard) pcard.showDead(p);
+      if (flow) flow.onEvent('ag:dead', p);
+    }, wait);
+  }
+  function onCoins(d) {
+    var me = myId;
+    (d.a || []).forEach(function (c) { coins.set(c[0], { k: c[1], c: c[1] % A.W, r: Math.floor(c[1] / A.W), micro: c[2] }); });
+    (d.r || []).forEach(function (c) {
+      coins.delete(c[0]);
+      if (me && c[1] === me) Snd.play('ch.fruit');
+    });
+    coinList = Array.from(coins.values());
+  }
+  // A paid seat opened (agPaid on c:joined): the play state the free Play button gives, without the title card.
+  function enterPaidPlay(p) {
+    closeWatch();
+    if (pcard) pcard.hide();
+    clearTimeout(deadTimer);
+    myId = p.id; (p.metas || []).forEach(setMeta);
+    predicting = false; phase = 'play'; titleEl.hidden = true;
+    myMoney = Number(p.micro) || 0;
+    lifeT0 = performance.now();
+    if (lock) lock.setMoney(true);
+    readyUntil = performance.now() + 1500; Snd.play('ch.ready');
+    syncCashBtn();
+  }
+  function usd(micro) { return window.DSEnd ? window.DSEnd.usd(micro) : '$' + (micro / 1e6).toFixed(2); }
+
+  // The phone's Cash out button (held), shown only while a paid seat plays on a touch screen.
+  var cashBtn = null;
+  function syncCashBtn() {
+    if (!paidMode || !isTouch) return;
+    if (!cashBtn) {
+      cashBtn = document.createElement('button');
+      cashBtn.id = 'cashout';
+      cashBtn.type = 'button';
+      cashBtn.textContent = 'Hold to cash out';
+      var down = function (e) { e.preventDefault(); if (hold) hold.press(); cashBtn.classList.add('held'); };
+      var up = function (e) { if (e) e.preventDefault(); if (hold) hold.release(); cashBtn.classList.remove('held'); };
+      cashBtn.addEventListener('pointerdown', down);
+      cashBtn.addEventListener('pointerup', up);
+      cashBtn.addEventListener('pointercancel', up);
+      cashBtn.addEventListener('pointerleave', up);
+      cashBtn.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+      document.body.appendChild(cashBtn);
+    }
+    cashBtn.hidden = !(phase === 'play' && myId && flow && flow.canSteer());
   }
 
   function setMeta(m) { metas.set(m.id, { n: m.n, c: m.c }); }
 
   function onInit(m) {
+    stakeNow = Number(m.stake) > 0 ? Number(m.stake) : 0;
     var fresh = !A || A.mx !== m.mx || A.my !== m.my;
     if (fresh) {
       A = Maze.build(m.mx, m.my);
@@ -85,7 +198,10 @@
     (m.metas || []).forEach(setMeta);
     fruitOn = new Set(m.fruit || []);
     snaps = []; offset = null; myId = 0; predicting = false;
-    if (phase === 'play') { phase = 'title'; titleEl.hidden = false; }
+    coins.clear();
+    (m.coins || []).forEach(function (c) { coins.set(c[0], { k: c[1], c: c[1] % A.W, r: Math.floor(c[1] / A.W), micro: c[2] }); });
+    coinList = Array.from(coins.values());
+    if (phase === 'play' && !paidMode) { phase = 'title'; titleEl.hidden = false; }
   }
 
   function onSnap(buf) {
@@ -164,9 +280,13 @@
   // ---- the lobby around the page (its free games open in the lobby's #game-frame) and Spectate
   var inLobby = false;
   try { inLobby = !!window.frameElement && window.frameElement.id === 'game-frame'; } catch (e) { inLobby = false; }
+  var framed = false;
+  try { framed = window.parent && window.parent !== window; } catch (e) { framed = true; }
   function backToLobby() {
+    if (lock && lock.locked()) { if (flow) flow.escape(); return; }
     closeWatch();
-    if (inLobby && window.parent) { window.parent.postMessage('game:done', '*'); return; }
+    if ((inLobby || (paidMode && framed)) && window.parent) { window.parent.postMessage('game:done', '*'); return; }
+    if (paidMode) { location.href = '/'; return; }
     phase = 'title'; titleEl.hidden = false;
   }
   var watchId = 0, watchName = null;
@@ -211,6 +331,7 @@
   function want(d) {
     // nothing while caught or before we are placed: the server would drop it, and replaying it later would not match
     if (phase !== 'play' || !myId || !socket || !predicting || !me) return;
+    if (flow && !flow.canSteer()) return;
     if (me.want === d && me.dir === d) return;
     seq = seq >= 65535 ? 1 : seq + 1;
     me.want = d;
@@ -222,23 +343,51 @@
   var KEYS = { ArrowUp: 0, KeyW: 0, ArrowLeft: 1, KeyA: 1, ArrowDown: 2, KeyS: 2, ArrowRight: 3, KeyD: 3 };
   window.addEventListener('keydown', function (e) {
     if (e.target === nameEl) { if (e.key === 'Enter') { e.preventDefault(); join(); } return; }
-    if (phase === 'title' && e.key === 'Enter') { join(); return; }
+    if (phase === 'title' && e.key === 'Enter' && !paidMode) { join(); return; }
+    if (e.code === 'KeyQ' && hold) { if (!e.repeat) hold.press(); return; }
+    if (e.code === 'Escape' && flow) { flow.escape(); return; }
     var d = KEYS[e.code];
     if (d == null) return;
     e.preventDefault();
     if (!e.repeat) want(d);
   });
-  var touch = null;
-  canvas.addEventListener('touchstart', function (e) { var t = e.changedTouches[0]; touch = { x: t.clientX, y: t.clientY }; }, { passive: true });
+  window.addEventListener('keyup', function (e) { if (e.code === 'KeyQ' && hold) hold.release(); });
+  window.addEventListener('blur', function () { if (hold) hold.release(); });
+  // The phone's thumb stick: the other games' anchor-and-follow stick (agar.io's agInput, slither's numbers: a 10 px
+  // dead zone, the anchor dragged along 60 px behind the thumb), turned into the four directions a chomper has. The
+  // dominant axis wins, and a switch to the other axis needs it STICK_SWITCH times as far, so a thumb held near a
+  // diagonal does not flicker. Lifting the thumb keeps the last direction (a chomper always runs on).
+  var STICK_DEADZONE = 10, STICK_FOLLOW = 60, STICK_SWITCH = 1.25;
+  var stick = null;
+  function stickDir(dx, dy, last) {
+    var ax = Math.abs(dx), ay = Math.abs(dy);
+    var horiz = last === 1 || last === 3 ? ax * STICK_SWITCH >= ay : ax > ay * STICK_SWITCH;
+    if (last < 0) horiz = ax >= ay;
+    return horiz ? (dx < 0 ? 1 : 3) : (dy < 0 ? 0 : 2);
+  }
+  function findTouch(list, id) { for (var i = 0; i < list.length; i++) if (list[i].identifier === id) return list[i]; return null; }
+  canvas.addEventListener('touchstart', function (e) {
+    if (stick) return;
+    var t = e.changedTouches[0];
+    stick = { id: t.identifier, ax: t.clientX, ay: t.clientY, d: -1 };
+  }, { passive: true });
   canvas.addEventListener('touchmove', function (e) {
-    if (!touch) return;
-    var t = e.changedTouches[0], dx = t.clientX - touch.x, dy = t.clientY - touch.y;
-    if (Math.max(Math.abs(dx), Math.abs(dy)) < 18) return;
-    want(Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? 1 : 3) : (dy < 0 ? 0 : 2));
-    touch = { x: t.clientX, y: t.clientY };
+    if (!stick) return;
+    var t = findTouch(e.changedTouches, stick.id);
+    if (!t) return;
+    var dx = t.clientX - stick.ax, dy = t.clientY - stick.ay, dist = Math.hypot(dx, dy);
+    if (dist > STICK_FOLLOW) {
+      stick.ax = t.clientX - dx / dist * STICK_FOLLOW; stick.ay = t.clientY - dy / dist * STICK_FOLLOW;
+      dx = t.clientX - stick.ax; dy = t.clientY - stick.ay; dist = STICK_FOLLOW;
+    }
     e.preventDefault();
+    if (dist <= STICK_DEADZONE) return;
+    var d = stickDir(dx, dy, stick.d);
+    if (d !== stick.d) { stick.d = d; want(d); }
   }, { passive: false });
-  canvas.addEventListener('touchend', function () { touch = null; });
+  function stickEnd(e) { if (stick && findTouch(e.changedTouches, stick.id)) stick = null; }
+  canvas.addEventListener('touchend', stickEnd);
+  canvas.addEventListener('touchcancel', stickEnd);
   playEl.addEventListener('click', join);
 
   // ---- prediction
@@ -273,6 +422,7 @@
       myPower = rec.power;
       predicting = true; hist.clear(); smooth.x = smooth.y = 0;
       if (!camSet) { cam.x = me.x; cam.y = me.y; camSet = true; }
+      if (flow) flow.onSpawn();
       return;
     }
     // the server's power count wins when they disagree by more than a snapshot's worth (it ate the energizer, or did not)
@@ -388,7 +538,7 @@
         var others = draw.L.players.length - 1;
         var o = {
           x: pos.x, y: pos.y, dir: pb.dir >= 0 ? pb.dir : 1, name: meta.n, me: pb.id === myId,
-          color: pb.id === myId ? draw.L.me : draw.L.players[(meta.c % others) + 1],
+          color: pb.id === myId || (paidMode && pb.id === lastMyId) ? draw.L.me : draw.L.players[(meta.c % others) + 1],
           mouth: mouthFor(pb.id, pos.x, pos.y, pb.flags & Wire.F.MOVING),
           frame: chewFrame(pb.id, pb.flags & Wire.F.MOVING, dtTicks)
         };
@@ -431,7 +581,8 @@
     }
     if (!target) target = { x: A.W / 2, y: A.H / 2 };
     if (!camSet) { cam.x = target.x; cam.y = target.y; camSet = true; }
-    var kf = predicting ? 1 : phase === 'watch' ? 0.2 : 0.04;
+    // a paid seat that just ended keeps its spot on screen (the coins it dropped are there)
+    var kf = predicting ? 1 : phase === 'watch' ? 0.2 : paidMode && phase === 'over' ? 0 : 0.04;
     cam.x += (target.x - cam.x) * kf; cam.y += (target.y - cam.y) * kf;
     var vw = canvas.width / draw.S, vh = canvas.height / draw.S - (pixel ? 5 : 0);
     var cx = vw >= A.W + 2 ? A.W / 2 : Math.max(vw / 2 - 1, Math.min(A.W - vw / 2 + 1, cam.x));
@@ -441,16 +592,35 @@
     pops = pops.filter(function (q) { return now - q.at < q.ms; });
     pops.forEach(function (q) { ps.push({ x: q.x, y: q.y, text: q.text, color: q.color, a: 1 }); });
     pending.forEach(function (exp, k) { if (now > exp) { pending.delete(k); dotsView[k] = dotsServer[k]; } });
-    var scene = { cam: { x: cx, y: cy }, t: now, tick: tick, dots: dotsView, players: players, ghosts: ghosts, fruit: fruit, pops: ps };
+    var scene = { cam: { x: cx, y: cy }, t: now, tick: tick, dots: dotsView, players: players, ghosts: ghosts, fruit: fruit, pops: ps,
+      coins: coinList };
     if (pixel && !attract) {
       var high = lbRows.length ? lbRows[0][1] : 0;
       scene.hud = phase === 'play' || phase === 'over'
         ? { score: myScore, high: Math.max(high, myScore), lives: Math.max(0, myLives - 1), fruit: true, blink: phase === 'play' }
         : { score: 0, high: high, lives: 0, fruit: true, watch: phase === 'watch' };
+      if (stakeNow > 0) {
+        // a paid room: money in place of the scores (yours while you play, the richest chomper's beside it)
+        var mine = phase === 'play' ? myMoney : 0;
+        scene.hud.money = usd(mine);
+        scene.hud.highMoney = usd(Math.max(high, mine));
+        scene.hud.fruit = false;
+      }
       if (predicting && me && me.dir < 0 && phase === 'play') scene.banner = { text: 'READY!', color: draw.C.yellow, x: me.x, y: me.y - 6 };
     }
     draw.frame(scene);
     if (!pixel) hud(now);
+    if (predicting && me && phase === 'play') {
+      if (flow) flow.onFrame(1);
+      var hp = hold ? hold.progress() : 0;
+      if (hp > 0 && window.DSEnd && draw.view) {
+        var v = draw.view;
+        var rx = (v.ox + (me.x + smooth.x) * v.T) * v.k, ry = (v.oy + (me.y + smooth.y) * v.T) * v.k;
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        window.DSEnd.ring(ctx, rx, ry, 12 * v.k, hp, now, { lw: 2.2 * v.k, mobile: isTouch });
+      }
+    }
+    syncCashBtn();
     if (myPower > 0 && Math.floor(now / 400) !== hud.lastBeat) { hud.lastBeat = Math.floor(now / 400); Snd.play('ch.scared'); }
   }
 
@@ -483,12 +653,13 @@
 
   function showBoard() {
     if (!window.DSEnd || attract) return;
-    if (!board) board = window.DSEnd.board({ title: 'Leaderboard' });
+    if (!board) board = window.DSEnd.board(stakeNow > 0 ? { title: 'Leaderboard', money: true } : { title: 'Leaderboard' });
+    var val = stakeNow > 0 ? usd : fmt;
     var rows = lbRows.map(function (r) {
       var m = metas.get(r[0]);
-      return { name: m ? m.n : '', value: fmt(r[1]), me: r[0] === myId };
+      return { name: m ? m.n : '', value: val(r[1]), me: r[0] === myId };
     });
-    board.set(rows, myId && myRank ? { rank: myRank, name: (metas.get(myId) || {}).n || 'You', value: fmt(myScore) } : null);
+    board.set(rows, myId && myRank ? { rank: myRank, name: (metas.get(myId) || {}).n || 'You', value: val(stakeNow > 0 ? myMoney : myScore) } : null);
   }
 
   function toast(text) {
@@ -512,22 +683,64 @@
   // the shared chat (dsChat.js): T to type, a button on phones; only a seated chomper sends
   var chat = window.DSChat ? window.DSChat.mount({
     send: function (t) { if (!socket || !socket.connected) return false; socket.emit('c:chat', { text: t }); return true; },
-    canSend: function () { return phase === 'play' && predicting; },
+    canSend: function () { return phase === 'play' && predicting && (!flow || flow.canSteer()); },
     pc: { left: 16, bottom: 56 },
     phoneAt: { left: 10, top: 64 }
   }) : null;
   function syncChat() { if (chat) chat.visible(phase === 'play' || phase === 'watch'); }
   setInterval(syncChat, 250);
-  // the lobby's Spectate (play.js WATCH_PAGE) leaves dsWatch=chomp for the page it opens
+  // the lobby's Spectate (play.js WATCH_PAGE) leaves dsWatch=chomp for the page it opens (dsWatchStake: a paid rung,
+  // watched read only in that rung's busiest room)
+  var watchStake = 0;
   try {
-    if (sessionStorage.getItem('dsWatch') === 'chomp') {
+    if (!paidMode && sessionStorage.getItem('dsWatch') === 'chomp') {
       sessionStorage.removeItem('dsWatch');
+      watchStake = Number(sessionStorage.getItem('dsWatchStake')) || 0;
+      sessionStorage.removeItem('dsWatchStake');
       setTimeout(startWatch, 600);
     }
   } catch (e) { /* storage blocked: the title card shows */ }
+  if (paidMode) {
+    titleEl.hidden = true;
+    phase = 'joining';
+    var AP = window.DuelAgarLib.agPaid;
+    pcard = PAID.createCard({ onLobby: function () { backToLobby(); }, onSpectate: function () { pcard.hide(); startWatch(); } });
+    lock = PAID.createLock(window);
+    hold = PAID.createHold({
+      win: window, tickMs: STEP_MS,
+      can: function () { return !!(socket && socket.connected && flow && flow.canSteer() && phase === 'play'); },
+      send: function (on) { if (!socket || !socket.connected) return false; socket.emit('c:hold', { on: on ? 1 : 0 }); return true; }
+    });
+    var ss = null;
+    try { ss = window.sessionStorage; } catch (e) { ss = null; }
+    flow = AP.createFlow({
+      handoff: hand, store: ss, win: window, game: 'chomp', text: PAID.WORDS, refused: PAID.REFUSED,
+      send: function (kind, payload) {
+        if (!socket || !socket.connected) return false;
+        if (kind === 'paidJoin') socket.emit('c:join', payload);
+        else if (kind === 'ready') socket.emit('c:ready');
+        return true;
+      },
+      reconnect: function () { if (socket && !socket.connected) socket.connect(); },
+      card: function () { return pcard; },
+      enterPlay: enterPaidPlay,
+      freshTarget: function () {},
+      lock: function (on) { lock.setPage(on); },
+      touch: function () { return isTouch; },
+      chip: AP.createChip(document, document.body),
+      framed: framed, parent: window.parent, origin: location.origin
+    });
+    pcard.onAgain = function () { flow.restake(); };
+    window.addEventListener('message', function (e) { flow.onMessage(e); });
+    window.addEventListener('pagehide', function () { flow.onPageHide(); });
+    window.addEventListener('pageshow', function (e) { flow.onPageShow(e); });
+    flow.start();
+  }
   window.ChompPage = {
-    state: function () { return { phase: phase, myId: myId, predicting: predicting, me: me, score: myScore, lives: myLives, stats: stats, snaps: snaps.length, look: draw && draw.L.id }; },
+    state: function () { return { phase: phase, myId: myId, predicting: predicting, me: me, score: myScore, lives: myLives, stats: stats, snaps: snaps.length, look: draw && draw.L.id,
+      paid: paidMode, stake: stakeNow, money: myMoney, coins: coins.size, locked: !!(lock && lock.locked()), hold: hold ? hold.progress() : 0,
+      flow: flow ? flow.state() : null, card: pcard ? pcard.kind : '' }; },
     setLook: function (n) { lookName = n; if (A) { draw = n === 'pixel' && window.ChompPixel ? new window.ChompPixel(canvas, A) : new Draw(canvas, A, n); resize(); } } };
-  connect();
+  if (!(flow && flow.offline())) connect();
   requestAnimationFrame(loop);
 })();
