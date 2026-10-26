@@ -119,8 +119,12 @@
   /* Only a game the lobby has a playable card for (V2_GAME_NAMES, not a "soon" one): /api/live also carries the rows
      of a game still hidden from the lobby (Chomp's paid rows, so the pre-push check sees anyone seated there), and
      Enter on one would stake through a door the lobby cannot open. */
-  const listable = l => !!(window.V2_GAME_NAMES || {})[l.game] && !(window.V2_IS_SOON && window.V2_IS_SOON(l.game));
-  const occupied = () => LOBBIES.filter(l => playing(l) > 0 && isOpen(l) && listable(l));
+  const listable = l => {
+    const names = window.V2_GAME_NAMES;
+    if (names && !names[l.game]) return false;
+    return !(window.V2_IS_SOON && window.V2_IS_SOON(l.game));
+  };
+  const occupied = () => LOBBIES.filter(l => playing(l) > 0 && isOpen(l));
 
   /* The one exception: the free slither.io room is always listed, even empty.
      It is the "just let me play" button — nothing to stake, nothing to think
@@ -170,7 +174,7 @@
   }
 
   function rowsToShow() {
-    const rows = occupied();
+    const rows = occupied().filter(listable);
     const free = LOBBIES.find(l => Number(l.stake) === 0 && l.game === 'snake');
     if (free && !rows.some(r => r.id === free.id)) rows.unshift(free);
     /* Paper's and agar.io's free rungs are always listed, from the server's own
