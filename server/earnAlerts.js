@@ -35,6 +35,7 @@ const GAMES = Object.freeze({
   paper: 'Paper.io',
   knockout: 'Knockout',
   battleship: 'Battleship',
+  chomp: 'Chomp',
 });
 
 function dollars(n) {

@@ -34,7 +34,13 @@
   var paidMode = !!hand.paid;
   var isTouch = false;
   try { isTouch = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches); } catch (e) { isTouch = false; }
-  var flow = null, pcard = null, lock = null, hold = null;
+  var flow = null, pcard = null, lock = null, hold = null, paidChip = null;
+  // a hold pressed while the spawn blink still protects you counts only once it ends (the server's rule): say so
+  function holdPressed() {
+    if (!hold) return;
+    hold.press();
+    if (mySafe && paidChip && phase === 'play') paidChip.show('Cash out starts when you stop blinking', 2500, window);
+  }
   var stakeNow = 0, myMoney = 0, coins = new Map(), coinList = [], deadTimer = null;
 
   var A = null, draw = null, socket = null;
@@ -170,7 +176,7 @@
       cashBtn.id = 'cashout';
       cashBtn.type = 'button';
       cashBtn.textContent = 'Hold to cash out';
-      var down = function (e) { e.preventDefault(); if (hold) hold.press(); cashBtn.classList.add('held'); };
+      var down = function (e) { e.preventDefault(); holdPressed(); cashBtn.classList.add('held'); };
       var up = function (e) { if (e) e.preventDefault(); if (hold) hold.release(); cashBtn.classList.remove('held'); };
       cashBtn.addEventListener('pointerdown', down);
       cashBtn.addEventListener('pointerup', up);
@@ -345,7 +351,7 @@
   window.addEventListener('keydown', function (e) {
     if (e.target === nameEl) { if (e.key === 'Enter') { e.preventDefault(); join(); } return; }
     if (phase === 'title' && e.key === 'Enter' && !paidMode) { join(); return; }
-    if (e.code === 'KeyQ' && hold) { if (!e.repeat) hold.press(); return; }
+    if (e.code === 'KeyQ' && hold) { if (!e.repeat) holdPressed(); return; }
     if (e.code === 'Escape' && flow) { flow.escape(); return; }
     var d = KEYS[e.code];
     if (d == null) return;
@@ -729,7 +735,7 @@
       freshTarget: function () {},
       lock: function (on) { lock.setPage(on); },
       touch: function () { return isTouch; },
-      chip: AP.createChip(document, document.body),
+      chip: (paidChip = AP.createChip(document, document.body)),
       framed: framed, parent: window.parent, origin: location.origin
     });
     pcard.onAgain = function () { flow.restake(); };
