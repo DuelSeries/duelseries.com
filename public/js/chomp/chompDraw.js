@@ -136,8 +136,10 @@
   var DIR_ANGLE = [-Math.PI / 2, Math.PI, Math.PI / 2, 0];   // up, left, down, right
   var DIR_V = [[0, -1], [-1, 0], [0, 1], [1, 0]];
 
+  // mouth 0..2 (half-angle mouth x 90 deg); in play it moves in quarter steps, so the chew is three frames (shut, half,
+  // wide) the way a sprite chomper chews; the death opens it all the way in the same steps of 1/8
   function chomperSprite(color, dir, mouth) {
-    var mq = Math.round(mouth * 8) / 8;
+    var mq = mouth <= 0.5 ? Math.round(mouth * 4) / 4 : Math.round(mouth * 8) / 8;
     return sprite('c' + color + dir + mq, 16, function (x, y) {
       if (x * x + y * y > 6.5 * 6.5) return null;
       if (mq > 0) {
