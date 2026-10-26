@@ -2,6 +2,13 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-10-26-paper-arena-grows",
+      "date": "2026-10-26",
+      "tag": "new",
+      "title": "Paper.io arena grows with the crowd",
+      "body": "The Paper.io arena now sizes itself to how many are playing, the same way slither.io does. When more join, the wall slowly moves out to make room. When players die or leave, it slowly closes back in.\n\nA moving wall never kills you. It gently pushes you back inside and trims any land left past it."
+    },
+    {
       "id": "2026-10-25-battle-royale-every-6-hours",
       "date": "2026-10-25",
       "tag": "event",

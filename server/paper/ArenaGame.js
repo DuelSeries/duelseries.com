@@ -6,6 +6,7 @@
 // reported once through hooks.onDeath for the room to settle the money.
 const P = require('./loadPaperLib');
 const shopSkins = require('../../shared/shopSkins');
+const { createCountMean } = require('../sl/slBorder');
 
 const MP = P.MP;
 
@@ -290,8 +291,22 @@ class ArenaGame extends P.Game {
   // Radius (design 9.1)
   // -----------------------------------------------------------------------------------------
 
+  // Paid: the live head count, at once. Free (Owen 2026-10-26, "like slither"): the same crowd law over the
+  // time-weighted mean of every square, people and bots, across the trailing N_SMOOTH_MS, as slither's border
+  // (server/sl/slBorder.js), so a join or a leave eases the wall over the window and a bot that dies and respawns
+  // does not move it. The target is held on RADIUS_QUANTUM so the mean's float noise never moves the wall. Until a
+  // fresh arena has first filled (it tops up a few squares a tick) the wall holds where it opened.
   radiusTarget() {
-    return this.paid ? MP.radiusFor(this.units.length) : MP.R_MAX;
+    if (this.paid) return MP.radiusFor(this.units.length);
+    const n = this.units.length;
+    if (!this._countMean) {
+      if (n < this.config.botsCount && this.nowMs < MP.N_SMOOTH_MS) return this.rCont;
+      this._countMean = createCountMean(MP.N_SMOOTH_MS, this.nowMs, n);
+    } else {
+      this._countMean.observe(this.nowMs, n);
+    }
+    const Q = MP.RADIUS_QUANTUM;
+    return Math.round(MP.radiusFor(this._countMean.value(this.nowMs)) / Q) * Q;
   }
 
   stepRadius(dtMs) {
@@ -890,9 +905,8 @@ class ArenaGame extends P.Game {
   findSpawn(nAfter) {
     const n = nAfter === undefined ? this.units.length + 1 : nAfter;
     const c = this.border.center;
-    const limit = this.paid
-      ? MP.radiusFor(Math.max(MP.N_BASE, n - MP.SPAWN_SAFE_LOOKAHEAD)) - MP.SPAWN_SAFE_MARGIN
-      : Infinity;
+    // Free arenas too since their wall follows the crowd (radiusTarget).
+    const limit = MP.radiusFor(Math.max(MP.N_BASE, n - MP.SPAWN_SAFE_LOOKAHEAD)) - MP.SPAWN_SAFE_MARGIN;
     for (let i = 0; i < MP.SPAWN_TRIES; i++) {
       const p = this.getSpawnPosition('random', this.config.baseRadius);
       if (!p) continue;

@@ -125,14 +125,81 @@ test('shrink end bumps wireVer once on every wall-touched base and clears the fl
   assert.strictEqual(edge.base.wireVer, before.get(edge) + 1, 'never re-sent twice for one shrink');
 });
 
-test('the free arena keeps R_MAX whatever the head count', () => {
+// A free arena (Owen 2026-10-26, "like slither"): people only here (bot cap 0), so the count is exact.
+function freeWith(n, ring = 150) {
   const g = makeArena({ stake: 0, seed: 0.27 });
-  tick(g, 300);
+  g.setBotCap(0);
+  const humans = [];
+  for (let i = 0; i < n; i++) humans.push(addStill(g, i, n, ring));
+  return { g, humans };
+}
+
+function addStill(g, i, n, ring = 150) {
+  const h = g.spawnHuman({ name: 'f' + i }, at(ring, 0.3 + (i * Math.PI * 2) / n));
+  h.still = true;
+  return h;
+}
+
+const quantized = (n) => Math.round(MP.radiusFor(n) / MP.RADIUS_QUANTUM) * MP.RADIUS_QUANTUM;
+const SMOOTH_TICKS = Math.ceil(MP.N_SMOOTH_MS / MP.STEP_MS);
+
+test('a free arena opens at R_MAX and holds it until it has first filled', () => {
+  const g = makeArena({ stake: 0, seed: 0.27 });
   assert.strictEqual(g.border.radius, MP.R_MAX);
-  const h = g.spawnHuman({ name: 'f' });
-  tick(g, 300);
-  g.removeHuman(h.id, REASON.LEAVE);
-  tick(g, 400);
+  tick(g);
+  assert.ok(g.units.length < g.config.botsCount, 'a fresh arena fills over a few ticks');
+  assert.strictEqual(g.targetRadius, MP.R_MAX);
   assert.strictEqual(g.border.radius, MP.R_MAX);
+});
+
+test('a free arena follows its squares like slither: a join grows it, a leave shrinks it, eased over N_SMOOTH_MS', () => {
+  const { g, humans } = freeWith(8);
+  tick(g);
+  assert.strictEqual(g.targetRadius, quantized(8), 'the wall heads for the crowd radius of 8 squares');
+  g.setRadiusNow(quantized(8));
+  tick(g, 60);
+  assert.strictEqual(g.border.radius, quantized(8));
+
+  humans.push(addStill(g, 8, 9));
+  tick(g, 60);
+  assert.ok(g.targetRadius > quantized(8) && g.targetRadius < quantized(9), 'a join eases in: ' + g.targetRadius);
+  assert.ok(g.border.radius > quantized(8), 'and the wall is already growing');
+  tick(g, SMOOTH_TICKS);
+  assert.strictEqual(g.targetRadius, quantized(9));
+  assert.strictEqual(g.border.radius, quantized(9));
+
+  g.removeHuman(humans.pop().id, REASON.LEAVE);
+  g.removeHuman(humans.pop().id, REASON.LEAVE);
+  tick(g, Math.floor(MP.SHRINK_DELAY_MS / MP.STEP_MS) - 1);
+  assert.ok(g.targetRadius < quantized(9), 'a leave lowers the target at once, a little');
+  assert.strictEqual(g.border.radius, quantized(9), 'the wall waits SHRINK_DELAY_MS');
+  tick(g, SMOOTH_TICKS + 60 * 60);
+  assert.strictEqual(g.targetRadius, quantized(7));
+  assert.strictEqual(g.border.radius, quantized(7));
+  for (const u of g.units) assert.ok(u.position.distance(g.border.center) <= g.border.radius, u.name + ' inside');
   assert.strictEqual(g.shrinking, false);
+});
+
+test('a square gone for a moment does not move a free arena\'s wall', () => {
+  const { g, humans } = freeWith(9);
+  tick(g);
+  g.setRadiusNow(quantized(9));
+  tick(g, SMOOTH_TICKS);
+  g.removeHuman(humans.pop().id, REASON.LEAVE);
+  tick(g, 3);
+  humans.push(addStill(g, 8, 9));
+  for (let i = 0; i < SMOOTH_TICKS + 300; i++) {
+    tick(g);
+    assert.strictEqual(g.border.radius, quantized(9), 'tick ' + i);
+  }
+});
+
+test('free arenas spawn inside the radius they would have with SPAWN_SAFE_LOOKAHEAD fewer squares', () => {
+  const { g } = freeWith(4);
+  const n = g.units.length + 1;
+  const limit = MP.radiusFor(Math.max(MP.N_BASE, n - MP.SPAWN_SAFE_LOOKAHEAD)) - MP.SPAWN_SAFE_MARGIN;
+  for (let i = 0; i < 50; i++) {
+    const p = g.findSpawn();
+    assert.ok(p && p.distance(g.border.center) <= limit, 'spawn at ' + (p && p.distance(g.border.center)));
+  }
 });

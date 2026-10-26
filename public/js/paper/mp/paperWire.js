@@ -49,6 +49,9 @@
     GROW_RATE: 60,
     SHRINK_RATE: 4,
     SHRINK_DELAY_MS: 3000,
+    // A free arena's wall follows the mean square count over this trailing window (slither's
+    // C_N_SMOOTH_MS), so one death does not move it.
+    N_SMOOTH_MS: 10000,
     RADIUS_QUANTUM: 0.5,
     PUSH_INSET: 0.5,
     PUSH_TWIST: PUSH_TWIST,
