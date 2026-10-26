@@ -557,7 +557,7 @@
   }
 
   /* Guests: free play signed out (Owen 2026-10-26). Only a free room whose page asks no wallet: slither.io's
-     Free on /sl, Paper's and agar.io's stake 0 table, and the Free (bot) seat of Knockout and Battleship. Never a
+     Free on /sl, Paper's, agar.io's and Chomp's stake 0 table, and the Free (bot) seat of Knockout and Battleship. Never a
      paid rung, never the battle royale (its prize needs a wallet), never the old snake engine's free tier. */
   const GUEST_TABLES = { paper: '/paper-arena', agar: '/ag' };
   const GUEST_DUELS = { knockout: 1, battleship: 1 };
@@ -565,7 +565,8 @@
     if (!sel) return false;
     if (sel.stake !== undefined && sel.stake !== null) {
       if (Number(sel.stake) !== 0) return false;
-      return game === 'snake' ? slFree() : Object.prototype.hasOwnProperty.call(GUEST_TABLES, game);
+      // Chomp's Free is its own page (OWN_PAGE), which reads no wallet either
+      return game === 'snake' ? slFree() : game === 'chomp' || Object.prototype.hasOwnProperty.call(GUEST_TABLES, game);
     }
     return sel.lobbyType === 'free' && Object.prototype.hasOwnProperty.call(GUEST_DUELS, game);
   }

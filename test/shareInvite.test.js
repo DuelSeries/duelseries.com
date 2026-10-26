@@ -157,4 +157,6 @@ test('the Share pill: free cards only, in all three .io games, beside the one ro
   assert.ok(paper.includes("if (page.stake > 0 || typeof DSEnd.share !== 'function') return null;"), 'never a paid Paper table');
   const ag = read('public/js/ag/agScreens.js');
   assert.ok(ag.includes("if (api.kind === 'free' && typeof D.share === 'function') {"), 'the free agar.io card only');
+  const chomp = read('public/js/chomp/chompMain.js');
+  assert.ok(chomp.includes("share: paidMode || typeof window.DSEnd.share !== 'function' ? null : { onClick: function () {"), 'never a paid Chomp page');
 });

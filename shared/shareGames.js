@@ -19,6 +19,8 @@
       blurb: 'Claim ground by looping back home before anyone crosses your trail. Free in your browser, no download.' }),
     Object.freeze({ slug: 'cells', game: 'agar', name: 'Cells', accent: '#65c8e8', image: '/og/cells.jpg',
       blurb: 'Eat anything smaller than you, split to chase, stay clear of anything bigger. Free in your browser, no download.' }),
+    Object.freeze({ slug: 'chomp', game: 'chomp', name: 'Chomp', accent: '#e8c860', image: '/og/chomp.jpg',
+      blurb: 'Eat the dots, dodge the ghosts, and turn the tables with a power pellet. Free in your browser, no download.' }),
     Object.freeze({ slug: 'knockout', game: 'knockout', name: 'Knockout', accent: '#e0a05c', image: '/og/knockout.jpg',
       blurb: 'Two pieces each on a shrinking disc. Aim, commit, and see whose read was right. Free 1v1 in your browser.' }),
     Object.freeze({ slug: 'battleship', game: 'battleship', name: 'Battleship', accent: '#7b93c4', image: '/og/battleship.jpg',
@@ -26,7 +28,7 @@
   ]);
   var HOME = Object.freeze({
     title: 'DuelSeries: free multiplayer browser games',
-    blurb: 'Snake, Paper, Cells, 1v1 duels and a battle royale. Free in your browser, no download.',
+    blurb: 'Snake, Paper, Cells, Chomp, 1v1 duels and a battle royale. Free in your browser, no download.',
     image: '/og/home.jpg',
   });
   // The og images are 1200 x 630 (what Discord, iMessage and X show large).

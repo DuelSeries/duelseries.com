@@ -283,6 +283,11 @@
       tone: 'plain', verdict: m.ghost ? 'Caught by a ghost' : m.by ? 'Eaten by ' + m.by : 'Game over',
       hero: fmt(m.score), unit: 'points',
       facts: [['Rank', '#' + m.rank + ' of ' + m.of], ['Time', Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0')]],
+      // Share your score (2026-10-26): the free page only, never a paid one
+      share: paidMode || typeof window.DSEnd.share !== 'function' ? null : { onClick: function () {
+        window.DSEnd.share({ game: 'chomp', hero: fmt(m.score), unit: 'points',
+          facts: [['Rank', '#' + m.rank + ' of ' + m.of], ['Time', Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0')]] });
+      } },
       buttons: [
         { id: 'lobby', text: inLobby ? 'Lobby' : 'Menu', onClick: function () { window.DSEnd.hide(); backToLobby(); } },
         { id: 'watch', text: 'Spectate', onClick: function () { window.DSEnd.hide(); startWatch(); } },

@@ -46,6 +46,7 @@ test('a guest plays every free room at once, as Guest####, with no wallet and no
     ['snake', { stake: 0 }, 'game-frame', '/sl'],
     ['paper', { stake: 0 }, 'game-frame', '/paper-arena'],
     ['agar', { stake: 0 }, 'agar-frame', '/ag'],
+    ['chomp', { stake: 0 }, 'game-frame', '/chomp'],
     ['knockout', { lobbyType: 'free' }, 'game-frame', '/knockout'],
     ['battleship', { lobbyType: 'free' }, 'game-frame', '/battleship'],
   ];
@@ -81,7 +82,7 @@ test('the guest name sticks for the visit, and a name typed before on this devic
 });
 
 test('signed out, a paid rung or the battle royale still asks to sign in and opens nothing', () => {
-  for (const [game, sel] of [['paper', { stake: 0.5 }], ['agar', { stake: 1 }], ['knockout', { stake: 0.5 }],
+  for (const [game, sel] of [['paper', { stake: 0.5 }], ['agar', { stake: 1 }], ['chomp', { stake: 0.5 }], ['knockout', { stake: 0.5 }],
     ['battleship', { lobbyType: 'dollar' }], ['snake', { lobbyType: 'br' }], ['snake', { lobbyType: 'free' }], ['paper', { lobbyType: 'free' }]]) {
     const L = lobby();
     L.win.V2Board = { lobbies: [{ game, stake: sel.stake, id: game + ':na:s' + sel.stake, state: 'open' }], playableStakes: () => [sel.stake] };
