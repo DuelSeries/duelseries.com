@@ -134,7 +134,7 @@ export async function accountFor(std, address, { silent = false } = {}) {
   const got = (res && Array.isArray(res.accounts) ? res.accounts : []);
   acct = got.find((a) => !address || a.address === address) || has();
   if (!acct && !silent && address) {
-    throw new Error('Switch ' + std.name + ' to the wallet you signed in with (' + address.slice(0, 4) + '…' + address.slice(-4) + '), then try again.');
+    throw new Error('Switch ' + std.name + ' to the account ' + address.slice(0, 4) + '…' + address.slice(-4) + ', then try again.');
   }
   return acct || null;
 }

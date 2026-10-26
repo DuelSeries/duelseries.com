@@ -12,7 +12,10 @@
                                 solUsd the server's display rate.
      'duelwallet:change'        fired on any of the above changing
      window.duelWalletLogin()   opens the Privy login
-     window.duelWalletFund()    Privy funding flow (Pay with card, Receive funds)
+     window.duelWalletFund(method)  Privy funding flow (Pay with card, Receive funds; 'card' or 'manual' opens on one)
+     window.duelWallet.linked / .linkable, duelWalletLink(id), duelWalletUnlink(), duelWalletLinkedBalance(),
+     duelWalletAddFromLinked(lamports)   a Google/email player's linked Phantom, Solflare or Backpack: a row in Add
+                                funds and "To Phantom" in Withdraw (never the game wallet; wallet-widget linkedWallet.mjs)
      window.duelWalletSend(a,t,asset)  send `a` to address `t` (SOL mode: SOL, or USDC when asset is 'usdc')
      window.duelWalletRefresh() re-read the on-chain balance
      window.duelWalletSwapQuote(dir, amount, receiver)  a checked price, nothing signed
@@ -156,7 +159,19 @@
   /* light: a balance tick from the widget. The screen is already drawn for
      this wallet, so only the number changes; rebuilding it would throw away
      every page of transactions already shown and fetch the first one again. */
-  let drawnFor = null;
+  let drawnFor = null, drawnLink = '';
+  /* A Google or email player's linked browser wallet (Owen 2026-10-26): Phantom, Solflare or Backpack as a way to
+     move money in and out. Never the game wallet: the Privy wallet still stakes and holds the balance. It shows as
+     a row in Add funds, as "To Phantom" in Withdraw, and here with Unlink. A player who signed in with a browser
+     wallet has none of this (theirs already is the game wallet). */
+  const linkKey = () => { const L = w().linked; return L ? L.address + '|' + (L.here ? 1 : 0) : ''; };
+  function linkedRow() {
+    const L = w().linked;
+    if (!L || w().external) return '';
+    return '<div class="plab wlinklab">Linked wallet</div>' +
+      '<div class="waddr wlink"><code title="' + esc(L.address) + '">' + esc(L.name) + ' ' + esc(ownShort(L.address)) + '</code>' +
+        '<button type="button" class="cp" onclick="V2Wallet.unlink()">Unlink</button></div>';
+  }
   function render(light) {
     renderHeader();
     const body = el('w-body');
@@ -178,7 +193,7 @@
         '</div>';
       return;
     }
-    if (light === true && drawnFor === w().address && el('w-bal')) {
+    if (light === true && drawnFor === w().address && drawnLink === linkKey() && el('w-bal')) {
       el('w-bal').textContent = bigBal(w().balance);
       const s = el('w-sol'); if (s) s.innerHTML = solLine();
       const u = el('w-usdc'); if (u) u.innerHTML = usdcLine();
@@ -226,6 +241,7 @@
         /* SOL too since card top-ups arrive as SOL (Owen, 2026-10-15); it becomes
            USDC with Convert above. */
         '<p class="note">SOL or USDC on Solana only. Anything else is unrecoverable.</p>' +
+        linkedRow() +
       '</div>' +
       '<div class="head"><div><h2>Transactions</h2></div></div>' +
       /* Five rows tall, the rest a scroll away inside the card, and the next
@@ -234,6 +250,7 @@
       '<div class="txcard"><div class="txl sc" id="w-tx" onscroll="V2Wallet.txScroll()">' +
         '<div class="none">Loading…</div></div></div>';
     drawnFor = addr;
+    drawnLink = linkKey();
     loadTx();
     loadMoves();
     /* The earnings chart and the payout list, which used to be their own tab. */
@@ -551,6 +568,7 @@
       '<div class="mfig">' +
         '<div class="v num">' + balMoney(bal) + '</div></div>' +
       asRow +
+      linkChip() +
       /* Enter in either field does what the Withdraw button does. */
       '<input class="fld" id="co-to" placeholder="Solana address" autocomplete="off" ' +
         'spellcheck="false" aria-label="Destination Solana address" ' +
@@ -607,6 +625,7 @@
       (as === 'sol' ? '<p class="note">You have ' + solTxt(solLamports()) + '. Keep ' + solTxt(KEEP_LAMPORTS) +
         ' in your wallet for network fees.</p>' : '') +
       asRow +
+      linkChip() +
       '<input class="fld" id="co-to" placeholder="Solana address" autocomplete="off" ' +
         'spellcheck="false" aria-label="Destination Solana address" ' +
         'onkeydown="if(event.key===\'Enter\')V2Wallet.submitCash()">' +
@@ -628,16 +647,258 @@
   function fund() {
     if (!connected()) return login();
     if (!window.duelWalletFund) return note('Your wallet is still starting. Try again in a moment.');
-    /* The widget owns the funding flow; a rejection here is the user closing
-       it or the provider refusing, not something to swallow silently. */
-    /* Privy's sheet, Pay with card and Receive funds (Owen, 2026-10-15, like
-       playpulp.io). A card buys SOL, which Convert to USDC turns into dollars;
-       the amount is chosen on MoonPay's own screen, in the player's currency. */
-    window.duelWalletFund().catch(e => {
+    /* A Google/email player with a browser wallet installed or linked gets the lobby's own sheet, Pay with card,
+       Receive funds and that wallet (fundSheet). Everyone else goes straight to Privy's sheet, as before. */
+    const W = w();
+    if (!W.external && (W.linked || (W.linkable || []).length) && window.DSDialog && window.DSDialog.choose) return fundSheet();
+    privyFund();
+  }
+  /* The widget owns the funding flow; a rejection here is the user closing
+     it or the provider refusing, not something to swallow silently. */
+  /* Privy's sheet, Pay with card and Receive funds (Owen, 2026-10-15, like
+     playpulp.io). A card buys SOL, which Convert to USDC turns into dollars;
+     the amount is chosen on MoonPay's own screen, in the player's currency.
+     method 'card' or 'manual' opens it on that one (picked in fundSheet). */
+  function privyFund(method) {
+    window.duelWalletFund(method).catch(e => {
       const why = e && e.message ? e.message : 'Try again.';
       if (window.DSToast) window.DSToast.show({ kind: 'err', title: 'Add funds did not open', detail: why });
       else note('Add funds did not open: ' + why);
     });
+  }
+  const tile = (path) => 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="9" fill="#2c261d"/>' +
+    '<g fill="none" stroke="#f0a830" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + path + '</g></svg>');
+  const CARD_ICON = tile('<rect x="7" y="10" width="18" height="12" rx="2"/><path d="M7 14h18M11 18h4"/>');
+  const RECV_ICON = tile('<path d="M16 8v12M11 15l5 5 5-5M9 24h14"/>');
+  /* Add funds with a browser wallet around: the two Privy ways, then the linked wallet (or the installed ones,
+     marked Detected, which link on the tap). */
+  async function fundSheet() {
+    const W = w(), D = window.DSDialog;
+    const items = [
+      { id: 'card', label: 'Pay with card', sub: 'Buy SOL with a card', icon: CARD_ICON },
+      { id: 'manual', label: 'Receive funds', sub: 'Send SOL to your wallet address', icon: RECV_ICON },
+    ];
+    if (W.linked) {
+      items.push(W.linked.here
+        ? { id: 'linked', label: W.linked.name, sub: 'Linked ' + ownShort(W.linked.address), icon: W.linked.icon, badge: 'Detected', tone: 'ok' }
+        : { id: 'linked', label: W.linked.name, sub: 'Not installed in this browser', icon: W.linked.icon, badge: 'Linked' });
+    } else {
+      (W.linkable || []).forEach(x => items.push({ id: 'link:' + x.id, label: x.label, sub: 'Send SOL from ' + x.label, icon: x.icon, badge: 'Detected', tone: 'ok' }));
+    }
+    const id = await D.choose({ title: 'Add funds', items: items, cancel: 'Cancel' });
+    if (!id) return;
+    if (id === 'card' || id === 'manual') return privyFund(id);
+    if (id.indexOf('link:') === 0) {
+      const x = (W.linkable || []).find(v => 'link:' + v.id === id);
+      if (!x || !(await linkFlow(x))) return;
+    }
+    const L = w().linked;
+    if (!L) return;
+    if (!L.here) return D.alert({ title: L.name + ' is not here', line: 'Open DuelSeries in the browser where ' + L.name + ' is installed to add funds from it.' });
+    openAdd();
+  }
+  /* Link a browser wallet: its connect, then one signature Privy keeps on the account. Resolves true once the
+     widget shows it linked. */
+  async function linkFlow(x) {
+    const D = window.DSDialog;
+    if (!window.duelWalletLink) { note('Your wallet is still starting. Try again in a moment.'); return false; }
+    if (D) D.busy({ title: 'Linking ' + x.label, line: 'Approve the connection, then sign the message in ' + x.label +
+      '. It moves no money. ' + x.label + ' can then also sign you in to this account.' });
+    try {
+      const r = await window.duelWalletLink(x.id);
+      for (let i = 0; i < 40 && !(w().linked && w().linked.address === r.address); i++) await new Promise(res => setTimeout(res, 125));
+      if (D) D.close();
+      if (!w().linked) { note('Linked, but the page has not caught up. Reload and try again.'); return false; }
+      if (window.DSToast) window.DSToast.show({ kind: 'ok', title: x.label + ' linked', code: ownShort(r.address) });
+      return true;
+    } catch (e) {
+      if (D) D.close();
+      const m = (e && e.message) || '';
+      if (Number(e && e.code) === 4001 || /reject|denied|declin|cancel|closed/i.test(m)) return false;
+      if (D) D.alert({ title: 'Could not link ' + x.label, line: m || 'Try again.' });
+      return false;
+    }
+  }
+  function unlink() {
+    const L = w().linked, D = window.DSDialog;
+    if (!L || !window.duelWalletUnlink) return;
+    const go = D ? D.confirm({ title: 'Unlink ' + L.name + '?', line: 'Nothing moves: its money stays in it, and it stops signing you in here. You can link it again from Add funds.', ok: 'Unlink', cancel: 'Keep it' })
+                 : Promise.resolve(true);
+    go.then(yes => {
+      if (!yes) return;
+      return window.duelWalletUnlink().then(() => {
+        if (window.DSToast) window.DSToast.show({ kind: 'ok', title: L.name + ' unlinked', code: ownShort(L.address) });
+      }, e => note('Could not unlink: ' + (e && e.message ? e.message : 'try again.')));
+    });
+  }
+
+  /* -- Add funds from the linked wallet: an amount in dollars (shown in SOL), one approval in that wallet -- */
+  /* { have, max, exact, rate } while the sheet is open. rate is the server's display rate when the sheet opened, or
+     0 (then the amount is typed in SOL): fixed for the sheet's life, so a balance read that drops the rate can never
+     turn "5" typed as dollars into 5 SOL (Fable review 2026-10-26). */
+  let adding = null;
+  const rate = () => (Number(w().solUsd) > 0 ? Number(w().solUsd) : 0);
+  function openAdd() {
+    adding = { have: null, max: 0, exact: null, rate: rate() };
+    drawAdd();
+    el('adveil').classList.add('on');
+    if (window.sheetFocus) window.sheetFocus.open('adveil');
+    readLinked();
+  }
+  function readLinked() {
+    const mine = adding;
+    if (!mine) return;
+    mine.have = null; addFigures();
+    window.duelWalletLinkedBalance().then(b => {
+      if (adding !== mine) return;
+      mine.have = b.lamports; mine.max = b.max || 0; addFigures();
+    }, () => { if (adding === mine) { mine.have = -1; mine.max = 0; addFigures(); } });
+  }
+  // The linked wallet's figures, in place: redrawing the form would drop the field's focus (and a phone's keyboard).
+  function addFigures() {
+    const a = adding, L = w().linked;
+    if (!a || !L) return;
+    const r = a.rate;
+    const fig = el('ad-fig'), have = el('ad-have'), mx = document.querySelector('#ad-body .maxbtn');
+    if (fig) fig.textContent = a.have > 0 && r ? balMoney(a.have / 1e9 * r) : a.have > 0 ? solTxt(a.have) : a.have === 0 ? (r ? money(0) : solTxt(0)) : '…';
+    if (have) have.textContent = a.have == null ? 'Reading ' + L.name + '…' : a.have < 0 ? 'Could not read ' + L.name + '\'s balance. Press Add funds to read it again.'
+      : L.name + ' has ' + solTxt(a.have) + '. It keeps ' + solTxt(KEEP_LAMPORTS) + ' for network fees.';
+    if (mx) mx.disabled = !(a.max > 0);
+  }
+  function drawAdd() {
+    const b = el('ad-body'), L = w().linked;
+    if (!b || !adding || !L) return;
+    const t = el('ad-title'); if (t) t.textContent = 'Add from ' + L.name;
+    const a = adding, r = a.rate;
+    const typed = el('ad-amt') ? el('ad-amt').value : '';
+    b.innerHTML = '<div class="cashout">' +
+      '<p class="note">From <b>' + esc(L.name) + '</b> <code>' + esc(ownShort(L.address)) + '</code> to your DuelSeries wallet</p>' +
+      '<div class="mfig"><div class="v num" id="ad-fig">…</div></div>' +
+      '<p class="note" id="ad-have"></p>' +
+      '<div class="amtrow">' +
+        // the unit shows in the field itself: dollars when the sheet opened with a price, else SOL
+        '<input class="fld num" id="ad-amt" inputmode="decimal" placeholder="' + (r ? '$0.00' : '0.0000 SOL') + '" autocomplete="off" ' +
+          'aria-label="' + (r ? 'Amount in US dollars' : 'Amount in SOL') + '" oninput="V2Wallet.addHint()" ' +
+          'onkeydown="if(event.key===\'Enter\')V2Wallet.submitAdd()">' +
+        '<button type="button" class="maxbtn" onclick="V2Wallet.addMax()"' + (a.max > 0 ? '' : ' disabled') + '>Max</button>' +
+      '</div>' +
+      '<p class="note" id="ad-msg"></p>' +
+      '<div class="brow">' +
+        '<button class="btn pri" onclick="V2Wallet.submitAdd()"' + (a.busy ? ' disabled' : '') + '>Add funds</button>' +
+        '<button class="btn sec" onclick="V2Wallet.cancelAdd()">Cancel</button>' +
+      '</div></div>';
+    addFigures();
+    if (typed && el('ad-amt')) { el('ad-amt').value = typed; addHint(); }
+  }
+  // The amount typed, in lamports: dollars at the server's display rate (SOL mode), or SOL as typed.
+  function addLamports() {
+    const raw = ((el('ad-amt') || {}).value || '').trim().replace(',', '.').replace(/^\$\s*/, '');
+    const n = Number(raw);
+    if (!raw || !isFinite(n) || n <= 0) return 0;
+    if (adding && adding.exact && raw === adding.exact.text) return adding.exact.lamports;
+    const r = adding ? adding.rate : 0;
+    return Math.floor((r ? n / r : n) * 1e9);
+  }
+  function addSay(msg, bad) {
+    const m = el('ad-msg'); if (!m) return;
+    m.textContent = msg || ''; m.dataset.state = bad ? 'bad' : '';
+  }
+  function addHint() {
+    const lam = addLamports(), r = adding ? adding.rate : 0;
+    addSay(lam > 0 && r ? 'About ' + solTxt(lam) : '', false);
+  }
+  function addMax() {
+    if (!adding || !(adding.max > 0)) return;
+    const r = adding.rate;
+    const text = r ? (Math.floor(adding.max / 1e9 * r * 100) / 100).toFixed(2) : (Math.floor(adding.max / 1000) / 1e6).toFixed(6);
+    adding.exact = { text: text, lamports: adding.max };
+    const f = el('ad-amt'); if (f) f.value = text;
+    addHint();
+  }
+  function cancelAdd() {
+    if (adding && adding.busy) return;
+    adding = null;
+    if (!el('adveil') || !el('adveil').classList.contains('on')) return;
+    el('adveil').classList.remove('on');
+    if (window.sheetFocus) window.sheetFocus.close();
+  }
+  function submitAdd() {
+    const a = adding, L = w().linked;
+    if (!a || a.busy || !L) return;
+    const lam = addLamports(), r = a.rate;
+    if (!(lam > 0)) return addSay('Enter an amount to add.', true);
+    if (lam < 1000000) return addSay('Add at least ' + (r ? 'about ' + money(0.001 * r) : '0.001 SOL') + '.', true);
+    if (a.have == null) return addSay('Still reading ' + L.name + '\'s balance.', true);
+    if (a.have < 0) { addSay('Reading ' + L.name + '\'s balance again.', false); return readLinked(); }
+    if (lam > a.max) return addSay('That is more than ' + L.name + ' can send. It keeps 0.001 SOL for network fees.', true);
+    // The sheet closes; one card follows the transfer: approve, then done or failed in place.
+    adding = null;
+    el('adveil').classList.remove('on');
+    if (window.sheetFocus) window.sheetFocus.close();
+    const usd = r ? lam / 1e9 * r : 0;
+    const amt = r ? money(usd) : solTxt(lam);
+    const T = window.DSToast;
+    let card = null, unexpect = null;
+    try { if (T) card = T.show({ kind: 'info', title: 'Approve in ' + L.name, amount: amt, detail: 'to add to your wallet', sticky: true }); } catch (_) {}
+    const upd = (o, plain, good) => { try { if (card) return card.update(o); } catch (_) {} note(plain, good); };
+    const onSigned = () => {
+      try { if (T && T.expectRise && usd) unexpect = T.expectRise(usd); } catch (_) {}
+      upd({ kind: 'info', title: 'Adding funds', amount: amt, detail: 'from ' + L.name, sticky: true }, 'Adding funds.');
+    };
+    window.duelWalletAddFromLinked(lam, { onSigned: onSigned }).then(() => {
+      upd({ kind: 'money', title: 'Funds added', amount: '+' + amt, detail: 'from ' + L.name, code: '' }, 'Funds added: ' + amt + '.', true);
+      if (window.duelWalletRefresh) window.duelWalletRefresh();
+      if (onScreen()) { loadTx(); loadMoves(); }
+    }, e => {
+      const m = (e && e.message) || 'Try again.';
+      // sent but not confirmed yet: it may still land, so it is never "try again" (that could add twice)
+      if (/not confirmed in time|still confirming|timed? ?out/i.test(m)) {
+        upd({ kind: 'info', title: 'Still confirming', amount: amt, detail: 'Check your balance before trying again', code: '' }, 'Still confirming. Check your balance before trying again.');
+        if (window.duelWalletRefresh) setTimeout(window.duelWalletRefresh, 15000);
+        return;
+      }
+      try { if (unexpect) unexpect(); } catch (_) {}
+      const refused = Number(e && e.code) === 4001 || /reject|denied|declin|cancel|closed/i.test(m);
+      upd(refused ? { kind: 'info', title: 'Nothing was sent', amount: '', detail: 'You closed it in ' + L.name, code: '' }
+                  : { kind: 'err', title: 'Add funds failed', amount: '', detail: m, code: '' },
+          refused ? 'Nothing was sent.' : 'Add funds failed: ' + m);
+    });
+  }
+
+  /* Withdraw: "To Phantom" fills the address with the linked wallet (linking it first when it is only installed).
+     The rest is the ordinary withdraw, its checks and its confirm step. */
+  function linkChip() {
+    const W = w();
+    if (W.external) return '';
+    if (W.linked) return '<button type="button" class="tolink" onclick="V2Wallet.toLinked()">To ' + esc(W.linked.name) +
+      ' <span class="num">' + esc(ownShort(W.linked.address)) + '</span></button>';
+    const L = W.linkable || [];
+    return L.length ? '<button type="button" class="tolink" onclick="V2Wallet.toLinked()">To ' + esc(L[0].label) + '</button>' : '';
+  }
+  /* The withdraw sheet is not redrawn while open (it would lose what was typed); its To chip follows the linked
+     wallet on its own, so an Unlink, or a link from elsewhere, never leaves an old address behind it. */
+  function refreshChip() {
+    const body = el('wdr-body'); if (!body) return;
+    const chip = body.querySelector('.tolink');
+    const html = linkChip();
+    if (chip) { if (html) chip.outerHTML = html; else chip.remove(); return; }
+    const to = el('co-to');
+    if (html && to && to.parentNode) to.insertAdjacentHTML('beforebegin', html);
+  }
+  async function toLinked() {
+    let L = w().linked;
+    if (!L) {
+      const x = (w().linkable || [])[0];
+      if (!x || !(await linkFlow(x))) return;
+      L = w().linked;
+      if (!L) return;
+      // the sheet keeps what was typed; only the chip's words change
+      const chip = document.querySelector('#wdr-body .tolink');
+      if (chip) chip.innerHTML = 'To ' + esc(L.name) + ' <span class="num">' + esc(ownShort(L.address)) + '</span>';
+    }
+    const f = el('co-to');
+    if (f) { f.value = L.address; say(''); }
   }
 
   /* Cash out sends from the player's own wallet to an address they give us.
@@ -1102,9 +1363,10 @@
   };
   window.addEventListener('duelwallet:change', () => {
     watchSol();
-    if (!connected()) { cashing = false; pending = null; seenConv = null; if (cv && !cv.busy) closeConvert(); }
+    if (!connected()) { cashing = false; pending = null; seenConv = null; if (cv && !cv.busy) closeConvert(); if (adding) cancelAdd(); }
+    if (adding && !w().linked) cancelAdd();   // unlinked (or signed out) with the sheet open
     offerConvert();
-    if (cashing) return renderHeader();
+    if (cashing) { refreshChip(); return renderHeader(); }
     if (!onScreen()) { drawnFor = null; return renderHeader(); }
     render(true);
   });
@@ -1126,5 +1388,7 @@
                       convert: convert, convertUsdc: convertUsdc, hint: hint,
                       confirmConvert: confirmConvert, convertAgain: convertAgain,
                       cancelConvert: cancelConvert,
-                      addrRow: addrRow, headerTap: headerTap };
+                      addrRow: addrRow, headerTap: headerTap,
+                      unlink: unlink, toLinked: toLinked, addMax: addMax, addHint: addHint,
+                      submitAdd: submitAdd, cancelAdd: cancelAdd };
 })();

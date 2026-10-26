@@ -126,7 +126,7 @@ test('signing always uses the signed-in account: a switched extension is told to
   const tx = new Transaction({ feePayer: new PublicKey(s.address), recentBlockhash: '11111111111111111111111111111111' })
     .add(SystemProgram.transfer({ fromPubkey: new PublicKey(s.address), toPubkey: new PublicKey(other.address), lamports: 1 }));
   const bytes = tx.serialize({ requireAllSignatures: false, verifySignatures: false });
-  await assert.rejects(signTransactionWith(s.w, s.address, bytes), /Switch Phantom to the wallet you signed in with/);
+  await assert.rejects(signTransactionWith(s.w, s.address, bytes), /Switch Phantom to the account /);
   assert.equal(s.calls.filter((c) => c[0] === 'signTransaction').length, 0);
   assert.equal(await accountFor(stubWallet().w, 'x', { silent: true }), null, 'a silent connect that is not trusted yet just waits');
 });

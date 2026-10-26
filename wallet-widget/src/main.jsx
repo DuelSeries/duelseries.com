@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { PrivyProvider, usePrivy, useLogin, useUser, useIdentityToken, useLoginWithSiws } from '@privy-io/react-auth';
+import { PrivyProvider, usePrivy, useLogin, useUser, useIdentityToken, useLoginWithSiws, useLinkWithSiws } from '@privy-io/react-auth';
 import { useWallets as useSolanaWallets, useCreateWallet as useCreateSolanaWallet, useSignTransaction, useSignMessage, useFundWallet } from '@privy-io/react-auth/solana';
 import { getWallets } from '@wallet-standard/app';
 import { createSolanaRpc, createSolanaRpcSubscriptions } from '@solana/kit';
@@ -16,6 +16,7 @@ import { SEND_FEE_LAMPORTS, leavesReserve } from './solReserve.mjs';
 import { WALLETS, detectedWallets, isPhone, sheetRows, pick, signInWith, walletFor, accountFor,
          signTransactionWith, signMessageWith, isRefusal } from './browserWallets.mjs';
 import { DEVICE_ACTIONS, loadDeviceKey, createDeviceKey, forgetDeviceKey, signWithDeviceKey } from './deviceKey.mjs';
+import { linkedOf, linkWith, addProblem, maxAddLamports, buildAdd } from './linkedWallet.mjs';
 // The shared gold popup card (public/js/shared/dsDialog.js), bundled so the lobby needs no extra tag.
 import '../../public/js/shared/dsDialog.js';
 
@@ -489,7 +490,7 @@ if (typeof window !== 'undefined') {
 }
 
 function WalletPanel() {
-  const { ready, authenticated, user, logout, getAccessToken } = usePrivy();
+  const { ready, authenticated, user, logout, getAccessToken, unlinkWallet } = usePrivy();
   const { login } = useLogin();
   // Carries the linked accounts with it, so the server can resolve the wallet in one
   // call that Privy does not rate limit. Null unless identity tokens are switched on
@@ -502,6 +503,9 @@ function WalletPanel() {
   const { createWallet } = useCreateSolanaWallet();
   const { refreshUser } = useUser();
   const { generateSiwsMessage, loginWithSiws } = useLoginWithSiws();
+  const linkSiws = useLinkWithSiws();
+  const linkRef = useRef(null);
+  linkRef.current = linkSiws;   // a new object every render; the window functions read the latest
   const [balance, setBalance] = useState(null);  // USDC mode: the USDC. SOL mode: the dollar value of the SOL.
   const [sol, setSol] = useState(null);    // the wallet's SOL (beside a USDC balance, or the money itself in SOL mode)
   const [usdc, setUsdc] = useState(null);  // SOL mode: old USDC still in the wallet (null: none, or not read)
@@ -532,14 +536,26 @@ function WalletPanel() {
      never stands in for it. Email and Google: Privy's own wallet object. Connect wallet: { address, external,
      clientType, std, name }, signed through the browser wallet itself (browserWallets.mjs). */
   const address = authenticated ? solanaAddress(user) : null;
-  const linked = linkedSolana(user, address);
-  const clientType = linked && linked.walletClientType;
-  const isExternal = !!(address && linked && !isPrivyWallet(linked));
+  const gameAcct = linkedSolana(user, address);
+  const clientType = gameAcct && gameAcct.walletClientType;
+  const isExternal = !!(address && gameAcct && !isPrivyWallet(gameAcct));
   const extStd = isExternal ? walletFor(detected, address, clientType) : null;
   const extWallet = useMemo(() => (isExternal
     ? { address, external: true, clientType, std: extStd, name: (extStd && extStd.name) || labelOfClient(clientType) }
     : null), [isExternal, address, clientType, extStd]);
   const wallet = extWallet || (address ? (solWallets || []).find((w) => w.address === address) || null : null);
+
+  /* A Google or email player's linked browser wallet (linkedWallet.mjs): a way to move money in and out, never the
+     game wallet. linkable: the installed wallets of the three that could be linked. Neither exists for a player who
+     signed in with a browser wallet: that wallet already is the game wallet. */
+  const linked = !isExternal && address ? linkedOf(user, address) : null;
+  const linkedStd = linked ? walletFor(detected, linked.address, linked.clientType) : null;
+  const linkable = !isExternal && address
+    ? WALLETS.map((k) => ({ k, w: detected.find((d) => k.names.includes(String(d.name || '').trim().toLowerCase())) }))
+        .filter((x) => x.w).map((x) => ({ id: x.k.id, label: x.k.label, icon: x.w.icon || x.k.icon }))
+    : [];
+  const linkedKey = linked ? linked.address + '|' + linked.name + '|' + (linkedStd ? 1 : 0) : '';
+  const linkableKey = linkable.map((x) => x.id).join(',');
 
   /* One signer for both kinds of wallet, the shape Privy's hooks take ({ transaction, wallet }, { message, wallet }).
      A browser wallet signs with the account the player signed in with, or says plainly why it cannot. */
@@ -695,7 +711,11 @@ function WalletPanel() {
         }),
       }), 120000, name + " didn't answer. Open it and try again.");
       try { window.phEvent && window.phEvent('wallet_signin', { wallet: name }); } catch (_) {}
-      await deviceKeyFor(std, addr, D);
+      /* A wallet linked to a Google or email account signs in to THAT account, whose game wallet is the Privy one:
+         no device key for the browser wallet then (it would prove a wallet that never plays). */
+      let game = null;
+      for (let i = 0; i < 20 && !(game = solanaAddress(privyRef.current.user)); i++) await new Promise((r) => setTimeout(r, 100));
+      if (!game || game === addr) await deviceKeyFor(std, addr, D);
       if (D) D.close();
       if (window.DSToast) window.DSToast.show({ kind: 'ok', title: 'Signed in with ' + name, code: short(addr) });
     } catch (e) {
@@ -786,9 +806,13 @@ function WalletPanel() {
   useEffect(() => {
     // external: signed in with a browser wallet (walletName 'Phantom', ...), not the email and Google wallet
     window.duelWallet = { ready, authenticated, address, balance, unit, sol, swap: swapCfg, mode, usdc, solUsd,
-                          external: isExternal, walletName: extWallet ? extWallet.name : null };
+                          external: isExternal, walletName: extWallet ? extWallet.name : null,
+                          // a Google/email player's linked browser wallet ({ address, name, here }), and what could be linked
+                          linked: linked ? { address: linked.address, name: linked.name, here: !!linkedStd,
+                                             icon: (linkedStd && linkedStd.icon) || ((WALLETS.find((k) => k.client === linked.clientType) || {}).icon) || '' } : null,
+                          linkable };
     window.dispatchEvent(new CustomEvent('duelwallet:change', { detail: window.duelWallet }));
-  }, [ready, authenticated, address, balance, unit, sol, swapCfg, mode, usdc, solUsd, isExternal, extWallet]);
+  }, [ready, authenticated, address, balance, unit, sol, swapCfg, mode, usdc, solUsd, isExternal, extWallet, linkedKey, linkableKey]);
 
   // Hide the widget while the game iframe covers the screen; re-show on return to lobby.
   useEffect(() => {
@@ -1009,13 +1033,16 @@ function WalletPanel() {
        is the Privy dashboard's (Onramps: MoonPay on, SVM); the amount is MoonPay's starting
        figure in SOL, its minimum for a Canadian card (cardStartSol, server/index.js), and the
        player changes it there in their own currency. */
-    window.duelWalletFund = async () => {
+    /* method: 'card' opens straight on Pay with card, 'manual' on Receive funds (the lobby's own Add funds sheet
+       when a browser wallet is there to link, wallet.js); none opens Privy's sheet with both, as before. */
+    window.duelWalletFund = async (method) => {
       if (!address) throw new Error('Connect your wallet first.');
       const cfg = await moneyConfig();
       const solMode = cfg.mode === 'sol';
       const start = Number(cfg.cardStartSol) > 0 ? Number(cfg.cardStartSol) : 0.156;
       return fundWallet({ address, options: {
         chain: 'solana:mainnet', asset: 'native-currency', amount: String(start),
+        ...(method === 'card' || method === 'manual' ? { defaultFundingMethod: method } : {}),
         card: { preferredProvider: 'moonpay' },
         uiConfig: {
           landing: { title: wallet && wallet.external ? 'Add funds to your ' + wallet.name + ' wallet' : 'Add funds to your DuelSeries wallet' },
@@ -1057,7 +1084,58 @@ function WalletPanel() {
       if (!wallet) return Promise.reject(new Error('Connect your wallet first.'));
       return signSkinPayment(quote, wallet, signTx);
     };
-  }, [wallet, signTx, signMsg, address, login, logout, fundWallet, identityToken, getAccessToken]);
+
+    /* -- A linked browser wallet (Google and email players only; linkedWallet.mjs) -- */
+    const notLinkable = () => (!address || isExternal ? 'Sign in with Google or email to link a wallet.' : null);
+    /* Link one of the installed three ('phantom' | 'solflare' | 'backpack'): its connect, then one signature that
+       Privy keeps on the account. Resolves { address, name }. */
+    window.duelWalletLink = async (id) => {
+      const no = notLinkable(); if (no) throw new Error(no);
+      const k = WALLETS.find((x) => x.id === id);
+      const std = k && detected.find((d) => k.names.includes(String(d.name || '').trim().toLowerCase()));
+      if (!std) throw new Error((k ? k.label : 'That wallet') + ' is not installed in this browser.');
+      const addr = await inTime(linkWith(std, { generateSiwsMessage: (a) => linkRef.current.generateSiwsMessage(a),
+        linkWithSiws: (a) => linkRef.current.linkWithSiws(a), gameAddress: address }), 120000, std.name + ' did not answer. Open it and try again.');
+      try { window.phEvent && window.phEvent('wallet_linked', { wallet: k.label }); } catch (_) {}
+      return { address: addr, name: k.label };
+    };
+    // Forget the linked wallet on the account. Its money stays where it is; nothing moves.
+    window.duelWalletUnlink = async () => {
+      if (!linked) throw new Error('No wallet is linked.');
+      await unlinkWallet(linked.address);
+      return true;
+    };
+    // The linked wallet's SOL right now, read by the server like any balance, and the most one add may carry.
+    window.duelWalletLinkedBalance = async () => {
+      if (!linked) throw new Error('No wallet is linked.');
+      const b = await fetchBalances(linked.address);
+      if (b.sol == null) throw new Error('Could not read ' + linked.name + '\'s balance.');
+      const lamports = Math.round(b.sol * 1e9);
+      return { sol: b.sol, lamports, max: maxAddLamports(lamports) };
+    };
+    /* Add funds from the linked wallet: exactly `lamports` from it to this game wallet, one approval in it, sent and
+       confirmed by the server like a withdraw. Checked against a FRESH balance first: the linked wallet keeps
+       0.001 SOL. Resolves { sig, lamports } once confirmed, then reads this wallet's balance again. */
+    window.duelWalletAddFromLinked = async (lamports, opts) => {
+      const no = notLinkable(); if (no) throw new Error(no);
+      if (!linked) throw new Error('Link a wallet first.');
+      if (!linkedStd) throw new Error(linked.name + ' is not in this browser. Open DuelSeries where ' + linked.name + ' is installed.');
+      const n = Number(lamports);
+      const have = (await fetchBalances(linked.address)).sol;
+      const why = addProblem(have == null ? null : Math.round(have * 1e9), n);
+      if (why) throw new Error(why);
+      const { blockhash } = await (await fetch('/api/blockhash')).json();
+      const bytes = buildAdd({ from: linked.address, to: address, lamports: n, blockhash });
+      const { signedTransaction } = await signTransactionWith(linkedStd, linked.address, bytes);
+      try { if (opts && typeof opts.onSigned === 'function') opts.onSigned(); } catch (_) {}
+      const r = await (await fetch('/api/broadcast', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ signedTx: Buffer.from(signedTransaction).toString('base64') }) })).json();
+      if (!r.ok) throw new Error(r.error || 'The transfer did not go through. Check both balances before trying again.');
+      fetchBalances(address).then(applyBalances).catch(() => {});
+      return { sig: r.sig, lamports: n };
+    };
+  }, [wallet, signTx, signMsg, address, login, logout, fundWallet, identityToken, getAccessToken,
+      isExternal, linkedKey, linkableKey, detected, unlinkWallet]);
 
   // Keep the Privy access token in localStorage so same-origin admin pages + game iframes can
   // authenticate owner-only actions (the server verifies it → OWNER_WALLET). Refreshed on a timer.

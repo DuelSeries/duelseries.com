@@ -1067,8 +1067,8 @@ body.ingame>.howveil,body.ingame>.meveil,body.ingame>.apscreen,body.ingame>.bshe
 .cashout code{font-family:var(--fm);color:var(--tx)}
 /* One line held for the message, so an error appearing does not shove the
    buttons down under your thumb; a refusal in the error red. */
-#co-msg{min-height:1.6em}
-#co-msg[data-state="bad"]{color:#e0705f}
+#co-msg,#ad-msg{min-height:1.6em}
+#co-msg[data-state="bad"],#ad-msg[data-state="bad"]{color:#e0705f}
 /* The whole destination on the confirm step, broken anywhere, in the money
    mono: it is read character by character. */
 .cashout .cofull{display:block;margin:-6px 0 14px;padding:12px 14px;border-radius:var(--r2);
@@ -1084,6 +1084,13 @@ body.ingame>.howveil,body.ingame>.meveil,body.ingame>.apscreen,body.ingame>.bshe
 .payas .pa.on{background:var(--bone);color:var(--ink)}
 .payas .pa:focus-visible{outline:2px solid var(--bone);outline-offset:2px}
 .cashout .pahint{margin:-4px 0 12px;font-size:12.5px}
+/* Withdraw "To Phantom": fills the address with the linked wallet (wallet.js linkChip). */
+.tolink{display:inline-flex;align-items:center;gap:8px;margin:-4px 0 10px;padding:7px 14px;border:none;
+  border-radius:var(--rf);background:var(--s2);font-family:inherit;font-size:13px;font-weight:650;color:var(--tx);cursor:pointer}
+.tolink .num{font-weight:500;color:var(--tx3)}
+.tolink:hover{background:var(--s3)}
+.tolink:focus-visible{outline:2px solid var(--bone);outline-offset:2px}
+.wdep .wlinklab{margin-top:14px}
 /* The Convert sheet's three figures: what is converted, the floor, what stays. */
 .cvfacts{list-style:none;margin:0 0 14px;padding:0}
 .cvfacts li{display:flex;justify-content:space-between;gap:12px;padding:9px 0;font-size:13.5px;
@@ -2636,6 +2643,17 @@ body.scr-anim { overflow-x:hidden }
       <button type="button" class="howx" onclick="V2Wallet.cancelCash()" aria-label="Close">&#10005;</button>
     </div>
     <div id="wdr-body"></div>
+  </div>
+</div>
+
+<!-- Add funds from a linked Phantom, Solflare or Backpack (Owen 2026-10-26): an amount in
+     dollars, shown in SOL, then one approval in that wallet. wallet.js sets the title. -->
+<div id="adveil" class="howveil" role="dialog" aria-modal="true" aria-label="Add funds">
+  <div class="howcard mcard">
+    <div class="howtop"><h2 id="ad-title">Add funds</h2>
+      <button type="button" class="howx" onclick="V2Wallet.cancelAdd()" aria-label="Close">&#10005;</button>
+    </div>
+    <div id="ad-body"></div>
   </div>
 </div>
 
@@ -5396,6 +5414,7 @@ document.addEventListener('keydown',e=>{
   if(e.key!=='Escape')return;
   if(isOn('howveil'))return closeHow();
   if(isOn('wdrveil'))return V2Wallet.cancelCash();
+  if(isOn('adveil'))return V2Wallet.cancelAdd();
   if(isOn('cvveil'))return V2Wallet.cancelConvert();
   if(buyOpen())return closeBuy();
   if(isOn('lookveil'))closeLook(false);
@@ -5410,6 +5429,9 @@ document.getElementById('wdrveil').addEventListener('click',e=>{
 });
 document.getElementById('cvveil').addEventListener('click',e=>{
   if(e.target.id==='cvveil')V2Wallet.cancelConvert();
+});
+document.getElementById('adveil').addEventListener('click',e=>{
+  if(e.target.id==='adveil')V2Wallet.cancelAdd();
 });
 
 /* The tournament countdown is gone with the card it counted down. It ticked
