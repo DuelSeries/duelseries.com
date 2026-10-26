@@ -440,12 +440,16 @@
       }
       if (String(row.id || '').indexOf('sl:') === 0) engine = 'sl';
     }
-    if (!connected()) {
+    /* A guest (Owen 2026-10-26, "yes, free only"): signed out, a free room of
+       a game whose free page needs no wallet plays at once under a Guest name.
+       Everything else, the battle royale included, still asks to sign in. */
+    const guest = !connected();
+    if (guest && !guestFree(game, sel)) {
       say('Sign in first — your wallet is your account here.');
       if (window.duelWalletLogin) window.duelWalletLogin();
       return;
     }
-    const name = requireName();
+    const name = guest ? guestName() : requireName();
     if (!name) return;
     say('');
 
@@ -495,6 +499,8 @@
          you left off. */
       if (hasStake && window.rememberStake) window.rememberStake(Number(sel.stake));
       try { sessionStorage.setItem('playerName', name); } catch (_) {}
+      /* A guest carries no identity: none left in this tab from an earlier signed-in visit. */
+      if (guest) for (const k of ['googleId', 'walletAddress']) { try { sessionStorage.removeItem(k); } catch (_) {} }
       /* A Free /sl page is never a paid one. /sl reads the paid hand-off
          from this tab's sessionStorage (public/js/slx/slxPaid.js), and a paid
          launch whose page never loaded, or an old-engine one, leaves a token,
@@ -514,7 +520,7 @@
       }
       const frame = document.getElementById('game-frame');
       if (!frame) { say('That game could not be opened. Refresh and try again.'); return; }
-      if (window.phEvent) window.phEvent('game_started', { game: game, lobbyType: brPage ? 'br' : 'free' });
+      if (window.phEvent) window.phEvent('game_started', { game: game, lobbyType: brPage ? 'br' : 'free', guest: guest });
       /* The keyboard goes to the game: the frame takes the focus once it loads (and again a moment later), as the
          widget's launch does (wallet-widget/src/main.jsx), else Space and Q land on this page's Play button under
          the frame and never reach the game. The button lets go of the focus now, so Space cannot press it again. */
@@ -531,6 +537,9 @@
       document.body.classList.add('playing');
       return;
     }
+    /* A guest's free Paper or agar.io table (guestFree let nothing else get this far signed out): the hand-off the
+       widget writes for a free seat, written here, because the widget needs a wallet. */
+    if (guest) { openGuestTable(game, name); return; }
     const detail = hasStake
       ? { game: game, stake: Number(sel.stake) }
       : { game: game, lobbyType: sel.lobbyType };
@@ -545,6 +554,61 @@
        this only says which room. Exactly one of stake and lobbyType is sent, so
        the server never has to guess which the player meant. */
     window.dispatchEvent(new CustomEvent('duel:play', { detail: detail }));
+  }
+
+  /* Guests: free play signed out (Owen 2026-10-26). Only a free room whose page asks no wallet: slither.io's
+     Free on /sl, Paper's and agar.io's stake 0 table, and the Free (bot) seat of Knockout and Battleship. Never a
+     paid rung, never the battle royale (its prize needs a wallet), never the old snake engine's free tier. */
+  const GUEST_TABLES = { paper: '/paper-arena', agar: '/ag' };
+  const GUEST_DUELS = { knockout: 1, battleship: 1 };
+  function guestFree(game, sel) {
+    if (!sel) return false;
+    if (sel.stake !== undefined && sel.stake !== null) {
+      if (Number(sel.stake) !== 0) return false;
+      return game === 'snake' ? slFree() : Object.prototype.hasOwnProperty.call(GUEST_TABLES, game);
+    }
+    return sel.lobbyType === 'free' && Object.prototype.hasOwnProperty.call(GUEST_DUELS, game);
+  }
+  /* The name a guest plays under: one they typed on this device before, else Guest and four digits, kept for the
+     visit after it. Never the account's name key, so it does not become someone's name when they sign in. */
+  const GUEST_KEY = 'duelseries_guestname';
+  function guestName() {
+    const typed = savedName();
+    if (typed.length >= 3) return typed;
+    let n = '';
+    try { n = cleanName(localStorage.getItem(GUEST_KEY) || ''); } catch (_) {}
+    if (!/^Guest\d{4}$/.test(n)) {
+      n = 'Guest' + String(1000 + Math.floor(Math.random() * 9000));
+      try { localStorage.setItem(GUEST_KEY, n); } catch (_) {}
+    }
+    return n;
+  }
+  /* A guest's free Paper or agar.io table: the hand-off wallet-widget launchStaked writes for stake 0 (an empty
+     token, no wallet), then the page in its frame, as that launch opens it. */
+  function openGuestTable(game, name) {
+    const page = GUEST_TABLES[game];
+    const frame = el(game === 'agar' ? 'agar-frame' : 'game-frame');
+    if (!page || !frame) { say('That game could not be opened. Refresh and try again.'); return; }
+    const set = (k, v) => { try { sessionStorage.setItem(k, v); } catch (_) {} };
+    const drop = k => { try { sessionStorage.removeItem(k); } catch (_) {} };
+    set('playerName', name);
+    ['googleId', 'walletAddress', 'lobbyType', 'slPaidLaunch', 'gameMode', 'spectateOnly'].forEach(drop);
+    set('stake', '0');
+    set('entryToken', '');
+    set('entrySol', '0');
+    set('region', region());
+    if (window.rememberStake) window.rememberStake(0);
+    if (window.phEvent) window.phEvent('game_started', { game: game, stake: 0, guest: true });
+    if (window._pauseLobbyAnims) window._pauseLobbyAnims();
+    frame.addEventListener('load', () => {
+      const take = () => { try { frame.contentWindow.focus(); } catch (_) {} };
+      take();
+      setTimeout(take, 150);
+    }, { once: true });
+    try { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); } catch (_) {}
+    frame.src = page;
+    frame.style.display = 'block';
+    document.body.classList.add('playing');
   }
 
   /* Does the nightly event run on the new engine? The Events tab's last /api/live says (br.engine). */

@@ -9,18 +9,18 @@
 
    Arriving: the server sends the lobby itself at /play/<slug>, with that game's
    link preview in its head (server/sharePreview.js). This opens that game's
-   screen on the Free rung and, once the visitor is signed in with a name,
-   presses Play for them, which is the same free room their friend is in
+   screen on the Free rung and presses Play for them, signed in or as a guest
+   (play.js guestFree), which is the same free room their friend is in
    (slither.io has one free room per server; Paper and agar.io seat the fullest
-   free room with space first). Not signed in, the screen waits on Free with a
-   toast saying so, and Play goes through sign in as it always does.
+   free room with space first).
 
    Free only, always: the arriving half picks the stake 0 rung and nothing
    else, and the link never carries a stake, a room id or any money word. */
 (function () {
   const SHARE = window.DS_SHARE;
   if (!SHARE) return;
-  const WAIT_MS = 10000;   // how long a signed-in visitor's wallet gets to show up before Play is left to them
+  const GUEST_MS = 4000;   // Privy not ready by then: Play as a guest (free rooms need no sign in, play.js guestFree)
+  const WAIT_MS = 10000;   // after this nothing presses Play by itself; it is left to them
 
   function linkFor(gameId) {
     const g = SHARE.byGame(gameId);
@@ -88,18 +88,20 @@
     if (window.phEvent) window.phEvent('invite_opened', { game: g.game });
     let started = false, gaveUp = false;
     const onFree = () => !!(window.V2Detail && V2Detail.game === g.game && V2Detail.stake === 0);
-    const go = () => {
-      if (started || gaveUp || !signedIn() || !onFree()) return;
+    /* Privy says whether this visitor is signed in (duelWallet.ready); until then a signed-in friend would be
+       started as a guest, so Play waits for it, or for GUEST_MS when it is slow, then plays as a guest. */
+    const ready = () => !!(window.duelWallet && window.duelWallet.ready);
+    const start = () => {
+      if (started || gaveUp || !onFree()) return;
       started = true;
       window.removeEventListener('duelwallet:change', go);
       if (typeof window.startFromDetail === 'function') window.startFromDetail();
     };
-    if (!signedIn() && window.DSToast) {
-      DSToast.show({ kind: 'ok', title: 'You were invited to play ' + g.name, detail: 'Press Play to join your friend' });
-    }
+    const go = () => { if (signedIn() || ready()) start(); };
     window.addEventListener('duelwallet:change', go);
     /* Pressing anything on the page first means they are choosing for themselves. */
     document.addEventListener('pointerdown', () => { gaveUp = true; window.removeEventListener('duelwallet:change', go); }, { once: true, capture: true });
+    setTimeout(start, GUEST_MS);
     setTimeout(() => { gaveUp = true; window.removeEventListener('duelwallet:change', go); }, WAIT_MS);
     go();
   }
