@@ -36,7 +36,7 @@
       "date": "2026-10-26",
       "tag": "new",
       "title": "Chomp: one map that wraps around",
-      "body": "The Chomp maze now wraps around like a globe. Run off any edge and you come back in on the other side, with no wall to stop you.\n\nThe camera stays on you from the moment you appear, and a pulse around your chomper shows you where you are while you are safe to get your bearings."
+      "body": "The Chomp maze now wraps around like a globe. Run off any edge and you come back in on the other side, with no wall to stop you.\n\nThe camera stays on you from the moment you appear, and a pulse around your chomper shows you where you are while you are safe to get your bearings.\n\nThe maze also grows as more people join and shrinks again when it gets quiet, out of sight of everyone, so it always feels busy."
     },
     {
       "id": "2026-10-26-chomp-arrives",

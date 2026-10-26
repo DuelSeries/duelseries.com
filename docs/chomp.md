@@ -42,7 +42,17 @@ opposite one. Every distance (ghost targets, prey, danger, fright radius, bots, 
 the seam (`A.dx`, `A.dy`), positions wrap after each move (`A.wx`, `A.wy`), and the walls are traced on a copy padded
 with the map's far side (`chompWalls.js`). The page keeps the camera on you from the first frame (no edge to stop at),
 draws everything the short way from the camera, and shows a "you are here" pulse for 2 s at every spawn (with the 3 s
-spawn blink). The arena starts at 2 x 2 modules (Owen); growing it with the crowd comes next.
+spawn blink). The arena starts at 2 x 2 modules (Owen) and grows with the crowd.
+
+**Growing and shrinking** (`server/chomp/chompResize.js`, Owen's pick "add blocks where nobody is"): the crowd asks
+for one module per `PLAYERS_PER_MODULE` chompers (at least 2 x 2, at most `MODULES_MAX`); every `RESIZE_EVERY_S` (and
+at most once per `RESIZE_GAP_S`) the room adds or removes one module column or row at the seam with no person within
+`SEAM_CLEAR` tiles (bots do not count; a bot in a removed column is placed elsewhere). The torus is first turned so
+that seam is its edge (every position and tile shifted alike: nothing moves on screen), then the column goes in or
+out at the edge. Dots, the pellet queue, fruit, ghosts (a new module brings its quartet; a removed one's go with it,
+never where a person can see) carry over, and in a paid room every coin in a removed column moves to the nearest path
+tile outside it: no balance changes. The pages get `c:arena { axis, shift, mx, my, dots, coins, fruit, gmap }` before
+the next snapshot and turn everything they hold the same way.
 
 ## Netcode in one paragraph
 

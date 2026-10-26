@@ -13,6 +13,7 @@
 
 const { ChompRoom } = require('./chompRoom');
 const { STAKE_TIERS } = require('../stakeRules');
+const R = require('../../shared/chompRules');
 
 // agArenas' (and Paper's) numbers
 const OUTCOME_TTL_MS = 10 * 60 * 1000;
@@ -21,7 +22,7 @@ const RELEASE_MAX = 2;
 const RELEASE_WINDOW_MS = 10 * 60 * 1000;
 const RELEASE_WALLETS_MAX = 5000;
 const PAID_SEATLESS_MS = 15000;     // a paid hand-off socket must send its c:join by then
-const MAX_ROOMS = 4;                // CHOSEN: paid rooms per rung (40 chompers each, chompRules MAX_PLAYERS)
+const MAX_ROOMS = 4;                // CHOSEN: paid rooms per rung (chompRules MAX_PLAYERS chompers each)
 const SWEEP_IDLE_MS = 300000;       // Paper's ARENA_SWEEP_MS: an empty paid overflow room closes after this
 const PAID_BOT_MAX = 40;            // the owner's bots per paid rung (room #0), as agar's
 
@@ -612,7 +613,7 @@ class ChompArenas {
   boardRows() {
     const rows = [{
       id: 'chomp:' + this.region + ':s0', game: 'chomp', region: this.region, stake: 0,
-      players: this.free.humanCount, bots: this.free.botCount, capacity: 40, state: 'open',
+      players: this.free.humanCount, bots: this.free.botCount, capacity: R.MAX_PLAYERS, state: 'open',
     }];
     for (const [stake, list] of this.rungs) {
       let open = 0, parked = 0, bots = 0;
@@ -623,7 +624,7 @@ class ChompArenas {
       }
       for (const r of list) bots += r.botCount;
       rows.push({ id: 'chomp:' + this.region + ':s' + stake, game: 'chomp', region: this.region, stake,
-        players: open, parked, bots, capacity: 40, state: this.paidOpen ? 'open' : 'closed' });
+        players: open, parked, bots, capacity: R.MAX_PLAYERS, state: this.paidOpen ? 'open' : 'closed' });
     }
     return rows;
   }

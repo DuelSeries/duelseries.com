@@ -111,6 +111,22 @@ class ChompBank extends AgBank {
     return super.sweepPickup(pickupId);
   }
 
+  // The arena changed shape (chompResize): every coin gets its new tile from fn(coin) -> { x, y, k } (null: it stays
+  // put, logged). Money does not move: only where the coin lies.
+  remapCoins(fn) {
+    this.byTile.clear();
+    for (const coin of this.floor.values()) {
+      let to = null;
+      try { to = fn(coin); } catch (e) { to = null; }
+      if (to && Number.isInteger(to.x) && Number.isInteger(to.y) && Number.isInteger(to.k)) {
+        coin.x = to.x; coin.y = to.y; coin.k = to.k;
+      } else {
+        try { this.onBreach({ kind: 'coin-remap', pid: coin.pid, micro: coin.micro }); } catch (e) { /* reported once */ }
+      }
+      this._index(coin);
+    }
+  }
+
   coinsAt(k) {
     const set = this.byTile.get(k);
     return set ? Array.from(set) : [];

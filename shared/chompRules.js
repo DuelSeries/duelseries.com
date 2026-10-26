@@ -79,17 +79,17 @@
     MODULES_X: 2,                // Owen 2026-10-26: the arena starts at 2 x 2 modules (each 28 x 31 tiles with its own
     MODULES_Y: 2,                //   four ghosts), a torus, and grows a module row or column at a time with the crowd
     PLAYERS_PER_MODULE: 3,       // CHOSEN: chompers (people and bots) a module holds before the arena grows
-    MODULES_MAX: 49,             // CHOSEN: at most 7 x 7 modules (203 x 224 tiles, inside the wire's 511 tiles)
+    MODULES_MAX: 36,             // CHOSEN: at most 6 x 6 modules (174 x 192 tiles, inside the wire's 511): 100 seats / 3
     RESIZE_EVERY_S: 2,           // CHOSEN: how often the arena checks whether to grow or shrink
     RESIZE_GAP_S: 30,            // CHOSEN: at least this long between two resizes (no flapping as people come and go)
-    SEAM_CLEAR: 14,              // CHOSEN: tiles every chomper must be from where a module row or column goes in or out
+    SEAM_CLEAR: 10,              // CHOSEN: tiles every person must be from where a module row or column goes in or out
     DOT_RESPAWN_S: 30,           // CHOSEN: an eaten dot comes back after this long
     ENERGIZER_RESPAWN_S: 40,     // CHOSEN
     RESPAWN_CLEAR: 4,            // CHOSEN: a pellet only reappears with no player within this many tiles
     DEATH_S: (30 + 14 * 8) / 60, // jspacman: frozen 30 ticks, then 14 death frames of 8 ticks
     SPAWN_SAFE_S: 3,             // CHOSEN: invulnerable (blinking) after coming back
     SPAWN_GHOST_CLEAR: 8,        // CHOSEN: spawn at least this many tiles from any dangerous ghost
-    MAX_PLAYERS: 40,             // CHOSEN: seats per room
+    MAX_PLAYERS: 100,            // CHOSEN: seats per room (the arena grows with them, up to MODULES_MAX)
     BOT_FILL: 8,                 // CHOSEN: bots top the room up to this many chompers
     LATE_TURN_TICKS: 15,         // CHOSEN: how far back (250 ms) the server honours a turn the browser already took
 

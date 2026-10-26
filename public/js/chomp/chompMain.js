@@ -96,6 +96,7 @@
         ? 'DuelSeries is updating. Try again in a few minutes.' : 'Too many tabs open here.');
     });
     socket.on('c:coins', onCoins);
+    socket.on('c:arena', onArena);
     socket.on('c:holding', function (p) { if (hold) hold.server(p); });
     socket.on('c:joined', function (p) { if (flow) flow.onEvent('ag:joined', p); });
     socket.on('c:dead', onPaidDead);
@@ -217,6 +218,38 @@
     }
   }
   var autoJoined = false, watchAsked = false;
+
+  // The arena grew or shrank by a module column or row (server/chomp/chompResize.js), away from you: the server turned
+  // the torus by `shift` tiles on one axis first, so every position we hold turns the same way (nothing moves on
+  // screen), then the map, its dots, coins and fruit come new; gmap says where each ghost now sits in the list.
+  function onArena(m) {
+    if (!A || !m || !A.wrap) return;
+    var isX = m.axis === 'x', S = Number(m.shift) || 0, Wo = A.W, Ho = A.H;
+    function fx(x) { return isX ? ((x - S) % Wo + Wo) % Wo : x; }
+    function fy(y) { return isX ? y : ((y - S) % Ho + Ho) % Ho; }
+    var gmap = m.gmap || [];
+    snaps.forEach(function (sn) {
+      sn.players.forEach(function (p) { p.x = fx(p.x); p.y = fy(p.y); });
+      var g2 = [];
+      sn.ghosts.forEach(function (g, i) { var j = gmap[i]; if (j >= 0) { g.x = fx(g.x); g.y = fy(g.y); g2[j] = g; } });
+      sn.ghosts = g2;
+    });
+    if (me) { me.x = fx(me.x); me.y = fy(me.y); }
+    hist.forEach(function (h) { h.x = fx(h.x); h.y = fy(h.y); });
+    cam.x = fx(cam.x); cam.y = fy(cam.y);
+    pops.forEach(function (q) { q.x = fx(q.x); q.y = fy(q.y); });
+    lastPos.clear();
+    A = Maze.build(m.mx, m.my, { wrap: true });
+    draw = lookName === 'pixel' && window.ChompPixel ? new window.ChompPixel(canvas, A) : new Draw(canvas, A, lookName);
+    resize();
+    dotsServer = new Uint8Array(m.dots);
+    dotsView = new Uint8Array(dotsServer);
+    pending.clear();
+    coins.clear();
+    (m.coins || []).forEach(function (c) { coins.set(c[0], { k: c[1], c: c[1] % A.W, r: Math.floor(c[1] / A.W), micro: c[2] }); });
+    coinList = Array.from(coins.values());
+    fruitOn = new Set(m.fruit || []);
+  }
 
   function onSnap(buf) {
     var s = Wire.decode(buf);
@@ -812,6 +845,7 @@
     state: function () { return { phase: phase, myId: myId, predicting: predicting, me: me, score: myScore, lives: myLives, stats: stats, snaps: snaps.length, look: draw && draw.L.id,
       paid: paidMode, stake: stakeNow, money: myMoney, coins: coins.size, locked: !!(lock && lock.locked()), hold: hold ? hold.progress() : 0,
       flow: flow ? flow.state() : null, card: pcard ? pcard.kind : '' }; },
+    dims: function () { return A ? A.mx + 'x' + A.my : null; },
     setLook: function (n) { lookName = n; if (A) { draw = n === 'pixel' && window.ChompPixel ? new window.ChompPixel(canvas, A) : new Draw(canvas, A, n); resize(); } } };
   if (!(flow && flow.offline())) connect();
   requestAnimationFrame(loop);

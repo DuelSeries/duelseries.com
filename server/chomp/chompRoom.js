@@ -24,6 +24,7 @@ const Move = require('../../shared/chompMove');
 const Wire = require('../../shared/chompWire');
 const Ghosts = require('./chompGhosts');
 const Bots = require('./chompBots');
+const Resize = require('./chompResize');
 const { pickName } = require('../botNames');
 
 const DT = 1 / R.TICK_HZ;
@@ -69,17 +70,11 @@ class ChompRoom {
     // bots wanted: a number (tests) or a function read each fill (the day curve, server/botPopulation.js)
     this.botFill = opts.botFill != null ? opts.botFill : R.BOT_FILL;
     for (const m of this.A.modules) { m.fruitCount = 0; m.fruitUntil = 0; }
-    // spawn candidates: every plain path tile outside the ring around the house
-    this.spawnTiles = [];
-    this.nearHouse = new Uint8Array(this.A.W * this.A.H);
-    const H = Maze.HOUSE;
-    for (let r = 0; r < this.A.H; r++) for (let c = 0; c < this.A.W; c++) {
-      const k = r * this.A.W + c;
-      const m = this.A.modules[this.A.moduleOf[k]], lc = c - m.ox, lr = r - m.oy;
-      if (lc >= H.c0 - 1 && lc <= H.c1 + 1 && lr >= H.r0 - 1 && lr <= H.r1 + 1) { this.nearHouse[k] = 1; continue; }
-      if (this.A.cell[k] !== Maze.PATH) continue;
-      this.spawnTiles.push(k);
-    }
+    this.layout();
+    // the arena grows and shrinks with the crowd (chompResize.js), on a torus only; a test may hold it still
+    this.grow = opts.grow !== false && this.A.wrap;
+    this.lastResize = 0;
+    this.arenaMsg = null;                   // a resize's c:arena, sent before the next snapshot
 
     // ---- paid (see the header)
     this.stake = Number(opts.stake) > 0 ? Number(opts.stake) : 0;
@@ -113,6 +108,36 @@ class ChompRoom {
         onClosed: (acct, outcome, extra) => this._paidClosed(acct, outcome, extra),
       });
     }
+  }
+
+  // What depends on the arena's shape, worked out again after a resize: the spawn candidates (every plain path tile
+  // outside the ring round a house), the house rings, the bots' search buffers.
+  layout() {
+    this.spawnTiles = [];
+    this.nearHouse = new Uint8Array(this.A.W * this.A.H);
+    this._bfs = null;
+    const H = Maze.HOUSE;
+    for (let r = 0; r < this.A.H; r++) for (let c = 0; c < this.A.W; c++) {
+      const k = r * this.A.W + c;
+      const m = this.A.modules[this.A.moduleOf[k]], lc = c - m.ox, lr = r - m.oy;
+      if (lc >= H.c0 - 1 && lc <= H.c1 + 1 && lr >= H.r0 - 1 && lr <= H.r1 + 1) { this.nearHouse[k] = 1; continue; }
+      if (this.A.cell[k] !== Maze.PATH) continue;
+      this.spawnTiles.push(k);
+    }
+  }
+
+  // Grow or shrink by a module column or row where nobody can see it (chompResize.js), at most once per RESIZE_GAP_S.
+  resizeCheck() {
+    if (!this.grow || this.tick - this.lastResize < R.RESIZE_GAP_S * R.TICK_HZ) return false;
+    const pl = Resize.plan(this);
+    if (!pl) return false;
+    const msg = Resize.apply(this, pl);
+    if (!msg) return false;
+    this.lastResize = this.tick;
+    this.arenaMsg = msg;
+    this.log.log('[CHOMP] ' + this.lobbyType + ' arena ' + (pl.op > 0 ? 'grew' : 'shrank') + ' to ' + msg.mx + 'x' + msg.my +
+      ' (' + this.players.size + ' chompers)');
+    return true;
   }
 
   // ---- seats
@@ -253,6 +278,7 @@ class ChompRoom {
       this.moneyFacts = [];
       this.money.afterStep({ money: facts });
     }
+    if (this.grow && this.tick % (R.RESIZE_EVERY_S * R.TICK_HZ) === 0) this.resizeCheck();
   }
 
   // A tick that throws EMERGENCY_FAIL_TICKS times in a row closes the room for good (agRoom's rule): a paid room
@@ -659,6 +685,8 @@ class ChompRoom {
   flush() {
     if (!this.nsp) return;
     const to = () => this.nsp.to(this.ioRoom);
+    // a resize first: every position after it is in the new arena's numbers
+    if (this.arenaMsg) { to().emit('c:arena', this.arenaMsg); this.arenaMsg = null; }
     to().volatile.emit('c:s', Buffer.from(this.snapshot()));
     const d = this.drain();
     if (d.dots) to().emit('c:dots', d.dots);
