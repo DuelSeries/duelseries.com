@@ -116,7 +116,11 @@
   /* Bots count as playing here (Owen 2026-10-17: "bots count as people playing"), so a paid room the owner seeded with
      bots is listed. `players` itself stays humans only on the server: the deploy check reads it. */
   const playing = l => (l.players || 0) + (l.bots || 0);
-  const occupied = () => LOBBIES.filter(l => playing(l) > 0 && isOpen(l));
+  /* Only a game the lobby has a playable card for (V2_GAME_NAMES, not a "soon" one): /api/live also carries the rows
+     of a game still hidden from the lobby (Chomp's paid rows, so the pre-push check sees anyone seated there), and
+     Enter on one would stake through a door the lobby cannot open. */
+  const listable = l => !!(window.V2_GAME_NAMES || {})[l.game] && !(window.V2_IS_SOON && window.V2_IS_SOON(l.game));
+  const occupied = () => LOBBIES.filter(l => playing(l) > 0 && isOpen(l) && listable(l));
 
   /* The one exception: the free slither.io room is always listed, even empty.
      It is the "just let me play" button — nothing to stake, nothing to think

@@ -66,7 +66,8 @@ Rules (Owen 2026-10-25/26):
    on the path tiles around you (one coin per $0.125, 4 to 16, the death tile first); whoever steps on a coin's tile
    takes it. Coins are drawn in the shared DuelSeries gold with a $, never like a dot.
 3. **Hold Q 3 s** (180 ticks; a held Cash out button on a phone) to cash out 90/10 while you keep moving; caught during
-   the hold, your coins drop instead (death wins a same-tick tie).
+   the hold, your coins drop instead (death wins a same-tick tie). The count starts only once the spawn blink is over,
+   so a fresh seat can never leave without having been catchable.
 4. **Coins nobody takes go to the house** (Owen 2026-10-26): after an hour as `chomp_floor` income, at a restart or
    crash as one journal floor record (`chfloor:` key) booked at the next boot. Except: in a room a bounty bot ever
    played in they go back to whoever dropped them (owed rows), a bot's own money never goes to the house (seed back to

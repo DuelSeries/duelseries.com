@@ -79,7 +79,7 @@ function openChomp({ io, env = process.env, helpers = {}, money = null, paidSwit
     nsp, region: env.REGION || 'na', botCurve: () => gameBotTarget('chomp'), paid, log,
     moneyHooks: paid ? money.hooks : null, botStore: paid ? botStore : null, botBank: paid ? botBank : null,
   }, arenasOpts || {}));
-  const room = arenas.free;
+  const free = () => arenas.free;   // the free arena (replaced after an emergency close, chompArenas _replaceFree)
   if (paid) {
     try {
       arenas.startBots();
@@ -142,7 +142,7 @@ function openChomp({ io, env = process.env, helpers = {}, money = null, paidSwit
 
   // The room this socket plays or watches in: a paid room through the directory, else the free arena.
   function roomOf(socket) {
-    return arenas.roomOfSocket(socket.id) || room;
+    return arenas.roomOfSocket(socket.id) || free();
   }
 
   function attach(socket) {
@@ -157,7 +157,7 @@ function openChomp({ io, env = process.env, helpers = {}, money = null, paidSwit
     if (auth.paid === 1 && arenas.paidEnabled) arenas.connectPaid(socket);
     else if (typeof auth.watchStake === 'number' && auth.watchStake > 0) {
       if (!arenas.connectWatch(socket, auth.watchStake)) refuse(socket, 'nobody');
-    } else room.attach(socket);
+    } else free().attach(socket);
 
     function on(ev, fn) {
       socket.on(ev, (msg) => {
@@ -175,7 +175,9 @@ function openChomp({ io, env = process.env, helpers = {}, money = null, paidSwit
         return;
       }
       if (!rl(socket, 'c:join', RATE.join)) return;
-      if (arenas.paidRoomOf(socket.id)) return;            // a paid seat never takes a free one
+      // a paid page's socket (auth { paid: 1 }) never takes a free seat, seated, ended or still joining
+      if (auth.paid === 1 || arenas.paidRoomOf(socket.id)) return;
+      const room = free();
       if (ops && typeof ops.get === 'function' && ops.get().maintenance) { socket.emit('c:refused', { why: 'maintenance' }); return; }
       if (room.bySocket.has(socket.id)) return;
       const was = arenas.roomOfSocket(socket.id);
@@ -229,11 +231,11 @@ function openChomp({ io, env = process.env, helpers = {}, money = null, paidSwit
     on('c:leave', () => {
       if (!rl(socket, 'c:leave', RATE.leave)) return;
       if (arenas.paidRoomOf(socket.id)) { socket.emit('c:refused', { why: 'cash-out-to-leave' }); return; }
-      room.removePlayer(room.bySocket.get(socket.id));
+      free().removePlayer(free().bySocket.get(socket.id));
     });
     socket.on('disconnect', () => {
       try {
-        room.removePlayer(room.bySocket.get(socket.id));
+        free().removePlayer(free().bySocket.get(socket.id));
         arenas.disconnect(socket.id);
       } catch (e) { log.error('[CHOMP] disconnect', e && e.message); }
       const left = (perIp.get(ip) || 1) - 1;
@@ -251,11 +253,11 @@ function openChomp({ io, env = process.env, helpers = {}, money = null, paidSwit
     nsp.on('connection', attach);
   }
 
-  room.fillBots();
+  free().fillBots();
   start();
-  log.log(`[CHOMP] open: ${room.A.mx}x${room.A.my} modules, ${room.ghosts.length} ghosts; paid rungs ${paid ? 'on' : 'OFF'}`);
+  log.log(`[CHOMP] open: ${free().A.mx}x${free().A.my} modules, ${free().ghosts.length} ghosts; paid rungs ${paid ? 'on' : 'OFF'}`);
   return {
-    arenas, room, nsp, paid, door, attach, frame,
+    arenas, get room() { return arenas.free; }, nsp, paid, door, attach, frame,
     close() { if (timer) clearInterval(timer); timer = null; arenas.stop(); },
   };
 }

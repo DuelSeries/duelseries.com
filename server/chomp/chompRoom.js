@@ -121,7 +121,8 @@ class ChompRoom {
     const p = {
       id, sid: socketId, bot, name: String(name || 'Player').slice(0, NAME_MAX), color: this.colorNext++ % COLORS,
       x: 0, y: 0, dir: -1, want: -1, face: 1, pause: 0, moving: false,
-      score: 0, lives: R.LIVES, bonus: false, power: 0, chain: 0, safe: 0, dying: 0, over: false,
+      // a paid room is always one life (a catch closes the account), whatever the free room's rule
+      score: 0, lives: this.money ? 1 : R.LIVES, bonus: false, power: 0, chain: 0, safe: 0, dying: 0, over: false,
       seq: 0, seqTick: 0, hist: [], pend: null, joinedTick: this.tick, brain: bot ? Bots.brain(this.rng) : null,
     };
     this.players.set(id, p);
@@ -350,7 +351,7 @@ class ChompRoom {
 
   addScore(p, pts) {
     p.score += pts;
-    if (R.BONUS_LIFE && !p.bonus && p.score >= R.EXTRA_LIFE_AT) {
+    if (R.BONUS_LIFE && !this.money && !p.bonus && p.score >= R.EXTRA_LIFE_AT) {
       p.bonus = true; p.lives++;
       this.events.push({ k: 'life', id: p.id });
     }
@@ -727,6 +728,11 @@ class ChompRoom {
       confirmed: (pid) => {
         const p = this.players.get(pid);
         if (p) p.safe = Math.round(R.SPAWN_SAFE_S * R.TICK_HZ);
+      },
+      // still in its spawn blink (or shielded): no ghost or player can catch it yet
+      safe: (pid) => {
+        const p = this.players.get(pid);
+        return !!(p && (p.safe > 0 || this.shielded.has(pid)));
       },
       takeMoneyEvents: () => {
         const money = this.moneyFacts;

@@ -127,6 +127,7 @@
   }
   function onPaidDead(p) {
     var mine = myId, wait = p && p.resumed ? 0 : Math.round(R.DEATH_S * 1000) + 200;
+    if (mine && !(p && p.resumed)) Snd.play('ch.death');
     seatEnded();
     if (mine) dying.set(mine, performance.now());
     clearTimeout(deadTimer);
@@ -653,7 +654,8 @@
 
   function showBoard() {
     if (!window.DSEnd || attract) return;
-    if (!board) board = window.DSEnd.board(stakeNow > 0 ? { title: 'Leaderboard', money: true } : { title: 'Leaderboard' });
+    // a phone held sideways is wider than dsEnd's phone cut but short: it gets the phone's 5 rows, not 10
+    if (!board) board = window.DSEnd.board({ title: 'Leaderboard', money: stakeNow > 0, rowsPC: isTouch || window.innerHeight < 520 ? 5 : 10 });
     var val = stakeNow > 0 ? usd : fmt;
     var rows = lbRows.map(function (r) {
       var m = metas.get(r[0]);
@@ -714,7 +716,7 @@
     var ss = null;
     try { ss = window.sessionStorage; } catch (e) { ss = null; }
     flow = AP.createFlow({
-      handoff: hand, store: ss, win: window, game: 'chomp', text: PAID.WORDS, refused: PAID.REFUSED,
+      handoff: hand, store: ss, win: window, game: 'chomp', text: PAID.WORDS, refused: PAID.REFUSED, resumeKey: PAID.RESUME_KEY,
       send: function (kind, payload) {
         if (!socket || !socket.connected) return false;
         if (kind === 'paidJoin') socket.emit('c:join', payload);
@@ -736,7 +738,11 @@
       if (e.origin !== location.origin || e.source !== window.parent) return;
       flow.onMessage(e);
     });
-    window.addEventListener('pagehide', function () { flow.onPageHide(); });
+    window.addEventListener('pagehide', function () {
+      flow.onPageHide();
+      // a token that never went out goes back with its launch mark, so the reloaded page is still the paid one
+      try { if (flow.state().unspent && ss) ss.setItem(PAID.LAUNCH_KEY, '1'); } catch (e) { /* storage gone */ }
+    });
     window.addEventListener('pageshow', function (e) { flow.onPageShow(e); });
     flow.start();
   }

@@ -211,3 +211,38 @@ test('the boot switches: CHOMP_PAID fails closed on a typo, and the paid rungs n
   assert.strictEqual(g2.arenas.paidOpen, false, 'a saved chomp:paid:off opens the door shut');
   g2.close();
 });
+
+test('the free arena replaces itself after an emergency close; its sockets see the new one and bots fill again', () => {
+  const sockets = new Map();
+  const nsp = { adapter: { rooms: new Map([['free', new Set()]]) }, sockets, to: () => ({ emit() {}, volatile: { emit() {} } }) };
+  const arenas = new ChompArenas({ nsp, mx: 1, my: 1, seed: 3, log: quiet, botCurve: () => 4 });
+  const s = sock('watcher-1');
+  s.join = function (r) { this.rooms.add(r); nsp.adapter.rooms.get(r).add(this.id); };
+  sockets.set(s.id, s);
+  arenas.free.attach(s);
+  const old = arenas.free;
+  old.emergencyClose();
+  assert.notStrictEqual(arenas.free, old, 'a fresh free arena');
+  assert.ok(old.stopped);
+  assert.strictEqual(s.of('c:init').length, 2, 'the socket got the new arena');
+  assert.ok(arenas.free.botCount > 0, 'bots back');
+  assert.ok(arenas.liveRooms().includes(arenas.free) && !arenas.liveRooms().includes(old));
+});
+
+test('a paid page\'s socket never takes a free seat (seatless, waiting for its paid join)', () => {
+  const handlers = {};
+  const s = sock('paidauth');
+  s.handshake = { auth: { paid: 1 }, headers: {}, address: '1.2.3.4' };
+  s.conn = { remoteAddress: '1.2.3.4' };
+  s.on = (ev, fn) => { handlers[ev] = fn; };
+  const hk = hooks();
+  const g = openChomp({ io: null, env: { CHOMP: '1' }, log: quiet, autoTick: false,
+    money: { hooks: hk.h, door: { consumeAtStake: () => ({ ok: false }), refund: () => {} } } });
+  g.attach(s);
+  handlers['c:join']({ name: 'sneaky' });
+  handlers['c:join'](null);
+  assert.strictEqual(s.of('c:you').length, 0);
+  assert.strictEqual(s.of('c:init').length, 0, 'never shown the free arena');
+  assert.strictEqual(g.room.humanCount, 0);
+  g.close();
+});

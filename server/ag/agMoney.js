@@ -212,6 +212,11 @@ class AgMoney {
     return m;
   }
 
+  // A hold counts only while this is true (agar: a live cell; Chomp also waits out the spawn blink).
+  canHold(pid) {
+    return this.hasLiveCell(pid);
+  }
+
   hasLiveCell(pid) {
     const info = this.sim.playerInfo(pid);
     return !!(info && info.cells.length > 0);
@@ -348,7 +353,7 @@ class AgMoney {
     const stale = AG_MONEY.HOLD_INPUT_STALE_MS.value;
     for (const acct of this.accounts.values()) {
       const want = acct.state === 'live' && acct.socketId !== null && acct.lastHoldAt > 0 &&
-        now - acct.lastHoldAt <= stale && this.hasLiveCell(acct.pid);
+        now - acct.lastHoldAt <= stale && this.canHold(acct.pid);
       if (want) {
         if (!acct.holding) {
           acct.holding = true;

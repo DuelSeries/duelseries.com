@@ -49,7 +49,9 @@ class ChompArenas {
     this.my = my;
     this.seed = seed;
     this.makeRoom = makeRoom || ((opts) => new ChompRoom(opts));
-    this.free = this.makeRoom({ nsp, region, botFill: botCurve || undefined, mx, my, seed, log: this.log, now });
+    this.botCurve = botCurve || undefined;
+    this.free = this.makeRoom({ nsp, region, botFill: this.botCurve, mx, my, seed, log: this.log, now });
+    this.free.onClosed = (closed) => this._replaceFree(closed);
     this.paidEnabled = paid === true;
     this.paidOpen = this.paidEnabled;
     this.stopping = false;
@@ -129,6 +131,26 @@ class ChompArenas {
     list.push(room);
     list.sort((a, b) => a.index - b.index);
     return room;
+  }
+
+  // The free arena closed itself (EMERGENCY_FAIL_TICKS throwing ticks): a fresh one takes its place, every socket that
+  // saw it gets the new arena (c:init: a player is back on the title card), and its bots fill again. agArenas' rule
+  // for its free room; before paid Chomp a throwing tick ended the process instead.
+  _replaceFree(closed) {
+    if (closed !== this.free) return;
+    const fresh = this.makeRoom({ nsp: this.nsp, region: this.region, botFill: this.botCurve, mx: this.mx, my: this.my,
+      log: this.log, now: this.now });
+    fresh.onClosed = (c) => this._replaceFree(c);
+    this.free = fresh;
+    const ids = this.nsp && this.nsp.adapter && this.nsp.adapter.rooms ? this.nsp.adapter.rooms.get(closed.ioRoom) : null;
+    for (const id of Array.from(ids || [])) {
+      const s = this.nsp.sockets.get(id);
+      if (!s) continue;
+      s._chRoom = null;
+      fresh.attach(s);
+    }
+    fresh.fillBots();
+    this.log.error('[CHOMP] free arena replaced after an emergency close');
   }
 
   // agArenas._moneyHooks: the server's payout and alert hooks plus this directory's own maps.
@@ -576,7 +598,7 @@ class ChompArenas {
     for (const room of this.settling.slice()) {
       try {
         if (room.openAccounts() > 0) room.money.emergencySettle();
-        else if (room.money.bank.totalMicro() > 0) room.money.sweepFloor(now, 0);
+        else if (room.money.bank.totalMicro() > 0) room.money.emergencyCoins();   // an emergency's coins go back
       } catch (e) {
         this.log.error('[CHOMP] settling retry', room.lobbyType, e && e.message);
       }

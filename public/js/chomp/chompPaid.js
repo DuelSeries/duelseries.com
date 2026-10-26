@@ -1,7 +1,10 @@
 // Chomp's paid page pieces (window.ChompPaid), used by chompMain.js only when the lobby's wallet left a paid hand-off
 // in sessionStorage (the free page never builds any of this):
 //   handoff()            agar.io's reader of the hand-off (public/js/ag/agPaid.js readHandoff): stake, entryToken,
-//                        playerName, or a resume key left by this page's last unload
+//                        playerName, or a resume key left by this page's last unload ('chResume', Chomp's own). A
+//                        token counts only with the one-shot launch mark the lobby's wallet writes for a paid Chomp
+//                        launch (LAUNCH_KEY, as /sl's slPaidLaunch): a stake and token another game left in the tab
+//                        never turn the free page into a paid one or spend that token here.
 //   createCard(opts)     the end card's states on the shared DSEnd card, in Chomp's words: the paid hand-off's own
 //                        (showWait, showMessage, setAgain, setLobbyLocked, setBuying, setError, as agScreens.createEnd)
 //                        and the server's (showCashed, showDead, showClosed, paid, payError). Every figure is the
@@ -63,12 +66,23 @@
   };
   var TX_URL = 'https://solscan.io/tx/';
 
+  var LAUNCH_KEY = 'chompPaidLaunch';
+  var RESUME_KEY = 'chResume';
+
   function handoff() {
     if (!AP) return { paid: false };
     var ss = null, ls = null;
     try { ss = root.sessionStorage; } catch (e) { ss = null; }
     try { ls = root.localStorage; } catch (e) { ls = null; }
-    return AP.readHandoff(ss, ls);
+    var mark = null;
+    try { mark = ss ? ss.getItem(LAUNCH_KEY) : null; if (mark) ss.removeItem(LAUNCH_KEY); } catch (e) { mark = null; }
+    var h = AP.readHandoff(ss, ls, RESUME_KEY);
+    if (mark) return h;
+    // no launch mark: only a seat this page held before a reload (its own resume key, or the mark of a token join
+    // the reload cut off); a stake and token left by another game are not ours to spend
+    var r = AP.readResume(ss, RESUME_KEY);
+    if (!r) return { paid: false };
+    return { paid: true, stake: r.stake, entryToken: null, resumeKey: r.key, lost: r.lost, name: h.name };
   }
 
   // opts: { onLobby(), onSpectate() } -> the card's states (agScreens.createEnd's contract) plus onAgain.
@@ -245,6 +259,6 @@
     };
   }
 
-  root.ChompPaid = { handoff: handoff, createCard: createCard, createLock: createLock, createHold: createHold,
+  root.ChompPaid = { handoff: handoff, LAUNCH_KEY: LAUNCH_KEY, RESUME_KEY: RESUME_KEY, createCard: createCard, createLock: createLock, createHold: createHold,
     WORDS: WORDS, REFUSED: REFUSED, END: END, DROP_MS: DROP_MS, available: !!AP && !!doc };
 })(typeof window !== 'undefined' ? window : this);

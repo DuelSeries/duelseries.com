@@ -148,6 +148,12 @@ class ChompMoney extends AgMoney {
     return this.sim.alive(pid) === true;
   }
 
+  // A hold counts only once the spawn blink is over (review fix): otherwise a fresh seat could hold through its own
+  // 3 s of safety and leave without ever being catchable, which Owen's "caught during the hold drops your coins" rules out.
+  canHold(pid) {
+    return this.sim.alive(pid) === true && this.sim.safe(pid) !== true;
+  }
+
   // The newcomer's tile is clear of every ghost and powered player that could catch it (the room moves it to a clear
   // tile if needed, or says there is none yet).
   _clearToStart(acct) {
@@ -385,6 +391,11 @@ class ChompMoney extends AgMoney {
 
   emergencySettle() {
     const r = super.emergencySettle();
+    return Object.assign({ coins: this.emergencyCoins() }, r);
+  }
+
+  // Every coin back to its dropper (an emergency close, and the directory's retry of a settling room). -> coins settled
+  emergencyCoins() {
     let coins = 0;
     for (const coin of this.bank.pickups()) {
       try {
@@ -394,7 +405,7 @@ class ChompMoney extends AgMoney {
         this.log.error('[CHOMP] EMERGENCY coin ' + coin.pid + ' not settled', e && e.message);
       }
     }
-    return Object.assign({ coins }, r);
+    return coins;
   }
 }
 

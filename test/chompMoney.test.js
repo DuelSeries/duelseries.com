@@ -409,3 +409,23 @@ test('fuzz: paid people and bounty bots play with real ghosts for a long while; 
     assert.strictEqual(w.calls.breach.filter((b) => b.kind !== 'emergency').length, 0, 'no breach');
   }
 });
+
+test('a fresh seat cannot hold through its spawn blink: the count starts only once it can be caught', () => {
+  const w = world();
+  const s = sock('blinker');
+  const acct = w.r.addPaidHuman(s, { name: 'ann', micro: SEED, wallet: 'W-ann', paid: 0.5 });
+  w.r.ready(s.id);
+  const p = w.r.players.get(acct.pid);
+  assert.ok(p.safe > 0, 'blinking');
+  for (let i = 0; i < HOLD + 5; i++) {
+    if (i % 12 === 0) w.r.hold(s.id, true);
+    step(w);
+  }
+  assert.strictEqual(w.calls.cashout.length, 0, 'no cash-out while it was safe');
+  assert.ok(p.safe === 0 && acct.holding, 'counting now');
+  for (let i = 0; i < HOLD; i++) {
+    if (i % 12 === 0) w.r.hold(s.id, true);
+    step(w);
+  }
+  assert.strictEqual(w.calls.cashout.length, 1);
+});

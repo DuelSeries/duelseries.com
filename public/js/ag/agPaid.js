@@ -150,8 +150,9 @@
 
   // What the last unload left (pagehide): { key, stake } for an open seat, { lost: true, stake } for a token join that
   // had no answer yet, or null.
-  function readResume(store) {
-    var raw = storageGet(store, RESUME_KEY);
+  // key: the page's own resume key (Chomp's 'chResume'); none is agar's
+  function readResume(store, key) {
+    var raw = storageGet(store, key || RESUME_KEY);
     if (!raw) return null;
     var v = null;
     try { v = JSON.parse(raw); } catch (e) { v = null; }
@@ -168,14 +169,14 @@
   // seat's resume key (the reload resumes it at the seat's own rung, which a reattach can make differ from the stake
   // the lobby wrote), or the mark of a token join cut off by the reload. A stake with none of these (a hand-off already
   // spent, or the Free rung's stake 0) is the free page.
-  function readHandoff(store, local) {
+  function readHandoff(store, local, resumeKey) {
     var stakeN = Number(storageGet(store, 'stake'));
     var stake = isFinite(stakeN) && stakeN > 0 ? stakeN : 0;
     var token = storageGet(store, 'entryToken');
     token = fieldOk(token) ? token : null;
     var name = String(storageGet(store, 'playerName') || storageGet(local, 'duelseries_playername') || '').trim()
       .slice(0, NAME_MAX);
-    var r = !token && stake > 0 ? readResume(store) : null;
+    var r = !token && stake > 0 ? readResume(store, resumeKey) : null;
     var resumeKey = r && r.key ? r.key : null;
     var lost = !!(r && r.lost);
     if (r && r.stake > 0) stake = r.stake;
@@ -231,6 +232,7 @@
     // Reuse by another game's page (Chomp, public/js/chomp/chompPaid.js): o.game names the game in the lobby's restake
     // and the analytics event, o.text and o.refused reword some lines. Unset, everything is agar's as before.
     var game = typeof o.game === 'string' && o.game ? o.game : 'agar';
+    var RK = typeof o.resumeKey === 'string' && o.resumeKey ? o.resumeKey : RESUME_KEY;
     var T = o.text ? merge(TEXT, o.text) : TEXT;
     var RF = o.refused ? merge(REFUSED, o.refused) : REFUSED;
     var st = {
@@ -263,7 +265,7 @@
     // The key lives in page memory; sessionStorage holds it only between a pagehide and the next boot (see 4 above).
     function clearResume() {
       st.resumeKey = null;
-      storageDel(o.store, RESUME_KEY);
+      storageDel(o.store, RK);
     }
     function pending() { return !!(st.joinToken || st.joinKey); }
 
@@ -274,16 +276,16 @@
     function onPageHide() {
       if (st.token) { storageSet(o.store, 'entryToken', st.token); return; }
       if (st.resumeKey && st.phase !== 'end') {
-        storageSet(o.store, RESUME_KEY, JSON.stringify({ k: st.resumeKey, s: st.stake }));
+        storageSet(o.store, RK, JSON.stringify({ k: st.resumeKey, s: st.stake }));
         return;
       }
-      if (st.joinToken) storageSet(o.store, RESUME_KEY, JSON.stringify({ p: 1, s: st.stake }));
+      if (st.joinToken) storageSet(o.store, RK, JSON.stringify({ p: 1, s: st.stake }));
     }
     // pageshow from the back/forward cache: this page is alive again with its memory, so the copies go.
     function onPageShow(e) {
       if (!e || e.persisted !== true) return;
       if (st.token) storageDel(o.store, 'entryToken');
-      storageDel(o.store, RESUME_KEY);
+      storageDel(o.store, RK);
     }
 
     // ---- joining ----
@@ -568,7 +570,7 @@
     // reload that cut a token join off ends at once with that message and needs no socket (offline()).
     function start() {
       storageDel(o.store, 'entryToken');
-      storageDel(o.store, RESUME_KEY);
+      storageDel(o.store, RK);
       if (st.lost) {
         end('refused', T.lostTitle, T.lost, T.lostLine);
         return;
