@@ -3,8 +3,12 @@
 // kept line for line, the reasons are written there) driven by the sl room's step instead of GameRoom's tick.
 //
 //   waiting     the arena is the free room (crowd border, bots fill it, anyone can join)
-//   countdown   COUNTDOWN_MS after start: nobody new (no bot fill either), the border held where it is
-//   running     the circle (brZone) closes ring by ring; a death is final (no seat while it runs, the owner's too)
+//   countdown   the owner's Start: COUNTDOWN_MS with the doors still OPEN (Owen 2026-10-26: "not until the match
+//               actually starts ... that everything's locked"): anyone may join, hold Q to leave or die and come back;
+//               no bot fill, the border held where it is. The scheduled start has none: its 30 s join window (the
+//               arena waiting, brAutoStart) is its countdown, and at the slot the match goes straight live.
+//   running     the doors shut and who is in is counted (the prize rule); the circle (brZone) closes ring by ring; a
+//               death is final (no seat while it runs, the owner's too), and Q is refused
 //   over        decided: the circle freezes, a human winner gets CASHOUT_DELAY_MS alive, then leaves (cashed out)
 //   reopening   the circle travels back out to the arena; then waiting again
 //
@@ -128,6 +132,17 @@ function createBrMatch(opts) {
     return wallets.size;
   }
 
+  // Who is in, for the prize rule (unchanged, see startMatch): counted when the match goes live, as the doors shut, and
+  // kept current through an open countdown so its HUD and the Events tab promise only what going live would pay.
+  function countIn() {
+    const humans = humanSnakes();
+    m.startedWith = humans.length;
+    m.startedPeople = provenPeople(humans);
+    m.soloRun = m.isSoloRun();
+    m.prizeHeld = !m.soloRun && m.startedPeople < 2;
+    return humans;
+  }
+
   // living human snakes (seated or gliding), as [{ id, name, score }]
   function humanSnakes() {
     const out = [];
@@ -152,6 +167,39 @@ function createBrMatch(opts) {
     if (b && typeof b.hold === 'function') b.hold(on);
   }
 
+  // The doors shut: who is in is counted, a hold Q still running is ended (no leaving once it is fought: a hold
+  // pressed in the countdown would otherwise finish inside the match), the circle begins and the match is in the
+  // journal (a restart from here voids it).
+  function goLive(simMs) {
+    const humans = countIn();
+    for (const h of humans) room.holds.release(h.id, 'match');
+    m.state = 'running';
+    m.startedAt = simMs;
+    m.startedCount = m.livingCount();
+    zone.begin(simMs, room.sim.flux());
+    lastRing = zone.ring();
+    if (journal) {
+      journal.setLive({ matchId: m.matchId, startedAt: new Date(wallNow()).toISOString(), seats: m.startedWith,
+        wallets: m.startedPeople, people: humans.map((h) => (who.get(h.id) || {}).nick || h.name || '') });
+    }
+    log.log('[BR] ' + label + ' match ' + m.matchId + ' is live with ' + m.startedCount + ' snakes, ' + m.startedWith +
+      ' people, arena ' + room.sim.flux());
+  }
+
+  // An open countdown that ends with fewer than MIN_SNAKES on the map (everyone left): no match, the arena waits.
+  function callOff() {
+    log.log('[BR] ' + label + ' match ' + m.matchId + ' called off: ' + m.livingCount() + ' snake(s) left in the countdown');
+    m.state = 'waiting';
+    m.countdownUntil = 0;
+    m.matchId = null;
+    m.startedWith = 0;
+    m.startedPeople = 0;
+    m.soloRun = false;
+    m.prizeHeld = false;
+    zone.clear();
+    holdBorder(false);
+  }
+
   function broadcast(simMs) {
     lastSent = simMs;
     if (room) room._messageAll(m.clientMsg(simMs));
@@ -172,7 +220,8 @@ function createBrMatch(opts) {
     },
     livingCount: () => (room ? room.sim.count() : 0),
     humanLiving: () => humanSnakes().length,
-    acceptingPlayers: () => m.state === 'waiting',
+    // the doors are open until the match goes live (Owen 2026-10-26): through the join window and any countdown
+    acceptingPlayers: () => m.state === 'waiting' || m.state === 'countdown',
     // One snake per person (Owen: a death is out for the match): a wallet that already has a living snake here is
     // refused a second seat (slRoom.refusal 'twice'), so a second tab cannot carry on for someone who died.
     walletBusy(wallet) {
@@ -183,29 +232,30 @@ function createBrMatch(opts) {
       return false;
     },
     canStart: () => m.state === 'waiting' && m.livingCount() >= BRM.MIN_SNAKES,
-    // Q (leaving with the snake) is refused while the match is being fought (the old cashout:start rule)
-    allowsHold: () => m.state !== 'countdown' && m.state !== 'running',
+    // Q (leaving with the snake) is refused only while the match is being fought: the countdown is still open
+    allowsHold: () => m.state !== 'running',
     holdFill: () => m.state !== 'waiting',
     // the room's idle pause would stop the clock mid-match or mid-reopen with nobody able to get in
     canPause: () => m.state === 'waiting',
     // the PRIZE rule (unchanged): a match that started with one person (seat) or none pays nothing
     isSoloRun: () => m.startedWith <= 1,
 
-    startMatch(reason) {
+    // opts.countdownMs: the open countdown before it goes live (default COUNTDOWN_MS, the owner's Start); 0 goes live
+    // now (the scheduled start: its join window was the countdown).
+    startMatch(reason, opts) {
       if (!m.canStart()) return false;
       const now = simNow();
+      const wait = opts && Number.isFinite(opts.countdownMs) && opts.countdownMs >= 0 ? opts.countdownMs
+        : BRM.COUNTDOWN_MS;
       m.state = 'countdown';
-      m.countdownUntil = now + BRM.COUNTDOWN_MS;
-      const humans = humanSnakes();
-      m.startedWith = humans.length;
+      m.countdownUntil = now + wait;
       m.startedCount = 0;
-      m.startedPeople = provenPeople(humans);
-      // Known from the start, so nothing on screen promises a prize that will not be paid. The PRIZE rule counts
-      // different PEOPLE: distinct wallets their sockets proved. Two tabs (or a script socket) of one person are one
-      // person, so a two-seat match of one wallet is held, not paid (review 2026-10-15), and Owen is told to settle
-      // a real match whose players could not all prove a wallet (payBattleRoyaleWinner).
-      m.soloRun = m.isSoloRun();
-      m.prizeHeld = !m.soloRun && m.startedPeople < 2;
+      // Known from the start, so nothing on screen promises a prize that will not be paid, and counted again as it
+      // goes live (countIn), when the doors shut. The PRIZE rule counts different PEOPLE: distinct wallets their
+      // sockets proved. Two tabs (or a script socket) of one person are one person, so a two-seat match of one wallet
+      // is held, not paid (review 2026-10-15), and Owen is told to settle a real match whose players could not all
+      // prove a wallet (payBattleRoyaleWinner).
+      countIn();
       m._fallen = [];
       m.podium = null;
       m.matchId = 'br_' + wallNow().toString(36);
@@ -219,13 +269,10 @@ function createBrMatch(opts) {
       // A room with nobody in it may be in its idle pause (the slot timer can start a match of bots alone): the match
       // must run to its end with nobody watching, or the arena would sit in 'countdown' with its doors shut.
       if (room && typeof room.start === 'function') room.start();
+      log.log('[BR] ' + label + ' match ' + m.matchId + ' counting down ' + Math.round(wait / 1000) + ' s (' +
+        (reason || 'manual') + ') with ' + m.livingCount() + ' snakes, ' + m.startedWith + ' people');
+      if (wait === 0) goLive(now);
       broadcast(now);
-      if (journal) {
-        journal.setLive({ matchId: m.matchId, startedAt: new Date(wallNow()).toISOString(), seats: m.startedWith,
-          wallets: m.startedPeople, people: humans.map((h) => (who.get(h.id) || {}).nick || h.name || '') });
-      }
-      log.log('[BR] ' + label + ' match ' + m.matchId + ' counting down (' + (reason || 'manual') + ') with ' +
-        m.livingCount() + ' snakes, ' + m.startedWith + ' people');
       return true;
     },
 
@@ -237,7 +284,8 @@ function createBrMatch(opts) {
     // why: 'owner' for the owner's own stop (no push); anything else (a room replacement) tells onVoided
     abandon(why) {
       if (m.state === 'waiting') return false;
-      const live = m.state === 'countdown' || m.state === 'running';
+      // only a match that went live is in the journal and is "cut off": an open countdown locked nobody in
+      const live = m.state === 'running';
       const was = { matchId: m.matchId, seats: m.startedWith, wallets: m.startedPeople, why: why || 'abandoned' };
       const now = simNow();
       m.state = 'waiting';
@@ -265,9 +313,9 @@ function createBrMatch(opts) {
 
     // once per step, after the step's deaths were handled and before they leave room.humans
     afterDeaths(frame, deaths, simMs) {
-      // a person out in the countdown is out of the match too (they were in it when it started); bots are kept as well,
-      // for the podium (the last three snakes, people or bots: a bot that outlasted you placed above you)
-      if (m.state === 'running' || m.state === 'countdown') {
+      // a death in the match, people and bots, for the podium (the last three snakes: a bot that outlasted you placed
+      // above you). A death in the open countdown is not in the match, which has not begun (they may join again).
+      if (m.state === 'running') {
         for (let i = 0; i < deaths.length; i++) {
           const id = deaths[i].id;
           const w = room.humans.has(id) ? who.get(id) : null;
@@ -278,13 +326,11 @@ function createBrMatch(opts) {
       }
       let changed = false;
       if (m.state === 'countdown' && simMs >= m.countdownUntil) {
-        m.state = 'running';
-        m.startedAt = simMs;
-        m.startedCount = m.livingCount();
-        zone.begin(simMs, room.sim.flux());
-        lastRing = zone.ring();
+        if (m.livingCount() < BRM.MIN_SNAKES) callOff();
+        else goLive(simMs);
         changed = true;
-        log.log('[BR] ' + label + ' match ' + m.matchId + ' is live, arena ' + room.sim.flux());
+      } else if (m.state === 'countdown') {
+        countIn(); // people join and leave through it
       } else if (m.state === 'running') {
         if (zone.update(simMs)) changed = true;
         if (m._checkWinner(simMs)) changed = true;
@@ -421,6 +467,8 @@ function createBrMatch(opts) {
         startedCount: m.state === 'waiting' ? 0 : m.startedCount || 0,
         cashoutMs: m.state === 'over' ? Math.max(0, m.cashoutAt - now) : 0,
         cashoutTotalMs: BRM.CASHOUT_DELAY_MS,
+        // the scheduled start's join window (the arena waiting, doors open): the HUD counts it down (slxBr.js)
+        joinWindowMs: C.BR_JOIN_WINDOW_MS,
         nextStartMs: msUntilNextStart(wallNow()),
         reopenPct: m.state === 'reopening' && zone.get() ? Math.max(0, Math.min(1, zone.get().r / zone.arena())) : 0,
         winner: past ? (past.winner ? { name: past.winner, id: null } : null)

@@ -1577,7 +1577,10 @@ class SlRoom {
 
     // 6 holds that completed (a death of this step already took its snake out: the death wins); a paid cash-out is
     // money first (M4), then the step's money end (M5: collusion, orphans, the checker), before the next sim step
-    const done = this.holds.complete(sim, simMs);
+    // A battle royale that went live in this step (afterDeaths) has just counted who is in and let go of every hold:
+    // none completes after that, or a person counted for the prize would leave the match at its first step (review
+    // 2026-10-26). The released holds end at the next step's 2.
+    const done = this.br && !this.br.allowsHold() ? [] : this.holds.complete(sim, simMs);
     for (let i = 0; i < done.length; i++) this._cashOut(done[i], frame, simMs);
     if (this.money) this.money.endStep();
     this._pruneFreed(simMs);

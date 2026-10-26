@@ -2,6 +2,17 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-10-26-br-join-until-start",
+      "date": "2026-10-26",
+      "tag": "event",
+      "title": "Battle royale: join or leave until the timer hits 0",
+      "body": "When the 30 second call for the battle royale goes out, the doors stay open the whole time. You can jump in at the last second, and anyone already in can leave with Q (or CASH OUT on a phone) right up to the end of the countdown.\n\nThe moment the timer hits 0 the match starts with everyone inside, and from then on it is one life, last snake alive.",
+      "image": {
+        "src": "/updates/br-join-until-start.webp",
+        "alt": "The battle royale counting down, Starting in 21 and hold Q to leave at the top of the screen"
+      }
+    },
+    {
       "id": "2026-10-26-add-from-phantom",
       "date": "2026-10-26",
       "tag": "new",

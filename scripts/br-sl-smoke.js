@@ -10,7 +10,9 @@
      3. a second Start while it runs is refused out loud (one at a time), on
         both doors (/api/owner/do and the socket br:start)
      4. maintenance:check says a live battle royale is not safe to restart
-     5. the match in flight is in the journal; a hard kill and a reboot void it
+     5. the Start's countdown keeps the doors open (Owen 2026-10-26) and
+        nothing is in the journal until it goes live; then the doors shut, the
+        match in flight is in the journal, and a hard kill and a reboot void it
         (logged, pushed) and clear it
      6. the owner's own Stop voids nothing behind his back (no restart push)
      BR_SMOKE_FULL=1 also plays a whole bots-only match out (about 4 minutes). */
@@ -98,6 +100,9 @@ const readJournal = () => { try { return JSON.parse(fs.readFileSync(JOURNAL, 'ut
     check(s1.status === 200 && /Started with 0 player\(s\) and \d+ bot\(s\)/.test(s1.j.note), 'owner Start with bots alone: ' + (s1.j && (s1.j.note || s1.j.error)));
     const s2 = await json('/api/owner/do', proofFor('br:start', {}));
     check(s2.status === 409 && /already running/.test(s2.j.error), 'a second Start is refused: ' + (s2.j && s2.j.error));
+    const b1 = await live();
+    check(b1 && b1.state === 'countdown' && b1.joinable === true, 'the countdown keeps the doors open: ' + (b1 && b1.state));
+    check(!(readJournal() || {}).live, 'nothing in the journal until it goes live');
 
     const sock = io(BASE, { transports: ['websocket'], forceNew: true });
     await until(() => sock.connected, 5000, 'the socket');
@@ -115,10 +120,11 @@ const readJournal = () => { try { return JSON.parse(fs.readFileSync(JOURNAL, 'ut
     const mc = await json('/api/owner/do', proofFor('maintenance:check', {}));
     check(mc.status === 409 && /battle royale match is live/.test(mc.j.error), 'maintenance:check: ' + (mc.j && mc.j.error));
 
+    const b2 = await until(async () => { const b = await live(); return b && b.state === 'running' && b; }, 20000,
+      'the match to go live');
+    check(b2 && b2.joinable === false, 'doors shut at 0: ' + (b2 && b2.state));
     const j1 = readJournal();
     check(!!(j1 && j1.live && j1.live.matchId), 'the match in flight is in the journal');
-    const b2 = await live();
-    check(b2 && (b2.state === 'countdown' || b2.state === 'running') && b2.joinable === false, 'doors shut: ' + (b2 && b2.state));
 
     srv.kill('SIGKILL');
     await wait(800);

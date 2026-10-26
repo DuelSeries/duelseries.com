@@ -66,6 +66,9 @@
   var owner = false; // the server said this seat is the owner's
   var myId = 0; // the own snake's id this life (the winner check)
   var lastMyId = 0;
+  // This page's own life was alive in the match as it went live (a running sl:x reached its socket): a life that
+  // ended before the doors shut (Q or a death in the join window or countdown) was never in it (Owen 2026-10-26).
+  var inMatch = false;
   var watching = null; // { id, name } while watching
   var after = 0; // the id the next watcher life asks to follow after (Next)
   var before = 0; // the id it asks to follow before (Previous)
@@ -156,6 +159,7 @@
       if (mode !== 'watch') {
         lastMyId = ev.id;
         seenResult = false; // a new life of their own: the last match's result is not this life's card
+        inMatch = false;
       }
     }
   });
@@ -169,6 +173,7 @@
     st = m;
     stAt = now();
     noteResult();
+    if (mode !== 'watch' && m.state === 'running' && myId && myId === lastMyId) inMatch = true;
     // A watcher following a bot that won: the bot stays in the arena (no cash-out for a bot), so their life would
     // never end and the result card never come. The match closing ends it from here, as Next does.
     if (mode === 'watch' && was === 'over' && m.state === 'reopening' && m.winner && m.winner.bot &&
@@ -432,6 +437,25 @@
     return (from >= alive && from > 0 ? alive + ' of ' + from : alive) + ' left';
   }
 
+  // Seconds left in the scheduled start's join window (the arena waiting, doors open, Owen 2026-10-26), else 0.
+  // joinMs: the ms left, down to -GAP_MS once it reached 0 with the arena still waiting (nextStartMs is whole seconds,
+  // so this page's zero can be a second early, and the server starts on its next 1 s tick), else null.
+  var GAP_MS = 3000;
+  function joinMs() {
+    if (!st || st.state !== 'waiting' || !(st.joinWindowMs > 0) || !(st.nextStartMs > 0)) return null;
+    var left = st.nextStartMs - (now() - stAt);
+    return left > -GAP_MS && left <= st.joinWindowMs ? left : null;
+  }
+  function joinLeft() {
+    var left = joinMs();
+    return left !== null && left > 0 ? Math.ceil(left / 1000) : 0;
+  }
+  // The doors stay open until the match goes live: a player is told how to leave, a watcher that they can join.
+  function openWords() {
+    if (mode === 'watch') return 'last snake alive wins';
+    return S && S.is_mobile ? 'hold CASH OUT to leave' : 'hold Q to leave';
+  }
+
   // -> { head, sub, now }: now is a moment (the countdown, GO, the winner), drawn bigger while this page is live
   function hudText() {
     var phase = st.phase || st.state;
@@ -443,7 +467,8 @@
       var n = secsLeft(st.countdownMs || 0);
       head = n > 0 ? 'Starting in ' + n : 'GO';
       moment = true;
-      sub = players(st.alive || 0) + ' · last snake alive wins' + (st.prize > 0 ? ' ' + PRIZE_WORDS : '');
+      sub = players(st.alive || 0) + ' · ' + (n > 0 ? openWords() : 'last snake alive wins') +
+        (st.prize > 0 ? ' · ' + PRIZE_WORDS + ' to the winner' : '');
     } else if (st.state === 'running') {
       if (now() - stAt < 1200 && st.elapsedMs < 1500) {
         head = 'GO';
@@ -459,6 +484,11 @@
       sub = st.soloRun ? (w ? w.name + ' lasted the whole match' : 'The circle won')
         : !w ? 'Nobody survived'
           : moment ? 'Last snake alive' + (st.startedCount > 1 ? ' of ' + st.startedCount : '') : w.name + ' won';
+    } else if (joinMs() !== null) {
+      var j = joinLeft();
+      head = j > 0 ? 'Starting in ' + j : 'Starting';
+      moment = j <= 10;
+      sub = players(st.alive || 0) + ' · ' + (j > 0 ? openWords() : 'last snake alive wins');
     } else {
       sub = players(st.alive || 0) + ' · next match in ' + clock(st.nextStartMs || 0);
     }
@@ -536,8 +566,13 @@
 
   // ---- 4. the card
 
+  // the match is being fought: the doors are shut and Q is refused. A countdown is not (its doors are open).
   function running() {
-    return !!st && (st.state === 'countdown' || st.state === 'running');
+    return !!st && st.state === 'running';
+  }
+  // a match under way, its countdown too: what a watcher follows (they watch the countdown as they did)
+  function underWay() {
+    return running() || (!!st && st.state === 'countdown');
   }
   // The result stays up after the arena reopens, until the next match counts down (Owen 2026-10-16: the winner and
   // everyone else see the result; it used to vanish 7.5 s after the decision). Set by a decided state this page saw,
@@ -563,6 +598,8 @@
     return out;
   }
   function nextLine() {
+    if (st && (st.state === 'countdown' || joinLeft() > 0)) return 'The doors are open: play now to join this match.';
+    if (joinMs() !== null) return 'The match is starting.';
     return 'Next battle royale starts in ' + clock((st && st.nextStartMs) || 0);
   }
 
@@ -588,7 +625,7 @@
     lastKind = String(kind || '');
     var end = kind === 'dead' || kind === 'cashed';
     if (!st && kind !== 'match' && kind !== 'nobody') return null;
-    if (kind === 'match' && (!st || running() || decided())) {
+    if (kind === 'match') {
       return { title: 'Match under way', lines: [st ? st.alive + ' still alive. Spectate it, or wait for the next.'
         : 'Spectate it, or wait for the next.'], again: 'Spectate' };
     }
@@ -618,7 +655,16 @@
       else if (st.prize > 0) lines.push('First place took ' + PRIZE_WORDS + '.');
       return view;
     }
+    if (mode === 'watch' && st.state === 'countdown') {
+      return { title: 'Watching', lines: [(watching && watching.name ? watching.name + ' is out. ' : '') +
+        st.alive + ' in the arena.'], again: 'Spectate next', spectate: false };
+    }
     if (running()) {
+      // a life that ended before the doors shut (they left or died in the window or countdown) was never in it
+      if (mode !== 'watch' && !inMatch) {
+        return { title: 'Match under way', lines: [st.alive + ' still alive. Spectate it, or wait for the next.'],
+          again: 'Spectate' };
+      }
       if (mode === 'watch') {
         return { title: 'Watching', lines: [(watching && watching.name ? watching.name + ' is out. ' : '') +
           st.alive + ' still alive.'], again: 'Spectate next', spectate: false };
@@ -640,8 +686,8 @@
     // (Join next): play
     var reopened = !!st && st.state === 'waiting' && decided();
     // a 'match' or 'twice' refusal, a running or finishing match, a watcher with nothing known: watch
-    if (lastKind !== 'nobody' && lastKind !== 'twice' && !reopened && ((lastKind === 'match' && !st) || running() ||
-      (st && (st.state === 'over' || st.state === 'reopening')) || (!st && mode === 'watch'))) {
+    if (lastKind !== 'nobody' && lastKind !== 'twice' && !reopened && (lastKind === 'match' || running() ||
+      (st && (st.state === 'over' || st.state === 'reopening')) || (mode === 'watch' && (!st || underWay())))) {
       mode = 'watch';
       after = 0;
       before = 0;
@@ -667,9 +713,9 @@
 
   // A watcher whose snake ended and whose quick start did not run (their menu came first): the card's Watch next.
   slx.on('menuShow', function () {
-    if (mode !== 'watch' || !running()) return;
+    if (mode !== 'watch' || !underWay()) return;
     root.setTimeout(function () {
-      if (mode === 'watch' && running() && slx.card && typeof slx.card.playAgain === 'function') slx.card.playAgain();
+      if (mode === 'watch' && underWay() && slx.card && typeof slx.card.playAgain === 'function') slx.card.playAgain();
     }, 900);
   });
 
@@ -891,6 +937,8 @@
       next.nextStartMs = isFinite(secs) ? secs * 1000 : (st && st.nextStartMs) || 0;
       next.prize = typeof b.prize === 'number' ? b.prize : 0;
       next.soloRun = b.soloRun === true;
+      next.joinWindowMs = (b.joinWindowSec || 0) * 1000;
+      next.elapsedMs = b.state === 'running' ? Infinity : 0;
       next.zoneMs = 0; // the wall's countdown comes with the socket's messages only
       next.z = null;
       st = next;

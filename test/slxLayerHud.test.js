@@ -863,8 +863,22 @@ test('slxBr: every event line in one block at the top centre, in the slot slxHud
   assert.ok(/slx-br-phone/.test(hud.className), 'a phone page of its own');
   P.slx.hud.phone = () => false;
   P.raf(1);
+  // the scheduled start's 30 s join window (Owen 2026-10-26): counted down with the doors open, big for its last 10 s,
+  // and held at Starting through the second or two until the server's start arrives
+  br({ state: 'waiting', phase: 'waiting', alive: 30, nextStartMs: 21400, joinWindowMs: 30000 });
+  assert.deepStrictEqual([head.textContent, sub.textContent], ['Starting in 22', '30 players · hold Q to leave']);
+  assert.ok(!/slx-br-now/.test(hud.className), 'not the big moment yet');
+  br({ state: 'waiting', phase: 'waiting', alive: 30, nextStartMs: 8200, joinWindowMs: 30000 });
+  assert.strictEqual(head.textContent, 'Starting in 9');
+  assert.ok(/slx-br-now/.test(hud.className), 'its last 10 s are');
+  P.raf(600, 16);
+  assert.deepStrictEqual([head.textContent, sub.textContent], ['Starting', '30 players · last snake alive wins']);
+  P.raf(200, 16);
+  assert.deepStrictEqual([head.textContent, sub.textContent], ['Battle Royale', '30 players · next match in 0m 0s'],
+    'a start that never came is not held forever');
+  // the owner's countdown: the doors are open through it too
   br({ state: 'countdown', phase: 'countdown', alive: 12, countdownMs: 7000, prize: 20 });
-  assert.deepStrictEqual([head.textContent, sub.textContent], ['Starting in 7', '12 players · last snake alive wins $20']);
+  assert.deepStrictEqual([head.textContent, sub.textContent], ['Starting in 7', '12 players · hold Q to leave · $20 to the winner']);
   assert.ok(/slx-br-now/.test(hud.className), 'the count is the big moment');
   br({ state: 'running', phase: 'warning', alive: 12, startedCount: 12, elapsedMs: 100, zoneMs: 9000 });
   assert.strictEqual(head.textContent, 'GO');

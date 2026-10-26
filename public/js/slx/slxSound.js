@@ -256,15 +256,20 @@
     var state = typeof m.state === 'string' ? m.state : '';
     var phase = typeof m.phase === 'string' ? m.phase : '';
     var left = typeof m.countdownMs === 'number' && m.countdownMs > 0 ? m.countdownMs : 0;
+    // the scheduled start's join window is its countdown (it goes straight live at the slot, Owen 2026-10-26)
+    var join = state === 'waiting' && m.joinWindowMs > 0 && m.nextStartMs > 0 && m.nextStartMs <= m.joinWindowMs
+      ? m.nextStartMs : 0;
     if (state === 'countdown') {
       count(left);
+    } else if (join) {
+      count(join);
     } else {
       clearCount();
       tickedK = COUNT_SECS + 1;
     }
     // the first message of a socket is the baseline: joining a match that is on is not its start
     if (brState !== null) {
-      if (brState === 'countdown' && state === 'running') play('g.go');
+      if ((brState === 'countdown' || brState === 'waiting') && state === 'running') play('g.go');
       if (state === 'running' && phase !== brPhase) {
         if (phase === 'warning') play('g.warn');
         else if (phase === 'closing') play('g.danger');

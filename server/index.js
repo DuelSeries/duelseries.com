@@ -3982,7 +3982,10 @@ setInterval(() => {
   const d = brAutoStart.decide(a);
   if (d.act === 'none' || d.act === 'wait') return;
   if (d.markDay) brJournal.setAutoDay(d.slot);
-  if (d.act === 'start') room.startMatch(d.why);
+  /* Straight live at the slot (Owen 2026-10-26): the 30 s join window, doors open, was
+     its countdown, and the doors shut only now. The old engine keeps its own
+     countdown (it takes no second argument). */
+  if (d.act === 'start') room.startMatch(d.why, { countdownMs: 0 });
   else console.log('[BR] ' + d.slot + ' slot: ' + d.why + ', skipped');
 }, 1000);
 

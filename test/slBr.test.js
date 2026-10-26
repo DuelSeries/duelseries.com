@@ -31,7 +31,8 @@ function makeBr(o) {
   const ft = fakeTimers(1000);
   const decided = [];
   const match = createBrMatch({ laws: LAWS, log: quiet, rand: seeded(opts.seed || 5), now: () => 1.7e12,
-    onDecided: (m) => decided.push(JSON.parse(JSON.stringify(m.winner))), lastStore: opts.lastStore });
+    onDecided: (m) => decided.push(JSON.parse(JSON.stringify(m.winner))), lastStore: opts.lastStore,
+    journal: opts.journal, onVoided: opts.onVoided });
   const room = new SlRoom(LAWS, Object.assign({ seed: 7, view: opts.realView ? undefined : fakeView(), br: match,
     clock: ft.clock, timers: ft.timers, autoTick: false, shippableOnly: false, prey: false, now: () => 1.7e12,
     log: quiet }, opts.room));
@@ -243,7 +244,7 @@ test('brBorder: the crowd border, held where it is while a match runs and releas
 // ---------------------------------------------------------------------------------------------------------------
 // the match through a real room
 
-test('a solo run: one person and bots; the door shuts at start, Q is refused, the last bot dies and they win (no prize flag)', () => {
+test('a solo run: one person and bots; the door shuts as it goes live, Q is refused, the last bot dies and they win (no prize flag)', () => {
   const { ft, room, match, decided } = makeBr();
   const me = human(room, 'Owen', 'W1');
   const bots = [room.spawnSnake({ nick: 'b1', cv: 2, isBot: true }), room.spawnSnake({ nick: 'b2', cv: 3, isBot: true })];
@@ -253,11 +254,12 @@ test('a solo run: one person and bots; the door shuts at start, Q is refused, th
   assert.strictEqual(match.startMatch('test'), true);
   assert.strictEqual(match.state, 'countdown');
   assert.strictEqual(match.startMatch('again'), false, 'one match at a time');
+  assert.strictEqual(room.refusal(), null, 'the countdown keeps the door open');
+  run(ft, room, BRM.COUNTDOWN_MS + 200);
+  assert.strictEqual(match.state, 'running');
   assert.strictEqual(room.seat(bareSocket(), { nick: 'late', cv: 1 }), null);
   assert.strictEqual(room.refusal(), 'match');
   assert.strictEqual(room.onHold(me.seat, true), false, 'no Q while the match is fought');
-  run(ft, room, BRM.COUNTDOWN_MS + 200);
-  assert.strictEqual(match.state, 'running');
   assert.ok(room.sim.zoneNow(), 'the circle is live');
   assert.strictEqual(match.publicState().startedWith, 1);
   assert.strictEqual(match.publicState().startedCount, 3, 'every snake alive at the start, bots too (the HUD: 3 of 3 left)');
@@ -399,6 +401,189 @@ test('abandon in the countdown or the match releases the circle and the border a
   assert.strictEqual(room.sim.zoneNow(), null);
   assert.strictEqual(room.refusal(), null);
   assert.strictEqual(match.abandon(), false, 'nothing to stop');
+});
+
+// Owen 2026-10-26: "not until the match actually starts after the 30-second timer has gone off that everything's
+// locked". The doors stay open through a countdown and shut as the match goes live.
+function journalFake() {
+  const rows = [];
+  return { rows, setLive: (r) => rows.push(r) };
+}
+function cashedOut(sock) {
+  return layer(sock).some((m) => m.t === 'cashed');
+}
+
+test('the countdown keeps the doors open: a join is in the match, Q leaves, a death there comes back; at 0 it all locks', () => {
+  const j = journalFake();
+  const { ft, room, match } = makeBr({ journal: j });
+  const ann = human(room, 'Ann', 'WA');
+  const quinn = human(room, 'Quinn', 'WQ');
+  const fay = human(room, 'Fay', 'WF');
+  room.spawnSnake({ nick: 'b1', cv: 2, isBot: true });
+  room.spawnSnake({ nick: 'b2', cv: 2, isBot: true });
+  assert.strictEqual(match.startMatch('owner'), true);
+  assert.strictEqual(match.state, 'countdown');
+  assert.strictEqual(match.acceptingPlayers(), true);
+  assert.strictEqual(match.allowsHold(), true);
+  assert.strictEqual(j.rows.length, 0, 'nothing is locked in yet: no journal row');
+  run(ft, room, 1000);
+  // a join in the middle of the countdown is seated and counted
+  const lee = human(room, 'Lee', 'WL');
+  run(ft, room, 200);
+  assert.strictEqual(match.publicState().startedWith, 4, 'the count follows the joins');
+  // Q in the countdown leaves the arena as a cash-out does
+  assert.strictEqual(room.onHold(quinn.seat, true), true, 'Q works in the countdown');
+  run(ft, room, room.R.holdMs + 300);
+  assert.ok(!room.sim.snake(quinn.id), 'Quinn left');
+  assert.ok(cashedOut(quinn.sock), 'their card');
+  // a death in the countdown is not out of the match: their wallet may sit down again
+  room.sim.kill(fay.id);
+  run(ft, room, 200);
+  assert.strictEqual(room.refusal({ wallet: 'WF' }), null);
+  const fay2 = human(room, 'Fay', 'WF');
+  assert.strictEqual(match.state, 'countdown', 'still counting down');
+  run(ft, room, BRM.COUNTDOWN_MS);
+  assert.strictEqual(match.state, 'running');
+  const st = match.publicState();
+  assert.strictEqual(st.startedWith, 3, 'Ann, Lee and Fay again: Quinn left before 0');
+  assert.strictEqual(match.startedPeople, 3);
+  assert.strictEqual(match.prizeHeld, false);
+  assert.strictEqual(st.prize, 20);
+  assert.strictEqual(j.rows.length, 1, 'the journal row is written as it goes live');
+  assert.deepStrictEqual([j.rows[0].seats, j.rows[0].wallets], [3, 3]);
+  assert.deepStrictEqual(match._fallen, [], 'a death in the countdown is not on the podium');
+  // from 0: no joins, no Q
+  assert.strictEqual(room.refusal({ wallet: 'WZ' }), 'match');
+  assert.strictEqual(room.seat(bareSocket(), { nick: 'Zed', cv: 1, wallet: 'WZ' }), null);
+  assert.strictEqual(room.onHold(ann.seat, true), false);
+  assert.strictEqual(room.onHold(lee.seat, true), false);
+  assert.ok(room.sim.snake(fay2.id), 'Fay plays the match');
+});
+
+test('a hold pressed in the countdown ends as the match goes live: nobody leaves after 0', () => {
+  const { ft, room, match } = makeBr();
+  const ann = human(room, 'Ann', 'WA');
+  const ben = human(room, 'Ben', 'WB');
+  room.spawnSnake({ nick: 'b1', cv: 2, isBot: true });
+  match.startMatch('owner');
+  run(ft, room, BRM.COUNTDOWN_MS - 400);
+  assert.strictEqual(room.onHold(ben.seat, true), true);
+  run(ft, room, 400 + room.R.holdMs + 500);
+  assert.strictEqual(match.state, 'running');
+  assert.ok(room.sim.snake(ben.id), 'Ben is still in the match');
+  assert.ok(!cashedOut(ben.sock), 'no cash-out card after 0');
+  assert.ok(layer(ben.sock).some((m) => m.t === 'hold' && m.on === 0 && m.id === ben.id), 'their ring ended');
+  assert.strictEqual(match.startedWith, 2);
+  assert.ok(room.sim.snake(ann.id));
+});
+
+test('a hold that would finish on the very step it goes live: counted and in the match, or gone and not counted, never both', () => {
+  // review 2026-10-26: the countdown ends inside the step (afterDeaths), and holds complete later in that same step
+  const steps = Math.round(BRM.COUNTDOWN_MS / P);
+  let crossed = 0;
+  for (let k = -4; k <= 4; k++) {
+    const j = journalFake();
+    const { ft, room, match } = makeBr({ journal: j });
+    human(room, 'Ann', 'WA');
+    const ben = human(room, 'Ben', 'WB');
+    room.spawnSnake({ nick: 'b1', cv: 2, isBot: true });
+    match.startMatch('owner');
+    // pressed so the hold's time is up within a step or so of the countdown's end
+    const pressAt = steps - Math.ceil(room.R.holdMs / P) + k;
+    for (let i = 0; i < steps + Math.ceil(room.R.holdMs / P) + 10; i++) {
+      if (i === pressAt) assert.strictEqual(room.onHold(ben.seat, true), true);
+      run(ft, room, P); // one step, the seats steered (and heard: a hold with no upstream ends)
+    }
+    assert.strictEqual(match.state, 'running');
+    const gone = !room.sim.snake(ben.id);
+    const counted = j.rows[0].seats === 2;
+    assert.strictEqual(gone, cashedOut(ben.sock), 'gone only by the cash-out');
+    assert.notStrictEqual(gone, counted, 'offset ' + k + ': gone ' + gone + ', counted ' + counted);
+    assert.strictEqual(match.startedWith, counted ? 2 : 1);
+    assert.strictEqual(match.prizeHeld, false);
+    assert.strictEqual(match.soloRun, !counted, 'one person left in it is a solo run');
+    if (counted) crossed++;
+  }
+  assert.ok(crossed > 0 && crossed < 9, 'the sweep crossed the boundary (' + crossed + ' of 9 stayed in)');
+});
+
+test('the prize counts who is in as it goes live: a second wallet joining in the countdown, or the only other leaving', () => {
+  // one proven wallet at the start, a second joins in the countdown: a real match
+  const a = makeBr();
+  human(a.room, 'Ann', 'WA');
+  a.room.spawnSnake({ nick: 'b1', cv: 2, isBot: true });
+  a.match.startMatch('owner');
+  assert.strictEqual(a.match.soloRun, true, 'one person so far');
+  assert.strictEqual(a.match.publicState().prize, 0);
+  run(a.ft, a.room, 2000);
+  human(a.room, 'Ben', 'WB');
+  run(a.ft, a.room, BRM.COUNTDOWN_MS);
+  assert.strictEqual(a.match.state, 'running');
+  assert.strictEqual(a.match.soloRun, false);
+  assert.strictEqual(a.match.prizeHeld, false);
+  assert.strictEqual(a.match.publicState().prize, 20);
+  // two wallets at the start, one cashes out in the countdown: a solo run, nothing promised
+  const b = makeBr();
+  human(b.room, 'Ann', 'WA');
+  const ben = human(b.room, 'Ben', 'WB');
+  b.room.spawnSnake({ nick: 'b1', cv: 2, isBot: true });
+  b.match.startMatch('owner');
+  assert.strictEqual(b.match.publicState().prize, 20);
+  assert.strictEqual(b.room.onHold(ben.seat, true), true);
+  run(b.ft, b.room, BRM.COUNTDOWN_MS + 200);
+  assert.strictEqual(b.match.state, 'running');
+  assert.ok(cashedOut(ben.sock));
+  assert.strictEqual(b.match.soloRun, true);
+  assert.strictEqual(b.match.publicState().prize, 0);
+  // and two seats of one wallet (one proven, one not) still hold it
+  const c = makeBr();
+  human(c.room, 'Ann', 'WA');
+  c.room.spawnSnake({ nick: 'b1', cv: 2, isBot: true });
+  c.match.startMatch('owner');
+  human(c.room, 'Script', null);
+  run(c.ft, c.room, BRM.COUNTDOWN_MS + 200);
+  assert.strictEqual(c.match.soloRun, false);
+  assert.strictEqual(c.match.prizeHeld, true);
+  assert.strictEqual(c.match.publicState().prize, 0);
+});
+
+test('the scheduled start goes straight live; a countdown that empties is called off; abandoning a countdown voids nothing', () => {
+  const j = journalFake();
+  const voided = [];
+  const { ft, room, match } = makeBr({ journal: j, onVoided: (w) => voided.push(w) });
+  const ann = human(room, 'Ann', 'WA');
+  const bot = room.spawnSnake({ nick: 'b1', cv: 2, isBot: true });
+  // the owner's countdown, emptied: Ann leaves and the bot dies, so there is nobody to outlast at 0
+  assert.strictEqual(match.startMatch('owner'), true);
+  assert.strictEqual(room.onHold(ann.seat, true), true);
+  run(ft, room, room.R.holdMs + 300);
+  room.sim.kill(bot.id);
+  run(ft, room, BRM.COUNTDOWN_MS);
+  assert.strictEqual(match.state, 'waiting', 'called off');
+  assert.strictEqual(match.matchId, null);
+  assert.strictEqual(room.sim.zoneNow(), null);
+  assert.strictEqual(room.sim.border.held(), false);
+  assert.strictEqual(j.rows.length, 0);
+  // a countdown abandoned (a room replacement): nobody was locked in, so no void push and no journal row
+  human(room, 'Ben', 'WB');
+  room.spawnSnake({ nick: 'b2', cv: 2, isBot: true });
+  run(ft, room, 200);
+  assert.strictEqual(match.startMatch('owner'), true);
+  assert.strictEqual(match.abandon('the room was replaced'), true);
+  assert.deepStrictEqual(voided, []);
+  assert.strictEqual(j.rows.length, 0);
+  // the scheduled start: straight live, the doors shut at once, the journal row written
+  assert.strictEqual(match.startMatch('auto 20:00 ET', { countdownMs: 0 }), true);
+  assert.strictEqual(match.state, 'running');
+  assert.ok(room.sim.zoneNow(), 'the circle is live');
+  assert.strictEqual(room.refusal({ wallet: 'WC' }), 'match');
+  assert.strictEqual(match.allowsHold(), false);
+  assert.strictEqual(j.rows.length, 1);
+  assert.strictEqual(j.rows[0].seats, 1);
+  // a match that went live and is cut off is voided as before
+  assert.strictEqual(match.abandon('the room was replaced'), true);
+  assert.strictEqual(voided.length, 1);
+  assert.strictEqual(j.rows[j.rows.length - 1], null, 'its journal row cleared');
 });
 
 test('forceStart is a plain start now: refused mid-match and with fewer than two snakes in the arena', () => {
@@ -586,7 +771,19 @@ test('setBr: once a match is under way a join is refused match; a watcher is sea
   const a = r.sock({ auth: { br: 1 } });
   a.fire('sl:join', { nick: 'Ann' });
   const b1 = r.br.room().spawnSnake({ nick: 'b1', cv: 2, isBot: true });
+  // the owner's countdown keeps the door open: a join then is seated
   assert.strictEqual(r.br.match.startMatch('test'), true);
+  const early = r.sock({ auth: { br: 1 } });
+  early.fire('sl:join', { nick: 'Early' });
+  assert.ok(r.br.room().seatOf(early.id), 'seated in the countdown');
+  const eId = r.br.room().seatOf(early.id).snakeId;
+  early.fire('sl:leave');
+  early.fire('disconnect', 'client namespace disconnect');
+  r.br.room().sim.kill(eId);
+  r.br.match.abandon('owner');
+  // a match that went live shuts it
+  assert.strictEqual(r.br.match.startMatch('test', { countdownMs: 0 }), true);
+  assert.strictEqual(r.br.match.state, 'running');
   const late = r.sock({ auth: { br: 1 } });
   late.fire('sl:join', { nick: 'Late' });
   refusedWith(late, 'match');
