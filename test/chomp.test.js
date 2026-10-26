@@ -1,0 +1,195 @@
+'use strict';
+// Chomp (the hidden Pac-Man-style arena): maze shape, movement rules, ghost targeting, and a bot-only arena run.
+const test = require('node:test');
+const assert = require('node:assert');
+const R = require('../shared/chompRules');
+const Maze = require('../shared/chompMaze');
+const Move = require('../shared/chompMove');
+const Wire = require('../shared/chompWire');
+const Ghosts = require('../server/chomp/chompGhosts');
+const { ChompRoom } = require('../server/chomp/chompRoom');
+
+function walkable(A) {
+  const out = [];
+  for (let r = 0; r < A.H; r++) for (let c = 0; c < A.W; c++) if (A.walk(c, r)) out.push([c, r]);
+  return out;
+}
+
+test('the module is 28 x 31, mirror symmetric, with four energizers', () => {
+  assert.strictEqual(Maze.MODULE.length, 31);
+  for (const row of Maze.MODULE) {
+    assert.strictEqual(row.length, 28);
+    assert.strictEqual(row, row.split('').reverse().join(''));
+  }
+  assert.strictEqual(Maze.MODULE.join('').split('o').length - 1, 4);
+});
+
+test('the arena is one connected maze with no dead ends, no open 2x2 and no one-tile-thin walls', () => {
+  for (const [mx, my] of [[1, 1], [3, 3], [2, 4]]) {
+    const A = Maze.build(mx, my);
+    const tiles = walkable(A);
+    const seen = new Set([tiles[0].join()]);
+    const q = [tiles[0]];
+    while (q.length) {
+      const [c, r] = q.pop();
+      for (const [dc, dr] of R.DIRS) {
+        const k = (c + dc) + ',' + (r + dr);
+        if (A.walk(c + dc, r + dr) && !seen.has(k)) { seen.add(k); q.push([c + dc, r + dr]); }
+      }
+    }
+    assert.strictEqual(seen.size, tiles.length, `${mx}x${my} connected`);
+    for (const [c, r] of tiles) {
+      const n = R.DIRS.filter(([dc, dr]) => A.walk(c + dc, r + dr)).length;
+      assert.ok(n >= 2, `${mx}x${my}: dead end at ${c},${r}`);
+      assert.ok(!(A.walk(c + 1, r) && A.walk(c, r + 1) && A.walk(c + 1, r + 1)), `open 2x2 at ${c},${r}`);
+    }
+    for (let r = 1; r < A.H - 1; r++) for (let c = 1; c < A.W - 1; c++) {
+      if (A.cell[r * A.W + c] !== Maze.WALL) continue;
+      assert.ok(!(A.walk(c - 1, r) && A.walk(c + 1, r)), `thin wall at ${c},${r}`);
+      assert.ok(!(A.walk(c, r - 1) && A.walk(c, r + 1)), `thin wall at ${c},${r}`);
+    }
+  }
+});
+
+test('modules join through the side and border tunnels', () => {
+  const A = Maze.build(2, 2);
+  assert.ok(A.walk(27, 14) && A.walk(28, 14), 'side tunnel left-right');
+  assert.ok(A.walk(5, 30) && A.walk(5, 31), 'border tunnel up-down');
+  assert.ok(!A.walk(0, 14) && !A.walk(55, 14), 'outer side tunnels sealed');
+  assert.ok(!A.walk(5, 0) && !A.walk(5, 61), 'outer border tunnels sealed');
+});
+
+test('movement: speed, stopping at a wall, buffered turns, reversing, cornering and the dot pause', () => {
+  const A = Maze.build(1, 1);
+  const dt = 1 / R.TICK_HZ;
+  // row 1 runs from col 1 to col 12; start at col 3 moving left
+  const p = { x: 3.5, y: 1.5, dir: 1, want: -1, pause: 0 };
+  const v = R.speed(R.PAC_SPEED);
+  Move.tick(p, A, v, dt, null);
+  assert.ok(Math.abs(p.x - (3.5 - v * dt)) < 1e-9, '80% of 75.76 px/s');
+  for (let i = 0; i < 60; i++) Move.tick(p, A, v, dt, null);
+  assert.strictEqual(p.x, 1.5, 'stops at the centre of the last tile');
+  assert.strictEqual(p.moving, false);
+  // reverse at once
+  p.want = 3; Move.tick(p, A, v, dt, null);
+  assert.strictEqual(p.dir, 3);
+  // buffered turn: want down while on row 1 heading right; col 5 is the first opening down
+  p.x = 3.5; p.want = 2;
+  for (let i = 0; i < 40 && p.dir !== 2; i++) Move.tick(p, A, v, dt, null);
+  assert.strictEqual(p.dir, 2);
+  assert.strictEqual(Math.floor(p.x), 5, 'turns in the tile that has the opening');
+  // cornering: turned early, it slides onto the column's centre while moving down
+  const q = { x: 5.2, y: 1.5, dir: 3, want: 2, pause: 0 };
+  Move.tick(q, A, v, dt, null);
+  assert.strictEqual(q.dir, 2);
+  assert.ok(q.x > 5.2 && q.y > 1.5, 'moves on both axes while cornering');
+  // dot pause: one tick per dot, three per energizer
+  const dots = new Uint8Array(A.dot0);
+  dots[3 * A.W + 1] = 0;
+  const e = { x: 1.5, y: 3.6, dir: 2, want: -1, pause: 0 };       // (1, 4) below is an energizer
+  const eaten = [];
+  for (let i = 0; i < 10 && !eaten.length; i++) Move.tick(e, A, v, dt, dots, (k, kind) => { dots[k] = 0; eaten.push(kind); });
+  assert.deepStrictEqual(eaten, [2]);
+  assert.strictEqual(e.pause, R.ENERGIZER_PAUSE_TICKS);
+});
+
+test('ghost targets follow the dossier, the up-direction bug included', () => {
+  const room = new ChompRoom({ mx: 1, my: 1, botFill: 0, seed: 7 });
+  room.mode = 'chase';
+  const p = room.addPlayer({ name: 'p' });
+  p.x = 14.5; p.y = 23.5; p.face = 0; p.safe = 0;
+  const [blinky, pinky, inky, clyde] = room.A.modules[0].quartet;
+  assert.deepStrictEqual(Ghosts.targetFor(blinky, room, 'chase'), [14, 23]);
+  assert.deepStrictEqual(Ghosts.targetFor(pinky, room, 'chase'), [10, 19], 'four up and four left');
+  p.face = 3;
+  assert.deepStrictEqual(Ghosts.targetFor(pinky, room, 'chase'), [18, 23]);
+  blinky.x = 10.5; blinky.y = 20.5;
+  assert.deepStrictEqual(Ghosts.targetFor(inky, room, 'chase'), [2 * 16 - 10, 2 * 23 - 20]);
+  clyde.x = 14.5; clyde.y = 20.5;
+  assert.deepStrictEqual(Ghosts.targetFor(clyde, room, 'chase'), [0, 32], 'under eight tiles: his corner');
+  clyde.y = 5.5;
+  assert.deepStrictEqual(Ghosts.targetFor(clyde, room, 'chase'), [14, 23]);
+  assert.deepStrictEqual(Ghosts.targetFor(blinky, room, 'scatter'), [25, -3]);
+});
+
+test('a ghost never reverses on its own and breaks ties up, left, down, right', () => {
+  const room = new ChompRoom({ mx: 1, my: 1, botFill: 0, seed: 3 });
+  const g = room.A.modules[0].quartet[0];
+  g.dir = 3;               // heading right at (5, 4): exits up/down/left/right; target straight below
+  g.x = 5.5; g.y = 4.5;
+  room.mode = 'scatter';
+  g.kind = 'clyde';        // Clyde's corner (0, 32) is below-left
+  const d = Ghosts.decide(g, room.A, room, 5, 4);
+  assert.notStrictEqual(d, 1, 'never back the way it came');
+  assert.strictEqual(d, 2);
+});
+
+test('a bot arena runs: ghosts stay on the maze, bots score, die and come back', () => {
+  const room = new ChompRoom({ botFill: 8, seed: 11 });
+  room.fillBots();
+  assert.strictEqual(room.players.size, 8);
+  let deaths = 0, eatenGhosts = 0, powers = 0;
+  for (let t = 0; t < R.TICK_HZ * 120; t++) {
+    room.step();
+    for (const g of room.ghosts) {
+      assert.ok(Number.isFinite(g.x) && Number.isFinite(g.y), 'ghost position finite');
+      if (g.state === 'active' || g.state === 'eyes') {
+        assert.ok(room.A.walk(Math.floor(g.x), Math.floor(g.y)), `ghost ${g.index} ${g.state} off the maze at ${g.x},${g.y}`);
+      }
+    }
+    for (const p of room.players.values()) {
+      assert.ok(room.A.walk(Math.floor(p.x), Math.floor(p.y)), `chomper off the maze at ${p.x},${p.y}`);
+    }
+    const d = room.drain();
+    for (const e of d.events || []) {
+      if (e.k === 'die') deaths++;
+      if (e.k === 'eatg') eatenGhosts++;
+      if (e.k === 'power') powers++;
+    }
+    if (t % 3 === 0) assert.ok(Wire.decode(room.snapshot()));
+  }
+  const total = [...room.players.values()].reduce((s, p) => s + p.score, 0);
+  assert.ok(total > 2000, `bots scored ${total}`);
+  assert.ok(deaths > 0, 'ghosts caught someone');
+  assert.ok(powers > 0, 'someone ate an energizer');
+  assert.ok(room.ghosts.filter(g => g.state === 'house').length < room.ghosts.length / 2, 'ghosts left their houses');
+  console.log(`  bots: score ${total}, deaths ${deaths}, ghosts eaten ${eatenGhosts}, energizers ${powers}`);
+});
+
+test('eaten ghosts get home: eyes reach the house door from anywhere in the arena', () => {
+  const room = new ChompRoom({ botFill: 0, seed: 9 });
+  for (const g of room.ghosts) {
+    g.state = 'eyes'; g.fright = 0; g.dk = -1;
+    // start each pair of eyes at a random walkable tile anywhere
+    let k;
+    do { k = Math.floor(room.rng() * room.A.W * room.A.H); } while (!room.A.walk(k % room.A.W, Math.floor(k / room.A.W)));
+    g.x = k % room.A.W + 0.5; g.y = Math.floor(k / room.A.W) + 0.5;
+  }
+  for (let t = 0; t < R.TICK_HZ * 20; t++) for (const g of room.ghosts) Ghosts.step(g, room.A, room, 1 / R.TICK_HZ);
+  assert.strictEqual(room.ghosts.filter(g => g.state === 'eyes').length, 0, 'every pair of eyes got home within 20 s');
+});
+
+test('the wire round-trips', () => {
+  const buf = Wire.encode(123456, 1, [{ id: 9, x: 12.25, y: 40.5, dir: 2, flags: 5, seq: 77, since: 3, power: 120 }],
+    [{ x: 3.5, y: 4.75, dir: 1, kind: 2, state: 3, fright: 36 }]);
+  const s = Wire.decode(buf);
+  assert.strictEqual(s.tick, 123456);
+  assert.deepStrictEqual(s.players[0], { id: 9, x: 12.25, y: 40.5, dir: 2, flags: 5, seq: 77, since: 3, power: 120 });
+  assert.deepStrictEqual(s.ghosts[0], { x: 3.5, y: 4.75, dir: 1, kind: 2, state: 3, fright: 36 });
+});
+
+test('late turn: a turn the page took a tick ago is honoured at that tile', () => {
+  const room = new ChompRoom({ mx: 1, my: 1, botFill: 0, seed: 5 });
+  const p = room.addPlayer({ name: 'p' });
+  p.x = 3.5; p.y = 1.5; p.dir = 3; p.safe = 0;
+  for (let i = 0; i < 30 && Math.floor(p.x) < 6; i++) room.stepPlayer(p);
+  assert.strictEqual(Math.floor(p.x), 6, 'past the opening at col 5');
+  room.input(p, 2, 1, 5, 1);
+  assert.strictEqual(p.dir, 2);
+  assert.ok(Math.abs(p.x - 5.5) < 0.6 && p.y > 1.5, `turned down at col 5 (${p.x}, ${p.y})`);
+  const q = room.addPlayer({ name: 'q' });
+  q.x = 3.5; q.y = 1.5; q.dir = 3;
+  for (let i = 0; i < 30 && Math.floor(q.x) < 7; i++) room.stepPlayer(q);
+  room.input(q, 2, 2, 9, 1);
+  assert.strictEqual(q.dir, 3, 'a tile it never passed: no rewind, the turn waits');
+});

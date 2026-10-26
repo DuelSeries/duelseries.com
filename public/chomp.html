@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#000000">
+<meta name="robots" content="noindex">
+<title>Chomp - DuelSeries</title>
+<link rel="icon" type="image/png" sizes="32x32" href="/img/favicon-32.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- Press Start 2P (SIL Open Font Licence): an arcade-style face, not anyone's logo. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap">
+<style>
+  :root { --bg: #000; --wall: #2121ff; --chomp: #ffff00; --dot: #ffb8ae; --ink: #fff; --door: #ffb8ff; }
+  html, body { margin: 0; height: 100%; background: var(--bg); overflow: hidden; touch-action: none; }
+  body { font-family: 'Press Start 2P', monospace; color: var(--ink); -webkit-user-select: none; user-select: none; }
+  #cv { position: fixed; inset: 0; display: block; }
+  #title { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(0, 0, 0, 0.55); }
+  #title[hidden], #toast[hidden] { display: none; }
+  .card {
+    width: min(440px, calc(100vw - 32px)); box-sizing: border-box; padding: 34px 28px 26px; text-align: center;
+    background: #000; border: 3px solid var(--wall); outline: 3px solid var(--wall); outline-offset: 5px; border-radius: 14px;
+  }
+  .mark { margin: 0 0 26px; font-size: clamp(30px, 9vw, 46px); line-height: 1; color: var(--chomp); letter-spacing: 2px; white-space: nowrap; }
+  .mark i {
+    display: inline-block; width: 0.9em; height: 0.9em; vertical-align: -0.05em; margin: 0 0.04em; border-radius: 50%;
+    background: conic-gradient(from 90deg, var(--chomp) 0 225deg, transparent 225deg 315deg, var(--chomp) 315deg);
+    animation: chew 0.28s steps(2, jump-none) infinite alternate;
+  }
+  @keyframes chew { from { background: conic-gradient(from 90deg, var(--chomp) 0 225deg, transparent 225deg 315deg, var(--chomp) 315deg); }
+                    to { background: conic-gradient(from 90deg, var(--chomp) 0 260deg, transparent 260deg 280deg, var(--chomp) 280deg); } }
+  @media (prefers-reduced-motion: reduce) { .mark i { animation: none; } }
+  .trail { display: flex; justify-content: center; gap: 14px; margin: -12px 0 26px; }
+  .trail b { width: 6px; height: 6px; background: var(--dot); }
+  .trail b:last-child { width: 14px; height: 14px; border-radius: 50%; margin-top: -4px; }
+  label { display: block; font-size: 10px; color: var(--door); margin: 0 0 10px; }
+  #name {
+    width: 100%; box-sizing: border-box; padding: 12px; font: 14px 'Press Start 2P', monospace; text-align: center;
+    color: var(--ink); background: #000; border: 2px solid var(--wall); border-radius: 6px; outline: none;
+  }
+  #name:focus-visible { border-color: var(--chomp); }
+  #play {
+    margin: 18px 0 0; width: 100%; padding: 14px; font: 16px 'Press Start 2P', monospace; cursor: pointer;
+    color: #000; background: var(--chomp); border: 0; border-radius: 6px;
+  }
+  #play:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
+  .hint { margin: 20px 0 0; font-size: 9px; line-height: 1.8; color: #9a9aff; }
+  #toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); padding: 12px 16px; font-size: 10px;
+           background: #000; border: 2px solid var(--wall); border-radius: 6px; }
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div id="title">
+  <div class="card">
+    <h1 class="mark" aria-label="Chomp">CH<i aria-hidden="true"></i>MP</h1>
+    <div class="trail" aria-hidden="true"><b></b><b></b><b></b><b></b></div>
+    <label for="name">Your name</label>
+    <input id="name" maxlength="15" autocomplete="off" spellcheck="false" placeholder="Player">
+    <button id="play" type="button">Play</button>
+    <p class="hint">Arrow keys or WASD to steer.<br>On a phone, swipe.</p>
+  </div>
+</div>
+<div id="toast" hidden></div>
+<script src="/socket.io/socket.io.js"></script>
+<script src="/js/shared/dsEnd.js"></script>
+<script src="/js/dsSfx.js"></script>
+<script src="/shared/chompRules.js"></script>
+<script src="/shared/chompMaze.js"></script>
+<script src="/shared/chompMove.js"></script>
+<script src="/shared/chompWire.js"></script>
+<script src="/js/chomp/chompDraw.js"></script>
+<script src="/js/chomp/chompSound.js"></script>
+<script src="/js/chomp/chompMain.js"></script>
+</body>
+</html>

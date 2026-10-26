@@ -3231,6 +3231,15 @@ app.get('/ag', (_req, res) => {
   res.sendFile(path.join(__dirname, '../public/ag.html'));
 });
 
+/* ── Chomp (Owen 2026-10-25): a Pac-Man-style shared arena, hidden at /chomp, free only, not in the lobby yet.
+   Its own namespace /chomp and its own files (server/chomp, public/chomp.html, public/js/chomp); it reads no stake,
+   token, wallet or payout. CHOMP=off closes it (server/chomp/chompBoot.js). */
+const chompGame = require('./chomp/chompBoot').openChomp({ io, env: process.env, helpers: { socketRL, sanitizeName } });
+app.get('/chomp', (_req, res) => {
+  if (!chompGame) return res.status(404).sendFile(path.join(__dirname, '../public/404.html'));
+  res.sendFile(path.join(__dirname, '../public/chomp.html'));
+});
+
 for (const rgn of [REGION]) {
   gameRooms[rgn] = {
     free:   new GameRoom(io, `${rgn}_free`),
