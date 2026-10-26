@@ -13,7 +13,8 @@
   var params = new URLSearchParams(location.search);
   var attract = params.get('attract') === '1';
   function store(k, v) { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } }
-  var lookName = params.get('look') || store('chomp.look') || 'arcade';
+  // Owen's pick 2026-10-25: the pixel look ('arcade' and 'neon' stay reachable with ?look= for comparisons)
+  var lookName = params.get('look') || 'pixel';
 
   var canvas = document.getElementById('cv');
   var ctx = canvas.getContext('2d');
@@ -140,7 +141,8 @@
     if (!window.DSEnd) { titleEl.hidden = false; phase = 'title'; return; }
     var secs = m.secs || 0;
     window.DSEnd.show({
-      tone: 'plain', verdict: 'Game over', hero: fmt(m.score), unit: 'points',
+      tone: 'plain', verdict: m.ghost ? 'Caught by a ghost' : m.by ? 'Eaten by ' + m.by : 'Game over',
+      hero: fmt(m.score), unit: 'points',
       facts: [['Rank', '#' + m.rank + ' of ' + m.of], ['Time', Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0')]],
       buttons: [
         { id: 'again', text: 'Play again', primary: true, onClick: function () { window.DSEnd.hide(); join(); } },

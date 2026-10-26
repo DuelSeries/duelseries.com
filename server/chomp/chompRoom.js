@@ -264,7 +264,7 @@ class ChompRoom {
 
   addScore(p, pts) {
     p.score += pts;
-    if (!p.bonus && p.score >= R.EXTRA_LIFE_AT) {
+    if (R.BONUS_LIFE && !p.bonus && p.score >= R.EXTRA_LIFE_AT) {
       p.bonus = true; p.lives++;
       this.events.push({ k: 'life', id: p.id });
     }
@@ -305,7 +305,7 @@ class ChompRoom {
       for (const p of list) {
         if (p.dying) continue;
         if (g.fright > 0) { this.eatGhost(p, g); break; }
-        if (p.safe <= 0) this.kill(p, null);
+        if (p.safe <= 0) this.kill(p, null, g);
       }
     }
     for (const list of at.values()) {
@@ -332,8 +332,10 @@ class ChompRoom {
     this.events.push({ k: 'eatg', id: p.id, g: g.index, x: g.x, y: g.y, pts });
   }
 
-  kill(p, by) {
+  kill(p, by, ghost) {
     p.dying = Math.round(R.DEATH_S * R.TICK_HZ);
+    p.killedBy = by ? by.name : '';
+    p.killedByGhost = !by && !!ghost;
     p.lives--;
     p.power = 0; p.chain = 0; p.want = -1; p.moving = false;
     this.events.push({ k: 'die', id: p.id, by: by ? by.id : 0 });
@@ -345,7 +347,7 @@ class ChompRoom {
     this.events.push({ k: 'over', id: p.id });
     if (p.sid && this.nsp) {
       const s = this.nsp.sockets.get(p.sid);
-      if (s) s.emit('c:over', { score: p.score, rank, of: this.players.size, secs: Math.round((this.tick - p.joinedTick) / R.TICK_HZ) });
+      if (s) s.emit('c:over', { score: p.score, rank, of: this.players.size, secs: Math.round((this.tick - p.joinedTick) / R.TICK_HZ), by: p.killedBy || '', ghost: !!p.killedByGhost });
     }
     this.removePlayer(p);
   }

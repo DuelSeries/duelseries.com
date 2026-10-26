@@ -25,10 +25,10 @@
     pixel: { name: 'Pixel', pixel: true, wallW: 0.125 }
   };
   function lookOf(name) {
-    var o = {}, k, l = LOOKS[name] || LOOKS.arcade;
+    var o = {}, k, l = LOOKS[name] || LOOKS.pixel;
     for (k in BASE) o[k] = BASE[k];
     for (k in l) o[k] = l[k];
-    o.id = LOOKS[name] ? name : 'arcade';
+    o.id = LOOKS[name] ? name : 'pixel';
     return o;
   }
 
@@ -189,6 +189,41 @@
 
   function energizerSprite(color) {
     return sprite('e' + color, 8, function (x, y) { return x * x + y * y <= 16 ? color : null; });
+  }
+
+  // a one-pixel ring around a powered chomper
+  function haloSprite(color) {
+    return sprite('h' + color, 22, function (x, y) { var d = Math.sqrt(x * x + y * y); return d >= 8.6 && d < 9.6 ? color : null; });
+  }
+
+  // the death burst: eight short rays, k 0..1 pushes them out
+  function burstSprite(color, k) {
+    var kq = Math.round(k * 4) / 4;
+    return sprite('b' + color + kq, 20, function (x, y) {
+      var d = Math.sqrt(x * x + y * y), r0 = 2 + kq * 2.5, r1 = 4.5 + kq * 3.5;
+      if (d < r0 || d > r1) return null;
+      var a = Math.atan2(y, x) / (Math.PI / 4);
+      return Math.abs(a - Math.round(a)) * d < 0.6 ? color : null;
+    });
+  }
+
+  function segDist(x, y, ax, ay, bx, by) {
+    var vx = bx - ax, vy = by - ay, t = Math.max(0, Math.min(1, ((x - ax) * vx + (y - ay) * vy) / (vx * vx + vy * vy)));
+    var dx = x - ax - t * vx, dy = y - ay - t * vy;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+  // cherries, our own 12 px drawing: two red balls with a white glint and brown stems from one tip
+  function cherrySprite() {
+    return sprite('cherry', 14, function (x, y) {
+      var a = (x + 3) * (x + 3) + (y - 2.5) * (y - 2.5), b = (x - 2.5) * (x - 2.5) + (y - 3.5) * (y - 3.5);
+      if (a <= 7.5 || b <= 7.5) {
+        if ((Math.abs(x + 4) < 0.6 && Math.abs(y - 1.5) < 0.6) || (Math.abs(x - 1.5) < 0.6 && Math.abs(y - 2.5) < 0.6)) return '#ffffff';
+        return '#ff0000';
+      }
+      if (segDist(x, y, -3, 0, 2.5, -5.5) < 0.62 || segDist(x, y, 2.5, 1, 3.5, -2.5) < 0.62 || segDist(x, y, 3.5, -2.5, 2.5, -5.5) < 0.62 ||
+          segDist(x, y, 2.5, -5.5, 5, -5.5) < 0.62) return '#de9751';
+      return null;
+    });
   }
 
   // ---- vector shapes (the 'arcade' and 'neon' looks)
@@ -373,7 +408,10 @@
       }
     }
     // fruit
-    (scene.fruit || []).forEach(function (f) { drawCherry(ctx, f.x, f.y, 0.8); });
+    var me = this;
+    (scene.fruit || []).forEach(function (f) {
+      if (pixel) me.stamp(ctx, cherrySprite(), f.x, f.y, ox, oy, S); else drawCherry(ctx, f.x, f.y, 0.8);
+    });
     // ghosts
     var self = this;
     scene.ghosts.forEach(function (g) {
@@ -390,7 +428,11 @@
       if (p.x < c0 - 2 || p.x > c1 + 2 || p.y < r0 - 2 || p.y > r1 + 2) return;
       ctx.globalAlpha = p.alpha == null ? 1 : p.alpha;
       var color = p.scared ? (p.scaredFlash ? L.flash : L.fright) : p.color;
-      if (p.halo) {
+      if (p.halo && pixel) {
+        ctx.globalAlpha *= 0.55 + 0.45 * Math.sin(scene.t / 90);
+        self.stamp(ctx, haloSprite(p.color), p.x, p.y, ox, oy, S);
+        ctx.globalAlpha = p.alpha == null ? 1 : p.alpha;
+      } else if (p.halo) {
         ctx.strokeStyle = p.color; ctx.lineWidth = pixel ? 1 / 8 : 0.1;
         ctx.globalAlpha *= 0.5 + 0.5 * Math.sin(scene.t / 90);
         ctx.beginPath(); ctx.arc(p.x, p.y, L.chomperR + 0.3, 0, Math.PI * 2); ctx.stroke();
@@ -449,6 +491,11 @@
   Renderer.prototype.deathShape = function (ctx, p, color, ox, oy, S) {
     var k = p.dying;                        // 0..1
     var L = this.L;
+    if (L.pixel) {
+      if (k < 0.82) this.stamp(ctx, chomperSprite(color, 0, 0.15 + Math.min(1, k / 0.82) * 1.85), p.x, p.y, ox, oy, S);
+      else this.stamp(ctx, burstSprite(color, (k - 0.82) / 0.18), p.x, p.y, ox, oy, S);
+      return;
+    }
     if (k < 0.82) {
       var m = Math.min(1, k / 0.82);
       var a0 = -Math.PI / 2, open = (0.15 + m * 0.85) * Math.PI;
@@ -469,6 +516,7 @@
     }
   };
 
+  Renderer.chomperSprite = chomperSprite;
   Renderer.LOOKS = LOOKS;
   Renderer.lookOf = lookOf;
   Renderer.drawChomper = drawChomper;

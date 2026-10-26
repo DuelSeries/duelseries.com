@@ -47,7 +47,8 @@
     PLAYER_POINTS: [200, 400, 800, 1600],  // ARENA: a player eaten counts on the same chain as a ghost
     FRUIT_POINTS: 100,                     // DOSSIER Table A.1 level 1 bonus: Cherries, 100
     EXTRA_LIFE_AT: 10000,                  // DOSSIER Chapter 1: the default bonus life at 10,000 points
-    LIVES: 3,                              // DOSSIER Chapter 1: the default 3 lives
+    BONUS_LIFE: false,                     // Owen 2026-10-25: off, with one life there is no bonus life
+    LIVES: 1,                              // Owen 2026-10-25: one life, like slither.io (the arcade default is 3)
 
     // ---- fright (power pellet), level 1
     FRIGHT_S: 6,                 // DOSSIER Table A.1 "Fright. Time" 6 s
