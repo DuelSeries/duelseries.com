@@ -59,7 +59,7 @@ class ChompRoom {
     const H = Maze.HOUSE;
     for (let r = 0; r < this.A.H; r++) for (let c = 0; c < this.A.W; c++) {
       if (this.A.cell[r * this.A.W + c] !== Maze.PATH) continue;
-      const lc = c % Maze.MW, lr = r % Maze.MH;
+      const m = this.A.modules[this.A.moduleOf[r * this.A.W + c]], lc = c - m.ox, lr = r - m.oy;
       if (lc >= H.c0 - 1 && lc <= H.c1 + 1 && lr >= H.r0 - 1 && lr <= H.r1 + 1) continue;
       this.spawnTiles.push(r * this.A.W + c);
     }
@@ -408,7 +408,7 @@ class ChompRoom {
         flags: (p.moving ? F.MOVING : 0) | (p.power > 0 ? F.POWER : 0) | (p.safe > 0 ? F.SAFE : 0) | (p.dying ? F.DYING : 0),
       });
     }
-    const gs = this.ghosts.map(g => ({ x: g.x, y: g.y, dir: g.dir, kind: g.ki, state: Ghosts.STATE[g.state], fright: g.fright }));
+    const gs = this.ghosts.map(g => ({ x: g.x, y: g.y, dir: g.dir, look: g.plan >= 0 ? g.plan : g.dir, kind: g.ki, state: Ghosts.STATE[g.state], fright: g.fright }));
     return Wire.encode(this.tick, this.mode === 'chase' ? 1 : 0, ps, gs);
   }
 

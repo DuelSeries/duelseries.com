@@ -62,14 +62,19 @@
   var WALL = 0, PATH = 1, TUNNEL = 2, HWALL = 3, HOUSE_IN = 4, DOOR = 5;
   var DOT = 1, ENERGIZER = 2;
 
+  // Modules sit one tile apart (GAP): the spacer is wall, so every module keeps the arcade's full double frame, with
+  // the tunnels running on through the spacer to the next module.
+  var GAP = 1;
+
   function build(mx, my) {
-    var W = MW * mx, H = MH * my;
-    var cell = new Uint8Array(W * H);
+    var W = MW * mx + GAP * (mx - 1), H = MH * my + GAP * (my - 1);
+    var cell = new Uint8Array(W * H);          // all WALL to start: the spacers stay wall
     var dot0 = new Uint8Array(W * H);
     var moduleOf = new Uint16Array(W * H);
+    var spacer = new Uint8Array(W * H).fill(1);
     var modules = [];
     for (var j = 0; j < my; j++) for (var i = 0; i < mx; i++) {
-      var ox = i * MW, oy = j * MH, m = modules.length;
+      var ox = i * (MW + GAP), oy = j * (MH + GAP), m = modules.length;
       modules.push({ i: i, j: j, ox: ox, oy: oy, index: m });
       for (var r = 0; r < MH; r++) for (var c = 0; c < MW; c++) {
         var ch = MODULE[r][c], k = (oy + r) * W + ox + c, v = WALL;
@@ -87,10 +92,18 @@
         if (j === my - 1 && r === MH - 1) v = WALL;
         cell[k] = v;
         moduleOf[k] = m;
+        spacer[k] = 0;
+      }
+      // the tunnels through the spacer to the right and below, and the module that owns those tiles
+      if (i < mx - 1) { var kr = (oy + 14) * W + ox + MW; cell[kr] = TUNNEL; }
+      if (j < my - 1) [5, MW - 6].forEach(function (c2) { cell[(oy + MH) * W + ox + c2] = TUNNEL; });
+      for (var rr = 0; rr < MH + GAP; rr++) for (var cc = 0; cc < MW + GAP; cc++) {
+        var y2 = oy + rr, x2 = ox + cc;
+        if (x2 < W && y2 < H && (rr >= MH || cc >= MW)) moduleOf[y2 * W + x2] = m;
       }
     }
     var a = {
-      W: W, H: H, mx: mx, my: my, MW: MW, MH: MH, cell: cell, dot0: dot0, moduleOf: moduleOf, modules: modules,
+      W: W, H: H, mx: mx, my: my, MW: MW, MH: MH, GAP: GAP, cell: cell, dot0: dot0, moduleOf: moduleOf, spacer: spacer, modules: modules,
       idx: function (c, r) { return r * W + c; },
       inside: function (c, r) { return c >= 0 && r >= 0 && c < W && r < H; },
       // a chomper (and a ghost on the grid) may stand here
@@ -113,7 +126,7 @@
   }
 
   var M = {
-    MODULE: MODULE, MW: MW, MH: MH, HOUSE: HOUSE, GHOST_START: GHOST_START, SCATTER: SCATTER, FRUIT: FRUIT, SPAWN: SPAWN,
+    MODULE: MODULE, MW: MW, MH: MH, GAP: GAP, HOUSE: HOUSE, GHOST_START: GHOST_START, SCATTER: SCATTER, FRUIT: FRUIT, SPAWN: SPAWN,
     WALL: WALL, PATH: PATH, TUNNEL: TUNNEL, HWALL: HWALL, HOUSE_IN: HOUSE_IN, DOOR: DOOR, DOT: DOT, ENERGIZER: ENERGIZER,
     build: build
   };

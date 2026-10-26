@@ -53,10 +53,12 @@ test('the arena is one connected maze with no dead ends, no open 2x2 and no one-
 
 test('modules join through the side and border tunnels', () => {
   const A = Maze.build(2, 2);
-  assert.ok(A.walk(27, 14) && A.walk(28, 14), 'side tunnel left-right');
-  assert.ok(A.walk(5, 30) && A.walk(5, 31), 'border tunnel up-down');
-  assert.ok(!A.walk(0, 14) && !A.walk(55, 14), 'outer side tunnels sealed');
-  assert.ok(!A.walk(5, 0) && !A.walk(5, 61), 'outer border tunnels sealed');
+  assert.strictEqual(A.W, 28 * 2 + 1, 'one spacer column between modules');
+  assert.ok(A.walk(27, 14) && A.walk(28, 14) && A.walk(29, 14), 'side tunnel left-right through the spacer');
+  assert.ok(A.walk(5, 30) && A.walk(5, 31) && A.walk(5, 32), 'border tunnel up-down through the spacer');
+  assert.ok(!A.walk(0, 14) && !A.walk(A.W - 1, 14), 'outer side tunnels sealed');
+  assert.ok(!A.walk(5, 0) && !A.walk(5, A.H - 1), 'outer border tunnels sealed');
+  assert.ok(!A.walk(28, 13) && !A.walk(28, 15), 'the spacer is wall beside the tunnel');
 });
 
 test('movement: speed, stopping at a wall, buffered turns, reversing, cornering and the dot pause', () => {
@@ -175,7 +177,7 @@ test('the wire round-trips', () => {
   const s = Wire.decode(buf);
   assert.strictEqual(s.tick, 123456);
   assert.deepStrictEqual(s.players[0], { id: 9, x: 12.25, y: 40.5, dir: 2, flags: 5, seq: 77, since: 3, power: 120 });
-  assert.deepStrictEqual(s.ghosts[0], { x: 3.5, y: 4.75, dir: 1, kind: 2, state: 3, fright: 36 });
+  assert.deepStrictEqual(s.ghosts[0], { x: 3.5, y: 4.75, dir: 1, look: 1, kind: 2, state: 3, fright: 36 });
 });
 
 test('late turn: a turn the page took a tick ago is honoured at that tile', () => {

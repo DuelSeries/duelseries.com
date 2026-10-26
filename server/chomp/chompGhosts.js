@@ -36,7 +36,7 @@ function makeGhosts(A) {
         dir: 1,                              // DOSSIER: ghosts move left once outside
         state: kind === 'blinky' ? 'active' : 'house',
         bob: ki % 2 ? 0 : 2,                 // house bobbing: up first or down first
-        fright: 0, reverse: false, dk: -1,
+        fright: 0, reverse: false, dk: -1, plan: -1,
       };
       ghosts.push(g);
       m.quartet.push(g);
@@ -168,7 +168,7 @@ function step(g, A, room, dt) {
     if (Math.abs(g.y - (oy + H.inY)) > EPS && g.y > oy + H.inY) { g.dir = 0; g.y = toward(g.y, oy + H.inY, rem); return; }
     g.dir = 0;
     g.y = toward(g.y, oy + H.outY, rem);
-    if (Math.abs(g.y - (oy + H.outY)) <= EPS) { g.state = 'active'; g.dir = 1; g.dk = -1; g.reverse = false; }
+    if (Math.abs(g.y - (oy + H.outY)) <= EPS) { g.state = 'active'; g.dir = 1; g.dk = -1; g.reverse = false; g.plan = -1; }
     return;
   }
   if (g.state === 'entering') {
@@ -181,7 +181,7 @@ function step(g, A, room, dt) {
   }
   // active or eyes: on the grid
   for (let guard = 0; guard < 4 && rem > EPS; guard++) {
-    if (g.reverse) { g.reverse = false; if (g.state === 'active') { g.dir = opp(g.dir); g.dk = -1; } }
+    if (g.reverse) { g.reverse = false; if (g.state === 'active') { g.dir = opp(g.dir); g.dk = -1; g.plan = -1; } }
     const c = Math.floor(g.x), r = Math.floor(g.y), k = r * A.W + c;
     const cx = c + 0.5, cy = r + 0.5, v = DIRS[g.dir];
     const along = (cx - g.x) * v[0] + (cy - g.y) * v[1];
@@ -192,7 +192,12 @@ function step(g, A, room, dt) {
         g.state = 'entering';
         return;
       }
-      g.dir = decide(g, A, room, c, r);
+      // DOSSIER Chapter 3, "Looking Ahead": a ghost chooses its exit from the NEXT tile as it arrives in this one, and
+      // its eyes point that way before it turns (jspacman Ghost.js). The plan made one tile back is the move now.
+      const back = opp(g.dir), pd = g.plan;
+      g.dir = pd >= 0 && pd !== back && A.walk(c + DIRS[pd][0], r + DIRS[pd][1]) ? pd : decide(g, A, room, c, r);
+      const nc = c + DIRS[g.dir][0], nr = r + DIRS[g.dir][1];
+      g.plan = A.walk(nc, nr) ? decide(g, A, room, nc, nr) : -1;
       continue;
     }
     g.x += v[0] * rem; g.y += v[1] * rem; rem = 0;

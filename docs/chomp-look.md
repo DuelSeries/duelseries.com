@@ -67,10 +67,24 @@ a ghost's, the scared blue or your yellow.
 | Energizer blink | 10 on, 10 off | JSP `Energizer.js` (P500 uses a 30-tick cycle; JSP is the frame-level one) |
 | Caught | 30 frozen, then 14 frames x 8 | JSP `Pacman.js die()` and animations[1] |
 | Ghost points | 60 (the arcade freezes everyone; the arena cannot, so only the points stay up) | JSP `GameScene.js eatGhost` |
-| Fruit points | 2 s | JSP `PacmanPoints.js` comment ("keep on the board for 2 seconds") |
+| Fruit points | 80 | JSP `PacmanPoints.js` `ticksToLive = 80` (its comment says 2 s; the code wins) |
+| 1UP blink | 16 on, 16 off while playing | JSP `Text.js` |
+| Skirt while flashing | 4 frames of 7, in step with the flash | JSP `Ghost.js` animations[2] |
+
+## Also matched (from the independent review, 2026-10-26)
+
+- READY! sits 6 rows above your chomper, as the arcade's (row 20) sits over Pac-Man's start (row 26).
+- Points are small (the arcade's are one 16 px sprite): our own 3 x 5 digits, "1600" is 15 px.
+- Draw order: chompers first, then ghosts with Blinky last (JSP `GameScene.js`).
+- Ghosts choose their exit one tile ahead and their eyes point there before they turn (DOSSIER "Looking Ahead",
+  JSP `Ghost.js`); the server now locks that plan, as the arcade does.
+- Text 1 px right of Press Start 2P's cell, scores 1 px lower, life icons at the measured rows.
+- Only palette colours on the pixel grid: the safe blink and the power ring switch on and off instead of fading.
+- Modules sit one wall tile apart, so each keeps the arcade's full double frame and the tunnels bend it.
+- Note: several of our formula shapes come out the same as the arcade's pixels (the Pac-Man frames, the eyes, one
+  skirt frame), because at this size a circle, a 45 degree wedge or a 4 x 5 eye has only one way to be drawn.
 
 ## Not matched yet
 
 - The arcade font (we use Press Start 2P, an open 8 x 8 arcade-style face).
-- 1UP blinking (no source for its rate found yet).
 - The sounds (ours, synthesized).

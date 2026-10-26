@@ -44,6 +44,8 @@
         }
       }
     });
+    // the one-tile spacers between modules are frame too, so neighbouring modules' frames join into one thick wall
+    if (A.spacer) for (var sk = 0; sk < W * H; sk++) if (A.spacer[sk] && A.cell[sk] === Maze.WALL) frame[sk] = 1;
     function frameRaw(c, r) { return c < 0 || r < 0 || c >= W || r >= H || !!frame[r * W + c]; }
     // opening by 3 x 3: erode (all 9 frame), then dilate (any of 9 eroded). Tiles 2 past the edge are frame for free.
     var EW = W + 4, er = new Uint8Array(EW * (H + 4));

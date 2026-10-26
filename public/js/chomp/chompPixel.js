@@ -150,6 +150,18 @@
     });
   }
 
+  // Points where something was eaten. The arcade shows them as one 16 px sprite (jspacman PacmanPoints.js: 16 wide),
+  // so ours are small digits: our own 3 x 5 figures, 1 px apart ("1600" is 15 px).
+  var DIG = ['111101101101111', '010110010010111', '111001111100111', '111001111001111', '101101111001001',
+             '111100111001111', '111100111101111', '111001001001001', '111101111101111', '111101111001111'];
+  function points(str, color) {
+    return sprite('p' + color + str, str.length * 4 - 1, 5, function (i, j) {
+      var d = str.charCodeAt(Math.floor(i / 4)) - 48, x = i % 4;
+      if (x === 3 || d < 0 || d > 9) return null;
+      return DIG[d][j * 3 + x] === '1' ? color : null;
+    });
+  }
+
   function halo(color) {
     return sprite('h' + color, 22, 22, function (i, j) { var x = i - 10.5, y = j - 10.5, d = Math.sqrt(x * x + y * y); return d >= 8.6 && d < 9.6 ? color : null; });
   }
@@ -266,32 +278,29 @@
     var self = this;
     function at(spr, x, y, dx, dy) { g.drawImage(spr, ox + Math.floor(x * T) - 8 + (dx || 0), oy + Math.floor(y * T) - 8 + (dy || 0)); }
     (s.fruit || []).forEach(function (f) { at(cherry(), f.x, f.y); });
-    s.ghosts.forEach(function (q) { at(ghost(q.ki, q.dir, q.frame, q.mode), q.x, q.y); });
+    // jspacman GameScene draw order: Pac-Man first, then the ghosts with Blinky last, so ghosts cover chompers
     s.players.forEach(function (p) {
+      if (p.hidden) return;
       var color = p.scared ? (p.scaredFlash ? C.white : C.blue) : p.color;
-      g.globalAlpha = p.alpha == null ? 1 : p.alpha;
-      if (p.halo && p.dying == null) {
-        var a = g.globalAlpha;
-        g.globalAlpha = a * (Math.floor(s.tick / 8) % 2 ? 0.45 : 1);
-        at(halo(p.color), p.x, p.y, -3, -3);
-        g.globalAlpha = a;
-      }
+      if (p.halo && p.dying == null && Math.floor(s.tick / 8) % 2 === 0) at(halo(p.color), p.x, p.y, -3, -3);
       if (p.dying != null) {
         var f = p.dying;                       // death frame 0..13, or -1 frozen before it starts
         if (f < 0) at(chomper(color, 0, 2), p.x, p.y);
         else if (f < 11) at(chomper(color, 0, 3, (f + 1) / 11), p.x, p.y);
         else if (f < 13) at(burst(color, f - 11), p.x, p.y);
       } else at(chomper(color, p.dir, p.frame), p.x, p.y);
-      g.globalAlpha = 1;
+    });
+    s.ghosts.slice().sort(function (a, b) { return b.ki - a.ki; }).forEach(function (q) {
+      at(ghost(q.ki, q.look != null ? q.look : q.dir, q.frame, q.mode), q.x, q.y);
     });
     // points where something was eaten, on the grid like the arcade's own
     (s.pops || []).forEach(function (q) {
-      var t = text(q.text, q.color);
-      g.drawImage(t, ox + Math.floor(q.x * T) - (t.width >> 1), oy + Math.floor(q.y * T) - 4);
+      var t = points(q.text, q.color);
+      g.drawImage(t, ox + Math.floor(q.x * T) - (t.width >> 1), oy + Math.floor(q.y * T) - 3);
     });
     if (s.banner) {
       var bt = text(s.banner.text, s.banner.color);
-      g.drawImage(bt, ox + Math.floor(s.banner.x * T) - (bt.width >> 1), oy + Math.floor(s.banner.y * T) - 4);
+      g.drawImage(bt, ox + Math.floor(s.banner.x * T) - (bt.width >> 1) + 1, oy + Math.floor(s.banner.y * T) - 4);
     }
     g.restore();
     this.hud(g, s.hud, BW, BH, s.tick);
@@ -308,7 +317,6 @@
       if (p.me || !p.name || p.dying != null) return;
       var y = (oy + Math.floor(p.y * T) - 9) * k;
       if (y < (HUD_TOP + 2) * k || y > (BH - HUD_BOTTOM) * k) return;
-      m.globalAlpha = 0.85;
       m.fillStyle = p.color;
       m.fillText(p.name, (ox + Math.floor(p.x * T)) * k, y);
     });
@@ -318,14 +326,16 @@
   // The arcade's score rows (measured from the 1x captures): "1UP" at column 3 and "HIGH SCORE" at column 9 on row 0;
   // the scores on row 1 ending at columns 6 and 16, a zero score shown as "00"; lives along the bottom from column 2,
   // 16 px apart; the level fruit at the bottom right.
-  Pixel.prototype.hud = function (g, hud, BW, BH) {
+  Pixel.prototype.hud = function (g, hud, BW, BH, tick) {
     if (!hud) return;
-    g.drawImage(text('1UP', C.white), 3 * T, 0);
-    g.drawImage(text('HIGH SCORE', C.white), 9 * T, 0);
+    // Measured against the Dossier capture: the arcade's glyphs sit 1 px right of Press Start 2P's in the 8 px cell,
+    // and the score row 1 px lower. 1UP blinks 16 frames on, 16 off while playing (jspacman Text.js).
+    if (!hud.blink || Math.floor(tick / 16) % 2 === 0) g.drawImage(text('1UP', C.white), 3 * T + 1, 0);
+    g.drawImage(text('HIGH SCORE', C.white), 9 * T + 1, 0);
     var sc = hud.score > 0 ? String(hud.score) : '00';
-    g.drawImage(text(sc, C.white), 7 * T - sc.length * T, T);
-    if (hud.high > 0) { var hs = String(hud.high); g.drawImage(text(hs, C.white), 17 * T - hs.length * T, T); }
-    for (var i = 0; i < hud.lives; i++) g.drawImage(life(), 2 * T + i * 16, BH - HUD_BOTTOM + 1);
+    g.drawImage(text(sc, C.white), 7 * T - sc.length * T + 1, T + 1);
+    if (hud.high > 0) { var hs = String(hud.high); g.drawImage(text(hs, C.white), 17 * T - hs.length * T + 1, T + 1); }
+    for (var i = 0; i < hud.lives; i++) g.drawImage(life(), 2 * T + i * 16, BH - HUD_BOTTOM + 2);
     if (hud.fruit) g.drawImage(cherry(), BW - 4 * T, BH - HUD_BOTTOM);
   };
 
@@ -341,6 +351,6 @@
   Pixel.C = C;
   Pixel.TK = TK;
   Pixel.OTHERS = OTHERS;
-  Pixel.sprites = { chomper: chomper, ghost: ghost, energizer: energizer, cherry: cherry, text: text, life: life };
+  Pixel.sprites = { chomper: chomper, ghost: ghost, energizer: energizer, cherry: cherry, text: text, life: life, points: points };
   root.ChompPixel = Pixel;
 })(typeof self !== 'undefined' ? self : this);

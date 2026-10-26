@@ -126,7 +126,7 @@
         if (e.on) fruitOn.add(e.m); else fruitOn.delete(e.m);
         if (!e.on && e.pts) {
           var m = A.modules[e.m];
-          pop(m.ox + Maze.FRUIT.x, m.oy + Maze.FRUIT.y, String(e.pts), '#ffb8ff', 2000);
+          pop(m.ox + Maze.FRUIT.x, m.oy + Maze.FRUIT.y, String(e.pts), '#ffb8ff', 80 * STEP_MS);
           if (e.id === myId) Snd.play('ch.fruit');
         }
       } else if (e.k === 'life') {
@@ -329,7 +329,9 @@
         var mode = 0;
         if (gb.state === 3 || gb.state === 4) mode = 3;
         else if (gb.fright > 0) mode = (pixel ? flashing(gb.fright) : gb.fright < FLASH_WINDOW && flashOn) ? 2 : 1;
-        ghosts.push({ x: pos.x, y: pos.y, dir: gb.dir, ki: gb.kind, mode: mode, frame: Math.floor(tick / TK.skirt) % 2 });
+        // while it flashes the skirt keeps step with the flash: 4 frames of 7 ticks (jspacman Ghost.js animations[2])
+        var frame = gb.fright > 0 && gb.fright < FLASH_WINDOW ? Math.floor((FLASH_WINDOW - gb.fright) / (TK.flash / 2)) % 2 : Math.floor(tick / TK.skirt) % 2;
+        ghosts.push({ x: pos.x, y: pos.y, dir: gb.dir, look: gb.look, ki: gb.kind, mode: mode, frame: frame });
       });
       w.b.players.forEach(function (pb) {
         if (pb.id === myId && (predicting || !(pb.flags & Wire.F.DYING))) return;
@@ -348,7 +350,7 @@
           o.dying = pixel ? deathFrame(t0, now) : Math.min(1, (now - t0) / (R.DEATH_S * 1000 * 0.85));
           if (pb.id === myId && me) { o.x = me.x; o.y = me.y; }
         } else {
-          if (pb.flags & Wire.F.SAFE) o.alpha = Math.floor(now / 120) % 2 ? 0.35 : 1;
+          if (pb.flags & Wire.F.SAFE) { if (pixel) o.hidden = Math.floor(tick / 8) % 2 === 1; else o.alpha = Math.floor(now / 120) % 2 ? 0.35 : 1; }
           if (pb.flags & Wire.F.POWER) o.halo = true;
           if (myPower > 0 && !(pb.flags & (Wire.F.POWER | Wire.F.SAFE))) {
             o.scared = true;
@@ -364,7 +366,7 @@
       players.push({
         x: mx, y: my, dir: me.face, me: true, color: draw.L.me, mouth: mouthFor(myId, mx, my, me.moving),
         frame: chewFrame(myId, me.moving, dtTicks),
-        alpha: mySafe ? (Math.floor(now / 120) % 2 ? 0.35 : 1) : 1, halo: myPower > 0
+        alpha: !pixel && mySafe ? (Math.floor(now / 120) % 2 ? 0.35 : 1) : 1, hidden: pixel && mySafe && Math.floor(tick / 8) % 2 === 1, halo: myPower > 0
       });
     }
     fruitOn.forEach(function (mi) { var m = A.modules[mi]; if (m) fruit.push({ x: m.ox + Maze.FRUIT.x, y: m.oy + Maze.FRUIT.y }); });
@@ -382,7 +384,7 @@
     var vw = canvas.width / draw.S, vh = canvas.height / draw.S - (pixel ? 5 : 0);
     var cx = vw >= A.W + 2 ? A.W / 2 : Math.max(vw / 2 - 1, Math.min(A.W - vw / 2 + 1, cam.x));
     var cy = vh >= A.H + 2 ? A.H / 2 : Math.max(vh / 2 - 1, Math.min(A.H - vh / 2 + 1, cam.y));
-    // points that pop: a ghost's for 1 s (the arcade's freeze while it shows), fruit's for 2 s (jspacman)
+    // points that pop: a ghost's for 60 ticks (the arcade's freeze while it shows), fruit's for 80 (jspacman)
     var ps = [];
     pops = pops.filter(function (q) { return now - q.at < q.ms; });
     pops.forEach(function (q) { ps.push({ x: q.x, y: q.y, text: q.text, color: q.color, a: 1 }); });
@@ -391,9 +393,9 @@
     if (pixel && !attract) {
       var high = lbRows.length ? lbRows[0][1] : 0;
       scene.hud = phase === 'play' || phase === 'over'
-        ? { score: myScore, high: Math.max(high, myScore), lives: Math.max(0, myLives - 1), fruit: true }
+        ? { score: myScore, high: Math.max(high, myScore), lives: Math.max(0, myLives - 1), fruit: true, blink: phase === 'play' }
         : { score: 0, high: high, lives: 0, fruit: true };
-      if (predicting && me && me.dir < 0 && phase === 'play') scene.banner = { text: 'READY!', color: draw.C.yellow, x: me.x, y: me.y + 3 };
+      if (predicting && me && me.dir < 0 && phase === 'play') scene.banner = { text: 'READY!', color: draw.C.yellow, x: me.x, y: me.y - 6 };
     }
     draw.frame(scene);
     if (!pixel) hud(now);
