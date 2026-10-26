@@ -3,8 +3,8 @@
 //
 //   header  10 B  u8 version, u8 mode (0 scatter, 1 chase), u16 players, u16 ghosts, u32 tick
 //   player  14 B  u16 id, i16 x, i16 y, u8 dir+1, u8 flags, u16 seq (last input), u16 since (ticks since it), u8 power
-//                 (ticks left / 6), u8 spare
-//   ghost    8 B  i16 x, i16 y, u8 dir, u8 kind | state << 2, u8 fright (ticks left / 6), u8 spare
+//                 (ticks left / 2), u8 spare
+//   ghost    8 B  i16 x, i16 y, u8 dir, u8 kind | state << 2, u8 fright (ticks left / 2: the flash timing needs 2-tick steps), u8 spare
 // Ghosts always come in the same order, so the browser knows each one by its place in the list.
 (function (root) {
   'use strict';
@@ -30,7 +30,7 @@
       v.setUint8(o + 7, p.flags & 0xff);
       v.setUint16(o + 8, p.seq & 0xffff, true);
       v.setUint16(o + 10, Math.min(65535, Math.max(0, p.since | 0)), true);
-      v.setUint8(o + 12, Math.min(255, Math.max(0, Math.ceil(p.power / 6))));
+      v.setUint8(o + 12, Math.min(255, Math.max(0, Math.ceil(p.power / 2))));
     }
     for (var j = 0; j < ghosts.length; j++, o += GH) {
       var g = ghosts[j];
@@ -38,7 +38,7 @@
       v.setInt16(o + 2, clamp16(g.y), true);
       v.setUint8(o + 4, g.dir & 3);
       v.setUint8(o + 5, (g.kind & 3) | (g.state << 2));
-      v.setUint8(o + 6, Math.min(255, Math.max(0, Math.ceil(g.fright / 6))));
+      v.setUint8(o + 6, Math.min(255, Math.max(0, Math.ceil(g.fright / 2))));
     }
     return buf;
   }
@@ -54,14 +54,14 @@
       out.players.push({
         id: v.getUint16(o, true), x: v.getInt16(o + 2, true) / SUB, y: v.getInt16(o + 4, true) / SUB,
         dir: v.getUint8(o + 6) - 1, flags: v.getUint8(o + 7), seq: v.getUint16(o + 8, true),
-        since: v.getUint16(o + 10, true), power: v.getUint8(o + 12) * 6
+        since: v.getUint16(o + 10, true), power: v.getUint8(o + 12) * 2
       });
     }
     for (var j = 0; j < nG; j++, o += GH) {
       var ks = v.getUint8(o + 5);
       out.ghosts.push({
         x: v.getInt16(o, true) / SUB, y: v.getInt16(o + 2, true) / SUB, dir: v.getUint8(o + 4) & 3,
-        kind: ks & 3, state: ks >> 2, fright: v.getUint8(o + 6) * 6
+        kind: ks & 3, state: ks >> 2, fright: v.getUint8(o + 6) * 2
       });
     }
     return out;

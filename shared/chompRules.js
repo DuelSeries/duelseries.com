@@ -53,7 +53,7 @@
     // ---- fright (power pellet), level 1
     FRIGHT_S: 6,                 // DOSSIER Table A.1 "Fright. Time" 6 s
     FRIGHT_FLASHES: 5,           // DOSSIER Table A.1 "# of Flashes" 5
-    FLASH_PERIOD_S: 0.4,         // CHOSEN: one blue-white flash (the dossier gives no frame count)
+    FLASH_TICKS: 14,             // jspacman (4 frames x 7 ticks a flash) and pacman500 (14): 14 ticks blue, 14 white
     FRIGHT_RADIUS: 18,           // ARENA: ghosts within this many tiles of the eater turn blue (the arcade has one screen)
 
     // ---- scatter / chase, level 1 column (seconds). DOSSIER: S7 C20 S7 C20 S5 C20 S5 then chase for ever.
@@ -81,7 +81,7 @@
     DOT_RESPAWN_S: 30,           // CHOSEN: an eaten dot comes back after this long
     ENERGIZER_RESPAWN_S: 40,     // CHOSEN
     RESPAWN_CLEAR: 4,            // CHOSEN: a pellet only reappears with no player within this many tiles
-    DEATH_S: 1.6,                // CHOSEN: the death animation before you come back
+    DEATH_S: (30 + 14 * 8) / 60, // jspacman: frozen 30 ticks, then 14 death frames of 8 ticks
     SPAWN_SAFE_S: 3,             // CHOSEN: invulnerable (blinking) after coming back
     SPAWN_GHOST_CLEAR: 8,        // CHOSEN: spawn at least this many tiles from any dangerous ghost
     MAX_PLAYERS: 40,             // CHOSEN: seats per room

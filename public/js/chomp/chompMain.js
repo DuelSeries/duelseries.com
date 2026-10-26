@@ -43,7 +43,8 @@
     // CHOSEN: a computer shows 33 rows top to bottom (the arcade screen's 36 less its score lines); a phone held
     // upright shows 28.5 columns across, the arcade's own width, as the arcade cabinet's screen stands.
     var portrait = h > w;
-    draw.resize(w, h, dpr, portrait ? (w * dpr / 28.5) : (h * dpr / 33));
+    if (draw.L.id === 'pixel') draw.resize(w, h, dpr);
+    else draw.resize(w, h, dpr, portrait ? (w * dpr / 28.5) : (h * dpr / 33));
   }
   window.addEventListener('resize', resize);
 
@@ -68,7 +69,7 @@
     var fresh = !A || A.mx !== m.mx || A.my !== m.my;
     if (fresh) {
       A = Maze.build(m.mx, m.my);
-      draw = new Draw(canvas, A, lookName);
+      draw = lookName === 'pixel' && window.ChompPixel ? new window.ChompPixel(canvas, A) : new Draw(canvas, A, lookName);
       resize();
     }
     dotsServer = new Uint8Array(m.dots);
@@ -125,7 +126,7 @@
         if (e.on) fruitOn.add(e.m); else fruitOn.delete(e.m);
         if (!e.on && e.pts) {
           var m = A.modules[e.m];
-          pop(m.ox + Maze.FRUIT.x, m.oy + Maze.FRUIT.y, String(e.pts), '#ffb8ff');
+          pop(m.ox + Maze.FRUIT.x, m.oy + Maze.FRUIT.y, String(e.pts), '#ffb8ff', 2000);
           if (e.id === myId) Snd.play('ch.fruit');
         }
       } else if (e.k === 'life') {
@@ -134,7 +135,7 @@
     });
   }
 
-  function pop(x, y, text, color) { pops.push({ x: x, y: y, text: text, color: color, at: performance.now() }); }
+  function pop(x, y, text, color, ms) { pops.push({ x: x, y: y, text: text, color: color, at: performance.now(), ms: ms || 1000 }); }
 
   function onOver(m) {
     phase = 'over'; predicting = false; myId = 0;
@@ -290,41 +291,68 @@
   }
 
   // ---- drawing
-  var FLASH_TICKS = R.FRIGHT_FLASHES * R.FLASH_PERIOD_S * R.TICK_HZ;
+  // Animation timings in 60 Hz ticks (sources in chompPixel.js TK and docs/chomp-look.md).
+  var TK = window.ChompPixel ? window.ChompPixel.TK : { chew: 2, skirt: 8, flash: 14, flashes: 5, blink: 10, deathFreeze: 30, deathFrames: 14, deathFrame: 8 };
+  var FLASH_WINDOW = TK.flashes * TK.flash * 2;          // the last 5 blue-white flashes of a fright
+  var CHEW = [0, 1, 2, 1];                               // shut, half, wide, half
+  var chew = new Map();                                  // id -> { t: ticks spent moving, f: frame shown }
+  function flashing(left) {
+    if (left <= 0 || left >= FLASH_WINDOW) return false;
+    return Math.floor((FLASH_WINDOW - left) / TK.flash) % 2 === 1;
+  }
+  function chewFrame(id, moving, dt) {
+    var c = chew.get(id);
+    if (!c) { c = { t: 0, f: 2 }; chew.set(id, c); }
+    if (moving) { c.t += dt; c.f = CHEW[Math.floor(c.t / TK.chew) % 4]; }
+    else if (c.f === 0) c.f = 2;                         // jspacman: Pac-Man never stops with his mouth shut
+    return c.f;
+  }
+  function deathFrame(t0, now) {
+    var e = (now - t0) / STEP_MS;
+    if (e < TK.deathFreeze) return -1;
+    return Math.min(TK.deathFrames, Math.floor((e - TK.deathFreeze) / TK.deathFrame));
+  }
+  var lastRender = 0;
   function render(now) {
     if (!draw || !A) return;
+    var dtTicks = lastRender ? Math.min(10, (now - lastRender) / STEP_MS) : 0;
+    lastRender = now;
+    var tick = Math.floor(now / STEP_MS);
+    var pixel = draw.L.id === 'pixel';
     var w = sampleWorld(now);
     var players = [], ghosts = [], fruit = [];
-    var flashOn = Math.floor(now / (R.FLASH_PERIOD_S * 500)) % 2 === 1;
+    var flashOn = Math.floor(now / (TK.flash * STEP_MS)) % 2 === 1;
     if (w) {
       w.b.ghosts.forEach(function (gb, i) {
         var ga = w.a.ghosts[i];
         var pos = lerp(ga, gb, w.k);
         var mode = 0;
         if (gb.state === 3 || gb.state === 4) mode = 3;
-        else if (gb.fright > 0) mode = gb.fright < FLASH_TICKS && flashOn ? 2 : 1;
-        ghosts.push({ x: pos.x, y: pos.y, dir: gb.dir, ki: gb.kind, mode: mode, frame: Math.floor(now / 133) % 2 });
+        else if (gb.fright > 0) mode = (pixel ? flashing(gb.fright) : gb.fright < FLASH_WINDOW && flashOn) ? 2 : 1;
+        ghosts.push({ x: pos.x, y: pos.y, dir: gb.dir, ki: gb.kind, mode: mode, frame: Math.floor(tick / TK.skirt) % 2 });
       });
       w.b.players.forEach(function (pb) {
         if (pb.id === myId && (predicting || !(pb.flags & Wire.F.DYING))) return;
         var pa = w.a.pmap.get(pb.id), pos = lerp(pa, pb, w.k);
         var meta = metas.get(pb.id) || { n: '', c: 0 };
+        var others = draw.L.players.length - 1;
         var o = {
           x: pos.x, y: pos.y, dir: pb.dir >= 0 ? pb.dir : 1, name: meta.n, me: pb.id === myId,
-          color: pb.id === myId ? draw.L.me : draw.L.players[(meta.c % 7) + 1],
-          mouth: mouthFor(pb.id, pos.x, pos.y, pb.flags & Wire.F.MOVING)
+          color: pb.id === myId ? draw.L.me : draw.L.players[(meta.c % others) + 1],
+          mouth: mouthFor(pb.id, pos.x, pos.y, pb.flags & Wire.F.MOVING),
+          frame: chewFrame(pb.id, pb.flags & Wire.F.MOVING, dtTicks)
         };
         if (pb.flags & Wire.F.DYING) {
           var t0 = dying.get(pb.id);
           if (t0 == null) { t0 = now; dying.set(pb.id, now); }
-          o.dying = Math.min(1, (now - t0) / (R.DEATH_S * 1000 * 0.85));
+          o.dying = pixel ? deathFrame(t0, now) : Math.min(1, (now - t0) / (R.DEATH_S * 1000 * 0.85));
           if (pb.id === myId && me) { o.x = me.x; o.y = me.y; }
         } else {
           if (pb.flags & Wire.F.SAFE) o.alpha = Math.floor(now / 120) % 2 ? 0.35 : 1;
           if (pb.flags & Wire.F.POWER) o.halo = true;
           if (myPower > 0 && !(pb.flags & (Wire.F.POWER | Wire.F.SAFE))) {
             o.scared = true;
-            o.scaredFlash = myPower < FLASH_TICKS && flashOn;
+            o.scaredFlash = pixel ? flashing(myPower) : myPower < FLASH_WINDOW && flashOn;
           }
         }
         players.push(o);
@@ -335,6 +363,7 @@
       var mx = me.x + smooth.x, my = me.y + smooth.y;
       players.push({
         x: mx, y: my, dir: me.face, me: true, color: draw.L.me, mouth: mouthFor(myId, mx, my, me.moving),
+        frame: chewFrame(myId, me.moving, dtTicks),
         alpha: mySafe ? (Math.floor(now / 120) % 2 ? 0.35 : 1) : 1, halo: myPower > 0
       });
     }
@@ -350,16 +379,25 @@
     if (!camSet) { cam.x = target.x; cam.y = target.y; camSet = true; }
     var kf = predicting ? 1 : 0.04;
     cam.x += (target.x - cam.x) * kf; cam.y += (target.y - cam.y) * kf;
-    var vw = canvas.width / draw.S, vh = canvas.height / draw.S;
+    var vw = canvas.width / draw.S, vh = canvas.height / draw.S - (pixel ? 5 : 0);
     var cx = vw >= A.W + 2 ? A.W / 2 : Math.max(vw / 2 - 1, Math.min(A.W - vw / 2 + 1, cam.x));
     var cy = vh >= A.H + 2 ? A.H / 2 : Math.max(vh / 2 - 1, Math.min(A.H - vh / 2 + 1, cam.y));
-    // points that pop
+    // points that pop: a ghost's for 1 s (the arcade's freeze while it shows), fruit's for 2 s (jspacman)
     var ps = [];
-    pops = pops.filter(function (q) { return now - q.at < 1000; });
-    pops.forEach(function (q) { ps.push({ x: q.x, y: q.y, text: q.text, color: q.color, a: 1 - Math.max(0, (now - q.at - 700) / 300) }); });
+    pops = pops.filter(function (q) { return now - q.at < q.ms; });
+    pops.forEach(function (q) { ps.push({ x: q.x, y: q.y, text: q.text, color: q.color, a: 1 }); });
     pending.forEach(function (exp, k) { if (now > exp) { pending.delete(k); dotsView[k] = dotsServer[k]; } });
-    draw.frame({ cam: { x: cx, y: cy }, t: now, dots: dotsView, players: players, ghosts: ghosts, fruit: fruit, pops: ps });
-    hud(now);
+    var scene = { cam: { x: cx, y: cy }, t: now, tick: tick, dots: dotsView, players: players, ghosts: ghosts, fruit: fruit, pops: ps };
+    if (pixel && !attract) {
+      var high = lbRows.length ? lbRows[0][1] : 0;
+      scene.hud = phase === 'play' || phase === 'over'
+        ? { score: myScore, high: Math.max(high, myScore), lives: Math.max(0, myLives - 1), fruit: true }
+        : { score: 0, high: high, lives: 0, fruit: true };
+      if (predicting && me && me.dir < 0 && phase === 'play') scene.banner = { text: 'READY!', color: draw.C.yellow, x: me.x, y: me.y + 3 };
+    }
+    draw.frame(scene);
+    if (!pixel) hud(now);
+    if (myPower > 0 && Math.floor(now / 400) !== hud.lastBeat) { hud.lastBeat = Math.floor(now / 400); Snd.play('ch.scared'); }
   }
 
   function fmt(n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
@@ -387,7 +425,6 @@
         ctx.fillText('READY!', W / 2, H / 2 + draw.S * 1.4);
       }
     }
-    if (myPower > 0 && Math.floor(now / 400) !== hud.lastBeat) { hud.lastBeat = Math.floor(now / 400); Snd.play('ch.scared'); }
   }
 
   function showBoard() {
@@ -420,7 +457,7 @@
   if (attract) titleEl.hidden = true;
   window.ChompPage = {
     state: function () { return { phase: phase, myId: myId, predicting: predicting, me: me, score: myScore, lives: myLives, stats: stats, snaps: snaps.length, look: draw && draw.L.id }; },
-    setLook: function (n) { lookName = n; store('chomp.look', n); if (draw) { draw.setLook(n); resize(); } } };
+    setLook: function (n) { lookName = n; if (A) { draw = n === 'pixel' && window.ChompPixel ? new window.ChompPixel(canvas, A) : new Draw(canvas, A, n); resize(); } } };
   connect();
   requestAnimationFrame(loop);
 })();

@@ -193,3 +193,29 @@ test('late turn: a turn the page took a tick ago is honoured at that tile', () =
   room.input(q, 2, 2, 9, 1);
   assert.strictEqual(q.dir, 3, 'a tile it never passed: no rewind, the turn waits');
 });
+
+test('walls are drawn by the arcade rules measured from the 1x captures (docs/chomp-look.md)', () => {
+  const Walls = require('../shared/chompWalls');
+  const A = Maze.build(1, 1);
+  const w = Walls.build(A);
+  const at = (x, y) => w.mask[y * w.PW + x];
+  const rows = (x0, y0, ww, hh) => { const o = []; for (let y = y0; y < y0 + hh; y++) { let s = ''; for (let x = x0; x < x0 + ww; x++) s += at(x, y) === 1 ? 'B' : at(x, y) === 2 ? 'P' : '.'; o.push(s); } return o; };
+  // the frame's top-left corner, exactly as on the arcade screen (Level 256 capture and the Commons recreation, y 24..29)
+  assert.deepStrictEqual(rows(0, 0, 6, 6), ['....BB', '..BB..', '.B....', '.B...B', 'B...B.', 'B..B..']);
+  // one pixel lines everywhere: no 2 x 2 block of wall pixels
+  for (let y = 0; y < w.PH - 1; y++) for (let x = 0; x < w.PW - 1; x++) {
+    assert.ok(!(at(x, y) === 1 && at(x + 1, y) === 1 && at(x, y + 1) === 1 && at(x + 1, y + 1) === 1), `2x2 wall at ${x},${y}`);
+  }
+  // a block (rows 2-3, cols 2-4): top/left edges 4 px into the tile, bottom/right 3 px, corners cut by one diagonal pixel
+  assert.deepStrictEqual(rows(19, 19, 18, 10), [
+    '..................', '...BBBBBBBBBBBB...', '..B............B..', '.B..............B.', '.B..............B.',
+    '.B..............B.', '.B..............B.', '..B............B..', '...BBBBBBBBBBBB...', '..................']);
+  // the double line runs straight past the 2-tile stub under the top border (as the arcade's does over its own)
+  for (let x = 96; x < 128; x++) assert.strictEqual(at(x, 0), 1, `outer line over the stub at x ${x}`);
+  // the house: double box with square corners and a 16 x 2 door (pixel counts as measured: rows 124/127/152/155 of the
+  // arcade screen are the house's rows 100/103/128/131 here, 24 px of score rows above the maze)
+  const count = (y) => { let n = 0; for (let x = 80; x < 144; x++) if (at(x, y) === 1) n++; return n; };
+  assert.deepStrictEqual([100, 103, 128, 131].map(count), [40, 36, 52, 56]);
+  let door = 0; for (let y = 96; y < 104; y++) for (let x = 100; x < 124; x++) if (at(x, y) === 2) door++;
+  assert.strictEqual(door, 32);
+});
