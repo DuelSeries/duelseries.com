@@ -56,16 +56,43 @@ test('the only hold is a 400 ms floor, nothing artificial', () => {
   assert.match(s, /Math\.max\(0,400-performance\.now\(\)\)/);
 });
 
-test('reduced motion still plays it (Owen\'s PC reports reduced motion)', () => {
-  const css = html.slice(html.indexOf('/* ── Loading screen'), html.indexOf('</style>', html.indexOf('/* ── Loading screen')));
+/* Written to hold for every saved option (splash-mockups/saved/), so swapping
+   one in is a single command: the live one only draws and fades, the saved
+   ones move and carry their own reduced-motion fallback. */
+test('reduced motion still plays it, gently (Owen\'s PC reports reduced motion)', () => {
+  const css = html.slice(html.indexOf('/* ── Loading screen'), html.indexOf('</style>', html.indexOf('/* ── Loading screen')))
+    .replace(/\/\*[^]*?\*\//g, '');
   // The lobby flattens every animation with !important under reduced motion,
   // so each splash animation has to be !important to win.
-  const anims = css.match(/animation:[^;}]+/g);
-  assert.ok(anims.length >= 6);
+  const anims = css.match(/animation:[^;}]+/g) || [];
+  assert.ok(anims.length >= 2);
   for (const a of anims) assert.match(a, /!important$/, a);
-  // Gentle by construction: stroke drawing and opacity, never a move or a zoom.
-  assert.doesNotMatch(css, /transform|scale\(|translate/);
-  assert.doesNotMatch(css, /prefers-reduced-motion/);
+
+  // Anything that moves (a transform in its keyframes) needs a reduced-motion
+  // fallback that swaps it for keyframes that do not move, or hides it.
+  const kf = Object.fromEntries([...css.matchAll(/@keyframes\s+([\w-]+)\{((?:[^{}]*\{[^}]*\})*)\}/g)].map(m => [m[1], m[2]]));
+  const moving = Object.keys(kf).filter(k => /transform/.test(kf[k]));
+  const uses = body => Object.keys(kf).filter(k => new RegExp('(^|[\\s,:])' + k + '(?=[\\s,!;]|$)').test(body));
+  const at = css.indexOf('@media(prefers-reduced-motion:reduce){');
+  let block = '';
+  if (at >= 0) {
+    let depth = 0;
+    for (let i = css.indexOf('{', at); i < css.length; i++) {
+      if (css[i] === '{') depth++;
+      else if (css[i] === '}' && --depth === 0) { block = css.slice(at, i + 1); break; }
+    }
+  }
+  const rules = s => [...s.matchAll(/([^{}@]+)\{([^{}]*)\}/g)].map(m => ({ sel: m[1].split(',').map(x => x.trim()), body: m[2] }));
+  const reduced = rules(block.slice(block.indexOf('{') + 1));
+  for (const r of reduced) for (const k of uses(r.body)) assert.ok(!moving.includes(k), 'reduced motion still uses ' + k);
+  const normal = rules(css.replace(block, '').replace(/@keyframes\s+[\w-]+\{(?:[^{}]*\{[^}]*\})*\}/g, ''));
+  for (const r of normal) {
+    if (!uses(r.body).some(k => moving.includes(k))) continue;
+    for (const sel of r.sel) {
+      assert.ok(reduced.some(x => x.sel.includes(sel) && /animation:|display:none/.test(x.body)),
+        sel + ' moves and has no reduced-motion fallback');
+    }
+  }
 });
 
 test('game pages have no splash: it is the lobby\'s only', () => {
