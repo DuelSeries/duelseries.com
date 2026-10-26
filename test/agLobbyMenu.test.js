@@ -76,6 +76,7 @@ test('agMain lobby: no card at boot, Esc does nothing, death shows Play again, S
   assert.deepStrictEqual(card.buttons.map((b) => [b.id, b.text, b.primary, b.disabled]),
     [['lobby', 'Lobby', false, false], ['watch', 'Spectate', false, false], ['again', 'Play again', true, false]],
     'every end card: Lobby, Spectate, Play again (Owen 2026-10-16)');
+  assert.strictEqual(card.share, true, 'a free card has the Share pill beside the row (2026-10-26)');
   assert.strictEqual(p.session.state().board.visible, false, 'the board steps aside for the card');
   const before = p.sent.filter((s) => s[0] === 'play').length;
   clickCard(p.doc, 'again');

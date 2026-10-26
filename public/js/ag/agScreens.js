@@ -397,6 +397,12 @@
       }
       if (opts.z != null) c.z = opts.z;
       if (opts.root) c.root = opts.root;
+      // Share your score (2026-10-26): the free card only (agMain shows it only when the page is not paid)
+      if (api.kind === 'free' && typeof D.share === 'function') {
+        c.share = { onClick: function () {
+          if (api.kind === 'free') D.share({ game: 'agar', hero: c.hero, unit: c.unit, facts: c.facts, z: c.z });
+        } };
+      }
       return c;
     }
     // A short window (a phone held sideways) is fitted by the component itself (dsEnd fit).

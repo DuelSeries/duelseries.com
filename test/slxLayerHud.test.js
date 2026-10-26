@@ -99,7 +99,7 @@ test('slxCard: death card (the shared card) at their menu show, N from their las
   assert.strictEqual(card.element.style.zIndex, '30', 'above their login layer (z-index 20)');
   assert.strictEqual(card.element.style.zoom, '', 'a computer page: no zoom');
   assert.match(card.element.className, /^dse t-plain k-free slx-card$/, 'a layer control to slxWatch, slxBr and slxTouch');
-  assert.strictEqual(card.element.textContent, 'You diedFreeLength1,234Time1:05Top rank3rdKills0LobbySpectatePlay again');   // a free game says Free; its score is the first tray row (Owen 2026-10-16)
+  assert.strictEqual(card.element.textContent, 'You diedFreeLength1,234Time1:05Top rank3rdKills0LobbySpectatePlay againShare');   // a free game says Free; its score is the first tray row (Owen 2026-10-16)
   assert.deepStrictEqual(plain(st.buttons), ['Lobby', 'Spectate', 'Play again'], 'every death: Lobby, Spectate, Play again');
   assert.strictEqual(bigText(P), 'Free');
   P.slx.fire('menuFade', 0.25);

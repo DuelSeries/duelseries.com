@@ -2,6 +2,17 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-10-26-invite-and-share",
+      "date": "2026-10-26",
+      "tag": "new",
+      "title": "Invite a friend and share your score",
+      "body": "Every game screen has an Invite a friend button on Free. It copies a link that drops your friend straight into the same free game as you.\n\nWhen a free game ends, press Share on the card for a picture of your score to post anywhere. And a DuelSeries link pasted into Discord, iMessage or X now shows a real picture of the game.",
+      "image": {
+        "src": "/updates/share-your-score.webp",
+        "alt": "The Share your score card over a Snake game, with Copy invite link and Save image"
+      }
+    },
+    {
       "id": "2026-10-26-loading-screen",
       "date": "2026-10-26",
       "tag": "new",

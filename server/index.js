@@ -2304,6 +2304,9 @@ function noindexPreview(req, res, next) {
 }
 app.get('/', noindexPreview, (_req, res) => res.sendFile(path.join(__dirname, '../public/v2.html')));
 app.get('/v2', noindexPreview, (_req, res) => res.sendFile(path.join(__dirname, '../public/v2.html')));
+/* An invite (/play/snake and the rest, shared/shareGames.js): the lobby with that game's link preview in its head;
+   the lobby's invite.js then opens the game's free room. */
+app.get('/play/:slug', require('./sharePreview').playRoute());
 /* The owner console, without the file extension. The page itself is not a
    secret and does not need to be — it shows nothing and does nothing until an
    owner wallet signs for it, and every route behind it checks that server-side.

@@ -15,7 +15,7 @@
    tab with rel="noopener noreferrer". */
 (function () {
   const LINKS = {
-    discord: '',   // the invite, like https://discord.gg/abc123
+    discord: 'https://discord.gg/TkFaefHDFr',   // the DuelSeries server (2026-10-26), lands in #welcome, never expires
     whop: '',      // the clip team page, like https://whop.com/duelseries
     x: '',         // like https://x.com/duelseries
     tiktok: '',    // like https://www.tiktok.com/@duelseries

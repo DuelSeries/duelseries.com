@@ -965,7 +965,7 @@ test('surfaces: the free card is unchanged with slxPaid loaded (no hook answers)
   assert.deepStrictEqual([st.tone, st.hero, st.unit, plain(st.ledger), st.status], ['plain', '12', 'length', [], '']);
   assert.strictEqual(P.find('dse-note').length + P.find('dse-led').length + P.find('dse-st').length, 0,
     'no lines, money rows or status on a free card');
-  assert.strictEqual(P.D.slx.card.element.textContent, 'You diedFreeLength12Time0:00Kills0LobbySpectatePlay again');
+  assert.strictEqual(P.D.slx.card.element.textContent, 'You diedFreeLength12Time0:00Kills0LobbySpectatePlay againShare');
   const src = fs.readFileSync(path.join(SLX_DIR, 'slxPaid.js'), 'utf8');
   assert.ok(!/localStorage/.test(src.replace(/\/\/.*$/gm, '')), 'slxPaid never touches localStorage');
   assert.ok(!src.includes(String.fromCharCode(0x2014)), 'no em dash');

@@ -214,6 +214,7 @@
       z: Z,
       zoom: ZOOM
     };
+    if (freeDeath()) view.share = { onClick: shareScore };
     card = E.show(view);
     // Marked as ours on their page: the layer's own test for a control (an slx- class on the node or an ancestor:
     // slxWatch and slxBr onGame, slxTouch isControl) leaves a press on the card to the card, as it did the old one.
@@ -287,6 +288,17 @@
     try {
       root.location.assign('/');
     } catch (e) { /* no location: nothing to do */ }
+  }
+
+  // Share your score (2026-10-26): on a free room's death only. Never a paid page, the battle royale (a prize event) or
+  // a card a layer answered for (a watcher's, a notice): those words and pictures leave the site.
+  function freeDeath() {
+    return shown === 'dead' && lifeCard && !extra && score !== null && !slx.br && !(slx.paid && slx.paid.on === true) &&
+      paidRung() === 0 && typeof E.share === 'function';
+  }
+  function shareScore() {
+    if (!view || !freeDeath()) return;
+    E.share({ game: 'snake', hero: view.hero, unit: view.unit, facts: view.facts, z: Z, zoom: ZOOM });
   }
 
   // The paid rung this page plays (slxPaid rung()), else 0 (the free room).

@@ -660,6 +660,18 @@
       return (p && REASON_TEXT[p.reason]) || 'Your square was destroyed';
     }
 
+    // Share your score (2026-10-26): the free table's card only (a paid one never offers it), its own figure and facts.
+    function freeShare() {
+      if (page.stake > 0 || typeof DSEnd.share !== 'function') return null;
+      return {
+        onClick: function () {
+          var o = page.end && page.end.opts;
+          if (!o || page.stake > 0) return;
+          DSEnd.share({ game: 'paper', hero: o.hero, unit: o.unit, facts: o.facts });
+        }
+      };
+    }
+
     // Free: the land at death. Paid: the stake lost, from the server's own lostMicro.
     function showDead(p) {
       var opts;
@@ -672,7 +684,8 @@
           facts: roundFacts(true)
         };
       } else {
-        opts = { tone: 'plain', verdict: killerText(p), hero: pctText(page.deathLand), unit: 'land', facts: roundFacts() };
+        opts = { tone: 'plain', verdict: killerText(p), hero: pctText(page.deathLand), unit: 'land', facts: roundFacts(),
+          share: freeShare() };
       }
       endPhase('dead', { opts: opts, again: prepareAgain() });
     }
@@ -695,7 +708,8 @@
           status: net_ > 0 ? { text: 'Sending to your wallet', state: 'pending' } : null
         };
       } else {
-        opts = { tone: 'plain', verdict: 'Cashed out', hero: pctText(page.roundBest), unit: 'best land', facts: roundFacts() };
+        opts = { tone: 'plain', verdict: 'Cashed out', hero: pctText(page.roundBest), unit: 'best land', facts: roundFacts(),
+          share: freeShare() };
       }
       endPhase('cashed', { opts: opts, again: prepareAgain() });
     }

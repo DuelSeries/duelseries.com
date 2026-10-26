@@ -16,6 +16,7 @@
 //     status   { text, state: 'pending'|'ok'|'err', link: { href, text } }
 //     notes    ['...']                            small lines under the money (refusals, hints)
 //     buttons  [{ id, text, primary, disabled, onClick }]
+//     share    { text, onClick }                  a free game's Share pill in the top right corner (dsShare.js)
 //     z, zoom, root                               stacking order, a page-zoom fix (/sl's 0.7 viewport), parent node
 //   -> { update(partial), hide(), el, button(id), opacity(x) }
 //   DSEnd.hide(), DSEnd.shown()
@@ -195,6 +196,14 @@
       'box-shadow:inset 0 0 0 1px rgba(240,168,48,.42)}',
     '.dse-btn:focus-visible{outline:2px solid var(--dse-gold);outline-offset:2px}',
     '.dse-panel>.dse-btns:first-child{margin-top:0}',
+    // Share (free games only, 2026-10-26): a quiet pill in the panel's top right corner, beside the coin, so the
+    // one row of buttons stays exactly the same on every card
+    '.dse-share{position:absolute;top:10px;right:10px;display:flex;align-items:center;gap:6px;height:32px;padding:0 12px 0 10px;' +
+      'border:0;border-radius:99px;background:rgba(245,241,232,.06);color:var(--dse-tx2);font:650 13px ' + SANS + ';cursor:pointer;' +
+      'box-shadow:inset 0 0 0 1px rgba(245,241,232,.14);touch-action:manipulation;-webkit-user-select:none;user-select:none}',
+    '.dse-share:hover{background:rgba(245,241,232,.11);color:var(--dse-tx)}',
+    '.dse-share:focus-visible{outline:2px solid var(--dse-gold);outline-offset:2px}',
+    '.dse-share svg{flex:none}',
 
     // a computer: the same card a size up, centred
     '@media (min-width:' + (PHONE_MAX + 1) + 'px){.dse{align-items:center;padding:16px}' +
@@ -295,6 +304,35 @@
     if (cls) e.className = cls;
     if (text != null) e.textContent = String(text);
     return e;
+  }
+  // The Share pill: an arrow out of a tray, then the word. Not one of the row's buttons (no data-dse-btn).
+  var SVG_NS = 'http://www.w3.org/2000/svg';
+  function shareNode(s) {
+    var b = el('button', 'dse-share');
+    b.type = 'button';
+    b.setAttribute('data-dse-share', '1');
+    if (doc.createElementNS) {
+      var svg = doc.createElementNS(SVG_NS, 'svg');
+      svg.setAttribute('viewBox', '0 0 24 24');
+      svg.setAttribute('width', '15');
+      svg.setAttribute('height', '15');
+      svg.setAttribute('fill', 'none');
+      svg.setAttribute('stroke', 'currentColor');
+      svg.setAttribute('stroke-width', '2.2');
+      svg.setAttribute('stroke-linecap', 'round');
+      svg.setAttribute('stroke-linejoin', 'round');
+      svg.setAttribute('aria-hidden', 'true');
+      var p = doc.createElementNS(SVG_NS, 'path');
+      p.setAttribute('d', 'M12 15V3M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6');
+      svg.appendChild(p);
+      b.appendChild(svg);
+    }
+    b.appendChild(el('span', null, s.text || 'Share'));
+    b.addEventListener('click', function (e) {
+      e.stopPropagation();
+      s.onClick(e);
+    });
+    return b;
   }
   // [label, value] or { k, v }
   function pair(x) {
@@ -493,6 +531,7 @@
       });
       panel.appendChild(btns);
     }
+    if (o.share && typeof o.share.onClick === 'function') panel.appendChild(shareNode(o.share));
     box.appendChild(panel);
     if (hasHero) box.appendChild(kind === 'paid' ? coinNode(o) : slotNode(kind));
     wrap.appendChild(box);
@@ -821,6 +860,27 @@
     return v + (t >= 11 && t <= 13 ? 'th' : o === 1 ? 'st' : o === 2 ? 'nd' : o === 3 ? 'rd' : 'th');
   }
 
+  // A free game's Share pill (the card's share option): the score sheet (dsShare.js) and the words it uses
+  // (shared/shareGames.js) are fetched the first time anyone presses it, so no game page has to load them.
+  var shareLoad = null;
+  function addScript(src) {
+    return new Promise(function (resolve, reject) {
+      var s = doc.createElement('script');
+      s.src = src;
+      s.onload = resolve;
+      s.onerror = reject;
+      (doc.head || doc.documentElement).appendChild(s);
+    });
+  }
+  function share(o) {
+    if (!shareLoad) {
+      shareLoad = (root.DS_SHARE ? Promise.resolve() : addScript('/shared/shareGames.js'))
+        .then(function () { return root.DSShare ? null : addScript('/js/shared/dsShare.js'); });
+      shareLoad.catch(function () { shareLoad = null; });   // a failed load is tried again on the next press
+    }
+    return shareLoad.then(function () { return root.DSShare ? root.DSShare.open(o) : null; }, function () { return null; });
+  }
+
   root.DSEnd = { version: 1, show: show, hide: hide, shown: shown, board: board, ring: ring,
-    usd: usd, clock: clock, int: int, ordinal: ordinal, isPhone: phone };
+    usd: usd, clock: clock, int: int, ordinal: ordinal, isPhone: phone, share: share };
 })(typeof window !== 'undefined' ? window : null);

@@ -44,7 +44,8 @@ function readCard(doc) {
     status = { text: text(tn), state: classes(st).includes('ok') ? 'ok' : classes(st).includes('err') ? 'err' : 'pending' };
     if (a) status.link = { href: a.href, text: text(a), target: a.target, rel: a.rel };
   }
-  const buttons = all(root, (c) => c.tagName === 'BUTTON').map((b) => ({ id: b.getAttribute('data-dse-btn'), text: text(b),
+  // the one row of buttons; the free card's Share pill (dse-share, 2026-10-26) is read on its own below
+  const buttons = all(root, (c) => c.tagName === 'BUTTON' && classes(c).includes('dse-btn')).map((b) => ({ id: b.getAttribute('data-dse-btn'), text: text(b),
     primary: classes(b).includes('pri'), disabled: !!b.disabled }));
   return {
     tone,
@@ -56,6 +57,7 @@ function readCard(doc) {
     status,
     notes: byClass(root, 'dse-note').map(text),
     buttons,
+    share: !!one(root, 'dse-share'),
     z: root.style.zIndex,
     el: root
   };
