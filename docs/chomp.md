@@ -1,6 +1,6 @@
 # Chomp: the Pac-Man-style arena
 
-Hidden at `/chomp` (not in the lobby) since 2026-10-25; paid rungs since 2026-10-26. Owen's brief: look exactly like Pac-Man and play
+At `/chomp` since 2026-10-25; paid rungs and the lobby card (Free, $0.50, $1) since 2026-10-26 (Owen's OK). Owen's brief: look exactly like Pac-Man and play
 exactly like Pac-Man, in one big shared maze ("Arena, cash out anytime"), money later.
 
 ## The line we keep (IP)

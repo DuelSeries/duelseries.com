@@ -3312,9 +3312,9 @@ const chompGame = require('./chomp/chompBoot').openChomp({
 });
 const chompArenas = chompGame ? chompGame.arenas : null;
 const CHOMP_PAID_ON = !!(chompGame && chompGame.paid);
-/* Chomp is not in the lobby yet (Owen OKs it first): /api/live lists only its paid rows then (players = open
-   accounts, so deploy rule 4b sees anyone seated), never its free row, which would put it on the Open lobbies list. */
-const CHOMP_IN_LOBBY = false;
+/* Before Chomp was in the lobby /api/live listed only its paid rows (players = open accounts, so deploy rule 4b
+   sees anyone seated), never its free row, which would have put it on the Open lobbies list. */
+const CHOMP_IN_LOBBY = true;   // Owen's OK, 2026-10-26: the lobby has its card
 /* The two duels too (2026-10-21): a queued paid seat or a paid table being played lived only in this
    process, its stake row already 'consumed', so every deploy lost it with nothing owed. Their lobbies'
    shutdownSettle stops them and hands back one 100% refund row per paid seat (server/duelQueue.js). */
@@ -3656,6 +3656,7 @@ function liveGameCounts() {
     knockout: typeof knockoutLobby !== 'undefined' ? knockoutLobby : null,
     battleship: typeof battleshipLobby !== 'undefined' ? battleshipLobby : null,
     paper: paperArenas,
+    chomp: CHOMP_IN_LOBBY ? chompArenas : null,
   });
   /* A locked game has no room to count, and a 0 for it would still put it on
      the board's books, so it is not listed at all. */

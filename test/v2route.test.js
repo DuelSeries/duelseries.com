@@ -1522,7 +1522,7 @@ test('a duel shows the same screen as every other game, on the one shared ladder
      shut. */
   const html = v2();
 
-  for (const id of ['rooftop', 'headsoccer', 'swim', 'maze']) {
+  for (const id of ['rooftop', 'headsoccer', 'swim']) {
     const m = html.match(new RegExp("\\{id:'" + id + "'[^\\n]*"));
     assert.ok(m, id + ' is in the game list');
     assert.ok(/duel:1/.test(m[0]), id + ' is a duel');
@@ -1759,8 +1759,8 @@ test('the Paper detail screen shows no rules line and no snake skin', () => {
   // The browser-only row is gone, and the stake-0 row off the board is pinned instead.
   const board = fs.readFileSync(path.join(ROOT, 'public/js/v2/board.js'), 'utf8');
   assert.ok(!board.includes("'paper:free'"), 'no pinned paper:free row');
-  assert.ok(/\['paper', 'agar'\]\.forEach\(g => LOBBIES\.forEach\(l => \{\s*if \(l\.game === g && Number\(l\.stake\) === 0/.test(board),
-    'the Free Paper rung is pinned (and agar.io\'s after it)');
+  assert.ok(/\['paper', 'agar', 'chomp'\]\.forEach\(g => LOBBIES\.forEach\(l => \{\s*if \(l\.game === g && Number\(l\.stake\) === 0/.test(board),
+    'the Free Paper rung is pinned (then agar.io\'s and Chomp\'s)');
 });
 
 /* A lobby in a box: board.js, play.js and the widget's launch code on one stub window (test/v2LobbyHarness.js). */
@@ -2170,14 +2170,14 @@ test('every playable game is listed before any locked or unreleased one', () => 
     html.slice(a, b + 1) + '\nreturn GAMES.map(g=>g.id);')({ DS_LOCKED: lock }, lock);
 
   assert.deepStrictEqual(run(LOCK), [
-    'snake', 'paper', 'agar', 'knockout', 'battleship',
-    'omgshooter', 'tanks', 'rooftop', 'headsoccer', 'swim', 'maze', 'stumble',
+    'snake', 'paper', 'agar', 'chomp', 'knockout', 'battleship',
+    'omgshooter', 'tanks', 'rooftop', 'headsoccer', 'swim', 'stumble',
   ], 'playable in their own order, then locked and unreleased in theirs');
 
   // Unlocked, both go straight back to their own place among the playable ones.
   const none = { LOCKED_GAMES: [], isLocked: () => false };
-  assert.deepStrictEqual(run(none).slice(0, 7),
-    ['snake', 'paper', 'agar', 'omgshooter', 'tanks', 'knockout', 'battleship']);
+  assert.deepStrictEqual(run(none).slice(0, 8),
+    ['snake', 'paper', 'agar', 'chomp', 'omgshooter', 'tanks', 'knockout', 'battleship']);
 
   // The rail and the full grid both draw from that order.
   assert.ok(/order=GAMES\.slice\(\)/.test(html) && html.indexOf('order=GAMES.slice()') > s, 'the rail copies it after the sort');

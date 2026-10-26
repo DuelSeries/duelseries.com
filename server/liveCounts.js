@@ -69,7 +69,8 @@ function duelLobby(lobby) {
                  each once) count as snake players (PAID-SL-DESIGN.md 2, D2-m3)
      shooter:    the Awesome Tanks arena
      tanks, knockout, battleship: the duel lobbies
-     paper:      the PaperArenas registry */
+     paper:      the PaperArenas registry
+     chomp:      Chomp's ChompArenas (server/chomp), only once it is in the lobby (its key is left out otherwise) */
 function liveCounts(src = {}) {
   const sum = (rooms, per) => (rooms || []).reduce((n, r) => n + (r ? per(r) : 0), 0);
   let shooter = 0;
@@ -91,7 +92,10 @@ function liveCounts(src = {}) {
   let slPaid = 0;
   try { slPaid = src.slPaid && typeof src.slPaid.humanTotal === 'function' ? src.slPaid.humanTotal() : 0; }
   catch (_) { slPaid = 0; }
-  return {
+  let chomp = 0;
+  try { chomp = src.chomp && typeof src.chomp.humanTotal === 'function' ? src.chomp.humanTotal() : 0; }
+  catch (_) { chomp = 0; }
+  const out = {
     snake: sum(src.snakeRooms, socketsIn) + sl + slPaid,
     agar,
     omgshooter: shooter,
@@ -100,6 +104,8 @@ function liveCounts(src = {}) {
     battleship: duelLobby(src.battleship),
     paper,
   };
+  if (src.chomp) out.chomp = chomp;
+  return out;
 }
 
 /* Adds the bots of each game's board rows to its human count, so the card and

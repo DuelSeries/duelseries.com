@@ -2,6 +2,14 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-10-26-chomp-arrives",
+      "date": "2026-10-26",
+      "tag": "new",
+      "title": "Chomp is here",
+      "body": "A new arena game in the lobby. Eat the dots, dodge the ghosts, and grab the gold coins anyone who gets caught drops on the maze. A power pellet turns nearby ghosts blue and lets you eat other players too.\n\nPlay a Free room or a paid one. Hold Q to cash out, and keep moving while the ring fills. On a phone, drag your thumb to steer and hold the Cash out button to leave.",
+      "image": { "src": "/updates/chomp-arrives.webp", "alt": "Chomp: a yellow chomper in a blue maze with ghosts, dots and the leaderboard" }
+    },
+    {
       "id": "2026-10-26-connect-wallet",
       "date": "2026-10-26",
       "tag": "new",

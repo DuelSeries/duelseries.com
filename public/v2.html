@@ -3083,6 +3083,12 @@ const GAMES=[
     plain colours at first), so its Customize bar says nothing to change yet. */
  {id:'agar',name:'Agar.io',c:['#141f28','#65c8e8'],type:'p',ladder:1,
   d:'Absorb anything smaller than you, split to chase, and stay clear of anything bigger.'},
+ /* Chomp (server/chomp, page /chomp), in the lobby since 2026-10-26 (Owen's OK). Its rooms are rungs of the same
+    ladder (Free, $0.50, $1.00): Free opens /chomp straight in the game frame (no stake, play.js OWN_PAGE), a paid
+    rung goes through the wallet widget, which writes the one-shot chompPaidLaunch mark with the token. A paid rung
+    is offered only while /api/live lists it open (CHOMP_PAID on, chomp:paid:off not thrown). */
+ {id:'chomp',name:'Chomp',c:['#1a1726','#e8c860'],type:'p',ladder:1,
+  d:'Eat the dots, dodge the ghosts, and grab the coins anyone caught drops on the maze.'},
  /* Built, and free while it is new: no ladder, no lobby list, its own page,
     and none of the money path involved in it. `solo` is what says so. */
  {id:'omgshooter',name:'Awesome Tanks',c:['#1d2016','#a8bd63'],type:'p',built:1,solo:1,
@@ -3121,8 +3127,6 @@ const GAMES=[
  /* Every game here has a painting. A new one added before its art exists can
     carry noart:1 and render as a plain block in its own colour instead of a
     broken image; drop the flag when public/img/games/<id>.png lands. */
- {id:'maze',name:'Pac Man',c:['#1a1726','#e8c860'],type:'p',soon:1,duel:1,
-  d:'Clear the maze before whatever is chasing you closes off the last exit.'},
  {id:'stumble',name:'Stumble Guys',c:['#191d26','#7fb0e0'],type:'p',soon:1,
   d:'A crowd, an obstacle course, and physics that are on nobody’s side.'},
 ];

@@ -179,7 +179,7 @@
     if (free && !rows.some(r => r.id === free.id)) rows.unshift(free);
     /* Paper's and agar.io's free rungs are always listed, from the server's own
        row (paper:na:s0, ag:na:s0), in that order: the order the pinned rows had. */
-    ['paper', 'agar'].forEach(g => LOBBIES.forEach(l => {
+    ['paper', 'agar', 'chomp'].forEach(g => LOBBIES.forEach(l => {
       if (l.game === g && Number(l.stake) === 0 && !rows.includes(l)) rows.push(l);
     }));
     PINNED.forEach(p => {

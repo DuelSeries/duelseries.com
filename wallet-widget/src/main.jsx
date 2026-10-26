@@ -390,6 +390,9 @@ function launchStaked(game, sel, staked, wallet, onLaunch) {
   const sl = engineOf(game, sel) === 'sl';
   if (sl) sessionStorage.setItem('slPaidLaunch', launchNonce());
   else sessionStorage.removeItem('slPaidLaunch');
+  // Chomp's own one-shot mark (public/js/chomp/chompPaid.js): its page spends a token only beside it.
+  if (game === 'chomp' && byStake && Number(stake != null ? stake : worth) > 0) sessionStorage.setItem('chompPaidLaunch', launchNonce());
+  else sessionStorage.removeItem('chompPaidLaunch');
   // The region the stake went to, for pages that follow it (snake); a game that plays on this
   // origin (Paper, Knockout, Battleship, agar.io, /sl) still gets the lobby's pick, which it does
   // not use to connect.
@@ -413,7 +416,7 @@ function launchStaked(game, sel, staked, wallet, onLaunch) {
      A paid snake round on the new engine opens /sl in the snake frame (engineOf above). */
   const isAgar = game === 'agar';
   const PAGES = { agar: '/ag', knockout: '/knockout', battleship: '/battleship', snake: '/game.html',
-                  paper: '/paper-arena' };
+                  paper: '/paper-arena', chomp: '/chomp' };
   const frame = document.getElementById(isAgar ? 'agar-frame' : 'game-frame');
   const html = sl ? '/sl' : (PAGES[game] || '/game.html');
   if (frame) {

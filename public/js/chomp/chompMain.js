@@ -209,7 +209,14 @@
     (m.coins || []).forEach(function (c) { coins.set(c[0], { k: c[1], c: c[1] % A.W, r: Math.floor(c[1] / A.W), micro: c[2] }); });
     coinList = Array.from(coins.values());
     if (phase === 'play' && !paidMode) { phase = 'title'; titleEl.hidden = false; }
+    // In the lobby's frame the free room starts at once under the lobby name, the way agar.io's and Paper's do (the
+    // lobby already asked for the name); a Spectate opens watching instead, and the title card stays the way back.
+    if (inLobby && !paidMode && !autoJoined && phase === 'title' && !watchStake && !watchAsked) {
+      autoJoined = true;
+      join();
+    }
   }
+  var autoJoined = false, watchAsked = false;
 
   function onSnap(buf) {
     var s = Wire.decode(buf);
@@ -687,6 +694,11 @@
   }
 
   nameEl.value = store('chomp.name') || '';
+  if (inLobby) {
+    var lobbyName = '';
+    try { lobbyName = String(sessionStorage.getItem('playerName') || '').trim().slice(0, 15); } catch (e) { lobbyName = ''; }
+    if (lobbyName) nameEl.value = lobbyName;
+  }
   if (attract) titleEl.hidden = true;
   // the shared chat (dsChat.js): T to type, a button on phones; only a seated chomper sends
   var chat = window.DSChat ? window.DSChat.mount({
@@ -705,6 +717,7 @@
       sessionStorage.removeItem('dsWatch');
       watchStake = Number(sessionStorage.getItem('dsWatchStake')) || 0;
       sessionStorage.removeItem('dsWatchStake');
+      watchAsked = true;
       setTimeout(startWatch, 600);
     }
   } catch (e) { /* storage blocked: the title card shows */ }

@@ -408,6 +408,19 @@
         return;
       }
     }
+    /* Chomp's paid rungs: the same rule (a paid rung only while the board lists it open). */
+    if (game === 'chomp' && hasStake && Number(sel.stake) > 0) {
+      let open = false;
+      try {
+        const want = Number(sel.stake);
+        open = !!(window.V2Board && typeof window.V2Board.playableStakes === 'function'
+          && Array.from(window.V2Board.playableStakes('chomp')).some(s => Math.abs(s - want) < 1e-9));
+      } catch (_) { open = false; }
+      if (!open) {
+        say('That Chomp buy-in is not open right now. Pick one the card is offering.');
+        return;
+      }
+    }
     /* A paid slither.io rung is seated by one of two engines while the swap
        is live (PAID-SL-DESIGN.md 2): the new one's paid rooms ('sl:' rows) or
        the old one's ('snake:' rows). Which one is the board's call, made here
@@ -449,7 +462,8 @@
        stake 0 costs nothing there (an empty token) and every launch writes
        the whole hand-off the page reads, so a Free seat can never open on a
        token or a stake left over from an earlier paid one. */
-    const OWN_PAGE = { tanks: '/tanks', omgshooter: '/shooter', knockout: '/knockout', battleship: '/battleship' };
+    const OWN_PAGE = { tanks: '/tanks', omgshooter: '/shooter', knockout: '/knockout', battleship: '/battleship',
+      chomp: '/chomp' };
     /* A PAID SEAT NEVER TAKES THIS SHORTCUT. The shortcut exists for games with
        no money in them; routing a real buy-in down it would open the table with
        no stake taken and no entry token, which the server would then refuse.
@@ -487,6 +501,11 @@
          a stake and maybe the one-shot slPaidLaunch mark behind; a reload
          mark (slxPaidCut) would hold the free page too. All of it goes before
          the page loads, so a stale token plus a Free click is a free page. */
+      /* A Free /chomp page is never a paid one either: a paid Chomp launch's one-shot mark left by a page that
+         never loaded goes (public/js/chomp/chompPaid.js reads a token only beside that mark). */
+      if (page === '/chomp') {
+        try { sessionStorage.removeItem('chompPaidLaunch'); } catch (_) {}
+      }
       if (page === '/sl') {
         for (const k of ['entryToken', 'entrySol', 'stake', 'slPaidLaunch', 'slxPaidCut', 'slBr']) {
           try { sessionStorage.removeItem(k); } catch (_) {}
@@ -616,8 +635,10 @@
      cannot turn a Play into watching. agar.io and the old snake engine keep
      their own flag, spectateOnly, which their pages already read. */
   const WATCH_KEY = 'dsWatch';
-  const WATCH_PAGE = { snake: '/sl', paper: '/paper-arena', knockout: '/knockout', battleship: '/battleship' };
-  const MONEY_KEYS = ['entryToken', 'entrySol', 'stake', 'slPaidLaunch', 'slxPaidCut', 'slBr', 'spectateOnly'];
+  const WATCH_PAGE = { snake: '/sl', paper: '/paper-arena', knockout: '/knockout', battleship: '/battleship',
+    chomp: '/chomp' };
+  const MONEY_KEYS = ['entryToken', 'entrySol', 'stake', 'slPaidLaunch', 'slxPaidCut', 'slBr', 'spectateOnly',
+    'chompPaidLaunch'];
   /* The paid rung a Spectate watches (Owen, 2026-10-15: Spectate on $0.50 and
      $1 too). Its own key, never 'stake': a page reads 'stake' as a buy-in. Every
      page takes it out at boot; a Play clears it with the watch mark. */
@@ -626,7 +647,7 @@
      no. Only the table games ask (Knockout, Battleship: nothing to show but a
      table); the arena games open their watch page anyway, which shows the
      whole map until somebody joins (Owen 2026-10-16, dsEmptyArena.js). */
-  const ARENA_GAMES = { snake: true, agar: true, paper: true };
+  const ARENA_GAMES = { snake: true, agar: true, paper: true, chomp: true };
   function paidRungBusy(game, stake) {
     const rows = (window.V2Board && window.V2Board.lobbies) || [];
     return rows.some(l => l && l.game === game && Math.abs(Number(l.stake) - stake) < 1e-9 && (l.players || 0) > 0);
