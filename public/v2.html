@@ -2199,13 +2199,28 @@ body.scr-anim { overflow-x:hidden }
 (function(){
   var el=document.getElementById('splash');if(!el)return;
   if(self!==top){el.remove();return}
+  /* Installed on Android, the app's launch screen stays up until Chrome
+     counts the page as visually non-empty (200 characters of text or a
+     32x32 image), and a drawing in SVG is neither: it covered the whole
+     animation and lifted only as the splash faded. An invisible 64x64 image
+     makes the splash's own first paint count, so it hands over to this. */
+  var v=new Image();v.alt='';v.style.cssText='position:absolute;opacity:0;pointer-events:none';
+  v.src='data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2764%27 height=%2764%27/%3E';
+  el.appendChild(v);
+  /* In a browser the splash is on screen from about the first frame, so the
+     floor runs from navigation. In the installed app that first stretch is
+     behind the launch screen, so there it runs from the splash's first frame;
+     otherwise a quick load would only show it fading. */
+  var app=matchMedia('(display-mode: standalone),(display-mode: fullscreen)').matches||navigator.standalone===true;
+  var from=0;if(app)requestAnimationFrame(function(t){from=from||t});
   var done=0;
   function hide(){
     if(done)return;done=1;
+    if(app&&!from)from=performance.now();
     setTimeout(function(){
       el.classList.add('out');
       setTimeout(function(){el.remove()},450);
-    },Math.max(0,400-performance.now()));
+    },Math.max(0,from+400-performance.now()));
   }
   window.dsSplashDone=hide;
   addEventListener('error',hide);
