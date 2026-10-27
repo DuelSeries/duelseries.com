@@ -37,6 +37,7 @@ const GAMES = Object.freeze({
   battleship: 'Battleship',
   chomp: require('../shared/chompName'),   // the shown name, one constant (Pac-Man for now)
   swim: require('../shared/swimSim').NAME,
+  headsoccer: 'Head Soccer',
 });
 
 function dollars(n) {

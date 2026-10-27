@@ -42,6 +42,7 @@ const GAMES = Object.freeze({
   paper: 'Paper.io',
   knockout: 'Knockout',
   battleship: 'Battleship',
+  headsoccer: 'Head Soccer',
   br: 'Battle Royale',
   tanks: 'Bowmasters',
   shooter: 'Awesome Tanks',

@@ -97,7 +97,15 @@ function send(socket, ev, payload) {
 }
 
 class KnockoutLobby {
-  constructor(io) {
+  /* opts lets another real-time duel (Head Soccer, server/HeadSoccerLobby.js) run on this same queue, refund and
+     watch code rather than a copy of it: its own event prefix, game name for restart refunds, log tag and room
+     class. Knockout passes nothing and is exactly what it was. */
+  constructor(io, opts) {
+    const o = opts || {};
+    this.ev = o.ev || 'ko';
+    this.game = o.game || 'knockout';
+    this.tag = o.tag || '[KO]';
+    this.Room = o.Room || KnockoutRoom;
     this.io = io;
     this.queue = [];              // [{ socket, name, wallet, since }]
     this.rooms = new Map();       // roomId -> KnockoutRoom
@@ -183,7 +191,7 @@ class KnockoutLobby {
   waitingByRung() { return duelQueue.waitingByRung(this.queue); }
 
   /* A restart's owed refunds for every paid seat this process holds (duelQueue.shutdownRows). */
-  shutdownSettle(why) { return duelQueue.shutdownRows(this, 'knockout', why); }
+  shutdownSettle(why) { return duelQueue.shutdownRows(this, this.game, why); }
 
   /* makeMatch, and if it throws, nobody is left holding nothing. The entries
      are already out of the queue by now, so a throw used to be a paid seat
@@ -194,7 +202,7 @@ class KnockoutLobby {
     try {
       return this.makeMatch(entries, withBot, now);
     } catch (err) {
-      console.error('[KO] a match could not start: ' + (err && err.stack ? err.stack : err));
+      console.error(this.tag + ' a match could not start: ' + (err && err.stack ? err.stack : err));
       for (const e of entries) {
         if (!e || !e.socket) continue;
         /* A match that did start holds the seat. One registered but never started (start threw) is
@@ -205,7 +213,7 @@ class KnockoutLobby {
         if (r) { r.settled = true; this.rooms.delete(rid); }
         this.bySocket.delete(e.socket.id);
         if (e.worth > 0) this.refund(e, 'the match could not start');
-        else send(e.socket, 'ko:unqueued', { refunded: false, why: 'the match could not start' });
+        else send(e.socket, this.ev + ':unqueued', { refunded: false, why: 'the match could not start' });
       }
       return null;
     }
@@ -288,9 +296,7 @@ class KnockoutLobby {
     for (const room of this.rooms.values()) {
       if (!room.bot) continue;
       if (room.stake > 0) continue;
-      const early = room.state === 'countdown'
-      || (room.state === 'aiming' && (room.turn || 0) <= 1);
-      if (!early) continue;
+      if (!this.earlyEnough(room)) continue;
       const human = [...room.players.keys()].find(id => !String(id).startsWith('bot_'));
       if (!human || human === entry.socket.id) continue;
       const seat = room.players.get(human);
@@ -302,7 +308,7 @@ class KnockoutLobby {
       for (const [sid, rid] of [...this.bySocket]) {
         if (rid === room.id) this.bySocket.delete(sid);
       }
-      console.log('[KO] pairing ' + seat.name + ' with ' + entry.name
+      console.log(this.tag + ' pairing ' + seat.name + ' with ' + entry.name
         + ' instead of a bot');
       /* fromRoom says which match this was, so its watchers can follow the
          person into the new one (moveWatchers). */
@@ -312,8 +318,13 @@ class KnockoutLobby {
     return null;
   }
 
+  /* A bot match its human can still be pulled out of: it has barely begun. */
+  earlyEnough(room) {
+    return room.state === 'countdown' || (room.state === 'aiming' && (room.turn || 0) <= 1);
+  }
+
   makeMatch(entries, withBot, now) {
-    const room = new KnockoutRoom(this.io);
+    const room = new this.Room(this.io);
     room.stake = entries.length ? (entries[0].stake || 0) : 0;
     room.onSettled = this.onSettled || null;
     for (const e of entries) {
@@ -357,12 +368,12 @@ class KnockoutLobby {
     if (!entry || entry.refunded) return;
     entry.refunded = true;
     duelQueue.noteRefund(this, entry);   // so a late reconnect is told where the money went
-    try { entry.socket.emit('ko:unqueued', { refunded: entry.worth > 0, why: why || '' }); }
+    try { entry.socket.emit(this.ev + ':unqueued', { refunded: entry.worth > 0, why: why || '' }); }
     catch (_) {}
     if (entry.worth > 0 && typeof this.onRefund === 'function') {
       try {
         this.onRefund({ wallet: entry.wallet, name: entry.name, amount: refundBound(entry.worth, entry.paid), why: why || '' });
-      } catch (e) { console.error('[KO] refund hook failed:', e.message); }
+      } catch (e) { console.error(this.tag + ' refund hook failed:', e.message); }
     }
   }
 
@@ -465,7 +476,7 @@ class KnockoutLobby {
     if (!socket || typeof socket.id !== 'string') return { ok: false, why: 'no socket' };
     const id = socket.id;
     if (this.bySocket.has(id) || this.queue.some(e => e.socket.id === id)) {
-      send(socket, 'ko:watching', { refused: true, why: 'You are in a match already.' });
+      send(socket, this.ev + ':watching', { refused: true, why: 'You are in a match already.' });
       return { ok: false, why: 'seated' };
     }
     const after = watchAfter(opts && opts.after);
@@ -475,10 +486,10 @@ class KnockoutLobby {
        What a watcher is sent does not change with the stake. */
     const stake = typeof (opts && opts.stake) === 'number' && Number.isFinite(opts.stake) ? opts.stake : null;
     const live = this.runningRooms().filter(r => stake === null || Math.abs(Number(r.stake) - stake) < 1e-9);
-    if (!live.length) { send(socket, 'ko:watching', { none: true }); return { ok: false, why: 'none' }; }
+    if (!live.length) { send(socket, this.ev + ':watching', { none: true }); return { ok: false, why: 'none' }; }
     const room = this.watchOrder(live, after, opts && opts.dir === 'prev' ? 'prev' : 'next')
       .find(r => (r.watchers || 0) < WATCH_CAP);
-    if (!room) { send(socket, 'ko:watching', { full: true }); return { ok: false, why: 'full' }; }
+    if (!room) { send(socket, this.ev + ':watching', { full: true }); return { ok: false, why: 'full' }; }
     this.attachWatcher(socket, room, live);
     return { ok: true, roomId: room.id };
   }
@@ -487,7 +498,7 @@ class KnockoutLobby {
     this.watchers.set(socket.id, { socket, roomId: room.id, channel: room.watchRoomName });
     room.watchers = (room.watchers || 0) + 1;
     try { if (typeof socket.join === 'function') socket.join(room.watchRoomName); } catch (_) {}
-    send(socket, 'ko:watching', { match: this.matchCard(room, live), state: room.watchSnapshot() });
+    send(socket, this.ev + ':watching', { match: this.matchCard(room, live), state: room.watchSnapshot() });
   }
 
   /* Stop watching. Safe to call for anybody, watching or not. */
@@ -509,7 +520,7 @@ class KnockoutLobby {
     for (const [sid, w] of [...this.watchers]) {
       if (w.roomId !== fromId) continue;
       this.unwatch(sid);
-      if ((room.watchers || 0) >= WATCH_CAP) { send(w.socket, 'ko:ended', { id: fromId }); continue; }
+      if ((room.watchers || 0) >= WATCH_CAP) { send(w.socket, this.ev + ':ended', { id: fromId }); continue; }
       if (!live) live = this.runningRooms();
       this.attachWatcher(w.socket, room, live);
     }
@@ -522,7 +533,7 @@ class KnockoutLobby {
   dropWatchers(room) {
     for (const [sid, w] of [...this.watchers]) {
       if (w.roomId !== room.id) continue;
-      if (room.state !== 'over') send(w.socket, 'ko:ended', { id: room.id });
+      if (room.state !== 'over') send(w.socket, this.ev + ':ended', { id: room.id });
       this.unwatch(sid);
     }
   }
@@ -535,7 +546,7 @@ class KnockoutLobby {
     if (!this.watchers.size) { this.liveKey = ''; return; }
     for (const [sid, w] of [...this.watchers]) {
       if (this.rooms.has(w.roomId)) continue;
-      send(w.socket, 'ko:ended', { id: w.roomId });
+      send(w.socket, this.ev + ':ended', { id: w.roomId });
       this.unwatch(sid);
     }
     const live = this.runningRooms();
@@ -545,7 +556,7 @@ class KnockoutLobby {
     for (const r of live) {
       if (!(r.watchers > 0) || !this.io || !this.io.to) continue;
       try {
-        this.io.to(r.watchRoomName).emit('ko:matches', { index: live.indexOf(r) + 1, count: live.length });
+        this.io.to(r.watchRoomName).emit(this.ev + ':matches', { index: live.indexOf(r) + 1, count: live.length });
       } catch (_) {}
     }
   }

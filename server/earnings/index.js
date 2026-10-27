@@ -78,6 +78,7 @@ const GAME_LABELS = Object.freeze({
   slither: 'Slither.io', snake: 'Slither.io', agar: 'Agar.io', ag: 'Agar.io', paper: 'Paper.io',
   knockout: 'Knockout', battleship: 'Battleship', tanks: 'Awesome Tanks', shooter: 'OMG Shooter',
   swim: require('../../shared/swimSim').NAME,
+  headsoccer: 'Head Soccer',
 });
 function gameLabel(g) {
   const k = String(g || '').toLowerCase();

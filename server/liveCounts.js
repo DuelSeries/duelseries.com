@@ -102,6 +102,7 @@ function liveCounts(src = {}) {
     tanks: duelLobby(src.tanks),
     knockout: duelLobby(src.knockout),
     battleship: duelLobby(src.battleship),
+    ...(src.headsoccer ? { headsoccer: duelLobby(src.headsoccer) } : {}),
     paper,
   };
   if (src.chomp) out.chomp = chomp;

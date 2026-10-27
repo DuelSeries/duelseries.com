@@ -132,10 +132,13 @@ class Piece {
 }
 
 class KnockoutRoom {
-  constructor(io, roomId) {
+  /* ev: the event prefix, 'ko' for Knockout. Head Soccer (server/HeadSoccerRoom.js) extends this room for its seats,
+     money and result, and passes its own. */
+  constructor(io, roomId, ev) {
     this.io = io;
-    this.id = roomId || ('ko_' + (nextId++));
-    this.socketRoomName = 'ko_' + this.id;
+    this.ev = ev || 'ko';
+    this.id = roomId || (this.ev + '_' + (nextId++));
+    this.socketRoomName = this.ev + '_' + this.id;
 
     this.state = 'waiting';   // waiting | countdown | aiming | resolving | over
     this.players = new Map(); // socketId -> { socket, name, wallet, side }
@@ -172,7 +175,7 @@ class KnockoutRoom {
        person to add a broadcast thought only players could see. The lobby owns
        who is watching; this only keeps the count, so a room nobody is watching
        spends nothing on them. */
-    this.watchRoomName = 'kow_' + this.id;
+    this.watchRoomName = this.ev + 'w_' + this.id;
     this.watchers = 0;
     /* Seat -> who sat there. Kept after somebody leaves, because the last
        messages of a match (the result) still name the seat they had. */
@@ -229,7 +232,7 @@ class KnockoutRoom {
     if (!p) return { ok: false, note: null };
     const r = guard.check(socketId, raw, now);
     if (!r.ok) return { ok: false, note: r.note || null };
-    this.broadcast('ko:chat', { name: String(p.name || 'Player').slice(0, 24), side: p.side, text: r.text });
+    this.broadcast(this.ev + ':chat', { name: String(p.name || 'Player').slice(0, 24), side: p.side, text: r.text });
     return { ok: true };
   }
 
@@ -641,11 +644,11 @@ class KnockoutRoom {
             pot,
             seats,
           });
-        } catch (e) { console.error('[KO] settle hook failed:', e.message); }
+        } catch (e) { console.error('[' + this.ev.toUpperCase() + '] settle hook failed:', e.message); }
       }
     }
 
-    this.broadcast('ko:over', {
+    this.broadcast(this.ev + ':over', Object.assign({
       winner: winnerId ? (this.players.get(winnerId) || {}).name || null : null,
       winnerId: winnerId ? this.publicId(winnerId) : null,
       why: this.overWhy,
@@ -657,8 +660,11 @@ class KnockoutRoom {
          only; null on a free table. Both screens get both seats' figures, keyed
          by the socket ids the state already names, and never a wallet. */
       money: duelMoney({ winnerId: winnerId || null, pot, seats }),
-    });
+    }, this.overExtra()));
   }
+
+  /* Anything a game built on this room adds to its result message (Head Soccer: the score). Never money. */
+  overExtra() { return {}; }
 
   /* ── what the clients are told ──────────────────────────────────────────
      Never anybody's aim. That is the entire point of the mode: two players
@@ -704,7 +710,7 @@ class KnockoutRoom {
   broadcast(event, payload) {
     /* ko:ready is the one player message built outside this file (index.js
        ko:lock sends the raw ready set), so its ids are swapped here. */
-    if (event === 'ko:ready' && payload && Array.isArray(payload.ready)) {
+    if (event === this.ev + ':ready' && payload && Array.isArray(payload.ready)) {
       payload = Object.assign({}, payload, { ready: payload.ready.map(id => this.publicId(id)) });
     }
     if (this.io && this.io.to) this.io.to(this.socketRoomName).emit(event, payload);
@@ -717,7 +723,7 @@ class KnockoutRoom {
       try {
         const out = this.forWatchers(event, payload);
         if (out) this.io.to(this.watchRoomName).emit(event, out);
-      } catch (e) { console.error('[KO] watcher send failed:', e.message); }
+      } catch (e) { console.error('[' + this.ev.toUpperCase() + '] watcher send failed:', e.message); }
     }
   }
 
