@@ -200,17 +200,21 @@ async function duel(game, pre) {
   assert.ok(!a.has(game + ':queued'));
   await new Promise((r) => setTimeout(r, 1100));   // the queue's own rate limit
   a.s.emit(game + ':queue', { name: 'a', stake: 0.5, entryToken: tokA });
-  // B names the rung with float noise inside the token's 1e-9 match. It is queued at the ladder's own
-  // 0.5, so it is matched with A (keyed by the client's number, it sat in a bucket of its own).
-  b.s.emit(game + ':queue', { name: 'b', stake: 0.5000000005, entryToken: tokB });
+  /* A is waiting before B arrives. Sent together, the two stake-row claims could settle in either order, and B
+     seated first left A matched on the spot with no queued at all (the assert below then failed on a run that had
+     nothing wrong with its money). */
   const qa = await until(() => a.has(game + ':queued'));
   assert.ok(qa, JSON.stringify(a.got.map((g) => g[0])));
   assert.deepStrictEqual([qa[1].stake, qa[1].worth], [0.5, 0.5]);
-  const qb = await until(() => b.has(game + ':queued'));
-  assert.ok(qb, JSON.stringify(b.got.map((g) => g[0])));
-  assert.deepStrictEqual([qb[1].stake, qb[1].worth], [0.5, 0.5], 'queued at the rung itself, not the number sent');
-  const started = game === 'ko' ? 'ko:start' : 'bs:state';
-  assert.ok(await until(() => a.has(started) && b.has(started), 8000), 'matched: ' + JSON.stringify(a.got.map((g) => g[0])));
+  // B names the rung with float noise inside the token's 1e-9 match. It is queued at the ladder's own
+  // 0.5, so it is matched with A (keyed by the client's number, it sat in a bucket of its own).
+  b.s.emit(game + ':queue', { name: 'b', stake: 0.5000000005, entryToken: tokB });
+  /* With A already waiting, B is matched on the spot and is never sent a queued of its own: being matched with A IS
+     the proof it went in at the rung itself, not the number it sent. */
+  const started = game === 'ko' ? 'ko:start' : game === 'hs' ? 'hs:start' : 'bs:state';
+  assert.ok(await until(() => a.has(started) && b.has(started), 8000), 'matched: ' + JSON.stringify(b.got.map((g) => g[0])));
+  const st = b.has(started)[1];
+  if (st && st.stake !== undefined) assert.strictEqual(st.stake, 0.5, 'a table at the rung itself');
   // A walks out of the match: the table is B's. Pot 1.00, prize 0.90, rake 0.10.
   a.s.emit(game + ':leave');
   await until(() => sentTo(B).length && sentTo(REVENUE).length > revBefore);
@@ -241,6 +245,10 @@ test('Knockout at $0.50: two 500000 stakes, the winner takes 900000 and the hous
 
 test('Battleship at $0.50: the same split through its own lobby', async () => {
   await duel('bs', 'Bs');
+});
+
+test('Head Soccer at $0.50: the same split through its own lobby (the Knockout queue and room underneath)', async () => {
+  await duel('hs', 'Hs');
 });
 
 test('every payout this run is accounted for: nothing paid that did not land', () => {

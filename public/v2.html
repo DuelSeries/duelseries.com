@@ -3243,10 +3243,10 @@ const GAMES=[
  {id:'chomp',name:window.DS_CHOMP_NAME||'Chomp',c:['#1a1726','#e8c860'],type:'p',ladder:1,
   d:'Eat the dots, dodge the ghosts, and grab the coins anyone caught drops on the maze.'},
  /* Head Soccer (server/HeadSoccerLobby.js, page /headsoccer), a duel on Knockout's queue: Free seats you against a
-    bot after the countdown, and play.js OWN_PAGE opens it straight in the game frame. freeOnly:1, not paid:1, because
-    its paid rungs are off (HS_PAID_ON in server/index.js). Hidden from the lobby until Owen has seen it: see
+    bot after the countdown, and play.js OWN_PAGE opens it straight in the game frame. paid:1 like Knockout: $0.50 and
+    $1 rungs stake through the wallet widget (HS_PAID_ON in server/index.js, the owner's hs:paid:off on top). Hidden from the lobby until Owen has seen it: see
     HS_PREVIEW below. */
- {id:'headsoccer',name:'Head Soccer',c:['#12261a','#7fd36b'],type:'m',duel:1,built:1,freeOnly:1,
+ {id:'headsoccer',name:'Head Soccer',c:['#12261a','#7fd36b'],type:'m',duel:1,built:1,paid:1,
   d:'One on one, oversized heads, and a ball that rarely goes where you meant it to.'},
  /* Built, and free while it is new: no ladder, no lobby list, its own page,
     and none of the money path involved in it. `solo` is what says so. */

@@ -2757,7 +2757,7 @@ const bsPaidSwitch = createPaidSwitchStore({
 });
 /* Paid Head Soccer: HS_PAID_ON is the build switch (paid rungs exist at all), hs:paid:off the owner's door on top
    of it, saved like the other two. */
-const HS_PAID_ON = false;
+const HS_PAID_ON = true;
 const hsPaidSwitch = createPaidSwitchStore({
   file: process.env.HS_PAID_SWITCH_PATH || path.join(path.dirname(agJournal.file), 'hs-paid-switch.json'),
   tag: '[HS]', what: 'paid Head Soccer',
