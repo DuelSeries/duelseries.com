@@ -1472,6 +1472,9 @@ body.no-foot footer{display:none}
    blurred harder because a still image has no motion to carry it. */
 .gbg .im.still{background-size:cover;background-position:center;
   filter:blur(6px) brightness(.4) saturate(1.05)}
+/* A tall screen would show the whole 2:3 card, painted name and all, so it zooms in
+   the same way a wide one does: two thirds of the card, the picture above the name. */
+@media(orientation:portrait){.gbg .im.still{background-size:auto 150%;background-position:50% 28%}}
 /* Darkest where the controls sit, so the artwork survives at the edges and the
    text never has to fight it. */
 .gbg::after{content:'';position:absolute;inset:0;
@@ -2745,7 +2748,8 @@ body.scr-anim { overflow-x:hidden }
        for slither.io, cells for agar.io, and players claiming ground for
        Paper.io (js/v2/paperBg.js, in the game's own colours and sizes),
        because a simulation is a claim about how a game plays. The rest fall
-       back to their own painting, held still.
+       back to their own painting, held still. Since 2026-10-27 every game uses
+       its painting (LIVE_BG in open_ switches the simulations back on).
 
        data-half keeps the backing store at half resolution, which nobody can
        see through the blur and which quarters the fill rate. -->
@@ -4818,7 +4822,10 @@ function open_(id){
     if(locked)specBtn.setAttribute('aria-label','Spectate, not open yet');
   }
   const dart=document.getElementById('dart'), still=document.getElementById('dartstill');
-  const live=cur.id==='snake'?'bg':cur.id==='agar'?'agar':cur.id==='paper'&&window.V2PaperBg?'paper':null;
+  /* Off (Owen, 2026-10-27): every game's screen sits on its own card art, zoomed and
+     softened, like Swim and Pac-Man. true brings the moving Slither/Agar/Paper ones back. */
+  const LIVE_BG=false;
+  const live=LIVE_BG?(cur.id==='snake'?'bg':cur.id==='agar'?'agar':cur.id==='paper'&&window.V2PaperBg?'paper':null):null;
   dart.dataset.game=live||'bg';
   dart.style.display=live?'block':'none';
   still.style.display=live?'none':'block';
