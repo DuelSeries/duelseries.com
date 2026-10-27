@@ -69,7 +69,7 @@ test('countUp: ONLY the podium, the leaderboards and the wallet balances count u
   assert.ok(/class="pmoney" data-cu="ev-prize"/.test(html), 'Events podium prize');
   // The leaderboards.
   assert.ok(/data-cu="soc-win" data-cu-rise/.test(js('social.js')), 'Global player winnings, drops shown as they are');
-  assert.ok(/data-cu="lb-'/.test(js('leaders.js')) && /DSCount\.open\(sheet\)/.test(js('leaders.js')), 'top 3 and the full board');
+  assert.ok(/data-cu="lb-'/.test(js('leaders.js')), 'the top 10');
   assert.ok(/id="p-net" data-cu/.test(html), "a profile's total");
   // The wallet balances.
   assert.ok(/id="hdr-balance" data-cu/.test(html), 'main screen balance');

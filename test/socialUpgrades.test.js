@@ -288,6 +288,7 @@ test('preview: opening the link once keeps it on in that browser, ?leaderboard=o
   assert.strictEqual(open('?leaderboard=preview', ls).on, true);
   assert.deepStrictEqual(store, { dsLbPreview: '1' }, 'only the on flag is stored, never the players');
   assert.strictEqual(open('', ls).on, true, 'stays on without the link');
+  assert.strictEqual(open('', ls).liveLook, true, 'the LIVE look is for the browser that opened the link');
   assert.strictEqual(open('?leaderboard=off', ls).on, false);
   assert.deepStrictEqual(store, {}, 'off clears it');
   assert.strictEqual(open('', ls).on, false);
@@ -308,17 +309,19 @@ test('preview: the sample players never leave the browser', () => {
   assert.ok(/if \(pv\) \{ drawWin\(\{ on: true, total: pv\.total\(\), preview: pv \}\); return; \}/.test(read('public/js/v2/social.js')),
     'Global player winnings in the preview is drawn without asking the server, tagged Sample');
   const lead = read('public/js/v2/leaders.js');
-  assert.ok(/if \(p\) \{ data = p\.board\(10\); failed = false; draw\(\); drawSheet\(\); return; \}/.test(lead),
+  assert.ok(/if \(p\) \{ data = p\.board\(10\); failed = false; draw\(\); return; \}/.test(lead),
     'the preview board is drawn without asking the server');
   const soc = read('public/js/v2/social.js');
   assert.ok(/let p = \(pv && pv\.profile\(name\)\) \|\| PROFILES\.get\(name\);/.test(soc),
     'a sample profile is made here, never fetched');
   assert.ok(/'<span class="lb-tag p-tag">' \+ PV\(\)\.tag \+ '<\/span> sample player'/.test(soc) &&
     /'<span class="lb-tag">' \+ P\(\)\.tag \+ '<\/span>'/.test(lead), 'tagged Sample on screen');
-  // Sample figures are never marked LIVE: the board heading, the full board and Global player winnings.
-  assert.ok(/live\.hidden = !!P\(\);/.test(lead));
-  assert.ok(/\(P\(\) \? '<span class="lb-tag">' \+ P\(\)\.tag \+ '<\/span>'\s*: '<span class="lb-live'/.test(lead));
-  assert.ok(/\(d\.preview \? '' : '<span class="win-live">/.test(soc) && /<div class="win-note">' \+ d\.preview\.note/.test(soc));
+  // Sample figures are never marked LIVE for visitors: the board heading and Global player winnings.
+  // Only the browser that opened ?leaderboard=preview (liveLook) sees LIVE (Owen, 2026-10-26).
+  assert.ok(/const SAMPLE = \(\) => !!P\(\) && !P\(\)\.liveLook;/.test(lead) && /live\.hidden = SAMPLE\(\);/.test(lead));
+  assert.ok(/const sample = d\.preview && !d\.preview\.liveLook \? d\.preview : null;/.test(soc) &&
+    /\(sample \? '' : '<span class="win-live">/.test(soc) && /<div class="win-note">' \+ sample\.note/.test(soc));
+  assert.ok(/top\.slice\(0, 10\)/.test(lead) && !/lb-all|openSheet/.test(lead), 'the top 10 on the board, no sheet');
 });
 
 test('sample board: config.js SAMPLE_BOARD shows it to every visitor, labelled Sample', () => {
@@ -335,6 +338,7 @@ test('sample board: config.js SAMPLE_BOARD shows it to every visitor, labelled S
   const on = open('', cfg.replace(/SAMPLE_BOARD: (true|false)/, 'SAMPLE_BOARD: true'));
   assert.strictEqual(on.on, true, 'on for a fresh browser');
   assert.strictEqual(on.tag, 'Sample');
+  assert.strictEqual(on.liveLook, false, 'every other visitor sees Sample, never LIVE');
   assert.strictEqual(on.note, 'Sample players to preview the board.');
   assert.strictEqual(on.board(50).top.length, 50);
   assert.strictEqual(open('', cfg.replace(/SAMPLE_BOARD: (true|false)/, 'SAMPLE_BOARD: false')).on, false, 'false = the real board');

@@ -109,11 +109,13 @@
       box.hidden = true; win = null; return;
     }
     if (!box.querySelector('.win-v')) {
+      // Sample unless this is Owen's own preview browser (socialPreview.js liveLook).
+      const sample = d.preview && !d.preview.liveLook ? d.preview : null;
       box.innerHTML = '<div class="win-top"><span class="win-k">Global player winnings' +
-        (d.preview ? '<span class="win-tag">' + d.preview.tag + '</span>' : '') + '</span>' +
-        (d.preview ? '' : '<span class="win-live"><i aria-hidden="true"></i>LIVE</span>') + '</div>' +
+        (sample ? '<span class="win-tag">' + sample.tag + '</span>' : '') + '</span>' +
+        (sample ? '' : '<span class="win-live"><i aria-hidden="true"></i>LIVE</span>') + '</div>' +
         '<span class="win-vw"><span class="win-v num" data-cu="soc-win" data-cu-rise></span><span class="win-up num" aria-hidden="true"></span></span>' +
-        (d.preview ? '<div class="win-note">' + d.preview.note + '</div>' : '');
+        (sample ? '<div class="win-note">' + sample.note + '</div>' : '');
     }
     box.hidden = false;
     const v = box.querySelector('.win-v'), up = box.querySelector('.win-up');

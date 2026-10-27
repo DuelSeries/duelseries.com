@@ -122,7 +122,8 @@ test('withMeta: the marked block only, and a page without marks is sent unchange
 test('the lobby: Invite a friend on the Free rung of an open game, and invite.js after the play module', () => {
   const html = read('public/v2.html');
   assert.match(html, /<button type="button" class="invite" id="invbtn" onclick="window\.V2Invite&&V2Invite\.copy\(\)">/);
-  assert.ok(html.includes('#detail.freerung:not(.soon) .invite{display:flex}'), 'Free rung, open game only');
+  assert.ok(html.includes('#detail:not(.soon) .invite{display:flex}') && html.includes('#detail:not(.freerung) .invite{visibility:hidden}'),
+    'Free rung, open game only; the paid rungs keep its space so nothing shifts');
   const shareAt = html.indexOf('<script src="/shared/shareGames.js"></script>');
   const invAt = html.indexOf('<script src="/js/v2/invite.js"></script>');
   assert.ok(html.indexOf('<script src="/js/v2/play.js"></script>') < shareAt && shareAt < invAt);

@@ -18,7 +18,7 @@
    For everyone (Owen, 2026-10-26, to get feedback on the full board in the
    real game): config.js SAMPLE_BOARD = true turns it on for every visitor.
    Then every place it shows says "Sample" and "Sample players to preview the
-   board.", and never LIVE: sample winnings on a real-money site are only ever
+   board.", and never LIVE (only Owen's own preview browser sees LIVE, liveLook): sample winnings on a real-money site are only ever
    shown labelled as sample data. The lobby strip, Wallet and server stay real.
 
    Fifty players, a long tail from a few dollars up to a few thousand with a
@@ -30,12 +30,13 @@
 (function () {
   const KEY = 'dsLbPreview';
   const has = v => new RegExp('(^|[?&])leaderboard=' + v + '(&|$)').test(location.search);
-  const ON = (function () {
+  // MINE: this browser opened the preview link (now, or before and kept).
+  const MINE = (function () {
     if (has('off')) { try { localStorage.removeItem(KEY); } catch (_) {} return false; }
     if (has('preview')) { try { localStorage.setItem(KEY, '1'); } catch (_) {} return true; }
-    if (window.DSConfig && window.DSConfig.SAMPLE_BOARD === true) return true;   // config.js: everyone
     try { return localStorage.getItem(KEY) === '1'; } catch (_) { return false; }
   })();
+  const ON = MINE || (!has('off') && !!window.DSConfig && window.DSConfig.SAMPLE_BOARD === true);   // config.js: everyone
   // Every screen showing these players carries this tag and this line (leaders.js, social.js).
   const TAG = 'Sample';
   const NOTE = 'Sample players to preview the board.';
@@ -184,6 +185,11 @@
 
   window.V2SocialPreview = {
     on: ON,
+    /* Owen's own look (2026-10-26, "just to see how this looks"): in the
+       browser that opened the link, the board and Global player winnings wear
+       LIVE instead of Sample. Never for SAMPLE_BOARD visitors: fake players
+       marked LIVE on a real-money site would deceive them. */
+    liveLook: MINE,
     board: board, search: search, profile: profile, amountOf: amountOf, rankOf: rankOf, total: total, tag: TAG, note: NOTE,
   };
 })();

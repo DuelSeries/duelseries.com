@@ -1,7 +1,8 @@
 'use strict';
 /* ─── Social: Top earners, live ───────────────────────────────────────────────
-   The top 3 on the Social tab, a LIVE mark beside the heading, and "View full
-   leaderboard", which opens the top 10 in a sheet (Owen, 2026-10-15).
+   The top 10 on the Social tab with a LIVE mark beside the heading (Owen,
+   2026-10-15; the top 3 plus a "View full leaderboard" sheet until
+   2026-10-26, when he wanted all ten right on the board).
 
    Real data only: GET /api/earnings/board, the gold strip's own read and rule
    (server/earnings): take-home from paid cash-outs that LANDED, never the
@@ -11,18 +12,24 @@
 
    The sample players (socialPreview.js: everyone while config.js
    SAMPLE_BOARD is on, else ?leaderboard=preview in one browser) take its
-   place, tagged "Sample" with a one-line note, and never marked LIVE.
+   place, tagged "Sample" with a one-line note, and never marked LIVE, except
+   in a browser that opened ?leaderboard=preview itself (liveLook below).
 
    Its own styles, like earnings.js: one file to read, one to delete. */
 (function () {
   const PERIOD_MS = 60000;
   const P = () => window.V2SocialPreview && window.V2SocialPreview.on ? window.V2SocialPreview : null;
+  /* Owen asked to see the sample board as LIVE (2026-10-26). Made-up players
+     marked LIVE on a real-money site would mislead real visitors, so that look
+     is only for the browser that opened ?leaderboard=preview (liveLook);
+     everyone else keeps the Sample tag and note. */
+  const SAMPLE = () => !!P() && !P().liveLook;
 
   let money = n => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   let open = () => {};
   let data = null;            // last good { ok, top, preview? }
   let failed = false;
-  let timer = null, sheet = null, opener = null;
+  let timer = null;
 
   const esc = s => String(s == null ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -39,7 +46,7 @@
     '.lb-live.off i{background:var(--tx3);animation:none!important;box-shadow:none}' +
     '.lb-tag{display:inline-block;margin-left:8px;vertical-align:middle;position:relative;top:-3px;' +
       'font:600 12px/1 var(--f);color:var(--ink);background:var(--money);border-radius:var(--rf);padding:4px 8px;letter-spacing:0}' +
-    /* The top 3: one card, three rows, the amount where the eye ends. */
+    /* The top 10: one card, ten rows, the amount where the eye ends. */
     '.lb-card{background:var(--s1);border-radius:var(--r3);padding:6px}' +
     '.lbrow{display:grid;grid-template-columns:30px minmax(0,1fr) auto;gap:12px;align-items:center;width:100%;' +
       'text-align:left;padding:13px 12px;border-radius:12px;transition:background .13s}' +
@@ -54,41 +61,12 @@
     '.lb-first .lbrow:first-child .rk{color:var(--money)}' +
     '.lb-none{font-size:13.5px;color:var(--tx3);padding:22px 12px;line-height:1.5}' +
     '.lb-note{font-size:12px;color:var(--tx3);margin-top:10px;line-height:1.45}' +
-    '.lb-all{width:100%;margin-top:10px;padding:12px;border-radius:var(--r2);background:var(--s2);' +
-      'color:var(--tx);font-size:13.5px;font-weight:600;transition:background .15s,color .15s}' +
-    '.lb-all:hover{background:var(--bone);color:var(--ink)}' +
-    '.lb-all:focus-visible{outline:2px solid var(--money);outline-offset:2px}' +
     '#soc-top{margin-bottom:22px}' +
-    /* The full board: the gold strip's sheet (earnings.js), a card on a
-       computer and a bottom sheet on a phone. The list scrolls inside it. */
-    '.lb-ov{position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.55);display:flex;align-items:center;' +
-      'justify-content:center;opacity:0;transition:opacity .18s}' +
-    '.lb-ov.in{opacity:1}' +
-    '.lb-sheet{width:min(440px,calc(100vw - 32px));max-height:80vh;display:flex;flex-direction:column;' +
-      'background:var(--s1);border:1px solid var(--s3);border-radius:var(--r3);padding:16px 10px 12px;' +
-      'transform:translateY(12px);transition:transform .2s}' +
-    '.lb-ov.in .lb-sheet{transform:none}' +
-    '.lb-sh{display:flex;align-items:center;padding:0 6px 10px}' +
-    '.lb-sh h3{font-size:18px;font-weight:700;letter-spacing:-.02em}' +
-    '.lb-sh .lb-live,.lb-sh .lb-tag{top:0}' +
-    '.lb-x{margin-left:auto;background:var(--s2);color:var(--tx2);width:32px;height:32px;border-radius:8px;' +
-      'font-size:18px;line-height:1;flex:none}' +
-    '.lb-x:hover{color:var(--tx)}' +
-    '.lb-list{overflow:auto;overscroll-behavior:contain;min-height:0}' +
-    '.lb-sheet .lb-note{padding:0 8px}' +
-    '.lb-grab{display:none}' +
-    '@media(max-width:760px){' +
-      '.lb-ov{align-items:flex-end}' +
-      '.lb-sheet{width:100%;max-height:82vh;border-radius:20px 20px 0 0;border-bottom:0;' +
-        'padding-bottom:calc(14px + env(safe-area-inset-bottom));transform:translateY(40px)}' +
-      '.lb-grab{display:block;width:38px;height:4px;border-radius:2px;background:var(--s3);margin:0 auto 12px;flex:none}' +
-      '.lb-live{margin-left:10px;top:-2px}' +
-    '}' +
     /* The dot beats for everyone, like the lobby's other live dots (Owen,
        2026-10-10: "Pulse for everyone"; his own Windows has animation effects
        off), so the blanket reduce rule is overridden for it alone. */
     '@media(prefers-reduced-motion:reduce){.lb-live i{animation-duration:1.6s!important;' +
-      'animation-iteration-count:infinite!important}.lb-ov,.lb-sheet{transition:none}}';
+      'animation-iteration-count:infinite!important}}';
 
   function injectCss() {
     if ($('lb-css')) return;
@@ -110,12 +88,12 @@
   function drawMarks() {
     const live = $('soc-live');
     if (live) {
-      live.hidden = !!P();
+      live.hidden = SAMPLE();
       live.classList.toggle('off', failed && !P());
       live.title = failed && !P() ? 'Not updating: the last read failed' : 'Updates every minute';
     }
     const h = live && live.parentNode;
-    if (h && P() && !h.querySelector('.lb-tag')) h.insertAdjacentHTML('beforeend', '<span class="lb-tag">' + P().tag + '</span>');
+    if (h && SAMPLE() && !h.querySelector('.lb-tag')) h.insertAdjacentHTML('beforeend', '<span class="lb-tag">' + P().tag + '</span>');
   }
 
   function draw() {
@@ -133,14 +111,13 @@
         'Win a paid game and cash out to be first here.</div></div>';
       return;
     }
-    box.innerHTML = '<div class="lb-card lb-first">' + top.slice(0, 3).map(rowHTML).join('') + '</div>' +
-      (top.length > 3 ? '<button type="button" class="lb-all" aria-haspopup="dialog">View full leaderboard</button>' : '') +
-      (P() ? '<div class="lb-note">' + P().note + '</div>' : '');
+    box.innerHTML = '<div class="lb-card lb-first">' + top.slice(0, 10).map(rowHTML).join('') + '</div>' +
+      (SAMPLE() ? '<div class="lb-note">' + P().note + '</div>' : '');
   }
 
   async function refresh() {
     const p = P();
-    if (p) { data = p.board(10); failed = false; draw(); drawSheet(); return; }
+    if (p) { data = p.board(10); failed = false; draw(); return; }
     try {
       const r = await fetch('/api/earnings/board', { cache: 'no-store' });
       if (r.ok === false) throw new Error('HTTP ' + r.status);
@@ -150,7 +127,7 @@
     } catch (_) {
       failed = true;          // the last good board stays up; the mark turns grey
     }
-    draw(); drawSheet();
+    draw();
   }
 
   const onSocial = () => { const s = $('social-screen'); return !!s && getComputedStyle(s).display !== 'none'; };
@@ -161,66 +138,6 @@
       else tick();
     }, PERIOD_MS);
   }
-
-  /* ─── The full board ───────────────────────────────────────────────────── */
-  function sheetHTML() {
-    const top = (data && data.top) || [];
-    return '<span class="lb-grab"></span>' +
-      '<div class="lb-sh"><h3>Top earners</h3>' +
-        (P() ? '<span class="lb-tag">' + P().tag + '</span>'
-             : '<span class="lb-live' + (failed ? ' off' : '') + '"><i></i>LIVE</span>') +
-        '<button type="button" class="lb-x" aria-label="Close">&times;</button></div>' +
-      '<div class="lb-list">' + top.slice(0, 10).map(rowHTML).join('') + '</div>' +
-      '<div class="lb-note">' + (P()
-        ? P().note
-        : 'What players took home from paid cash-outs, after the 10% cut. Updates every minute.') + '</div>';
-  }
-  function drawSheet() {
-    if (!sheet) return;
-    const list = sheet.querySelector('.lb-list');
-    const y = list ? list.scrollTop : 0;
-    sheet.querySelector('.lb-sheet').innerHTML = sheetHTML();
-    const l2 = sheet.querySelector('.lb-list');
-    if (l2) l2.scrollTop = y;
-  }
-  function openSheet(from) {
-    if (sheet || !data) return;
-    opener = from || null;
-    sheet = document.createElement('div');
-    sheet.className = 'lb-ov' + (P() ? ' ph-no-capture' : '');
-    sheet.innerHTML = '<div class="lb-sheet" role="dialog" aria-modal="true" aria-label="Top earners"></div>';
-    document.body.appendChild(sheet);
-    drawSheet();
-    if (window.DSCount) window.DSCount.open(sheet);    // its figures count up as it opens
-    sheet.addEventListener('click', e => {
-      const row = e.target.closest && e.target.closest('.lbrow');
-      if (row) { const n = row.getAttribute('data-name'); closeSheet(true); open(n); return; }
-      if (e.target === sheet || (e.target.closest && e.target.closest('.lb-x'))) closeSheet();
-    });
-    // Swipe down on a phone closes it, from the top of the list only.
-    const card = sheet.querySelector('.lb-sheet');
-    let y0 = null;
-    card.addEventListener('touchstart', e => {
-      const l = card.querySelector('.lb-list');
-      y0 = !l || l.scrollTop <= 0 || !l.contains(e.target) ? e.touches[0].clientY : null;
-    }, { passive: true });
-    card.addEventListener('touchend', e => {
-      if (y0 != null && e.changedTouches[0].clientY - y0 > 70) closeSheet();
-      y0 = null;
-    }, { passive: true });
-    document.addEventListener('keydown', onKey);
-    requestAnimationFrame(() => { if (sheet) sheet.classList.add('in'); });
-    const x = sheet.querySelector('.lb-x');
-    if (x) x.focus();
-  }
-  function closeSheet(leaving) {
-    if (!sheet) return;
-    document.removeEventListener('keydown', onKey);
-    sheet.remove();
-    sheet = null;
-    if (!leaving && opener && opener.isConnected) opener.focus();
-  }
-  function onKey(e) { if (e.key === 'Escape') closeSheet(); }
 
   /* Called by social.js each time the Social tab opens: draws at once from
      the last answer, then asks again. */
@@ -233,9 +150,7 @@
       box._wired = true;
       box.addEventListener('click', e => {
         const row = e.target.closest && e.target.closest('.lbrow');
-        if (row) { open(row.getAttribute('data-name')); return; }
-        const all = e.target.closest && e.target.closest('.lb-all');
-        if (all) openSheet(all);
+        if (row) open(row.getAttribute('data-name'));
       });
     }
     draw();
@@ -252,5 +167,5 @@
   }
 
   injectCss();   // now, so the LIVE mark in the heading is never seen unstyled
-  window.V2Leaders = { load: load, rankOf: rankOf, amountOf: amountOf, openSheet: openSheet, closeSheet: closeSheet };
+  window.V2Leaders = { load: load, rankOf: rankOf, amountOf: amountOf };
 })();

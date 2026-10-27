@@ -1661,11 +1661,14 @@ body.no-foot footer{display:none}
 #detail.soon .lookrow,#detail.soon .spec{display:none}
 /* Invite a friend: under Play and Spectate, on the Free rung of an open game
    only (js/v2/invite.js copies the link). Quiet like Spectate; the link icon
-   turns into a tick for a moment once it is copied. */
+   turns into a tick for a moment once it is copied. On the paid rungs its
+   space stays, empty, so nothing below moves when you switch rungs (Owen,
+   2026-10-26: "I don't want them to shift"). */
 .invite{display:none;width:100%;height:40px;margin-top:8px;align-items:center;justify-content:center;
   gap:8px;background:var(--s2);border-radius:var(--r2);color:var(--tx2);font-size:13.5px;
   font-weight:650;transition:background .15s,color .15s}
-#detail.freerung:not(.soon) .invite{display:flex}
+#detail:not(.soon) .invite{display:flex}
+#detail:not(.freerung) .invite{visibility:hidden}
 .invite:hover{background:var(--s3);color:var(--tx)}
 .invite.done{color:var(--tx)}
 /* The narrowest phones (320 to 360 px): a rung is about 90 px there, so the
