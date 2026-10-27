@@ -65,6 +65,9 @@ class SwimLobby {
 
   /* ── the queue (KnockoutLobby.enqueue, the same contract) ───────────────── */
   enqueue(socket, name, wallet, stake, worth, now, paid, skin) {
+    /* Already in a race: one seat per socket (Fable review 2026-10-27). Not taken, so a paid caller
+       refunds it through the stake row (enterPaid), and the race in progress is left alone. */
+    if (this.roomOf(socket.id)) return false;
     const prior = this.queue.find(e => e.socket.id === socket.id);
     if (prior && prior.worth > 0) this.refund(prior, 'left the queue');
     this.dequeue(socket.id);

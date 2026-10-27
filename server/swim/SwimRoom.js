@@ -71,6 +71,7 @@ class SwimRoom {
     this.bot = null;
     this.goAt = 0;
     this.clock = 0;             // the server's tick
+    this.floor = 0;             // the clock the lag allowance is measured from (see advance)
     this.judged = 0;            // every tick up to this one has been compared
     this.traffic = new S.Traffic();
     this.seed = crypto.randomBytes(4).readUInt32LE(0);
@@ -229,7 +230,10 @@ class SwimRoom {
       }
       return;
     }
-    const upTo = Math.min(this.clock, Math.max(p.heard + 1, this.clock - LAG_MAX));
+    /* The lag floor runs on this.floor, not the clock: after a server stall the clock jumps, and the
+       inputs that were sent in time are still waiting to be read, so nobody is driven blind for it
+       (Fable review 2026-10-27: a GC pause must not decide a paid race). */
+    const upTo = Math.min(this.clock, Math.max(p.heard + 1, this.floor - LAG_MAX));
     while (car.tick < upTo) {
       const code = this.codeFor(p, car.tick);
       p.last = code;
@@ -288,6 +292,9 @@ class SwimRoom {
     if (clock <= this.clock && this.clock > 0) return;
     const from = this.clock;
     this.clock = Math.max(this.clock, clock);
+    /* At most two ticks a call: in steady running (a call a tick) it is the clock, and after a stall
+       it catches up one tick a call while the queued inputs are read. */
+    this.floor = Math.min(this.clock, this.floor + 2);
     const [a, b] = [this.bySide(0), this.bySide(1)];
     /* Traffic first, filled to the horizon past whoever is in front. */
     const lead = !a ? b : !b ? a : (a.car.z >= b.car.z ? a : b);

@@ -2705,8 +2705,13 @@ const swPaidSwitch = createPaidSwitchStore({
   file: process.env.SW_PAID_SWITCH_PATH || path.join(path.dirname(agJournal.file), 'sw-paid-switch.json'),
   tag: '[SW]', what: 'paid ' + SWIM_NAME,
 });
-let swPaidOpen = !swPaidSwitch.closedAtBoot().closed;
-if (!swPaidOpen) console.warn("[SW] paid door CLOSED at boot: the owner's sw:paid:off outlived the restart");
+/* Swim's lobby card is shut (soon) until Owen has played it: the game runs and is reachable at /swim,
+   but the lobby's people counts leave it out until this is true (public/v2.html, the SWIM gate). Until
+   then its PAID door also boots shut whatever was saved (Fable review 2026-10-27: a game nobody has
+   signed off must not take a stake); the owner console's sw:paid:on opens it until the next restart. */
+const SWIM_IN_LOBBY = false;
+let swPaidOpen = SWIM_IN_LOBBY && !swPaidSwitch.closedAtBoot().closed;
+if (!swPaidOpen) console.warn('[SW] paid door CLOSED at boot' + (SWIM_IN_LOBBY ? ": the owner's sw:paid:off outlived the restart" : ' (SWIM_IN_LOBBY is off)'));
 if (!koPaidOpen) console.warn('[KO] paid door CLOSED at boot: the owner\'s ko:paid:off outlived the restart');
 if (!bsPaidOpen) console.warn('[BS] paid door CLOSED at boot: the owner\'s bs:paid:off outlived the restart');
 const DUEL_PAID_CLOSED = 'Paid tables are closed right now. Free play still works, and an entry you have not used '
@@ -3380,9 +3385,6 @@ const chompArenas = chompGame ? chompGame.arenas : null;
 const CHOMP_PAID_ON = !!(chompGame && chompGame.paid);
 /* Before Chomp was in the lobby /api/live listed only its paid rows (players = open accounts, so deploy rule 4b
    sees anyone seated), never its free row, which would have put it on the Open lobbies list. */
-/* Swim's lobby card is shut (soon) until Owen has played it: the game runs and is reachable at /swim,
-   but the lobby's people counts leave it out until this is true (public/v2.html SWIM_OPEN). */
-const SWIM_IN_LOBBY = false;
 const CHOMP_IN_LOBBY = true;   // Owen's OK, 2026-10-26: the lobby has its card
 /* The two duels too (2026-10-21): a queued paid seat or a paid table being played lived only in this
    process, its stake row already 'consumed', so every deploy lost it with nothing owed. Their lobbies'

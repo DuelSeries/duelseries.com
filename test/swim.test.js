@@ -321,3 +321,38 @@ test('the bot drives a whole race on the real lobby clock', () => {
   for (let i = 0; i < 60 * 120 && lobby.rooms.size; i++) { t += S.TICK_MS; lobby.tick(t); }
   assert.strictEqual(lobby.rooms.size, 0, 'the race ended and was swept');
 });
+
+test('a server stall does not drive anyone blind: inputs sent in time are still used', () => {
+  const { room } = racing();
+  run(room, 60, S.NEUTRAL, S.NEUTRAL);
+  /* The server stalls for 40 ticks (a GC pause). When it wakes, its timer runs before the packets the
+     screens sent on time meanwhile are read: the clock jumps, and nobody may be driven blind for it. */
+  room.tick(at(room, 100));
+  const a = room.bySide(0), b = room.bySide(1);
+  assert.strictEqual(a.car.tick, 60, 'nobody was moved on with a guessed input');
+  for (let t = 60; t < 100; t += 4) {
+    room.input('a', { t: t + 3, k: new Array(4).fill(S.packInput(1, 1)) });
+    room.input('b', { t: t + 3, k: new Array(4).fill(S.packInput(-1, 1)) });
+  }
+  room.tick(at(room, 101));
+  assert.strictEqual(a.car.tick, 100, 'the inputs that had been sent in time were used (it waits at 100 for 100)');
+  // Every tick from 60 ran on the input actually sent for it (full right and gas), not a repeat of neutral.
+  const ref = S.newCar(0);
+  for (let t = 0; t < 60; t++) S.step(ref, S.NEUTRAL, room.traffic);
+  for (let t = 60; t < 100; t++) S.step(ref, S.packInput(1, 1), room.traffic);
+  assert.strictEqual(a.car.x, ref.x);
+  assert.strictEqual(b.car.tick, 100);
+  // A connection that really went quiet is still moved on once the floor catches up.
+  for (let t = 101; t <= 160; t++) { room.input('b', { t: t - 1, k: [S.NEUTRAL] }); room.tick(at(room, t)); }
+  assert.strictEqual(a.car.tick, 160 - LAG_MAX);
+});
+
+test('a socket already racing cannot queue a second seat', () => {
+  const { lobby } = lobbyWith();
+  const a = sock(), b = sock();
+  lobby.enqueue(a, 'A', 'WA', 1, 1, 1, 1);
+  lobby.enqueue(b, 'B', 'WB', 1, 1, 2, 1);
+  assert.strictEqual(lobby.rooms.size, 1);
+  assert.strictEqual(lobby.enqueue(a, 'A', 'WA', 1, 1, 3, 1), false);
+  assert.strictEqual(lobby.queue.length, 0);
+});
