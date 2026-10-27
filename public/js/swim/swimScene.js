@@ -704,8 +704,8 @@ export function createScene(canvasEl, opts = {}) {
   const stm = streaks.instanceMatrix.array, stc = streaks.instanceColor.array;
   for (let i = 0; i < STREAKS + BURSTS; i++) { stm[i * 16] = 1; stm[i * 16 + 5] = 1; stm[i * 16 + 15] = 1; }
   const sx = new Float32Array(STREAKS + BURSTS), sy = new Float32Array(STREAKS + BURSTS), sz = new Float32Array(STREAKS + BURSTS), sr = new Float32Array(STREAKS + BURSTS);
-  let seed = 12345;
-  const rand = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
+  const R = { seed: 12345 };
+  const rand = () => { R.seed = (Math.imul(R.seed, 1664525) + 1013904223) >>> 0; return R.seed / 4294967296; };
   function placeStreak(i, z) {
     // round the edges of the view only: wide to the sides, low over the road, clear of the car
     const s = rand() < 0.5 ? -1 : 1;
@@ -731,12 +731,13 @@ export function createScene(canvasEl, opts = {}) {
   let partsAlive = 0;
 
   /* ── state ───────────────────────────────────────────────────────── */
-  let cssW = 1, cssH = 1, dpr = 1, dprDrop = 0, slowEma = 1 / 60, adaptCool = 2;
-  let time = 0, fov = 62, camX = 0, lookX = 0, camRoll = 0, camOffZ = 0, snap = true;
-  let lastSide = -1, lastZ0 = NaN;
-  let nmT = 0, nmSide = 0, nmPending = null;
-  let crashPending = false, crashOn = false, crashT = 0, crashSide = 0, crashYaw = 0, crashW = 0, crashDir = 1, shakeCrash = 0;
-  let lastFollowV = 30;
+  /* Numbers that change every frame live on one object: V8 keeps its double
+     fields in place, where a closure `let` would box a new number each write. */
+  const K = { time: 0, fov: 62, camX: 0, lookX: 0, camRoll: 0, camOffZ: 0, lastZ0: NaN, nmT: 0,
+    crashT: 0, crashYaw: 0, crashW: 0, shakeCrash: 0, lastFollowV: 30, slowEma: 1 / 60, adaptCool: 2 };
+  let cssW = 1, cssH = 1, dpr = 1, dprDrop = 0, snap = true;
+  let lastSide = -1, nmSide = 0, nmPending = null;
+  let crashPending = false, crashOn = false, crashSide = 0, crashDir = 1;
   const NM_LEN = 0.45;
 
   function resize() {
@@ -767,17 +768,28 @@ export function createScene(canvasEl, opts = {}) {
     car.roll += (rollT * 0.055 - car.roll) * ease(dt, 8);
     car.pitch += (clamp(car.acc * 0.0035, -0.07, 0.04) - car.pitch) * ease(dt, 8);
     const sp = clamp01((v * 3.6 - 100) / 180);
-    g.position.set(st.x, 0.006 * Math.sin(time * 23 + car.side) * sp, -(st.z - z0));
+    g.position.set(st.x, 0.006 * Math.sin(K.time * 23 + car.side) * sp, -(st.z - z0));
     g.rotation.set(car.pitch, -Math.atan2(vx, Math.max(v, 8)) * 0.85, car.roll);
     if (ghost && st.alive === false) { g.rotation.y = 0.6; g.rotation.z = 0; }   // the other car has crashed: show it skewed
     if (crashOn && car.side === crashSide && !ghost) {
-      const t = crashT;
+      const t = K.crashT;
       g.position.y += t < 0.4 ? 0.22 * Math.sin(Math.PI * t / 0.4) : 0;
       g.position.z += 0.35 * (1 - Math.exp(-t * 12));
-      g.rotation.y = crashYaw;
+      g.rotation.y = K.crashYaw;
       g.rotation.x = 0.13 * Math.exp(-t * 5) * Math.sin(t * 26);
       g.rotation.z = 0.08 * crashDir * Math.exp(-t * 4);
     }
+  }
+
+  /* Send only the used front of an instance buffer, through one range object
+     kept per buffer (addUpdateRange would make a new one every frame). */
+  function upload(attr, count) {
+    let r = attr.userRange;
+    if (!r) r = attr.userRange = { start: 0, count: 0 };
+    r.start = 0; r.count = count;
+    const list = attr.updateRanges;
+    if (list.length !== 1 || list[0] !== r) { list.length = 0; list.push(r); }
+    attr.needsUpdate = true;
   }
 
   function carShadow(car, ns) {
@@ -788,7 +800,7 @@ export function createScene(canvasEl, opts = {}) {
   }
 
   function startCrash(fol, traffic, tick, side) {
-    crashOn = true; crashT = 0; crashSide = side; crashYaw = 0; shakeCrash = 1;
+    crashOn = true; K.crashT = 0; crashSide = side; K.crashYaw = 0; K.shakeCrash = 1;
     /* where it hit: the nearest traffic car, else the nose */
     let ix = 0, iz = 2.0, best = 1e9;
     if (traffic && traffic.lanes) {
@@ -804,8 +816,8 @@ export function createScene(canvasEl, opts = {}) {
       }
     }
     crashDir = ix >= 0 ? 1 : -1;
-    crashW = (iz >= 0 ? 1 : -1) * crashDir * (4.2 + rand() * 2.2);
-    const v = Math.max(lastFollowV, 12), paint = SIDE_PAINT[side];
+    K.crashW = (iz >= 0 ? 1 : -1) * crashDir * (4.2 + rand() * 2.2);
+    const v = Math.max(K.lastFollowV, 12), paint = SIDE_PAINT[side];
     partsAlive = 0;
     for (let i = 0; i < PARTS; i++) {
       const spark = i < 40;
@@ -875,7 +887,7 @@ export function createScene(canvasEl, opts = {}) {
 
   function stepStreaks(dt, v, side) {
     const sF = smooth(30, 72, v) * 0.42;
-    const burst = nmT > 0 ? Math.pow(nmT / NM_LEN, 1.4) : 0;
+    const burst = K.nmT > 0 ? Math.pow(K.nmT / NM_LEN, 1.4) : 0;
     let n = 0;
     if (sF > 0.01) {
       const len = clamp(v * 0.032, 0.5, 2.4);
@@ -904,8 +916,7 @@ export function createScene(canvasEl, opts = {}) {
     }
     streaks.count = n; streaks.visible = n > 0;
     if (n) {
-      streaks.instanceMatrix.clearUpdateRanges(); streaks.instanceMatrix.addUpdateRange(0, n * 16); streaks.instanceMatrix.needsUpdate = true;
-      streaks.instanceColor.clearUpdateRanges(); streaks.instanceColor.addUpdateRange(0, n * 3); streaks.instanceColor.needsUpdate = true;
+      upload(streaks.instanceMatrix, n * 16); upload(streaks.instanceColor, n * 3);
     }
   }
 
@@ -914,17 +925,17 @@ export function createScene(canvasEl, opts = {}) {
     let dt = +f.dt;
     if (!(dt > 0)) dt = 1 / 60;
     if (dt > 0.1) dt = 0.1;
-    time += dt;
+    K.time += dt;
     const fol = f.follow, oth = f.other || null, side = f.followSide === 1 ? 1 : 0;
     const tick = +f.tick || 0, traffic = f.traffic || null;
     const z0 = +fol.z || 0;
     if (side !== lastSide) {
       // a new car to follow: glide over to it if it is close, else cut
-      if (lastSide >= 0 && Math.abs(z0 - lastZ0) < 250) camOffZ = z0 - lastZ0; else snap = true;
+      if (lastSide >= 0 && Math.abs(z0 - K.lastZ0) < 250) K.camOffZ = z0 - K.lastZ0; else snap = true;
       lastSide = side;
-    } else if (!(Math.abs(z0 - lastZ0) < 60)) snap = true;
-    lastZ0 = z0;
-    if (fol.alive !== false) lastFollowV = fol.v || 0;
+    } else if (!(Math.abs(z0 - K.lastZ0) < 60)) snap = true;
+    K.lastZ0 = z0;
+    if (fol.alive !== false) K.lastFollowV = fol.v || 0;
 
     /* the treadmill */
     const base = Math.floor(z0 / BLOCK) * BLOCK;
@@ -962,17 +973,16 @@ export function createScene(canvasEl, opts = {}) {
       tm.paint.visible = tm.det.visible = n > 0;
       if (n) {
         const im = tm.paint.instanceMatrix, ic = tm.paint.instanceColor;
-        im.clearUpdateRanges(); im.addUpdateRange(0, n * 16); im.needsUpdate = true;
-        ic.clearUpdateRanges(); ic.addUpdateRange(0, n * 3); ic.needsUpdate = true;
+        upload(im, n * 16); upload(ic, n * 3);
       }
     }
 
     /* the players */
     if (crashOn) {
-      crashT += dt;
-      crashYaw += crashW * dt;
-      crashW *= Math.exp(-dt * 2.6);
-      if (fol.alive !== false && crashT > 0.5 && crashSide === side) clearCrash();
+      K.crashT += dt;
+      K.crashYaw += K.crashW * dt;
+      K.crashW *= Math.exp(-dt * 2.6);
+      if (fol.alive !== false && K.crashT > 0.5 && crashSide === side) clearCrash();
     }
     if (crashPending) { crashPending = false; startCrash(fol, traffic, tick, side); }
     const carF = cars[side], carO = cars[1 - side];
@@ -980,18 +990,18 @@ export function createScene(canvasEl, opts = {}) {
     poseCar(carO, oth, z0, true, null, dt);
     ns = carShadow(carF, ns); ns = carShadow(carO, ns);
     shadows.count = ns; shadows.visible = ns > 0;
-    if (ns) { const a = shadows.instanceMatrix; a.clearUpdateRanges(); a.addUpdateRange(0, ns * 16); a.needsUpdate = true; }
+    if (ns) upload(shadows.instanceMatrix, ns * 16);
 
     /* effects */
     if (nmPending !== null) {
       nmSide = nmPending || nearSideFrom(fol, traffic, tick) || (rand() < 0.5 ? -1 : 1);
-      nmPending = null; nmT = NM_LEN;
+      nmPending = null; K.nmT = NM_LEN;
       for (let j = 0; j < BURSTS; j++) {
         const i = STREAKS + j;
         sx[i] = nmSide * (1.4 + rand() * 1.3); sy[i] = -1.1 + rand() * 1.6; sz[i] = -2 - rand() * 14; sr[i] = rand();
       }
     }
-    if (nmT > 0) nmT = Math.max(0, nmT - dt);
+    if (K.nmT > 0) K.nmT = Math.max(0, K.nmT - dt);
     const v = fol.alive === false ? 0 : (fol.v || 0);
     stepStreaks(dt, v, side);
     stepParts(dt, z0);
@@ -1006,29 +1016,29 @@ export function createScene(canvasEl, opts = {}) {
     if (fromH > want) want = Math.min(fromH, 100);
     const toH = 2 * Math.atan(Math.tan((96 + 8 * sp) * DEG / 2) / aspect) / DEG;
     if (toH < want) want = toH;                       // a very wide screen: keep the sides from stretching
-    const nm = nmT > 0 ? Math.sin(Math.PI * (1 - nmT / NM_LEN)) : 0;
+    const nm = K.nmT > 0 ? Math.sin(Math.PI * (1 - K.nmT / NM_LEN)) : 0;
     want += nm * 2.5;
-    if (snap) { fov = want; camX = fol.x; lookX = fol.x; camRoll = 0; camOffZ = 0; }
-    fov += (want - fov) * ease(dt, 4);
-    camX += (fol.x - camX) * ease(dt, 5);
-    lookX += (fol.x - lookX) * ease(dt, 9);
-    camOffZ *= Math.exp(-dt * 3.5);
-    if (Math.abs(camOffZ) < 0.01) camOffZ = 0;
-    camRoll += ((crashOn ? 0 : clamp(+f.steer || 0, -1, 1)) - camRoll) * ease(dt, 5);
+    if (snap) { K.fov = want; K.camX = fol.x; K.lookX = fol.x; K.camRoll = 0; K.camOffZ = 0; }
+    K.fov += (want - K.fov) * ease(dt, 4);
+    K.camX += (fol.x - K.camX) * ease(dt, 5);
+    K.lookX += (fol.x - K.lookX) * ease(dt, 9);
+    K.camOffZ *= Math.exp(-dt * 3.5);
+    if (Math.abs(K.camOffZ) < 0.01) K.camOffZ = 0;
+    K.camRoll += ((crashOn ? 0 : clamp(+f.steer || 0, -1, 1)) - K.camRoll) * ease(dt, 5);
     const ch = 2.6 + 3.4 * port, cb = 6.5 + 3.5 * port, la = 12 + 2 * port;
     const shake = 0.004 + 0.028 * sp * sp;
-    const n1 = Math.sin(time * 31.7) * 0.6 + Math.sin(time * 17.3 + 1.2) * 0.4;
-    const n2 = Math.sin(time * 27.1 + 0.5) * 0.6 + Math.sin(time * 13.9 + 2.1) * 0.4;
+    const n1 = Math.sin(K.time * 31.7) * 0.6 + Math.sin(K.time * 17.3 + 1.2) * 0.4;
+    const n2 = Math.sin(K.time * 27.1 + 0.5) * 0.6 + Math.sin(K.time * 13.9 + 2.1) * 0.4;
     let jx = n1 * shake, jy = n2 * shake;
-    if (shakeCrash > 0.001) {
-      jx += (rand() - 0.5) * 0.7 * shakeCrash; jy += (rand() - 0.5) * 0.5 * shakeCrash;
-      shakeCrash *= Math.exp(-dt * 3.2);
+    if (K.shakeCrash > 0.001) {
+      jx += (rand() - 0.5) * 0.7 * K.shakeCrash; jy += (rand() - 0.5) * 0.5 * K.shakeCrash;
+      K.shakeCrash *= Math.exp(-dt * 3.2);
     }
-    camera.fov = fov;
+    camera.fov = K.fov;
     camera.updateProjectionMatrix();
-    camera.position.set(camX + jx - nm * nmSide * 0.1, ch + jy, camOffZ + cb);
-    camera.lookAt(lookX + jx * 0.5, 0.65 - 0.25 * port, camOffZ - la);
-    camera.rotateZ(-camRoll * 0.022);
+    camera.position.set(K.camX + jx - nm * nmSide * 0.1, ch + jy, K.camOffZ + cb);
+    camera.lookAt(K.lookX + jx * 0.5, 0.65 - 0.25 * port, K.camOffZ - la);
+    camera.rotateZ(-K.camRoll * 0.022);
     snap = false;
 
     sky.position.copy(camera.position);
@@ -1036,10 +1046,10 @@ export function createScene(canvasEl, opts = {}) {
 
     /* a frame that stays slow drops the pixel ratio a step (never mid-burst) */
     if (adaptive) {
-      slowEma += (Math.min(dt, 0.05) - slowEma) * 0.04;
-      adaptCool -= dt;
-      if (adaptCool <= 0 && slowEma > 1 / 48 && dpr > minDpr + 0.01) {
-        dprDrop += 0.25; adaptCool = 3; slowEma = 1 / 60; resize();
+      K.slowEma += (Math.min(dt, 0.05) - K.slowEma) * 0.04;
+      K.adaptCool -= dt;
+      if (K.adaptCool <= 0 && K.slowEma > 1 / 48 && dpr > minDpr + 0.01) {
+        dprDrop += 0.25; K.adaptCool = 3; K.slowEma = 1 / 60; resize();
       }
     }
 
@@ -1048,7 +1058,7 @@ export function createScene(canvasEl, opts = {}) {
   }
 
   function clearCrash() {
-    crashOn = false; crashPending = false; crashT = 0; crashYaw = 0; crashW = 0; shakeCrash = 0;
+    crashOn = false; crashPending = false; K.crashT = 0; K.crashYaw = 0; K.crashW = 0; K.shakeCrash = 0;
     partsAlive = 0; parts.count = 0; parts.visible = false;
     for (let i = 0; i < PARTS; i++) P.life[i] = 0;
   }
@@ -1070,7 +1080,7 @@ export function createScene(canvasEl, opts = {}) {
     crash() { crashPending = true; },
     reset() {
       clearCrash();
-      nmT = 0; nmPending = null; snap = true;
+      K.nmT = 0; nmPending = null; snap = true;
       for (const c of cars) { c.lastV = -1; c.roll = c.pitch = c.acc = 0; }
     },
     info() {
