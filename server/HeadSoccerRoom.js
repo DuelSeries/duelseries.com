@@ -210,6 +210,7 @@ class HeadSoccerRoom extends KnockoutRoom {
       case 'hs:snap':
         return { k: p.k, c: p.c, st: p.st, b: p.b, p: p.p, sc: p.sc };
       case 'hs:kickoff':
+      case 'hs:power':
       case 'hs:goal':
       case 'hs:whistle':
         return Object.assign({}, p);

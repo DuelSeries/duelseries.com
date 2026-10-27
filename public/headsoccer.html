@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>Head Soccer · DuelSeries</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- Archivo's heavy italics are the GOAL!, KICK OFF and score lettering on the canvas. -->
+<link href="https://fonts.googleapis.com/css2?family=Archivo:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,800;1,900&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/headsoccer.css">
+</head>
+<body>
+
+<!-- The whole match: the stadium, the two heads, the ball, the strip across the
+     top and, on a phone, the gold buttons. One canvas, because all of it lives in
+     the same 1196 x 720 frame the physics uses, and the buttons have to be hit
+     tested against what is drawn, finger by finger. -->
+<canvas id="pitch"></canvas>
+
+<!-- The keys, said once at the first kick-off on a computer. -->
+<div id="keys" hidden>
+  <span><kbd>A</kbd><kbd>D</kbd> move</span>
+  <span><kbd>W</kbd> jump</span>
+  <span><kbd class="wide">Space</kbd> kick</span>
+  <span><kbd>E</kbd> power</span>
+</div>
+
+<!-- Watching somebody else's match: what happened, in a line under the strip.
+     Lobby, previous and next are the shared Spectate bar (dsWatchBar.js). -->
+<div id="watchLine" role="status" hidden></div>
+
+<!-- Waiting for somebody. Honest about the bot rather than quietly substituting
+     one: you should know who you are playing. The same card, and the same words,
+     as Knockout's. -->
+<div id="wait">
+  <div class="waitCard">
+    <div class="waitSpin" aria-hidden="true"></div>
+    <b id="waitMain">Looking for an opponent</b>
+    <span id="waitSub">Free table. Nothing staked.</span>
+    <button type="button" id="waitCancel">Back to the lobby</button>
+  </div>
+</div>
+
+<!-- Said when the opponent is the bot a free table gets after a minute alone. -->
+<div id="botNote" role="status" hidden>Playing a bot</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="/shared/shopSkins.js"></script>
+<script src="/shared/hsSim.js"></script>
+<!-- The result card every DuelSeries game ends on. -->
+<script src="/js/shared/dsEnd.js"></script>
+<script src="/js/shared/dsChat.js"></script>
+<script src="/js/dsSfx.js"></script><script src="/js/dsSfxGame.js"></script><script src="/js/headsoccerSound.js"></script>
+<!-- The Spectate controls every game shares: Lobby, previous and next, and the empty table. -->
+<script src="/js/shared/dsEmptyArena.js"></script>
+<script src="/js/shared/dsWatchBar.js"></script>
+<script src="/js/headsoccer/hsArt.js"></script>
+<script src="/js/headsoccer.js"></script>
+</body>
+</html>
