@@ -175,6 +175,10 @@ class SwimRoom {
       id: this.id,
       state: this.state,
       goIn: Math.max(0, this.goAt - nowOr(now)),
+      /* The server's clock (ms) and when the race goes on it: with sw:ping the page lines its own clock up
+         with these, so it runs its car on the server's ticks. */
+      goAt: this.goAt,
+      now: nowOr(now),
       tick: this.clock,
       vsBot: !!this.bot,
       stake: this.stake,
@@ -385,7 +389,7 @@ class SwimRoom {
 
   watchState(ps) {
     return {
-      id: ps.id, state: ps.state, goIn: ps.goIn, tick: ps.tick, stake: ps.stake, pot: ps.pot,
+      id: ps.id, state: ps.state, goIn: ps.goIn, goAt: ps.goAt, now: ps.now, tick: ps.tick, stake: ps.stake, pot: ps.pot,
       players: (ps.players || []).map(q => ({ side: q.side, name: q.name, skin: q.skin || null })),
       cars: ps.cars, p: ps.p,
     };

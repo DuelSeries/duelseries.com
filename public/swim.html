@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>Swim · DuelSeries</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/swim.css">
+<script type="importmap">{ "imports": { "three": "/vendor/three/three.module.min.js" } }</script>
+</head>
+<body>
+
+<!-- The road. Everything 3D is drawn here (js/swim/swimScene.js). -->
+<canvas id="road"></canvas>
+
+<!-- Who is racing, and the one number that decides it besides a crash: the gap.
+     The rope fills from the middle toward whoever is in front, and the far ends
+     are the 200 m line. -->
+<header id="top" hidden>
+  <span class="who you" id="youName">You</span>
+  <div class="gap" aria-live="off">
+    <div class="rope" id="rope">
+      <i class="end lose"></i><i class="fill" id="ropeFill"></i><i class="mid"></i><i class="end win"></i>
+    </div>
+    <span class="gapText" id="gapText">Level</span>
+  </div>
+  <span class="who them" id="themName">Opponent</span>
+</header>
+
+<!-- Speed and distance, under the car where the eye already is. -->
+<div id="dash" hidden>
+  <div class="spd"><b id="spdNum">0</b><span>km/h</span></div>
+  <div class="dist" id="distText">0 m</div>
+</div>
+
+<!-- A close pass. Said once per car, where you are looking. -->
+<div id="close" hidden><b>Close</b><span id="closeCount"></span></div>
+
+<!-- The warning when the gap is nearly lost. -->
+<div id="warn" hidden>Catch up</div>
+
+<!-- How to drive, for the first seconds. -->
+<div id="keys" hidden></div>
+
+<!-- Phone controls: steer with the left thumb anywhere on the left, pedals on the right. -->
+<div id="pads" hidden>
+  <div id="steerZone" aria-label="Steer: drag left or right"><i id="steerKnob"></i></div>
+  <button type="button" id="brake" aria-label="Brake">Brake</button>
+  <button type="button" id="gas" aria-label="Gas">Gas</button>
+</div>
+
+<div id="flash" aria-hidden="true"></div>
+
+<!-- Waiting for somebody. The same card, and the same words, as Knockout's. -->
+<div id="wait">
+  <div class="waitCard">
+    <div class="waitSpin" aria-hidden="true"></div>
+    <b id="waitMain">Looking for an opponent</b>
+    <span id="waitSub">Free table. Nothing staked.</span>
+    <button type="button" id="waitCancel">Back to the lobby</button>
+  </div>
+</div>
+
+<!-- The three seconds before the race. -->
+<div id="count" hidden><span id="countNum">3</span></div>
+
+<!-- Said when the opponent is the bot a free table gets after a minute alone. -->
+<div id="botNote" role="status" hidden>Playing a bot</div>
+
+<!-- No WebGL: said plainly instead of a black screen. -->
+<div id="nogl" hidden>
+  <div class="waitCard">
+    <b>This device cannot draw the road</b>
+    <span>Swim needs WebGL. Try another browser, or turn hardware acceleration on.</span>
+    <button type="button" id="noglBack">Back to the lobby</button>
+  </div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="/shared/swimSim.js"></script>
+<!-- The result card every DuelSeries game ends on. -->
+<script src="js/shared/dsEnd.js"></script>
+<script src="js/shared/dsChat.js"></script>
+<script src="/js/dsSfx.js"></script><script src="/js/dsSfxGame.js"></script><script src="/js/swim/swimSound.js"></script>
+<!-- The Spectate controls every game shares: Lobby, previous and next, and the empty table. -->
+<script src="/js/shared/dsEmptyArena.js"></script>
+<script src="/js/shared/dsWatchBar.js"></script>
+<script type="module" src="js/swim/swimMain.js"></script>
+</body>
+</html>

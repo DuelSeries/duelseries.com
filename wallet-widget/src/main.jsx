@@ -413,7 +413,7 @@ function launchStaked(game, sel, staked, wallet, onLaunch) {
      A paid snake round on the new engine opens /sl in the snake frame (engineOf above). */
   const isAgar = game === 'agar';
   const PAGES = { agar: '/ag', knockout: '/knockout', battleship: '/battleship', snake: '/game.html',
-                  paper: '/paper-arena', chomp: '/chomp' };
+                  paper: '/paper-arena', chomp: '/chomp', swim: '/swim' };
   const frame = document.getElementById(isAgar ? 'agar-frame' : 'game-frame');
   const html = sl ? '/sl' : (PAGES[game] || '/game.html');
   if (frame) {
@@ -1156,7 +1156,9 @@ function WalletPanel() {
   return null;
 }
 
-const GAME_NAMES = { snake: 'Slither', agar: 'agar.io', paper: 'Paper.io', knockout: 'Knockout', battleship: 'Battleship' };
+// swim: SwimSim.NAME (shared/swimSim.js) when the lobby has loaded it, so a rename there reaches this too.
+const GAME_NAMES = { snake: 'Slither', agar: 'agar.io', paper: 'Paper.io', knockout: 'Knockout', battleship: 'Battleship',
+  get swim() { return (typeof window !== 'undefined' && window.SwimSim && window.SwimSim.NAME) || 'Swim'; } };
 const money = (n) => (Number.isFinite(n) && n > 0 ? '$' + n.toFixed(2) + ' ' : '');
 
 /* The popup's words for each step stakeAndPlay reports (onStatus). */

@@ -1,0 +1,210 @@
+/* ─── Swim ────────────────────────────────────────────────────────────────────
+   The road is the whole screen (a WebGL canvas); everything here sits on top
+   of it and stays out of the way of the lane in front of the car. The tokens
+   are Knockout's (knockout.css), so the wait card, the countdown and the bot
+   note read the same in every duel. Gold is you, teal is them: the colours the
+   two cars are painted. */
+:root {
+  --ink:  #100e0b;
+  --s1:   #17140f;
+  --s2:   #1f1b15;
+  --s3:   #282219;
+  --rim:  #f0a830;
+  --tx:   #f5f1e8;
+  --tx2:  #a89c8a;
+  --tx3:  #8d8171;
+  --you:  #f0b440;
+  --them: #4fc3d9;
+  --lose: #e0705f;
+  --f:  'Archivo', ui-sans-serif, system-ui, 'Segoe UI', Arial, sans-serif;
+  --fm: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; height: 100%; overflow: hidden; background: #1a1116;
+  color: var(--tx); font-family: var(--f);
+  -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent;
+  touch-action: none; overscroll-behavior: none;
+}
+#road { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+
+/* ── the strip ───────────────────────────────────────────────────────────── */
+#top {
+  position: fixed; left: 0; right: 0; top: 0; z-index: 10;
+  display: flex; align-items: center; gap: 14px;
+  padding: calc(12px + env(safe-area-inset-top)) 18px 12px;
+  background: linear-gradient(to bottom, rgba(10, 7, 9, 0.62), rgba(10, 7, 9, 0));
+  pointer-events: none;
+}
+#top[hidden] { display: none; }
+.who {
+  flex: 1 1 0; min-width: 0; font-size: 15px; font-weight: 650;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  text-shadow: 0 1px 8px rgba(0,0,0,0.7);
+}
+.who.you { color: var(--you); }
+.who.them { color: var(--them); text-align: right; }
+.gap { flex: 0 1 380px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+/* The rope: the middle is level, the left end is 200 m behind (you lose), the
+   right end 200 m ahead (they lose). The fill grows from the middle. */
+.rope {
+  position: relative; width: 100%; height: 10px; border-radius: 6px;
+  background: rgba(16, 12, 14, 0.66); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08);
+}
+.rope .mid { position: absolute; left: 50%; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; background: rgba(245,241,232,0.7); border-radius: 1px; }
+.rope .end { position: absolute; top: 0; bottom: 0; width: 12%; }
+.rope .end.lose { left: 0; border-radius: 6px 0 0 6px; background: linear-gradient(to right, rgba(224,112,95,0.55), rgba(224,112,95,0)); }
+.rope .end.win { right: 0; border-radius: 0 6px 6px 0; background: linear-gradient(to left, rgba(240,180,64,0.45), rgba(240,180,64,0)); }
+.rope .fill { position: absolute; top: 1px; bottom: 1px; left: 50%; width: 0; border-radius: 4px; background: var(--you); }
+.rope.behind .fill { background: var(--them); }
+.rope.danger .fill { background: var(--lose); animation: swpulse 0.5s ease-in-out infinite alternate; }
+@keyframes swpulse { to { opacity: 0.45; } }
+.gapText {
+  font-family: var(--fm); font-size: 13px; font-weight: 600; color: var(--tx);
+  text-shadow: 0 1px 8px rgba(0,0,0,0.8); white-space: nowrap;
+}
+
+/* ── speed ───────────────────────────────────────────────────────────────── */
+#dash {
+  position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom)); z-index: 10;
+  transform: translateX(-50%); text-align: center; pointer-events: none;
+  text-shadow: 0 2px 14px rgba(0,0,0,0.75);
+}
+#dash[hidden] { display: none; }
+.spd { display: flex; align-items: baseline; justify-content: center; gap: 6px; }
+.spd b { font-family: var(--fm); font-size: 46px; font-weight: 600; letter-spacing: -1px; font-variant-numeric: tabular-nums; min-width: 3ch; text-align: right; }
+.spd span { font-size: 13px; color: var(--tx2); font-weight: 600; }
+.dist { margin-top: -2px; font-family: var(--fm); font-size: 12px; color: var(--tx2); }
+
+/* ── a close pass ────────────────────────────────────────────────────────── */
+#close {
+  position: fixed; left: 50%; bottom: calc(108px + env(safe-area-inset-bottom)); z-index: 11;
+  transform: translateX(-50%); pointer-events: none; display: flex; align-items: baseline; gap: 6px;
+  text-shadow: 0 2px 12px rgba(0,0,0,0.7);
+}
+#close[hidden] { display: none; }
+#close b { font-size: 26px; font-weight: 800; color: var(--you); letter-spacing: -0.3px; }
+#close span { font-family: var(--fm); font-size: 15px; color: var(--tx); }
+#close.pop { animation: swpop 0.7s ease-out forwards; }
+@keyframes swpop {
+  0%   { transform: translateX(-50%) translateY(8px) scale(0.86); opacity: 0; }
+  18%  { transform: translateX(-50%) translateY(0) scale(1.06); opacity: 1; }
+  70%  { opacity: 1; }
+  100% { transform: translateX(-50%) translateY(-14px) scale(1); opacity: 0; }
+}
+
+#warn {
+  position: fixed; left: 50%; top: calc(78px + env(safe-area-inset-top)); z-index: 11;
+  transform: translateX(-50%); pointer-events: none;
+  padding: 6px 14px; border-radius: 999px; background: rgba(120, 30, 24, 0.82);
+  font-size: 14px; font-weight: 700; color: #fff4ee;
+}
+#warn[hidden] { display: none; }
+
+#keys {
+  position: fixed; left: 50%; bottom: calc(118px + env(safe-area-inset-bottom)); z-index: 10;
+  transform: translateX(-50%); pointer-events: none; white-space: nowrap;
+  padding: 7px 14px; border-radius: 10px; background: rgba(12, 9, 10, 0.66);
+  font-size: 13px; color: var(--tx2);
+}
+#keys[hidden] { display: none; }
+#keys kbd { font-family: var(--fm); font-size: 12px; color: var(--tx); padding: 1px 6px; border-radius: 5px; background: rgba(255,255,255,0.1); margin: 0 1px; }
+
+/* The edge flash: gold on a close pass, red on a crash. */
+#flash {
+  position: fixed; inset: 0; z-index: 9; pointer-events: none; opacity: 0;
+  box-shadow: inset 0 0 120px 30px rgba(240, 180, 64, 0.55);
+}
+#flash.close { animation: swflash 0.45s ease-out; }
+#flash.crash { box-shadow: inset 0 0 160px 60px rgba(224, 60, 40, 0.75); animation: swflash 0.9s ease-out; }
+@keyframes swflash { 0% { opacity: 1; } 100% { opacity: 0; } }
+
+/* ── phone pedals ────────────────────────────────────────────────────────── */
+#pads { position: fixed; inset: 0; z-index: 8; pointer-events: none; }
+#pads[hidden] { display: none; }
+#steerZone { position: absolute; left: 0; top: 70px; bottom: 0; width: 56%; pointer-events: auto; }
+#steerKnob {
+  position: absolute; width: 64px; height: 64px; margin: -32px 0 0 -32px; border-radius: 50%;
+  border: 2px solid rgba(245,241,232,0.45); background: rgba(245,241,232,0.08); display: none;
+}
+#steerKnob.on { display: block; }
+#pads button {
+  position: absolute; bottom: calc(22px + env(safe-area-inset-bottom)); pointer-events: auto;
+  font-family: var(--f); font-weight: 700; color: var(--tx); cursor: pointer;
+  border-radius: 18px; border: 1px solid rgba(255,255,255,0.18); background: rgba(16, 12, 14, 0.5);
+  backdrop-filter: blur(4px);
+}
+#gas { right: calc(18px + env(safe-area-inset-right)); width: 92px; height: 120px; font-size: 16px; }
+#brake { right: calc(122px + env(safe-area-inset-right)); width: 78px; height: 78px; font-size: 14px; }
+#pads button.on { background: rgba(240, 180, 64, 0.38); border-color: rgba(240, 180, 64, 0.8); }
+#brake.on { background: rgba(224, 112, 95, 0.4); border-color: rgba(224, 112, 95, 0.85); }
+/* On a phone the speed sits on the left of the pedals, clear of both thumbs. */
+body.touch #dash { left: auto; right: calc(222px + env(safe-area-inset-right)); transform: none; }
+body.touch #close { bottom: calc(150px + env(safe-area-inset-bottom)); }
+@media (max-width: 600px) {
+  #top { gap: 8px; padding-left: 12px; padding-right: 12px; }
+  .who { font-size: 13px; }
+  .gap { flex-basis: 52%; }
+  body.touch #dash { right: auto; left: 50%; transform: translateX(-50%); bottom: auto; top: calc(66px + env(safe-area-inset-top)); }
+  body.touch #dash .spd b { font-size: 30px; }
+  body.touch #warn { top: calc(124px + env(safe-area-inset-top)); }
+}
+
+/* ── the overlays every duel shares (knockout.css) ───────────────────────── */
+#count { position: fixed; inset: 0; z-index: 18; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+#count[hidden] { display: none; }
+#count span {
+  font-family: var(--fm); font-size: 110px; font-weight: 600; color: var(--tx);
+  text-shadow: 0 10px 40px rgba(0,0,0,0.8); animation: swbeat 1s ease-out infinite;
+}
+@keyframes swbeat {
+  0%   { transform: scale(1.25); opacity: 0; }
+  25%  { transform: scale(1);    opacity: 1; }
+  100% { transform: scale(0.92); opacity: 0.25; }
+}
+#wait, #nogl {
+  position: fixed; inset: 0; z-index: 20;
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+  background: rgba(6, 5, 4, 0.72); backdrop-filter: blur(6px);
+}
+#wait[hidden], #nogl[hidden] { display: none; }
+.waitSpin[hidden] { display: none; }
+.waitCard {
+  width: 100%; max-width: 380px; text-align: center;
+  background: var(--ink); border: 1px solid var(--s3); border-radius: 18px;
+  padding: 28px 24px 22px; box-shadow: 0 24px 60px rgba(0,0,0,0.55);
+}
+.waitSpin {
+  width: 24px; height: 24px; margin: 0 auto 16px; border-radius: 50%;
+  border: 2px solid var(--s3); border-top-color: var(--rim);
+  animation: swspin 0.8s linear infinite;
+}
+@keyframes swspin { to { transform: rotate(360deg); } }
+.waitCard b { display: block; font-size: 17px; font-weight: 650; }
+.waitCard span { display: block; margin-top: 6px; font-size: 13px; color: var(--tx3); }
+.waitCard button {
+  font-family: inherit; font-size: 13.5px; font-weight: 600; margin-top: 20px; width: 100%;
+  border-radius: 10px; padding: 11px 16px; cursor: pointer;
+  border: 1px solid var(--s3); background: transparent; color: var(--tx);
+  transition: background 0.15s, border-color 0.15s;
+}
+.waitCard button:hover { background: var(--s2); border-color: #3a3126; }
+.waitCard button:focus-visible, #pads button:focus-visible { outline: 2px solid var(--rim); outline-offset: 2px; }
+#botNote {
+  position: fixed; left: 50%; top: calc(76px + env(safe-area-inset-top)); z-index: 19; transform: translateX(-50%);
+  padding: 8px 16px; border-radius: 999px; pointer-events: none;
+  background: rgba(0,0,0,0.72); color: var(--tx); font-size: 15px; font-weight: 650;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.5);
+}
+#botNote[hidden] { display: none; }
+
+/* Watching: nothing on screen is yours to drive. The shared Spectate bar
+   (dsWatchBar.js) sits top left, so the strip makes room for it. */
+body.watching #pads, body.watching #keys, body.watching #close, body.watching #warn { display: none; }
+body.watching #top { padding-left: 126px; padding-right: 126px; }
+@media (max-width: 600px) { body.watching #top { padding: 62px 14px 10px; } }
+
+/* The spinner keeps spinning under reduced motion (knockout.css says why); the rest is calmed. */
+@media (prefers-reduced-motion: reduce) {
+  #count span { animation: none; }
+}

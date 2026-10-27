@@ -46,6 +46,7 @@ const GAMES = Object.freeze({
   tanks: 'Bowmasters',
   shooter: 'Awesome Tanks',
   chomp: require('../shared/chompName'),   // the shown name, one constant (Pac-Man for now)
+  swim: require('../shared/swimSim').NAME,
 });
 
 const WALLET_LIKE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/; // a whole base58 address typed as a name

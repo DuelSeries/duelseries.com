@@ -105,6 +105,7 @@ function liveCounts(src = {}) {
     paper,
   };
   if (src.chomp) out.chomp = chomp;
+  if (src.swim) out.swim = duelLobby(src.swim);   // Swim's duel lobby, only once its card is open (SWIM_IN_LOBBY)
   return out;
 }
 

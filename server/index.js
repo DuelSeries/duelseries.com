@@ -11,6 +11,8 @@ const { BattleRoyaleRoom, BR } = require('./BattleRoyaleRoom');
 const { TanksLobby } = require('./TanksLobby');   // the artillery duel
 const { KnockoutLobby } = require('./KnockoutLobby'); // the shrinking-disc duel
 const { BattleshipLobby } = require('./BattleshipLobby'); // the two-grid duel
+const { SwimLobby } = require('./swim/SwimLobby');       // the traffic race (Swim, shared/swimSim.js)
+const SWIM_NAME = require('../shared/swimSim').NAME;     // its player-facing name, kept in one place
 const chatGuard = require('./chatGuard').shared;           // every game's chat line goes through it
 const { ShooterRoom, SH: SHOOTER } = require('./ShooterRoom'); // the top-down tank arena
 /* Games switched off for now (Awesome Tanks, Bowmasters): no room, no socket
@@ -1433,7 +1435,7 @@ app.use('/api/owner', (req, res, next) => { res.set('Cache-Control', 'no-store')
    their stakes in the lobbies' queues and tables, not in a room ALL_ROOMS
    lists, so "Safe to restart" used to be said with a paid duel seated or a
    paid seat waiting for an opponent (console audit finding C). */
-const duelStatusNow = () => ops.duelStatus([knockoutLobby, battleshipLobby]);
+const duelStatusNow = () => ops.duelStatus([knockoutLobby, battleshipLobby, swimLobby]);
 const drainNow = () => ops.drainStatus(ALL_ROOMS(), entryStore.pending(), duelStatusNow(), brDrainWhy());
 
 /* A room's name in words, for the owner console. `na_free` and `ag_na_s0#1`
@@ -1508,7 +1510,7 @@ function consoleStake(r) {
    sl:paid:off is on. The old fixed tiers and a drained old free rung are
    counted only while somebody is still in one. The duels are read only. Rows
    go in the lobby's game order: slither.io, Paper.io, agar.io, then the duels. */
-function consoleGames(ko, bs) {
+function consoleGames(ko, bs, sw) {
   const snakeRungs = [];
   for (const e of ladder.rooms.values()) if (e && e.game === 'snake' && e.room) snakeRungs.push(e.room);
   const oldFree = snakeRungs.filter((r) => consoleStake(r) === 0);
@@ -1533,6 +1535,9 @@ function consoleGames(ko, bs) {
     { id: 'battleship', name: 'Battleship', duel: true,
       paid: ownerConsole.paidDoor({ enabled: true, open: bsPaidOpen, stopping: false }, bsPaidSwitch.saved(), 'bs:paid'),
       rungs: ownerConsole.duelRows(bs) },
+    { id: 'swim', name: SWIM_NAME, duel: true,
+      paid: ownerConsole.paidDoor({ enabled: true, open: swPaidOpen, stopping: false }, swPaidSwitch.saved(), 'sw:paid'),
+      rungs: ownerConsole.duelRows(sw) },
   ];
 }
 
@@ -1610,7 +1615,8 @@ function opsSnapshot(req, signed) {
   const all = ALL_ROOMS();
   const ko = ops.duelStatus([knockoutLobby]);
   const bs = ops.duelStatus([battleshipLobby]);
-  let bots = ko.botTables + bs.botTables;
+  const sw = ops.duelStatus([swimLobby]);
+  let bots = ko.botTables + bs.botTables + sw.botTables;
   for (const r of all) bots += Number(r.botCount) || 0;
   const m = ops.get();
   const rooms = all.map(r => ({
@@ -1651,7 +1657,7 @@ function opsSnapshot(req, signed) {
     drain: drainNow(),
     escrow: consoleEscrow(),
     bots,
-    games: consoleGames(ko, bs),
+    games: consoleGames(ko, bs, sw),
     battleRoyale: ownerConsole.brState(br, { engine: brOnSl() ? 'sl' : 'old', room: brRoomNow(), now }),
     smooth: consoleSmooth(),
     /* Paid snake on the new engine's door, for the owner page's readout: built
@@ -2039,6 +2045,20 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
       return done((ko ? 'Paid Knockout' : 'Paid Battleship') + ' open.' + (kept.ok ? ''
         : ' The saved close could not be cleared (' + kept.why + '), so the next restart opens it closed again.'));
     }
+    /* Paid Swim's door, the same as Knockout's and Battleship's: off refuses new paid seats (an unspent
+       entry refunds itself), seated and queued players finish; saved across restarts until on. */
+    case 'sw:paid:off':
+    case 'sw:paid:on': {
+      const on = action === 'sw:paid:on';
+      swPaidOpen = on;
+      const kept = swPaidSwitch.save(on);
+      console.warn('[SW] owner console: paid door ' + (on ? 'OPEN' : 'CLOSED') + (kept.ok ? '' : ' (NOT saved: ' + kept.why + ')'));
+      if (on) return done('Paid ' + SWIM_NAME + ' open.' + (kept.ok ? ''
+        : ' The saved close could not be cleared (' + kept.why + '), so the next restart opens it closed again.'));
+      return done('Paid ' + SWIM_NAME + ' closed to new players. Seated and queued players finish. '
+        + (kept.ok ? 'It stays closed across restarts and deploys until you press Open.'
+          : 'The close could not be saved (' + kept.why + '), so it lasts only until the next restart.'));
+    }
     /* The new slither.io free room's door (SERVER-DESIGN 13 item 4, 16.2): off
        refuses new joins (the page gets a 'closed' refusal), seated players
        finish. In memory like agar's paid switch, so a restart reopens it. */
@@ -2322,6 +2342,8 @@ const gamePage = (id, file) => (_req, res) => (isLocked(id)
 app.get(['/tanks', '/tanks.html'], gamePage('tanks', 'tanks.html'));
 app.get('/knockout', (_req, res) => res.sendFile(path.join(__dirname, '../public/knockout.html')));
 app.get('/battleship', (_req, res) => res.sendFile(path.join(__dirname, '../public/battleship.html')));
+// Swim, the traffic race. Reachable by this URL while its lobby card stays shut (SWIM_IN_LOBBY).
+app.get('/swim', (_req, res) => res.sendFile(path.join(__dirname, '../public/swim.html')));
 app.get(['/shooter', '/shooter.html'], gamePage('omgshooter', 'shooter.html'));
 app.get('/paper', (_req, res) => res.sendFile(path.join(__dirname, '../public/paper.html')));
 app.get('/paper-arena', (_req, res) => res.sendFile(path.join(__dirname, '../public/paper-arena.html')));
@@ -2498,6 +2520,41 @@ battleshipLobby.onSettled = ({ roomId, winnerId, why, pot, seats }) => {
     + ' ' + prize.toFixed(2) + ' (cut ' + cut.toFixed(2) + ')');
 };
 
+/* Swim settles exactly the way Knockout and Battleship do, through the same helper and the same
+   10% (server/duelMoney.js): the race decides who won (server/swim/SwimRoom.js), this moves the
+   money, once per room. A draw (both crashed on the same tick) or a winner with no wallet refunds
+   every seat its own stake, no cut. */
+const swimLobby = new SwimLobby(io);
+const _swPaid = new Set();
+swimLobby.onSettled = ({ roomId, winnerId, why, pot, seats }) => {
+  if (!roomId || !(pot > 0) || _swPaid.has(roomId)) return;
+  _swPaid.add(roomId);
+  const winner = seats.find(s => s.id === winnerId) || null;
+  if (!winner || !winner.wallet) {
+    for (const s of seats) {
+      if (!(s.worth > 0) || !s.wallet) continue;
+      koSend(s.wallet, s.refund, s.name, 'swim refund (' + (why || 'no winner') + ')');
+    }
+    console.log('[SW] ' + roomId + ' refunded ' + pot.toFixed(2) + ' (' + (why || 'no winner') + ')');
+    return;
+  }
+  const cut = pot * KO_HOUSE_CUT;
+  const prize = pot - cut;
+  trackEarning({
+    source: 'game_rake', game: 'swim', amountUsdc: cut,
+    wallet: winner.wallet, name: winner.name, lobbyType: 'swim', region: REGION,
+  });
+  sweepRake(cut, 'swim');
+  koSend(winner.wallet, prize, winner.name, 'swim ' + roomId);
+  console.log('[SW] ' + roomId + ' pot ' + pot.toFixed(2) + ' -> ' + winner.name
+    + ' ' + prize.toFixed(2) + ' (cut ' + cut.toFixed(2) + ')');
+};
+swimLobby.onRefund = ({ wallet, name, amount, why }) => {
+  if (!wallet || !(amount > 0)) return;
+  console.log('[SW] refunding ' + amount.toFixed(2) + ' to ' + name + ' (' + why + ')');
+  koSend(wallet, amount, name, 'swim refund');
+};
+
 battleshipLobby.onRefund = ({ wallet, name, amount, why }) => {
   if (!wallet || !(amount > 0)) return;
   console.log('[BS] refunding ' + amount.toFixed(2) + ' to ' + name + ' — ' + why);
@@ -2644,6 +2701,12 @@ const bsPaidSwitch = createPaidSwitchStore({
 });
 let koPaidOpen = !koPaidSwitch.closedAtBoot().closed;
 let bsPaidOpen = !bsPaidSwitch.closedAtBoot().closed;
+const swPaidSwitch = createPaidSwitchStore({
+  file: process.env.SW_PAID_SWITCH_PATH || path.join(path.dirname(agJournal.file), 'sw-paid-switch.json'),
+  tag: '[SW]', what: 'paid ' + SWIM_NAME,
+});
+let swPaidOpen = !swPaidSwitch.closedAtBoot().closed;
+if (!swPaidOpen) console.warn("[SW] paid door CLOSED at boot: the owner's sw:paid:off outlived the restart");
 if (!koPaidOpen) console.warn('[KO] paid door CLOSED at boot: the owner\'s ko:paid:off outlived the restart');
 if (!bsPaidOpen) console.warn('[BS] paid door CLOSED at boot: the owner\'s bs:paid:off outlived the restart');
 const DUEL_PAID_CLOSED = 'Paid tables are closed right now. Free play still works, and an entry you have not used '
@@ -3317,6 +3380,9 @@ const chompArenas = chompGame ? chompGame.arenas : null;
 const CHOMP_PAID_ON = !!(chompGame && chompGame.paid);
 /* Before Chomp was in the lobby /api/live listed only its paid rows (players = open accounts, so deploy rule 4b
    sees anyone seated), never its free row, which would have put it on the Open lobbies list. */
+/* Swim's lobby card is shut (soon) until Owen has played it: the game runs and is reachable at /swim,
+   but the lobby's people counts leave it out until this is true (public/v2.html SWIM_OPEN). */
+const SWIM_IN_LOBBY = false;
 const CHOMP_IN_LOBBY = true;   // Owen's OK, 2026-10-26: the lobby has its card
 /* The two duels too (2026-10-21): a queued paid seat or a paid table being played lived only in this
    process, its stake row already 'consumed', so every deploy lost it with nothing owed. Their lobbies'
@@ -3325,8 +3391,9 @@ const CHOMP_IN_LOBBY = true;   // Owen's OK, 2026-10-26: the lobby has its card
    exit window does not finish, is still owed once at the next boot. */
 knockoutLobby.journal = agJournal;
 battleshipLobby.journal = agJournal;
+swimLobby.journal = agJournal;
 const paidShutdownDirs = [AG_PAID_ON ? agArenas : null, slPaid, PAPER_PAID ? paperArenas : null,
-  CHOMP_PAID_ON ? chompArenas : null, knockoutLobby, battleshipLobby];
+  CHOMP_PAID_ON ? chompArenas : null, knockoutLobby, battleshipLobby, swimLobby];
 if (paidShutdownDirs.some(Boolean)) {
   const paidAll = slPaidBoot.composePaidShutdown(paidShutdownDirs);
   agShutdown.installAgShutdown({
@@ -3435,6 +3502,7 @@ for (const rgn of [REGION]) {
   if (tanksLobby) tanksLobby.start();
   knockoutLobby.start();
   battleshipLobby.start();
+  swimLobby.start();
 }
 
 /* ─── The live board ──────────────────────────────────────────────────────────
@@ -3567,6 +3635,8 @@ function liveExtras() {
   };
   if (typeof knockoutLobby !== 'undefined' && knockoutLobby) duelRows('knockout', knockoutLobby, koPaidOpen);
   if (typeof battleshipLobby !== 'undefined' && battleshipLobby) duelRows('battleship', battleshipLobby, bsPaidOpen);
+  // Always listed, so the deploy check sees a human at a paid Swim table even while its card is shut.
+  if (typeof swimLobby !== 'undefined' && swimLobby) duelRows('swim', swimLobby, swPaidOpen);
   return out;
 }
 
@@ -3660,6 +3730,7 @@ function liveGameCounts() {
     battleship: typeof battleshipLobby !== 'undefined' ? battleshipLobby : null,
     paper: paperArenas,
     chomp: CHOMP_IN_LOBBY ? chompArenas : null,
+    swim: SWIM_IN_LOBBY && typeof swimLobby !== 'undefined' ? swimLobby : null,
   });
   /* A locked game has no room to count, and a 0 for it would still put it on
      the board's books, so it is not listed at all. */
@@ -5380,6 +5451,123 @@ io.on('connection', (socket) => {
   on('bs:unwatch', () => {
     try { battleshipLobby.unwatch(socket.id); } catch (e) { console.error('[BS] unwatch failed:', e.message); }
   });
+
+  /* ── Swim ─────────────────────────────────────────────────────────────────
+     The traffic race (server/swim). The page sends its wheel and pedal for each tick (sw:in, volatile,
+     several ticks a packet so a dropped one costs nothing); the server runs both cars against the
+     traffic and decides everything (SwimRoom). Queueing, paying and refunding are bs:queue's line for
+     line, with Swim's own door (consumePaidEntryAtStake(..., 'swim')) and off switch (sw:paid:off). */
+  on('sw:queue', ({ name, wallet, stake, entryToken, resume } = {}) => {
+    if (!socketRL(socket, 'swq', 1000)) return;
+    if (ops.get().maintenance) { socket.emit('maintenance', ops.get()); return; }
+
+    // A reconnect while waiting takes its seat back (see ko:queue).
+    const back = swimLobby.resume(socket, resume);
+    if (back && back.resumed) {
+      const e = back.resumed;
+      if (e.worth > 0 && e.wallet) socket._walletAddress = e.wallet;
+      socket.emit('sw:queued', {
+        waitingMs: Date.now() - e.since, stake: e.stake, worth: e.worth, resumeKey: e.resumeKey,
+        waitMs: e.stake > 0 ? SwimLobby.PAID_WAIT_MS : SwimLobby.FREE_WAIT_MS,
+        botAfterMs: e.stake > 0 ? 0 : SwimLobby.FREE_WAIT_MS,
+        paidWaitMs: e.stake > 0 ? SwimLobby.PAID_WAIT_MS : 0,
+      });
+      return;
+    }
+    if (back && back.refunded) { socket.emit('sw:unqueued', { refunded: true, why: 'connection dropped' }); return; }
+
+    // A number or a string only: Number() on a client-built object can throw.
+    const wants = (typeof stake === 'number' || typeof stake === 'string') ? Number(stake) || 0 : 0;
+    const want = wants > 0 ? rungOf(wants) : 0;   // the ladder's own number, as in ko:queue
+    const seat = (entry) => {
+      // Shut (sw:paid:off) while the claim was in flight: refunded once through the row (enterPaid).
+      if (entry && entry.stakeSig && !swPaidOpen) return false;
+      let worth = 0, rung = 0, paid, payTo = null;
+      if (entry) {
+        worth = entry.worth;
+        rung = want;
+        paid = entry.paid;               // what landed: bounds a refund (stakeRules.refundBound)
+        payTo = entry.walletAddress || null;
+        if (entry.walletAddress) socket._walletAddress = entry.walletAddress;
+      }
+      /* A paid seat's prize or refund goes to the wallet that paid (from the token). Nothing is left
+         holding nothing: the same rule as ko:queue (false = not taken, refunded through the row). */
+      let took;
+      try {
+        took = swimLobby.enqueue(socket, sanitizeName(name),
+          worth > 0 ? payTo : (strOr(wallet, null) || socket._walletAddress || null), rung, worth, undefined, paid, null);
+      } catch (e) {
+        console.error('[SW] queue threw:', e && e.stack ? e.stack : e);
+        took = swimLobby.holds(socket.id);
+      }
+      if (took === false) {
+        if (!entry) socket.emit('sw:refused', { why: 'the game is restarting for an update, try again in a minute' });
+        return false;
+      }
+      const waited = swimLobby.queuedFor(socket.id);   // only while still waiting, as in ko:queue
+      if (waited !== null) {
+        socket.emit('sw:queued', {
+          waitingMs: waited,
+          stake: rung, worth,
+          resumeKey: swimLobby.resumeKeyOf(socket.id),   // to this socket only: a reconnect's proof
+          waitMs: rung > 0 ? SwimLobby.PAID_WAIT_MS : SwimLobby.FREE_WAIT_MS,
+          botAfterMs: rung > 0 ? 0 : SwimLobby.FREE_WAIT_MS,
+          paidWaitMs: rung > 0 ? SwimLobby.PAID_WAIT_MS : 0,
+        });
+      }
+      // After the queue holds the seat (never between the token and it): joinAlerts never throws.
+      joinAlerts.joined({ game: 'swim', stake: rung, name: sanitizeName(name), wallet: payTo, queued: true });
+    };
+    if (!(wants > 0)) return seat(null);
+    if (!want) { socket.emit('sw:refused', { why: RETIRED_BUYIN }); return; }   // token left unspent
+    if (!swPaidOpen) { socket.emit('sw:refused', { why: DUEL_PAID_CLOSED }); return; }   // sw:paid:off, token left unspent
+    // A paid seat is queued only once its stake row is claimed (enterPaid, STATUS item 7a).
+    enterPaid(socket, 'swim', consumePaidEntryAtStake(entryToken, want, 'swim'), seat, (why) => {
+      socket.emit('sw:refused', { why: ENTRY_REFUSED[why] || 'that buy-in was not paid for' });
+    });
+  });
+
+  on('sw:unqueue', () => swimLobby.leave(socket.id));
+  on('sw:leave', () => swimLobby.leave(socket.id));
+
+  /* The wheel and pedal, a few ticks a packet. Only ever this socket's own car (SwimRoom.input checks the
+     seat, the ticks and every code); a packet more than a few a frame is simply dropped, the next one
+     repeats what it carried. */
+  on('sw:in', (msg) => {
+    if (!socketRL(socket, 'swin', 12)) return;
+    const room = swimLobby.roomOf(socket.id);
+    if (room) room.input(socket.id, msg);
+  });
+
+  /* The page's clock check: its own time back with the server's, so it can run its car on the
+     server's ticks. Nothing in it is trusted for anything else. */
+  on('sw:ping', (msg) => {
+    if (!socketRL(socket, 'swping', 100)) return;
+    const c = msg && typeof msg.c === 'number' && Number.isFinite(msg.c) ? msg.c : 0;
+    socket.emit('sw:pong', { c, s: Date.now() });
+  });
+
+  /* Chat between the two seated players, shown to the watchers too; the same rules as ko:chat. */
+  on('sw:chat', ({ text } = {}) => {
+    const room = swimLobby.roomOf(socket.id);
+    if (!room) return;
+    const r = room.chat(socket.id, text, chatGuard, Date.now());
+    if (!r.ok && r.note) socket.emit('sw:chatnote', { text: r.note });
+  });
+
+  /* Watching, the same as Knockout's: seats, never socket ids (SwimRoom.forWatchers). */
+  on('sw:watch', (msg) => {
+    try {
+      if (!socketRL(socket, 'swwatch', 100)) return;
+      const after = msg && typeof msg.after === 'string' && msg.after.length <= 40 ? msg.after : null;
+      const stake = msg && typeof msg.stake === 'number' && isStake(msg.stake) ? msg.stake : undefined;
+      const dir = msg && msg.dir === 'prev' ? 'prev' : 'next';
+      swimLobby.watch(socket, { after, stake, dir });
+    } catch (e) { console.error('[SW] watch failed:', e.message); }
+  });
+  on('sw:unwatch', () => {
+    try { swimLobby.unwatch(socket.id); } catch (e) { console.error('[SW] unwatch failed:', e.message); }
+  });
   /* ── Shooter ──────────────────────────────────────────────────────────────
      Free, solo, and server-simulated anyway. The client sends which keys are
      down and where it is aiming; it never says that it hit something, took a
@@ -5438,6 +5626,8 @@ io.on('connection', (socket) => {
     battleshipLobby.leave(socket.id);
     knockoutLobby.unwatch(socket.id);            // a watcher holds no seat, only a place on the list
     battleshipLobby.unwatch(socket.id);
+    swimLobby.leave(socket.id);
+    swimLobby.unwatch(socket.id);
     endShooter(socket.id);
     paper.drop(socket.id);                       // a Paper seat enters its 5 s grace
     console.log(`[-] Disconnected: ${socket.id}`);
