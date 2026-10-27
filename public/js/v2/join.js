@@ -16,7 +16,7 @@
 (function () {
   const LINKS = {
     discord: 'https://discord.gg/TkFaefHDFr',   // the DuelSeries server (2026-10-26), lands in #welcome, never expires
-    whop: '',      // the clip team page, like https://whop.com/duelseries
+    whop: 'https://whop.com/duelseries/clip-team-c9/',   // the free Clip team page on Whop (2026-10-26)
     x: '',         // like https://x.com/duelseries
     tiktok: '',    // like https://www.tiktok.com/@duelseries
     youtube: '',   // like https://www.youtube.com/@duelseries
