@@ -197,7 +197,7 @@ test('Withdraw to Phantom: the ordinary withdraw, signed by the game wallet, to 
   assert.equal(relayed.length, n);
 });
 
-test('the widget and the lobby: linked only for Google/email players, adds go to the game wallet, Privy\'s sheet unchanged for everyone else', () => {
+test('the widget and the lobby: linked only for Google/email players, adds go to the game wallet, Add funds is Privy\'s own sheet', () => {
   const main = fs.readFileSync(path.join(ROOT, 'wallet-widget', 'src', 'main.jsx'), 'utf8');
   assert.match(main, /const linked = !isExternal && address \? linkedOf\(user, address\) : null;/);
   assert.match(main, /const linkable = !isExternal && address/);
@@ -205,8 +205,10 @@ test('the widget and the lobby: linked only for Google/email players, adds go to
   assert.match(main, /signTransactionWith\(linkedStd, linked\.address, bytes\)/, 'signed by the linked account only');
   assert.match(main, /const why = addProblem\(/, 'checked against a fresh balance first');
   const lobby = fs.readFileSync(path.join(ROOT, 'public', 'js', 'v2', 'wallet.js'), 'utf8');
-  assert.match(lobby, /if \(!W\.external && \(W\.linked \|\| \(W\.linkable \|\| \[\]\)\.length\) && window\.DSDialog && window\.DSDialog\.choose\) return fundSheet\(\);\s*privyFund\(\);/,
-    'no browser wallet around, or a browser-wallet sign-in: straight to Privy\'s sheet as before');
+  assert.match(lobby, /function fund\(\) \{[\s\S]{0,400}?privyFund\(\);\s*\}/, 'Add funds is always Privy\'s own sheet');
+  assert.doesNotMatch(lobby, /fundSheet/, 'no look-alike of Privy\'s sheet');
+  assert.match(lobby, /if \(W\.walletFunding \|\| W\.external\) return '';/, 'Add from Phantom only while Privy\'s sheet has no Transfer from wallet');
+  assert.match(main, /o\.method === 'wallets'/, 'read from the dashboard\'s funding methods');
   assert.match(lobby, /if \(W\.external\) return '';/, 'no To Phantom for a player whose game wallet is the browser wallet');
   const html = fs.readFileSync(path.join(ROOT, 'public', 'v2.html'), 'utf8');
   assert.match(html, /<div id="adveil" class="howveil"/);

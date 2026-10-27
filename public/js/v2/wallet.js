@@ -164,7 +164,8 @@
      move money in and out. Never the game wallet: the Privy wallet still stakes and holds the balance. It shows as
      a row in Add funds, as "To Phantom" in Withdraw, and here with Unlink. A player who signed in with a browser
      wallet has none of this (theirs already is the game wallet). */
-  const linkKey = () => { const L = w().linked; return L ? L.address + '|' + (L.here ? 1 : 0) : ''; };
+  const linkKey = () => { const W = w(), L = W.linked;
+    return (L ? L.address + '|' + (L.here ? 1 : 0) : '') + '|' + addChip(); };
   function linkedRow() {
     const L = w().linked;
     if (!L || w().external) return '';
@@ -229,6 +230,7 @@
                 '<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>' +
             '</button>' +
           '</div>') +
+        addChip() +
       '</div>' +
       '<div class="panel wdep">' +
         /* "Add funds", not "Deposit", everywhere (Owen, 2026-10-15); this is the
@@ -647,10 +649,8 @@
   function fund() {
     if (!connected()) return login();
     if (!window.duelWalletFund) return note('Your wallet is still starting. Try again in a moment.');
-    /* A Google/email player with a browser wallet installed or linked gets the lobby's own sheet, Pay with card,
-       Receive funds and that wallet (fundSheet). Everyone else goes straight to Privy's sheet, as before. */
-    const W = w();
-    if (!W.external && (W.linked || (W.linkable || []).length) && window.DSDialog && window.DSDialog.choose) return fundSheet();
+    /* Always Privy's own sheet (Owen 2026-10-26: its look reads as safe). Phantom is in it as Transfer from wallet
+       once the dashboard has that on; until then addChip() puts "Add from Phantom" beside this button. */
     privyFund();
   }
   /* The widget owns the funding flow; a rejection here is the user closing
@@ -658,7 +658,7 @@
   /* Privy's sheet, Pay with card and Receive funds (Owen, 2026-10-15, like
      playpulp.io). A card buys SOL, which Convert to USDC turns into dollars;
      the amount is chosen on MoonPay's own screen, in the player's currency.
-     method 'card' or 'manual' opens it on that one (picked in fundSheet). */
+     method 'card' or 'manual' opens it on that one. */
   function privyFund(method) {
     window.duelWalletFund(method).catch(e => {
       const why = e && e.message ? e.message : 'Try again.';
@@ -666,37 +666,24 @@
       else note('Add funds did not open: ' + why);
     });
   }
-  const tile = (path) => 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="9" fill="#2c261d"/>' +
-    '<g fill="none" stroke="#f0a830" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + path + '</g></svg>');
-  const CARD_ICON = tile('<rect x="7" y="10" width="18" height="12" rx="2"/><path d="M7 14h18M11 18h4"/>');
-  const RECV_ICON = tile('<path d="M16 8v12M11 15l5 5 5-5M9 24h14"/>');
-  /* Add funds with a browser wallet around: the two Privy ways, then the linked wallet (or the installed ones,
-     marked Detected, which link on the tap). */
-  async function fundSheet() {
-    const W = w(), D = window.DSDialog;
-    const items = [
-      { id: 'card', label: 'Pay with card', sub: 'Buy SOL with a card', icon: CARD_ICON },
-      { id: 'manual', label: 'Receive funds', sub: 'Send SOL to your wallet address', icon: RECV_ICON },
-    ];
+  /* Add from a browser wallet, for a Google or email player while Privy's sheet has no Transfer from wallet: the
+     linked one, or an installed one, which links on the tap. Our own sheet, never with Privy's badge on it. */
+  function addFromWallet() {
+    const W = w();
+    if (W.walletFunding || W.external) return fund();
     if (W.linked) {
-      items.push(W.linked.here
-        ? { id: 'linked', label: W.linked.name, sub: 'Linked ' + ownShort(W.linked.address), icon: W.linked.icon, badge: 'Detected', tone: 'ok' }
-        : { id: 'linked', label: W.linked.name, sub: 'Not installed in this browser', icon: W.linked.icon, badge: 'Linked' });
-    } else {
-      (W.linkable || []).forEach(x => items.push({ id: 'link:' + x.id, label: x.label, sub: 'Send SOL from ' + x.label, icon: x.icon, badge: 'Detected', tone: 'ok' }));
+      if (!W.linked.here) return note('Open DuelSeries in the browser where ' + W.linked.name + ' is installed to add funds from it.');
+      return openAdd();
     }
-    const id = await D.choose({ title: 'Add funds', items: items, cancel: 'Cancel' });
-    if (!id) return;
-    if (id === 'card' || id === 'manual') return privyFund(id);
-    if (id.indexOf('link:') === 0) {
-      const x = (W.linkable || []).find(v => 'link:' + v.id === id);
-      if (!x || !(await linkFlow(x))) return;
-    }
-    const L = w().linked;
-    if (!L) return;
-    if (!L.here) return D.alert({ title: L.name + ' is not here', line: 'Open DuelSeries in the browser where ' + L.name + ' is installed to add funds from it.' });
-    openAdd();
+    const x = (W.linkable || [])[0];
+    if (!x) return fund();
+    linkFlow(x).then(ok => { if (ok && w().linked && w().linked.here) openAdd(); });
+  }
+  function addChip() {
+    const W = w();
+    if (W.walletFunding || W.external) return '';
+    const name = W.linked ? W.linked.name : ((W.linkable || [])[0] || {}).label;
+    return name ? '<div class="wadd"><button type="button" class="tolink" onclick="V2Wallet.addFromWallet()">Add from ' + esc(name) + '</button></div>' : '';
   }
   /* Link a browser wallet: its connect, then one signature Privy keeps on the account. Resolves true once the
      widget shows it linked. */
@@ -723,7 +710,7 @@
   function unlink() {
     const L = w().linked, D = window.DSDialog;
     if (!L || !window.duelWalletUnlink) return;
-    const go = D ? D.confirm({ title: 'Unlink ' + L.name + '?', line: 'Nothing moves: its money stays in it, and it stops signing you in here. You can link it again from Add funds.', ok: 'Unlink', cancel: 'Keep it' })
+    const go = D ? D.confirm({ title: 'Unlink ' + L.name + '?', line: 'Nothing moves: its money stays in it, and it stops signing you in here. You can link it again any time.', ok: 'Unlink', cancel: 'Keep it' })
                  : Promise.resolve(true);
     go.then(yes => {
       if (!yes) return;
@@ -1390,5 +1377,5 @@
                       cancelConvert: cancelConvert,
                       addrRow: addrRow, headerTap: headerTap,
                       unlink: unlink, toLinked: toLinked, addMax: addMax, addHint: addHint,
-                      submitAdd: submitAdd, cancelAdd: cancelAdd };
+                      submitAdd: submitAdd, cancelAdd: cancelAdd, addFromWallet: addFromWallet };
 })();

@@ -177,31 +177,35 @@ test('the device message is the server\'s byte for byte', async () => {
   assert.equal(actionMessage('play:identify', {}, 'W', 5), ownerAuth.actionMessage('play:identify', {}, 'W', 5));
 });
 
-test('the widget: the player\'s wallet is the signed-in one only, signed through the browser wallet, the sheet gated on Privy', () => {
+test('the widget: the player\'s wallet is the signed-in one only, signed through the browser wallet, sign-in in Privy\'s own modal', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'wallet-widget', 'src', 'main.jsx'), 'utf8');
   assert.match(src, /const address = authenticated \? solanaAddress\(user\) : null;/, 'a merely connected wallet is never the player');
   assert.match(src, /\(solWallets \|\| \[\]\)\.find\(\(w\) => w\.address === address\)/, 'the Privy wallet object is the signed-in address\'s');
   assert.doesNotMatch(src, /solWallets && solWallets\[0\]/);
-  assert.match(src, /if \(!\(await walletLoginOn\(\)\)\) \{ p\.login\(\); return; \}/, 'dashboard off: Sign in is email and Google as before');
-  assert.match(src, /solana_wallet_auth === true/);
+  // Sign in waits for Privy and makes a missing wallet first (never a bare login() that can hang), then Privy's modal
+  assert.match(src, /if \(p\.authenticated\) \{ if \(!solanaAddress\(p\.user\)\) setUpWallet\(\); return; \}\s*p\.login\(\);/);
+  assert.match(src, /createOnLogin: 'off' \}, solana: \{ createOnLogin: 'off' \}/);
   // every money signature goes through the one signer that knows both kinds of wallet
   for (const call of ['stakeAndPlay(game, sel, wallet, signTx,', 'swapRun(q && q.requestId, wallet, signTx)', 'signSkinPayment(quote, wallet, signTx)',
                       'sendSol(toAddress, amount, wallet, signTx)', 'signRef.current = signTx;']) {
     assert.ok(src.includes(call), call);
   }
   assert.match(src, /wallet\.external && DEVICE_ACTIONS\.includes\(action\)/, 'silent actions never pop the browser wallet');
-  // two choices, then the three wallets; Privy's own screens list no wallets at all (EVM or Solana)
-  assert.match(src, /primary: \{ id: 'privy', label: 'Continue with Google or email' \}/);
-  assert.match(src, /secondary: \{ id: 'wallet', label: 'Connect wallet' \}/);
-  assert.match(src, /loginMethods: \['google', 'email'\]/);
-  assert.doesNotMatch(src, /externalWallets|toSolanaWalletConnectors|walletList/);
+  // Privy's own modal (Owen 2026-10-26): Google, email and the three Solana wallets, no EVM wallets, our logo and legal pages
+  assert.match(src, /loginMethods: \['google', 'email', 'wallet'\]/);
+  assert.match(src, /walletChainType: 'solana-only'/);
+  assert.match(src, /walletList: \['phantom', 'solflare', 'backpack'\]/);
+  assert.match(src, /termsAndConditionsUrl: '\/terms\.html', privacyPolicyUrl: '\/privacy\.html'/);
+  assert.ok(fs.existsSync(path.join(__dirname, '..', 'public', 'img', 'signin-logo.webp')), 'the logo Privy shows');
+  // a wallet sign-in in Privy's modal still gets the device key ask, for the wallet that signed in only
+  assert.match(src, /loginMethod !== 'siws'/);
+  assert.match(src, /if \(!extStd \|\| address !== w\.address\) return;/);
   // a game join with no key asks for one (an event prize pays only proven wallets); a skin pass never asks
   assert.match(src, /!d && action === 'play:identify' && wallet\.std/);
   // nothing a page asks on its own pops the browser wallet: a saved name syncs by the Privy token, the owner's clip
   // queue and alerts are never asked of a browser wallet
   assert.match(src, /window\.duelWalletSignName = async \(name\) => \{\s*if \(!wallet \|\| !address\) return null;[\s\S]{0,300}if \(wallet\.external\) return null;/);
   assert.match(src, /wallet\.external && \(action === 'clips:queue' \|\| action === 'owner:alerts'\)\) return null;/);
-  // a wallet that never answers cannot hold the card up: sign-in and the device key give up after 2 minutes
-  assert.match(src, /await inTime\(signInWith\(std,/);
+  // a wallet that never answers cannot hold the card up: the device key gives up after 2 minutes
   assert.match(src, /inTime\(createDeviceKey\(/);
 });

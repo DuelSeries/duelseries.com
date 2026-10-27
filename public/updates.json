@@ -2,6 +2,17 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-10-27-privy-sign-in",
+      "date": "2026-10-27",
+      "tag": "new",
+      "title": "Sign in and Add funds open in Privy",
+      "body": "Sign in now opens Privy's own window, the wallet service that keeps your account safe. Pick Google, email, or Continue with a wallet for Phantom, Solflare or Backpack.\n\nAdd funds opens in Privy's window again too, with Pay with card and Receive funds.",
+      "image": {
+        "src": "/updates/privy-sign-in.webp",
+        "alt": "Privy's Log in or sign up window with the DuelSeries badge, email, Google and Continue with a wallet"
+      }
+    },
+    {
       "id": "2026-10-26-join-the-clip-team",
       "date": "2026-10-26",
       "tag": "new",
@@ -32,11 +43,7 @@
       "date": "2026-10-26",
       "tag": "new",
       "title": "Add funds from Phantom",
-      "body": "Signed in with Google or email and have Phantom, Solflare or Backpack? Add funds now lists your wallet next to Pay with card and Receive funds. Tap it, pick an amount, and approve once in your wallet.\n\nWithdraw has a To Phantom button that fills in your wallet's address for you. You can unlink it any time on the Wallet tab.",
-      "image": {
-        "src": "/updates/add-from-phantom.webp",
-        "alt": "The Add funds sheet with Pay with card, Receive funds and Phantom marked Detected"
-      }
+      "body": "Signed in with Google or email and have Phantom, Solflare or Backpack? You can add funds straight from your wallet: pick an amount and approve once in your wallet.\n\nWithdraw has a To Phantom button that fills in your wallet's address for you. You can unlink it any time on the Wallet tab."
     },
     {
       "id": "2026-10-26-invite-and-share",
