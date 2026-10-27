@@ -106,12 +106,15 @@ class HeadSoccerRoom extends KnockoutRoom {
     this.steps++;
     if (this.state === 'countdown') { this.maybeSnap(); return; }   // frozen at kick-off positions
     const live = this.state === 'playing';
+    /* Sudden death is the clock ALREADY at 0:00 when this step began. Read after the step, a goal in the very step
+       that took the clock to 0:00 (an equaliser on the buzzer) would end a level match as a draw instead of going
+       to sudden death (review 2026-10-27). */
+    const golden = live && this.match.msLeft <= 0 && HS.TIE === 'golden';
     const ev = Sim.step(this.match, this.inputs, HS.STEP, live);
     for (const e of ev) {
       if (e.e === 'power') this.broadcast('hs:power', { s: e.s, freezeMs: HS.POWER_FREEZE_MS });
       if (e.e === 'goal' && live) {
         this.turn++;
-        const golden = this.match.msLeft <= 0 && HS.TIE === 'golden';
         this.state = 'goal';
         this.phaseEndsAt = t + HS.GOAL_PAUSE_MS;
         this.broadcast('hs:goal', { s: e.s, score: this.match.score.slice() });

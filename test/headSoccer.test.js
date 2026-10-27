@@ -256,3 +256,28 @@ test('the winner leaving during the full-time hold still wins: the score decides
   assert.strictEqual(settled[0].winnerId, 'A', 'the side that won is paid');
   assert.strictEqual(settled[0].why, 'full time');
 });
+
+test('an equaliser in the very step the clock reaches 0:00 goes to sudden death, not a draw', () => {
+  const { lob, settled } = lobby();
+  const { room } = paidMatch(lob, 1);
+  let t = run(room, 0, HS.COUNTDOWN_MS + 100);
+  room.match.score = [1, 0];
+  room.match.msLeft = HS.STEP * 1000 * 0.5;          // this step takes it to 0:00
+  const b = room.match.ball;                          // and this step's ball crosses into the left goal: 1-1
+  b.x = HS.GOAL_D - HS.BALL_R - 1; b.y = HS.BALL_FLOOR_Y; b.vx = -60; b.vy = 0;
+  room.stepOnce(t);
+  assert.deepStrictEqual(room.match.score, [1, 1]);
+  assert.strictEqual(room.state, 'goal', 'a goal pause, then play on');
+  t = run(room, t, HS.GOAL_PAUSE_MS + HeadSoccerRoom.WIN_HOLD_MS + 500);
+  assert.strictEqual(settled.length, 0, 'no draw was settled');
+  assert.strictEqual(room.state, 'playing', 'sudden death');
+});
+
+test('a ball resting on the crossbar does not ring the post every step', () => {
+  const m = Sim.newMatch();
+  const top = Sim.barBoxes()[0][1];
+  m.ball.x = HS.GOAL_D / 2; m.ball.y = top - HS.BALL_R; m.ball.vx = 0; m.ball.vy = 0;
+  let posts = 0;
+  for (let i = 0; i < 120; i++) for (const e of Sim.step(m, null, HS.STEP, false)) if (e.e === 'post') posts++;
+  assert.ok(posts <= 1, 'posts: ' + posts);
+});

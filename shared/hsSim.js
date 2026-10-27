@@ -178,18 +178,18 @@
     return 0;
   }
 
-  // Ball against a box (a crossbar). Returns true on contact.
+  // Ball against a box (a crossbar). Returns the closing speed of the contact (0 resting on it), or -1 for none.
   function bounceOffBox(ball, b) {
     var cx = clamp(ball.x, b[0], b[2]), cy = clamp(ball.y, b[1], b[3]);
     var dx = ball.x - cx, dy = ball.y - cy, d = Math.hypot(dx, dy);
-    if (d >= HS.BALL_R) return false;
+    if (d >= HS.BALL_R) return -1;
     var nx, ny;
     if (d === 0) { nx = 0; ny = ball.y < (b[1] + b[3]) / 2 ? -1 : 1; }
     else { nx = dx / d; ny = dy / d; }
     ball.x = cx + nx * HS.BALL_R; ball.y = cy + ny * HS.BALL_R;
     var vn = ball.vx * nx + ball.vy * ny;
-    if (vn < 0) { ball.vx -= (1 + HS.BALL_E) * vn * nx; ball.vy -= (1 + HS.BALL_E) * vn * ny; }
-    return true;
+    if (vn < 0) { ball.vx -= (1 + HS.BALL_E) * vn * nx; ball.vy -= (1 + HS.BALL_E) * vn * ny; return -vn; }
+    return 0;
   }
 
   // A touch worth a sound: a real hit, not a ball rolling along a head.
@@ -239,7 +239,13 @@
     if (ball.x - HS.BALL_R <= 0) { ball.x = HS.BALL_R; if (ball.vx < 0) ball.vx = -ball.vx * HS.BALL_E; endStraight(ball); }
     if (ball.x + HS.BALL_R >= HS.W) { ball.x = HS.W - HS.BALL_R; if (ball.vx > 0) ball.vx = -ball.vx * HS.BALL_E; endStraight(ball); }
     var bb = barBoxes();
-    for (i = 0; i < 2; i++) if (bounceOffBox(ball, bb[i])) { ev.push({ e: 'post' }); endStraight(ball); }
+    for (i = 0; i < 2; i++) {
+      var hitB = bounceOffBox(ball, bb[i]);
+      if (hitB < 0) continue;
+      endStraight(ball);
+      // A clang for a real hit only: a ball resting or rolling on the bar touches it every step (review 2026-10-27).
+      if (hitB > TOUCH_SPEED) ev.push({ e: 'post' });
+    }
 
     // Players on the ball: the boot first (a kick beats a header), then the head.
     for (i = 0; i < 2; i++) {

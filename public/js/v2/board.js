@@ -205,6 +205,9 @@
       if (!listable(e)) return;   // a duel whose card is still shut (Swim behind its gate)
       if (!(playing(e) > 0) || !isOpen(e) || rows.some(r => r.id === e.id)) return;
       if (window.DS_LOCKED && window.DS_LOCKED.isLocked(e.game)) return;
+      // Only a game this lobby can play: Head Soccer stays a coming-soon card without ?headsoccer=preview, and a
+      // paid table of it must not show to a visitor who cannot open it (review 2026-10-27).
+      if (!listable(e)) return;
       rows.push(e);
     });
     /* Paid rooms with anyone in them first, the biggest buy-in on top (Owen 2026-10-17); everything else keeps its order. */
