@@ -298,6 +298,7 @@ function lobbyLoopSandbox() {
     performance: { now: () => ctx.clock },
     RM: { addEventListener() {} },
     repaintAll() {},
+    watchLoops() {},   // the moving cards' observer, outside this slice
     paintScene(cv, dt) { dts.push(dt); },
     paintLook() {},
     document: {
