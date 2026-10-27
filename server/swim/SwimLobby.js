@@ -17,7 +17,12 @@
 
    The only new part is the clock: a race is simulated 60 times a second, so
    the lobby ticks at that rate (the queue does not need it, and costs nothing
-   checked that often). */
+   checked that often).
+
+   And one rule Knockout does not have: a seat whose connection drops mid-race
+   is held for five seconds (drop), driving straight, for a reconnect that
+   shows its key to take back (rejoin). Past that, the tick makes it the leave
+   it used to be at once. A queued seat and a watcher still leave at once. */
 
 const { SwimRoom } = require('./SwimRoom');
 const { refundBound } = require('../stakeRules');
@@ -30,6 +35,8 @@ const TICK_MS = 1000 / 60;
 const RESCUE_TICKS = 4 * 60;     // a bot race this young gives its person up to a real opponent
 const WATCH_CAP = 50;
 const BOT_NAME_MAX = 15;
+const ENDED_REMEMBER_MS = 5 * 60000;   // how long a seat's key can still fetch the result of a race that ended
+const isKey = (k) => typeof k === 'string' && /^[0-9a-f]{32}$/.test(k);
 
 function botNameAgainst(entries) {
   const theirs = new Set(entries.map(e => String((e && e.name) || '').trim().toLowerCase()));
@@ -51,6 +58,7 @@ class SwimLobby {
     this.rooms = new Map();       // roomId -> SwimRoom
     this.bySocket = new Map();    // socketId -> roomId
     this.watchers = new Map();    // socketId -> { socket, roomId, channel }
+    this.ended = new Map();       // seat key -> { over, side, at }: races that ended, for a late reconnect
     this.liveKey = '';
     this.timer = null;
   }
@@ -162,9 +170,78 @@ class SwimLobby {
         console.error('[SW] ' + room.id + ' tick threw: ' + (err && err.stack ? err.stack : err));
         try { room.finish(null, 'error'); } catch (_) {}
       }
-      if (room.state === 'over') this.sweep(room);
+      if (room.state === 'over') { this.sweep(room); continue; }
+      /* After the race's own tick, so a crash judged on the last tick of a grace is still a crash. */
+      this.expire(room, t);
     }
     this.tickWatchers();
+  }
+
+  /* ── a dropped connection mid-race (see SwimRoom's header) ─────────────── */
+
+  /* The socket's disconnect. A seat in a race that is on is held for its
+     grace; everything else (a queued seat, a watcher, a room not racing) is
+     the leave it always was. */
+  drop(socketId, now) {
+    const room = this.roomOf(socketId);
+    if (room && room.away(socketId, typeof now === 'number' ? now : Date.now())) {
+      this.unwatch(socketId);
+      return true;
+    }
+    this.leave(socketId);
+    return false;
+  }
+
+  /* A held seat whose five seconds are up leaves, exactly as a disconnect did
+     before: removePlayer gives the race to the other seat (or calls it a draw
+     if that car had already crashed). Only a room still in the lobby and
+     still on: one that ended in the grace was swept and is never reached. */
+  expire(room, t) {
+    for (const id of room.awayDue(t)) {
+      if (this.rooms.get(room.id) !== room || room.state === 'over') return;
+      console.log('[SW] ' + room.id + ': a dropped seat did not come back in time');
+      this.leave(id);
+    }
+  }
+
+  /* A RECONNECT TAKES ITS SEAT BACK. The key (sent only to the seat's own
+     socket, sw:seat) is the only proof. A socket that holds a seat or a queue
+     place already cannot take another. On success the new socket gets the race
+     as it is now (sw:rejoined, sw:start's shape plus its side) and a fresh key,
+     and the used one is dead. A key whose race has ended gets that race's
+     result instead (it may have been decided while the link was down). */
+  rejoin(socket, key, now) {
+    const fail = (extra) => { send(socket, 'sw:rejoinfail', extra || {}); return { ok: false }; };
+    if (!socket || typeof socket.id !== 'string' || !isKey(key) || this.stopping) return fail();
+    if (this.holds(socket.id)) return fail();
+    for (const room of this.rooms.values()) {
+      if (!room.keys || !room.keys.has(key)) continue;
+      const found = room.seatByKey(key);
+      if (!found || (room.state !== 'countdown' && room.state !== 'racing')) {
+        return fail(room.overMsg ? { over: room.overMsg, side: room.keys.get(key) } : null);
+      }
+      const oldId = found.id;
+      if (!room.rekey(oldId, socket)) return fail();
+      this.bySocket.delete(oldId);
+      this.bySocket.set(socket.id, room.id);
+      this.unwatch(socket.id);
+      const p = found.p;
+      console.log('[SW] ' + room.id + ': ' + p.name + ' reconnected');
+      send(socket, 'sw:rejoined', Object.assign(room.startState(now), { side: p.side }));
+      room.issueKey(p);
+      return { ok: true, room, side: p.side, wallet: p.wallet, worth: room.worth.get(socket.id) || 0 };
+    }
+    const gone = this.ended.get(key);
+    if (gone) { this.ended.delete(key); return fail({ over: gone.over, side: gone.side }); }
+    return fail();
+  }
+
+  /* A swept room's keys keep its result for a few minutes (rejoin above). */
+  rememberEnded(room) {
+    if (!room.overMsg || !room.keys || !room.keys.size) return;
+    const t = Date.now();
+    for (const [k, v] of this.ended) if (t - v.at > ENDED_REMEMBER_MS) this.ended.delete(k);
+    for (const [k, side] of room.keys) this.ended.set(k, { over: room.overMsg, side, at: t });
   }
 
   /* A person arriving while a bot race has barely begun takes the bot's place. */
@@ -177,7 +254,9 @@ class SwimLobby {
       const human = [...room.players.keys()].find(id => !String(id).startsWith('bot_'));
       if (!human || human === entry.socket.id) continue;
       const seat = room.players.get(human);
-      if (!seat || !seat.socket) continue;
+      /* A seat held for its reconnect has no live socket to move: pairing a newcomer with it would
+         race them against a car nobody is driving, with no grace left to end it. */
+      if (!seat || !seat.socket || seat.away) continue;
       this.rooms.delete(room.id);
       for (const [sid, rid] of [...this.bySocket]) if (rid === room.id) this.bySocket.delete(sid);
       room.state = 'over';            // its tick stops; no result was decided, so none is sent
@@ -237,6 +316,7 @@ class SwimLobby {
     const humans = [...room.players.keys()].filter(id => !String(id).startsWith('bot_'));
     if (humans.length && room.state !== 'over') return;
     if (room.state !== 'over' && room.state !== 'waiting') room.finish(null, 'opponent left');
+    if (this.rooms.get(room.id) === room) this.rememberEnded(room);
     for (const [sid, rid] of [...this.bySocket]) if (rid === room.id) this.bySocket.delete(sid);
     this.dropWatchers(room);
     this.rooms.delete(room.id);

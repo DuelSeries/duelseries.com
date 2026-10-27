@@ -374,3 +374,213 @@ test('a crashed car does not win by walkover when the other leaves before the cr
   assert.strictEqual(settled[0].winnerId, null, 'a draw: every seat gets its own stake back');
   assert.deepStrictEqual(settled[0].seats.map(s => s.wallet).sort(), ['WA', 'WB']);
 });
+
+/* ── a dropped connection mid-race: five seconds to come back ─────────── */
+/* A paid race between A (wallet WA) and B (WB) on the lobby's own clock, with the traffic emptied so
+   nothing on the road decides it unless a test puts it there. */
+function paidRace() {
+  const { lobby, io, refunds, settles } = lobbyWith();
+  const a = sock(), b = sock();
+  lobby.enqueue(a, 'A', 'WA', 1, 1, 1, 1);
+  lobby.enqueue(b, 'B', 'WB', 1, 1, 2, 1);
+  const room = [...lobby.rooms.values()][0];
+  room.traffic = new S.Traffic();
+  room.spawner = { run() {} };
+  lobby.tick(room.goAt);
+  assert.strictEqual(room.state, 'racing');
+  return { lobby, io, refunds, settles, room, a, b };
+}
+const keyOf = (s) => { const m = s.got.filter(x => x.ev === 'sw:seat').pop(); return m ? m.p.key : null; };
+const gotEv = (s, ev) => s.got.filter(x => x.ev === ev);
+/* Run the lobby to tick `until`; `codes` maps a socket id to the input it sends for every tick. */
+function lobbyRun(lobby, room, until, codes) {
+  for (let t = room.clock + 1; t <= until && lobby.rooms.has(room.id); t++) {
+    for (const id of Object.keys(codes)) room.input(id, { t: t - 1, k: [codes[id]] });
+    lobby.tick(at(room, t));
+  }
+}
+const joinable = () => { const s = sock(); s.joined = []; s.join = (n) => s.joined.push(n); return s; };
+
+test('each seat is sent its own key when the race starts, never broadcast', () => {
+  const { io, room, a, b } = paidRace();
+  const ka = keyOf(a), kb = keyOf(b);
+  assert.ok(/^[0-9a-f]{32}$/.test(ka) && /^[0-9a-f]{32}$/.test(kb) && ka !== kb);
+  assert.ok(!JSON.stringify(io.sent).includes(ka) && !JSON.stringify(io.sent).includes(kb), 'not to the room or the watchers');
+  assert.ok(!JSON.stringify(a.got).includes(kb), 'nobody is sent the other seat key');
+  assert.ok(!JSON.stringify(room.watchSnapshot(Date.now())).includes(ka));
+});
+
+test('a seat that reconnects inside 5 s keeps its stake and its wallet under the new socket, and wins the race normally', () => {
+  const { lobby, settles, refunds, room, a, b } = paidRace();
+  const pot = room.pot();
+  const ka = keyOf(a);
+  lobbyRun(lobby, room, 60, { [a.id]: S.NEUTRAL, [b.id]: S.NEUTRAL });
+  assert.strictEqual(lobby.drop(a.id, at(room, 60)), true);
+  assert.strictEqual(room.state, 'racing', 'a drop is not a leave any more');
+  assert.strictEqual(settles.length, 0);
+  // Four seconds away: the server drives the car on, straight, and the race is still on.
+  lobbyRun(lobby, room, 300, { [b.id]: S.NEUTRAL });
+  const seat = room.bySide(0);
+  assert.strictEqual(room.state, 'racing');
+  assert.ok(seat.car.tick >= 300 - LAG_MAX - 2 && seat.car.alive, 'driven on while away');
+  assert.strictEqual(seat.car.x, S.newCar(0).x, 'straight');
+
+  const a2 = joinable();
+  const r = lobby.rejoin(a2, ka, at(room, 300));
+  assert.strictEqual(r.ok, true);
+  // Everything the money reads moved to the new id once, nothing left under the old one.
+  assert.ok(room.players.has(a2.id) && !room.players.has(a.id));
+  assert.ok(room.worth.has(a2.id) && !room.worth.has(a.id));
+  assert.strictEqual(room.worth.get(a2.id), 1);
+  assert.strictEqual(room.players.get(a2.id).wallet, 'WA', 'the wallet that paid, not one the new socket names');
+  assert.strictEqual(room.players.get(a2.id).paid, 1);
+  assert.strictEqual(room.players.get(a2.id), seat, 'the same seat and car');
+  assert.strictEqual(room.seats[0].id, a2.id);
+  assert.strictEqual(lobby.bySocket.get(a2.id), room.id);
+  assert.ok(!lobby.bySocket.has(a.id));
+  assert.strictEqual(room.pot(), pot, 'the pot is unchanged');
+  assert.strictEqual(seat.away, 0);
+  assert.ok(a2.joined.includes(room.socketRoomName), 'joined the race channel');
+  const back = gotEv(a2, 'sw:rejoined')[0].p;
+  assert.strictEqual(back.side, 0);
+  assert.strictEqual(back.stake, 1);
+  assert.strictEqual(back.pot, 2);
+  assert.strictEqual(back.vsBot, false);
+  assert.deepStrictEqual(back.players.map(p => [p.side, p.name]).sort(), [[0, 'A'], [1, 'B']]);
+  assert.ok(Array.isArray(back.cars) && back.p.length === 2 && back.goAt === room.goAt && Number.isFinite(back.now));
+  assert.ok(!JSON.stringify(back).includes('WA') && !JSON.stringify(back).includes('WB'), 'no wallet on the wire');
+  const k2 = keyOf(a2);
+  assert.ok(/^[0-9a-f]{32}$/.test(k2) && k2 !== ka, 'a fresh key for the next drop');
+  // The old socket can no longer steer; the new one can.
+  assert.strictEqual(room.input(a.id, { t: room.clock, k: [S.NEUTRAL] }), false);
+  assert.strictEqual(room.input(a2.id, { t: room.clock, k: [S.packInput(0, 1)] }), true);
+
+  // Gas against brake: A pulls 200 m clear and wins, paid to WA once.
+  lobbyRun(lobby, room, 6000, { [a2.id]: S.packInput(0, 1), [b.id]: S.packInput(0, -1) });
+  assert.strictEqual(room.state, 'over');
+  assert.strictEqual(room.overWhy, 'fell behind');
+  assert.strictEqual(settles.length, 1);
+  assert.strictEqual(settles[0].winnerId, a2.id);
+  assert.strictEqual(settles[0].pot, pot);
+  const win = settles[0].seats.find(s => s.id === settles[0].winnerId);
+  assert.strictEqual(win.wallet, 'WA');
+  assert.ok(!settles[0].seats.some(s => s.id === a.id), 'nothing under the old id');
+  assert.strictEqual(settles[0].seats.reduce((n, s) => n + s.worth, 0), pot);
+  // The old socket's late disconnect, and the new one leaving, change nothing.
+  lobby.drop(a.id, Date.now()); lobby.leave(a.id); lobby.leave(a2.id);
+  assert.strictEqual(settles.length, 1, 'settled once');
+  assert.strictEqual(refunds.length, 0);
+  assert.strictEqual(lobby.rooms.size, 0);
+});
+
+test('a seat that does not come back in 5 s loses, exactly as a disconnect did', () => {
+  const { lobby, settles, refunds, room, a, b } = paidRace();
+  const ka = keyOf(a);
+  lobbyRun(lobby, room, 60, { [a.id]: S.NEUTRAL, [b.id]: S.NEUTRAL });
+  lobby.drop(a.id, at(room, 60));
+  lobbyRun(lobby, room, 359, { [b.id]: S.NEUTRAL });          // 4.98 s after the drop
+  assert.strictEqual(room.state, 'racing');
+  assert.strictEqual(settles.length, 0);
+  lobbyRun(lobby, room, 362, { [b.id]: S.NEUTRAL });          // past 5 s
+  assert.strictEqual(room.state, 'over');
+  assert.strictEqual(room.overWhy, 'opponent left');
+  assert.strictEqual(settles.length, 1);
+  assert.strictEqual(settles[0].winnerId, b.id);
+  assert.strictEqual(settles[0].pot, 2);
+  assert.strictEqual(settles[0].seats.find(s => s.id === b.id).wallet, 'WB');
+  assert.strictEqual(lobby.rooms.size, 0);
+  assert.strictEqual(lobby.bySocket.size, 0);
+  // A reconnect now is too late: it is told the result, and nothing moves.
+  const a2 = sock();
+  assert.strictEqual(lobby.rejoin(a2, ka, at(room, 400)).ok, false);
+  const fail = gotEv(a2, 'sw:rejoinfail')[0].p;
+  assert.strictEqual(fail.side, 0);
+  assert.strictEqual(fail.over.why, 'opponent left');
+  assert.strictEqual(fail.over.winnerSide, 1);
+  assert.ok(!JSON.stringify(fail).includes('WA') && !JSON.stringify(fail).includes('WB'));
+  assert.strictEqual(lobby.rejoin(sock(), ka, at(room, 400)).ok, false, 'and only once');
+  lobby.tick(at(room, 1000));
+  assert.strictEqual(settles.length, 1);
+  assert.strictEqual(refunds.length, 0);
+});
+
+test('a crash during the grace is judged normally, and the expiry never touches the ended race', () => {
+  const { lobby, settles, room, a, b } = paidRace();
+  const ka = keyOf(a);
+  const rec = [1, 1, 0, 40, 0, 0];                             // a sedan in A's lane, met about 2.5 s after the drop
+  room.traffic.add(rec.slice());
+  const c = crashTickFor(0, rec, S.NEUTRAL);
+  assert.ok(c > 90 && c + LAG_MAX + 5 < 60 + 300, 'the crash falls inside the grace (' + c + ')');
+  lobbyRun(lobby, room, 60, { [a.id]: S.NEUTRAL, [b.id]: S.NEUTRAL });
+  lobby.drop(a.id, at(room, 60));
+  // A, away, is driven straight on into the sedan.
+  lobbyRun(lobby, room, 400, { [b.id]: S.NEUTRAL });
+  assert.strictEqual(room.state, 'over');
+  assert.strictEqual(room.overWhy, 'crashed');
+  assert.strictEqual(room.endTick, c);
+  assert.strictEqual(settles.length, 1);
+  assert.strictEqual(settles[0].winnerId, b.id);
+  lobby.tick(at(room, 2000));                                  // well past the grace
+  assert.strictEqual(settles.length, 1, 'settled once');
+  const a2 = sock();
+  assert.strictEqual(lobby.rejoin(a2, ka, at(room, 2000)).ok, false);
+  assert.strictEqual(gotEv(a2, 'sw:rejoinfail')[0].p.over.why, 'crashed');
+});
+
+test('a wrong key, a used key, a seated or queued socket and a race that ended cannot rejoin', () => {
+  const { lobby, settles, room, a, b } = paidRace();
+  const ka = keyOf(a);
+  lobby.drop(a.id, at(room, 1));
+  const tries = [
+    [sock(), 'f'.repeat(32)],
+    [sock(), 'not a key'],
+    [sock(), null],
+    [b, ka],                                                   // already seated in this race
+  ];
+  const q = sock();
+  lobby.enqueue(q, 'Q', 'WQ', 0.5, 0.5, 3, 0.5);
+  tries.push([q, ka]);                                         // holds a queue place
+  for (const [s, k] of tries) {
+    assert.strictEqual(lobby.rejoin(s, k, at(room, 2)).ok, false);
+    assert.ok(gotEv(s, 'sw:rejoinfail').length >= 1);
+  }
+  assert.ok(room.players.has(a.id), 'the seat is still held for its own key');
+  assert.ok(lobby.queue.some(e => e.socket.id === q.id), 'the queued seat is untouched');
+  const a2 = sock();
+  assert.strictEqual(lobby.rejoin(a2, ka, at(room, 3)).ok, true);
+  assert.strictEqual(lobby.rejoin(sock(), ka, at(room, 4)).ok, false, 'a key works once');
+  assert.ok(room.players.has(a2.id));
+  // The fresh key takes a second drop back.
+  lobby.drop(a2.id, at(room, 5));
+  const a3 = sock();
+  assert.strictEqual(lobby.rejoin(a3, keyOf(a2), at(room, 6)).ok, true);
+  assert.strictEqual(room.pot(), 2);
+  assert.strictEqual(room.worth.size, 2);
+  lobby.leave(b.id);
+  assert.strictEqual(settles.length, 1);
+  assert.strictEqual(settles[0].winnerId, a3.id);
+  assert.strictEqual(settles[0].seats.find(s => s.id === a3.id).wallet, 'WA');
+  assert.strictEqual(lobby.rejoin(sock(), keyOf(a3), Date.now()).ok, false, 'the race is over');
+});
+
+test('a queued seat still leaves at once on a disconnect', () => {
+  const { lobby, refunds } = lobbyWith();
+  const q = sock();
+  lobby.enqueue(q, 'Q', 'WQ', 1, 1, 1, 1);
+  assert.strictEqual(lobby.drop(q.id, 2), false);
+  assert.strictEqual(refunds.length, 1);
+  assert.strictEqual(lobby.queue.length, 0);
+});
+
+test('a newcomer is never paired with a bot race whose person is away', () => {
+  const { lobby } = lobbyWith();
+  const a = sock(), b = sock();
+  lobby.enqueue(a, 'A', null, 0, 0, 1);
+  lobby.tick(1 + FREE_WAIT_MS + 1);
+  const botRoom = [...lobby.rooms.values()][0];
+  assert.ok(botRoom.bot);
+  assert.strictEqual(lobby.drop(a.id, 2 + FREE_WAIT_MS), true);
+  lobby.enqueue(b, 'B', null, 0, 0, 3 + FREE_WAIT_MS);
+  assert.ok(lobby.rooms.get(botRoom.id) === botRoom && botRoom.players.has(a.id), 'the held seat stays in its own race');
+  assert.ok(lobby.queue.some(e => e.socket.id === b.id), 'the newcomer waits');
+});

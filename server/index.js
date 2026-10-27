@@ -5748,6 +5748,22 @@ io.on('connection', (socket) => {
   on('sw:unqueue', () => swimLobby.leave(socket.id));
   on('sw:leave', () => swimLobby.leave(socket.id));
 
+  /* A reconnect mid-race takes its seat back with the key its old socket was sent (sw:seat), inside the
+     five seconds a dropped seat is held (SwimLobby.drop / rejoin). The answer (sw:rejoined or
+     sw:rejoinfail) goes to this socket only. The seat keeps the wallet that paid; this only lets the
+     socket name it, as a resumed queue seat does. */
+  on('sw:rejoin', ({ key, v } = {}) => {
+    if (!socketRL(socket, 'swrejoin', 1000)) return;
+    if (v !== SWIM_VERSION) { socket.emit('sw:rejoinfail', {}); return; }
+    try {
+      const r = swimLobby.rejoin(socket, key, Date.now());
+      if (r && r.ok && r.worth > 0 && r.wallet) socket._walletAddress = r.wallet;
+    } catch (e) {
+      console.error('[SW] rejoin threw:', e && e.stack ? e.stack : e);
+      socket.emit('sw:rejoinfail', {});
+    }
+  });
+
   /* The wheel and pedal, a few ticks a packet. Only ever this socket's own car (SwimRoom.input checks the
      seat, the ticks and every code); a packet more than a few a frame is simply dropped, the next one
      repeats what it carried. */
@@ -5851,7 +5867,7 @@ io.on('connection', (socket) => {
     headSoccerLobby.leave(socket.id);
     knockoutLobby.unwatch(socket.id);            // a watcher holds no seat, only a place on the list
     battleshipLobby.unwatch(socket.id);
-    swimLobby.leave(socket.id);
+    swimLobby.drop(socket.id);                   // a Swim seat mid-race is held 5 s for its reconnect
     swimLobby.unwatch(socket.id);
     headSoccerLobby.unwatch(socket.id);
     endShooter(socket.id);

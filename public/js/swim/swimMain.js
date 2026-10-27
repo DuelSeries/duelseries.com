@@ -189,7 +189,10 @@ function drive(r) {
     if (r.rows[r.side]) r.me = rowCar(r.rows[r.side]);
     return;
   }
-  const { steer, pedal } = controls();
+  /* While the link is down the server drives this car straight with no pedal (its five second grace),
+     so the screen does the same, and nothing is sent: the picture matches what the server is judging. */
+  const offline = !socket.connected;
+  const { steer, pedal } = offline ? { steer: 0, pedal: 0 } : controls();
   const code = S.packInput(steer, pedal);
   while (r.me.tick < target) {
     const c = r.me;
@@ -206,7 +209,7 @@ function drive(r) {
   /* Send every other tick: everything since the last packet and at least the last six, so a dropped
      packet costs nothing and a slow frame leaves no tick unsent (the server takes up to 12). */
   const last = r.me.tick - 1;
-  if (r.me.alive && last >= 0 && last - r.sentTo >= 2) {
+  if (!offline && r.me.alive && last >= 0 && last - r.sentTo >= 2) {
     const from = Math.max(0, last - 11, Math.min(r.sentTo + 1, last - 5));
     const k = [];
     for (let t = from; t <= last; t++) k.push(r.inputs[t % R]);
@@ -415,6 +418,8 @@ socket.on('sw:chatnote', (m) => { if (m) chat.add({ kind: 'sys', text: m.text })
 /* ── the queue and the wait (Knockout's, word for word) ───────────────── */
 const WAIT_MS = window.DS_DUEL_WAIT_MS;   // shared/duelWait.js, the server's number too
 let waiting = false, waitPaid = false, waitEndsAt = 0, waitTimer = 0, resumeKey = null, overShown = false, lastOver = null;
+/* The seat's secret for a reconnect mid-race (sw:seat, sent to this socket only, new after every rejoin). */
+let seatKey = null;
 let restake = null, restakeLine = '', restakeTimer = 0, firstRace = true;
 function clockText(ms) { const s = Math.max(0, Math.ceil(ms / 1000)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
 function paintWait() {
@@ -444,17 +449,54 @@ socket.on('connect', () => {
   if (waiting && resumeKey) { queue(null, resumeKey); return; }
   if (race && race.state === 'over') return;       // the result card is up: it stays, with its own buttons
   if (race && race.state !== 'over') {
-    /* A reconnect mid-race: the server counted the drop as leaving (Knockout's rule), so the race is lost. */
-    race.state = 'over';
-    $('top').hidden = true; $('dash').hidden = true; $('pads').hidden = true; $('warn').hidden = true;
-    chatShow(false);
-    $('wait').hidden = false; waitSpin(false);
-    $('waitMain').textContent = 'Your connection dropped';
-    $('waitSub').textContent = 'Leaving mid-race counts as a loss. Go back to the lobby to race again.';
-    $('waitCancel').textContent = 'Back to the lobby';
+    /* A reconnect mid-race: the server holds the seat for five seconds, and the key takes it back
+       (sw:rejoined). Without a key, or too late, it counted the drop as leaving. */
+    if (seatKey && race.me) { socket.emit('sw:rejoin', { key: seatKey, v: S.VERSION }); return; }
+    connectionLost();
     return;
   }
   queue();
+});
+function connectionLost() {
+  if (!race) return;
+  race.state = 'over'; seatKey = null;
+  hideNote();
+  $('top').hidden = true; $('dash').hidden = true; $('pads').hidden = true; $('warn').hidden = true;
+  chatShow(false);
+  $('wait').hidden = false; waitSpin(false);
+  $('waitMain').textContent = 'Your connection dropped';
+  $('waitSub').textContent = 'Leaving mid-race counts as a loss. Go back to the lobby to race again.';
+  $('waitCancel').textContent = 'Back to the lobby';
+}
+socket.on('disconnect', () => {
+  if (WATCH || !race || race.state === 'over' || !race.me) return;
+  note('Reconnecting...', 60000);
+});
+socket.on('sw:seat', (m) => {
+  if (WATCH || !m || typeof m.key !== 'string') return;
+  seatKey = m.key;
+});
+/* The seat back on this socket: the race as the server has it now. The road and the counts so far stay;
+   the car is the server's row (newRace takes it), and the next inputs carry on from there. */
+socket.on('sw:rejoined', (m) => {
+  if (WATCH || !m || !race || race.state === 'over' || (m.side !== 0 && m.side !== 1)) return;
+  const was = race;
+  race = newRace(m, m.side);
+  race.state = m.state === 'racing' ? 'racing' : 'countdown';
+  race.startedAt = was.startedAt; race.countShown = was.countShown;
+  race.closes = was.closes; race.topV = was.topV; race.near = was.near;
+  const row = (m.p || []).find(q => Array.isArray(q) && q[0] === m.side);
+  if (was.crashed && row && row[6] && scene) scene.reset();   // a crash only this screen predicted
+  else race.crashed = was.crashed;
+  hideNote();
+  pingBurst();
+});
+socket.on('sw:rejoinfail', (m) => {
+  if (WATCH || !race || race.state === 'over') return;
+  hideNote();
+  /* The race ended while the link was down (a crash, or the five seconds ran out): its own result card. */
+  if (m && m.over && m.side === race.side) { showOver(m.over); return; }
+  connectionLost();
 });
 socket.on('sw:queued', (q = {}) => {
   if (WATCH || (race && race.state !== 'over')) return;
@@ -482,6 +524,7 @@ function note(text, ms) {
   n.textContent = text; n.hidden = false;
   clearTimeout(botNoteTimer); botNoteTimer = setTimeout(() => { n.hidden = true; }, ms || 5000);
 }
+function hideNote() { clearTimeout(botNoteTimer); $('botNote').hidden = true; }
 
 function showRaceUi(r) {
   $('wait').hidden = true;
@@ -502,7 +545,7 @@ function showRaceUi(r) {
 
 socket.on('sw:start', (m) => {
   if (WATCH || !m) return;
-  stopWait(); resumeKey = null;
+  stopWait(); resumeKey = null; seatKey = null;   // this race's key follows in sw:seat
   const me = (m.players || []).find(p => p.id === socket.id);
   if (!me) return;
   race = newRace(m, me.side);
@@ -540,8 +583,12 @@ const TEXT = {
 };
 socket.on('sw:over', (m) => {
   if (WATCH) { watchOver(m || {}); return; }
+  showOver(m || {});
+});
+function showOver(m) {
   if (overShown || !race) return;
-  overShown = true;
+  overShown = true; seatKey = null;
+  hideNote();
   race.state = 'over';
   const ms = race.startedAt ? performance.now() - race.startedAt : 0;
   const mine = (m.cars || [])[race.side];
@@ -555,7 +602,7 @@ socket.on('sw:over', (m) => {
   $('warn').hidden = true; $('pads').hidden = true;
   chatShow(false);
   setTimeout(paintOver, race.crashed ? 900 : 300);
-});
+}
 function paintOver() {
   const m = lastOver;
   if (!m || !window.DSEnd) return;
@@ -587,7 +634,7 @@ function paintOver() {
     crashed: won ? 'They touched a car.' : 'You touched a car.',
     'fell behind': won ? 'They fell 200 m behind.' : 'You fell 200 m behind.',
     'both crashed': 'You both touched a car at the same moment.',
-    'opponent left': 'They left the race.',
+    'opponent left': won === false ? 'Your connection dropped for more than 5 seconds.' : 'They left the race.',
     time: 'Thirty minutes and nobody crashed, so it is a draw.',
     error: 'The race stopped, so it is a draw.',
     'both out': 'They left after your crash had already happened, so it is a draw.',
@@ -613,7 +660,7 @@ function paintOver() {
 function playAgain() { if (myStake > 0) { askRestake(); return; } requeue(null); }
 function requeue(token) {
   socket.emit('sw:leave');
-  race = null;
+  race = null; seatKey = null;
   $('top').hidden = true; $('dash').hidden = true; $('pads').hidden = true;
   if (scene) scene.reset();
   queue(token);

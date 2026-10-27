@@ -26,8 +26,20 @@
                Never volatile, because a car a screen never heard of is a car
                it cannot dodge.
      sw:over   once: who won, why, the money for the card
+     sw:seat   to each person's own socket only, never broadcast: the seat's
+               secret key, the one proof a reconnect can show (see below)
    Seats, never socket ids, in everything a watcher is sent, and the bot's
-   seat is a neutral id even to the players (Owen 2026-10-16). */
+   seat is a neutral id even to the players (Owen 2026-10-16).
+
+   A DROPPED CONNECTION GETS FIVE SECONDS (Owen 2026-10-27: "the car keeps
+   driving straight for 5 s while they reconnect"). It used to forfeit at once,
+   Knockout's rule, and a phone that blinks for a second lost a paid race for
+   it. Now the seat is marked away (SwimLobby.drop): its car is driven on with
+   the wheel straight and no pedal, so it settles to cruise, and it is judged
+   exactly as before, so a crash or falling 200 m behind still ends the race in
+   that time. A reconnect that shows the seat's key within the five seconds
+   takes the seat over on its new socket (rekey); otherwise the lobby does what
+   a disconnect always did, and the seat that left loses. */
 
 const crypto = require('crypto');
 const S = require('../../shared/swimSim');
@@ -35,6 +47,7 @@ const { Spawner } = require('./swimTraffic');
 const { SwimBot } = require('./swimBot');
 const { refundBound } = require('../stakeRules');
 const { duelMoney } = require('../duelMoney');
+const { newResumeKey } = require('../duelQueue');
 
 const LAG_MAX = 15;            // ticks (250 ms) a person's car may trail the server clock
 const LEAD_MAX = 20;           // inputs for ticks further ahead of the clock than this are ignored
@@ -46,6 +59,7 @@ const PRUNE_BEHIND = 120;      // metres behind the rear car past which traffic 
    both still going is called a draw (a stake is refunded), so a pair of
    flawless drivers cannot hold a room open forever. */
 const MAX_TICKS = 30 * 60 * S.HZ;
+const GRACE_MS = 5000;         // how long a dropped seat is held for its reconnect (Owen 2026-10-27)
 
 const isBotId = (id) => typeof id === 'string' && id.startsWith('bot_');
 const neutralId = () => crypto.randomBytes(15).toString('base64url');
@@ -80,6 +94,8 @@ class SwimRoom {
     this.winner = null;
     this.overWhy = '';
     this.endTick = 0;
+    this.overMsg = null;        // the sw:over payload, for a seat that reconnects after it went out
+    this.keys = new Map();      // seat key -> side, the keys live now (rotated on every rejoin)
   }
 
   /* ── seats ──────────────────────────────────────────────────────────────── */
@@ -99,6 +115,8 @@ class SwimRoom {
       last: S.NEUTRAL,                          // the input used last, repeated when one is late
       zHist: new Float64Array(HIST),            // z on each tick, for comparing the two
       bot: null,
+      key: null,                                // the seat's secret for a reconnect (issueKey)
+      away: 0,                                  // while dropped: when the grace runs out (ms), else 0
     });
     this.worth.set(socket.id, Number(worth) > 0 ? Number(worth) : 0);
     this.seats[side] = { id: socket.id, name: name || 'Player' };
@@ -157,6 +175,70 @@ class SwimRoom {
     this.finish(stay ? restIds[0] : null, 'opponent left');
   }
 
+  /* ── a dropped connection (see the top of the file) ─────────────────────── */
+
+  /* A new key for a person's seat, sent to that seat's own socket and nowhere
+     else. Issued when the race starts and again after every rejoin, so a key
+     that has been used once is dead. */
+  issueKey(p) {
+    if (!p || p.bot) return;
+    if (p.key) this.keys.delete(p.key);
+    p.key = newResumeKey();
+    this.keys.set(p.key, p.side);
+    try { if (p.socket && typeof p.socket.emit === 'function') p.socket.emit('sw:seat', { key: p.key }); } catch (_) {}
+  }
+
+  /* The seat's socket went. Only a person's seat in a race that is still on is
+     held; anything else is the old rule (false: the lobby makes it a leave).
+     Wheel straight, no pedal from here (codeFor), so the car holds its line at
+     cruise rather than repeating whatever was held when the link went. */
+  away(socketId, now) {
+    const p = this.players.get(socketId);
+    if (!p || p.bot || !p.key || (this.state !== 'countdown' && this.state !== 'racing')) return false;
+    p.away = nowOr(now) + GRACE_MS;
+    p.last = S.NEUTRAL;
+    return true;
+  }
+
+  /* The seats whose grace has run out by `now`. */
+  awayDue(now) {
+    const t = nowOr(now), out = [];
+    for (const [id, p] of this.players) if (p.away && t >= p.away) out.push(id);
+    return out;
+  }
+
+  /* The seat that holds this key, or null. */
+  seatByKey(key) {
+    if (typeof key !== 'string' || !this.keys.has(key)) return null;
+    for (const [id, p] of this.players) if (p.key === key) return { id, p };
+    return null;
+  }
+
+  /* MOVE A SEAT TO A NEW SOCKET. Everything the money reads is keyed by socket
+     id: the seat (players), what it staked (worth), the seat's id that finish()
+     names a winner by (seats[side].id). Each is moved to the new id once and
+     nothing is left under the old one, in the same order, so the pot is the
+     same sum it was. The seat keeps its own wallet, the one that paid (a prize
+     or a refund never goes to a wallet the new socket names), what landed
+     (paid), its side and its car. The old socket, if it is somehow still
+     connected, is taken out of the race's channel and can no longer steer. */
+  rekey(oldId, socket) {
+    const p = this.players.get(oldId);
+    if (!p || p.bot || !socket || typeof socket.id !== 'string') return false;
+    if (this.state !== 'countdown' && this.state !== 'racing') return false;
+    const newId = socket.id;
+    if (newId === oldId || this.players.has(newId) || this.worth.has(newId)) return false;
+    const move = (m) => new Map([...m].map(([id, v]) => [id === oldId ? newId : id, v]));
+    this.players = move(this.players);
+    this.worth = move(this.worth);
+    this.seats[p.side] = Object.assign({}, this.seats[p.side], { id: newId });
+    try { if (p.socket && p.socket !== socket && typeof p.socket.leave === 'function') p.socket.leave(this.socketRoomName); } catch (_) {}
+    p.socket = socket;
+    p.away = 0;
+    if (socket.join) socket.join(this.socketRoomName);
+    return true;
+  }
+
   /* A chat line from a seated player to both players and the watchers, by seat
      (the same rules as KnockoutRoom.chat). */
   chat(socketId, raw, guard, now) {
@@ -176,6 +258,7 @@ class SwimRoom {
     this.goAt = nowOr(now) + S.COUNTDOWN_MS;
     this.spawner.run(this.traffic, 0, 0, S.V0, null);
     this.broadcast('sw:start', this.startState(now));
+    for (const p of this.players.values()) this.issueKey(p);   // after sw:start, so the page has its race
     return true;
   }
 
@@ -222,9 +305,13 @@ class SwimRoom {
     return true;
   }
 
+  /* The input actually sent for that tick, else the last one repeated. A seat
+     that is away has every tick it did not send driven straight with no pedal:
+     inputs it sent before the drop are still used (they were really pressed),
+     but nothing after them is guessed from them. */
   codeFor(p, tick) {
     if (p.codeTick[tick % HIST] === tick) return p.codes[tick % HIST];
-    return p.last;
+    return p.away ? S.NEUTRAL : p.last;
   }
 
   /* Move one seat's car on, as far as its inputs (or the lag allowance) let it. */
@@ -364,7 +451,7 @@ class SwimRoom {
     /* The card's money, keyed by seat ('s0', 's1') so no socket id goes out. */
     const bySeat = seats.map(s => Object.assign({}, s, { id: 's' + this.sideOf(s.id) }));
     const cars = [0, 1].map(s => { const p = this.bySide(s); return p ? { z: Math.round(p.car.z), v: Math.round(p.car.v * 3.6) } : null; });
-    this.broadcast('sw:over', {
+    this.overMsg = {
       winner: winnerId ? ((this.players.get(winnerId) || {}).name || (this.seats[winSide] || {}).name || null) : null,
       winnerSide: winSide,
       why: this.overWhy,
@@ -373,7 +460,8 @@ class SwimRoom {
       pot,
       cars,
       money: duelMoney({ winnerId: winSide === null ? null : 's' + winSide, pot, seats: bySeat }),
-    });
+    };
+    this.broadcast('sw:over', this.overMsg);
   }
 
   broadcast(event, payload) {
