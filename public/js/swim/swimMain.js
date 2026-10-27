@@ -392,6 +392,8 @@ function publish(r, f, o) {
   } catch (_) {}
 }
 requestAnimationFrame(frame);
+/* For a headless check's driver: the traffic this page knows (what it draws anyway). */
+window.__swimTraffic = () => (race ? race.traffic : EMPTY);
 
 /* ── chat (dsChat.js), as in every duel ───────────────────────────────── */
 let chatLive = false;

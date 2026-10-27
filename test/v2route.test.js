@@ -1522,12 +1522,17 @@ test('a duel shows the same screen as every other game, on the one shared ladder
      shut. */
   const html = v2();
 
-  for (const id of ['rooftop', 'headsoccer', 'swim']) {
+  for (const id of ['rooftop', 'headsoccer']) {
     const m = html.match(new RegExp("\\{id:'" + id + "'[^\\n]*"));
     assert.ok(m, id + ' is in the game list');
     assert.ok(/duel:1/.test(m[0]), id + ' is a duel');
     assert.ok(/soon:1/.test(m[0]), id + ' is still unbuilt, and still says so');
   }
+  /* Swim is built (a duel with a buy-in, server/swim), and its card is kept shut behind the SWIM gate
+     until Owen has played it: closed, the gate puts it back exactly in the placeholders' state. */
+  const swim = html.match(new RegExp("\\{id:'swim'[^\\n]*"))[0];
+  assert.ok(/duel:1/.test(swim) && /built:1/.test(swim) && /paid:1/.test(swim), 'swim is a built paid duel');
+  assert.ok(html.includes('if(g&&!open){g.soon=1;delete g.built;delete g.paid;delete g.duel;}'), 'and shut by default');
 
   /* Tanks is the first of them actually built. It is still a duel — matched
      into rather than dropped into — but it is not 'soon' any more, and it seats

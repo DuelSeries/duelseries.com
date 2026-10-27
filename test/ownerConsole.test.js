@@ -392,7 +392,7 @@ test('index.js: the paid Knockout and Battleship doors are saved switches that r
 
 test('index.js: the restart check, maintenance, Start alone, bots:set and announce are wired as the console expects', () => {
   assert.match(SRC, /const drainNow = \(\) => ops\.drainStatus\(ALL_ROOMS\(\), entryStore\.pending\(\), duelStatusNow\(\), brDrainWhy\(\)\);/);
-  assert.match(SRC, /const duelStatusNow = \(\) => ops\.duelStatus\(\[knockoutLobby, battleshipLobby\]\);/);
+  assert.match(SRC, /const duelStatusNow = \(\) => ops\.duelStatus\(\[knockoutLobby, battleshipLobby, swimLobby\]\);/);
   const check = SRC.slice(SRC.indexOf("case 'maintenance:check'"), SRC.indexOf("case 'announce'"));
   assert.match(check, /const d = drainNow\(\);/);
   assert.match(check, /d\.moneyInPlay/);
@@ -413,7 +413,7 @@ test('index.js: the restart check, maintenance, Start alone, bots:set and announ
 test('index.js: the snapshot is state v2, with the old fields kept, and every owner answer is no-store', () => {
   const snap = SRC.slice(SRC.indexOf('function opsSnapshot(req, signed)'), SRC.indexOf("app.post('/api/owner/state'"));
   for (const k of ['v: 2,', 'auth: consoleAuthOf(req, signed),', 'open: !m.maintenance,', 'drain: drainNow(),',
-    'escrow: consoleEscrow(),', 'games: consoleGames(ko, bs),', 'smooth: consoleSmooth(),', 'rooms,',
+    'escrow: consoleEscrow(),', 'games: consoleGames(ko, bs, sw),', 'smooth: consoleSmooth(),', 'rooms,',
     'audit: ownerConsole.mergeAudit(ops.auditLog, ownerAuth.auditLog, 50),']) {
     assert.ok(snap.includes(k), k);
   }
