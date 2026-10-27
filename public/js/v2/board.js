@@ -240,8 +240,13 @@
       box.innerHTML = '<div class="none">Nobody playing yet.</div>';
       return;
     }
-    box.innerHTML = rows.map(rowHTML).join('');
-    if (window.repaintAll) window.repaintAll();
+    /* Only the list itself, and only when a row really changed: a live push lands about once a second. It used to
+       call repaintAll for the row art, which restarts every moving scene on the page, the backdrop behind an open
+       game panel included (Owen 2026-10-27: "the background shouldn't be updated"). Row art is a still image now. */
+    const html = rows.map(rowHTML).join('');
+    if (html === box._html && box.querySelector('.lr')) return;
+    box.innerHTML = html;
+    box._html = html;
     // The game cards' people counts are refreshed by load(), not here: draw()
     // returns early when this list is not on the page, and the cards still are.
   }
