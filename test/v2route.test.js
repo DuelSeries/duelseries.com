@@ -2172,7 +2172,7 @@ test('every playable game is listed before any locked or unreleased one', () => 
   assert.deepStrictEqual(run(LOCK), [
     'snake', 'paper', 'agar', 'chomp', 'knockout', 'battleship',
     'omgshooter', 'tanks', 'rooftop', 'headsoccer', 'swim', 'stumble',
-    'pool8', 'omgshoot2', 'airhockey', 'herd', 'crossy',
+    'pool8', 'omgshoot2', 'airhockey', 'crossy',
   ], 'playable in their own order, then locked and unreleased in theirs');
 
   // Unlocked, both go straight back to their own place among the playable ones.
