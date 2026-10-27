@@ -4419,7 +4419,8 @@ function art(g,still){
 }
 /* The moving cards (Owen picked seven, 2026-10-27): each game's own renderer,
    staged headless and cut to a 3 to 5 s seamless loop, at 360x540 so the lot
-   is about 1.4 MB. Bowmasters stays a still for now (his call). The lobby-row
+   is about 1.4 MB. Head Soccer joined them later the same day (a real header
+   goal, his pick). Bowmasters stays a still for now (his call). The lobby-row
    swatches keep the png (V2_SWATCH asks for a still), like the canvas scenes.
    Not gated on reduced motion, for the same reason as the scenes below.
    Only a card that is on screen plays, and none while a game is up: the rail
@@ -4427,7 +4428,7 @@ function art(g,still){
    No autoplay attribute, so this is the one thing that starts them. Watching
    afresh on every call also drops the videos a re-render threw away, and the
    first callback says which of the new ones are in view. */
-const LOOPS=new Set(['chomp','snake','agar','paper','knockout','battleship','omgshooter']);
+const LOOPS=new Set(['chomp','snake','agar','paper','knockout','battleship','omgshooter','headsoccer']);
 const loopIO='IntersectionObserver' in window?new IntersectionObserver(es=>es.forEach(e=>{
   const v=e.target;
   if(e.isIntersecting&&!_paused){const p=v.play();if(p)p.catch(()=>{})}else v.pause();
