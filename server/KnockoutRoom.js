@@ -251,6 +251,11 @@ class KnockoutRoom {
 
   removePlayer(socketId) {
     if (!this.players.has(socketId)) return;
+    /* Leaving while the result sits on the board (settling): it is already decided, so it is settled as decided,
+       with both seats still present, before the leaver is taken off. Otherwise the forfeit below would hand the
+       table to whoever stayed, which is the LOSER whenever the winner closes the tab on the result (Fable review
+       2026-10-27). */
+    if (this.state === 'settling') this.decideNow();
     this.players.delete(socketId);
     /* Somebody walking out ends it. The alternative is the person still here
        staring at a fifteen second timer for an opponent who will never move. */
@@ -662,6 +667,9 @@ class KnockoutRoom {
       money: duelMoney({ winnerId: winnerId || null, pot, seats }),
     }, this.overExtra()));
   }
+
+  // The settling result, decided now (removePlayer). Knockout: the pieces left on the disc.
+  decideNow() { this.checkOver(); }
 
   /* Anything a game built on this room adds to its result message (Head Soccer: the score). Never money. */
   overExtra() { return {}; }

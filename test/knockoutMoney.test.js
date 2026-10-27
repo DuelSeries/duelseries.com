@@ -278,3 +278,16 @@ test('index.js takes the duels\' house cut from the one place the cards read it'
   assert.ok(!/KO_HOUSE_CUT\s*=\s*0\./.test(src), 'no second copy of the number');
   assert.strictEqual(require('../server/duelMoney').DUEL_HOUSE_CUT, 0.10);
 });
+
+test('the winner closing the tab on the settling board still wins it (decided before the leaver is removed)', () => {
+  const { lob, settled } = lobby();
+  lob.enqueue(sock('A'), 'Ann', 'WA', 1, 1);
+  lob.enqueue(sock('B'), 'Bob', 'WB', 1, 1);
+  const room = lob.roomOf('A');
+  // B's pieces are all off the disc and the result is sitting on the board.
+  for (const p of room.pieces) if (p.owner === 'B') p.alive = false;
+  room.state = 'settling';
+  lob.leave('A');
+  assert.strictEqual(settled.length, 1);
+  assert.strictEqual(settled[0].winnerId, 'A', 'paid to the side that won, not to the one who stayed');
+});

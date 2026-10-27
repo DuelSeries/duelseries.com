@@ -21,9 +21,14 @@ const SNAP_EVERY = 2;            // a snapshot every second step: 30 a second
 const MAX_CATCHUP_STEPS = 6;     // a stalled event loop is not replayed at speed: at most 0.1 s per tick
 const WIN_HOLD_MS = 2500;        // the final whistle sits on screen this long before the result card
 
+/* A field from a client as a plain number, or NaN. Only a real number or a numeric string is read: Number() on a
+   client-built object calls its toString/valueOf and can THROW (Fable review 2026-10-27: {h:{toString:1}} took the
+   process down), the same guard Knockout's submitAim has. */
+const num = (v) => (typeof v === 'number' ? v : typeof v === 'string' && v.length < 16 ? Number(v) : NaN);
+
 // A press counter from a client: a small whole number that only ever goes up.
 const count = (v, was) => {
-  const n = Math.floor(Number(v));
+  const n = Math.floor(num(v));
   if (!Number.isFinite(n) || n < 0 || n > 1e9) return was;
   return n > was ? Math.min(n, was + 4) : was;       // never more than a few presses a message
 };
@@ -52,11 +57,12 @@ class HeadSoccerRoom extends KnockoutRoom {
     const side = this.sideOfSocket(socketId);
     if (side === null || !msg || typeof msg !== 'object') return false;
     const inp = this.inputs[side];
-    inp.held = (Number(msg.h) | 0) & 3;
+    const h = num(msg.h);
+    inp.held = Number.isFinite(h) ? (h | 0) & 3 : 0;
     inp.jumps = count(msg.j, inp.jumps);
     inp.kicks = count(msg.k, inp.kicks);
     inp.powers = count(msg.p, inp.powers);
-    const seq = Math.floor(Number(msg.s));
+    const seq = Math.floor(num(msg.s));
     if (Number.isFinite(seq) && seq > this.acks[side] && seq < 1e9) this.acks[side] = seq;
     return true;
   }
@@ -136,6 +142,11 @@ class HeadSoccerRoom extends KnockoutRoom {
     if (a === b) return this.finish(null, 'a draw');
     this.finish(bySide(a > b ? 0 : 1), 'full time');
   }
+
+  /* Somebody leaving during the full-time hold: the score already decided it, with both seats still here, so it is
+     settled by the score first. Walking out on the whistle never hands the pot to the side that lost (Fable review
+     2026-10-27). */
+  decideNow() { this.finishByScore(); }
 
   overExtra() {
     return { score: this.match.score.slice() };

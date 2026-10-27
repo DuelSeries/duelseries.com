@@ -230,3 +230,29 @@ test('two bots play a whole match to a result, with goals and kicks in it', () =
   assert.ok(room.match.score[0] + room.match.score[1] > 0, 'somebody scored');
   assert.ok(kicks > 0, 'and the bots kick');
 });
+
+test('a client-built object in hs:in cannot throw (Number() on {toString} would)', () => {
+  const room = new HeadSoccerRoom(io);
+  room.addPlayer(sock('A'), 'A', null);
+  room.addPlayer(sock('B'), 'B', null);
+  const evil = { toString: 1, valueOf: 1 };
+  assert.doesNotThrow(() => room.setInput('A', { h: evil, j: evil, k: evil, p: evil, s: evil }));
+  assert.doesNotThrow(() => room.setInput('A', { h: [1], j: '9'.repeat(40), k: null, p: undefined, s: Symbol.iterator }));
+  const inp = room.inputs[room.players.get('A').side];
+  assert.deepStrictEqual([inp.held, inp.jumps, inp.kicks, inp.powers], [0, 0, 0, 0]);
+});
+
+test('the winner leaving during the full-time hold still wins: the score decides, not who stayed', () => {
+  const { lob, settled } = lobby();
+  const { room } = paidMatch(lob, 1);
+  let t = run(room, 0, HS.COUNTDOWN_MS + 100);
+  const sideA = room.players.get('A').side;
+  room.match.score = sideA === 0 ? [2, 1] : [1, 2];   // A is ahead
+  room.match.msLeft = 10;
+  t = run(room, t, 300);
+  assert.strictEqual(room.state, 'settling');
+  lob.leave('A');
+  assert.strictEqual(settled.length, 1);
+  assert.strictEqual(settled[0].winnerId, 'A', 'the side that won is paid');
+  assert.strictEqual(settled[0].why, 'full time');
+});

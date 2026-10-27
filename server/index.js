@@ -5403,6 +5403,10 @@ io.on('connection', (socket) => {
   on('hs:queue', ({ name, wallet, stake, entryToken, shop, skinPass, resume } = {}) => {
     if (!socketRL(socket, 'hsq', 1000)) return;
     if (ops.get().maintenance) { socket.emit('maintenance', ops.get()); return; }
+    /* Already at a table that is still being played: a second seat from the same socket would leave the first table
+       with a seat nobody can leave or reach (Fable review 2026-10-27). Refused before any token is touched. */
+    const seated = headSoccerLobby.roomOf(socket.id);
+    if (seated && seated.state !== 'over') { socket.emit('hs:refused', { why: 'You are in a match already.' }); return; }
 
     /* A RECONNECT WHILE WAITING takes its seat back by the key only that seat was sent
        (server/duelQueue.js resumeSeat): the same place, minute and stake, no new token. A paid seat
@@ -5513,7 +5517,7 @@ io.on('connection', (socket) => {
     if (!socket._hsIn || nowIn - socket._hsIn.at > 500) socket._hsIn = { at: nowIn, n: 0 };
     if (++socket._hsIn.n > 40) return;
     const room = headSoccerLobby.roomOf(socket.id);
-    if (room) room.setInput(socket.id, msg);
+    try { if (room) room.setInput(socket.id, msg); } catch (e) { console.error('[HS] input refused:', e.message); }
   });
 
   on('hs:leave', () => headSoccerLobby.leave(socket.id));
