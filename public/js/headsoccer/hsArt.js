@@ -669,7 +669,16 @@
       const G = A.grad(ctx);
       ctx.drawImage(A.hud, 0, 0, W, 130);
       ctx.lineJoin = 'round';
+      const gauges = !!HS.POWER_SHOT;   // the power shot is off (Owen 2026-10-27): no gauge, the name takes its place
       for (let s = 0; s < 2; s++) {
+        if (!gauges) {
+          if (h.names[s]) {
+            const nx = (HUD.gauge[s].inner + HUD.gauge[s].outer) / 2, ny = (HUD.gaugeY0 + HUD.gaugeY1) / 2 + 1;
+            ctx.font = 'italic 900 26px ' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.strokeStyle = 'rgba(0,8,20,0.85)'; ctx.lineWidth = 5; ctx.strokeText(h.names[s], nx, ny);
+            ctx.fillStyle = s === h.mine ? '#ffd34a' : '#ffffff'; ctx.fillText(h.names[s], nx, ny);
+          }
+        } else {
         const path = A.gaugePaths[s], pw = Math.max(0, Math.min(1, h.power[s])), full = pw >= 1;
         ctx.save();
         ctx.clip(path);
@@ -700,6 +709,7 @@
           ctx.font = '700 16px ' + FONT;
           ctx.strokeStyle = 'rgba(0,8,20,0.8)'; ctx.lineWidth = 4; ctx.strokeText(h.names[s], nx, 96);
           ctx.fillStyle = s === h.mine ? '#ffd34a' : '#ffffff'; ctx.fillText(h.names[s], nx, 96);
+        }
         }
         // The score, gold italic under the badge.
         ctx.font = 'italic 900 44px ' + FONT; ctx.textBaseline = 'alphabetic';

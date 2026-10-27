@@ -333,7 +333,7 @@ function setHeld() {
 function press(a) {
   if (a === 'J') inp.jumps++;
   else if (a === 'K') inp.kicks++;
-  else if (a === 'P') inp.powers++;
+  else if (a === 'P') { if (!HS.POWER_SHOT) return; inp.powers++; }   // no power shot (Owen 2026-10-27)
   else return;
   inputChanged();
 }

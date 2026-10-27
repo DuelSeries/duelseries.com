@@ -48,7 +48,9 @@
     KICK_LIFT_LOW: 0.17,             // M: atan(90/513), a ball met low on the boot
     KICK_LIFT_HIGH: 0.75,            // CHOSEN: a ball met at the top of the swing goes up more steeply
     KICK_CARRY: 0.5,                 // CHOSEN: share of the player's own speed added (a running kick reaches ~680)
-    // The power shot.
+    // The power shot. OFF (Owen 2026-10-27: "get rid of the power shot, it is not in the game I was thinking of"): no
+    // gauge fills, Power does nothing, conceding gives nothing. The rest is kept so it can come back as one switch.
+    POWER_SHOT: false,
     POWER_FILL_S: 20,                // M: empty to full in about 20 s of clock (19 to 23), linear
     POWER_FREEZE_MS: 900,            // M: the lightning cutscene, about 0.9 s, everything stops
     POWER_SPEED: 870,                // CHOSEN: South Korea's straight shot speed is UNKNOWN; the fastest flight seen
@@ -130,7 +132,7 @@
       p.held = inp.held | 0;
       if (inp.jumps > p.jumps) { p.jumps = inp.jumps; if (p.ground) { p.vy = -HS.JUMP_V; p.ground = false; } }
       if (inp.kicks > p.kicks) { p.kicks = inp.kicks; if (p.kickMs < 0) { p.kickMs = 0; p.kickHit = false; } }
-      if (inp.powers > p.powers) { p.powers = inp.powers; if (p.power >= 1) p.powerArmed = true; }
+      if (inp.powers > p.powers) { p.powers = inp.powers; if (HS.POWER_SHOT && p.power >= 1) p.powerArmed = true; }
     }
     var want = (((p.held & IN.RIGHT) ? 1 : 0) - ((p.held & IN.LEFT) ? 1 : 0)) * HS.WALK;
     var dv = HS.WALK_ACCEL * dt;
@@ -142,7 +144,7 @@
     if (p.x < HS.X_MIN) { p.x = HS.X_MIN; if (p.vx < 0) p.vx = 0; }
     if (p.x > HS.X_MAX) { p.x = HS.X_MAX; if (p.vx > 0) p.vx = 0; }
     if (p.kickMs >= 0) { p.kickMs += ms; if (p.kickMs >= HS.KICK_MS) p.kickMs = -1; }
-    if (canCharge && !p.powerArmed) p.power = Math.min(1, p.power + dt / HS.POWER_FILL_S);
+    if (HS.POWER_SHOT && canCharge && !p.powerArmed) p.power = Math.min(1, p.power + dt / HS.POWER_FILL_S);
   }
 
   // Two heads are solid: pushed apart along the line between them, and one coming down on the other stands on it.
@@ -285,7 +287,7 @@
         m.score[scored]++;
         // M: being scored on fills the conceding side's gauge (seen 2 of 2, from 86% and 66%). Not in sudden death,
         // where gauges do not charge (Wk), and moot then anyway: the goal ends it.
-        if (!golden) m.p[1 - scored].power = 1;
+        if (HS.POWER_SHOT && !golden) m.p[1 - scored].power = 1;
         ev.push({ e: 'goal', s: scored });
       }
     }

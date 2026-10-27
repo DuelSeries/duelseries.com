@@ -40,8 +40,7 @@ function lobbyGames() {
   // a name is a literal, or Pac-Man's one constant (window.DS_CHOMP_NAME||'Chomp', shared/chompName.js)
   return [...list.matchAll(/\{id:'(\w+)',name:(?:'[^']*'|window\.\w+\|\|'[^']*')[^\n]*/g)]
     .filter(m => !/\bsoon:1\b/.test(m[0])).map(m => m[1])
-    /* Head Soccer is playable only on ?headsoccer=preview (v2.html HS_PREVIEW) until Owen has seen it; everyone else
-       sees its coming-soon card. Its Shop section is waiting on his call, so it is not held to this yet. */
+    /* Head Soccer's Shop heads are coming (Owen 2026-10-27: "add heads later"); until they are, it is not held to this. */
     .filter(id => id !== 'headsoccer');
 }
 
