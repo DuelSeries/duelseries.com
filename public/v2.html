@@ -519,6 +519,9 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
    from -50% back to 0, so the names travel left to right (Owen, 2026-10-26:
    "I need that to scroll to the right"); both ends show the same picture. */
 .tickerwrap{position:relative;margin-top:30px}
+/* On a PC it heads the page, above the Games row (the script after #home moves it there). */
+.tickerwrap.top{margin-top:22px}
+.tickerwrap.top+.head{margin-top:30px}
 .ticker{overflow:hidden;
   -webkit-mask-image:linear-gradient(90deg,transparent,#000 56px,#000 calc(100% - 96px),transparent);
           mask-image:linear-gradient(90deg,transparent,#000 56px,#000 calc(100% - 96px),transparent)}
@@ -2374,6 +2377,23 @@ body.scr-anim { overflow-x:hidden }
        on the screen people actually use to start a game. It comes back when
        there is something real to put in it. -->
 </main>
+
+<script>
+/* On a PC the wins strip sits above the Games row, which moves down under it (Owen 2026-10-27). A phone keeps it
+   under the cards, where Owen likes it. One strip, moved between the two places as the width crosses the phone
+   breakpoint (the same 760px as the CSS), so its run and its id stay single. */
+(function(){
+  const mq=matchMedia('(max-width:760px)');
+  function place(){
+    const home=document.getElementById('home'), tw=home&&home.querySelector('.tickerwrap');
+    if(!tw)return;
+    if(mq.matches){const rail=home.querySelector('.railwrap'); if(tw.previousElementSibling!==rail)rail.after(tw); tw.classList.remove('top');}
+    else{const games=home.querySelector('.head'); if(tw.nextElementSibling!==games)games.before(tw); tw.classList.add('top');}
+  }
+  place();
+  if(mq.addEventListener)mq.addEventListener('change',place);
+})();
+</script>
 
 <!-- Said in the corner rather than under the field: the field is mid-column
      and a message there pushes the Play button down as it appears. -->
