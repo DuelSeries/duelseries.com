@@ -457,8 +457,20 @@ socket.on('connect', () => {
   }
   queue();
 });
-function connectionLost() {
+function connectionLost(restart) {
   if (!race) return;
+  if (restart) {
+    /* The server restarted for an update mid-race: a paid race is refunded in full (duelQueue.shutdownRows). */
+    race.state = 'over'; seatKey = null; hideNote();
+    $('top').hidden = true; $('dash').hidden = true; $('pads').hidden = true; $('warn').hidden = true;
+    chatShow(false);
+    $('wait').hidden = false; waitSpin(false);
+    $('waitMain').textContent = 'The game restarted for an update';
+    $('waitSub').textContent = myStake > 0 ? 'The race was called off and your buy-in goes back to your wallet.'
+      : 'The race was called off. Go back to the lobby to race again.';
+    $('waitCancel').textContent = 'Back to the lobby';
+    return;
+  }
   race.state = 'over'; seatKey = null;
   hideNote();
   $('top').hidden = true; $('dash').hidden = true; $('pads').hidden = true; $('warn').hidden = true;
@@ -496,7 +508,7 @@ socket.on('sw:rejoinfail', (m) => {
   hideNote();
   /* The race ended while the link was down (a crash, or the five seconds ran out): its own result card. */
   if (m && m.over && m.side === race.side) { showOver(m.over); return; }
-  connectionLost();
+  connectionLost(!!(m && m.restart));
 });
 socket.on('sw:queued', (q = {}) => {
   if (WATCH || (race && race.state !== 'over')) return;

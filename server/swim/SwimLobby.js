@@ -197,11 +197,25 @@ class SwimLobby {
      if that car had already crashed). Only a room still in the lobby and
      still on: one that ended in the grace was swept and is never reached. */
   expire(room, t) {
-    for (const id of room.awayDue(t)) {
-      if (this.rooms.get(room.id) !== room || room.state === 'over') return;
-      console.log('[SW] ' + room.id + ': a dropped seat did not come back in time');
-      this.leave(id);
+    const due = room.awayDue(t);
+    if (!due.length || this.rooms.get(room.id) !== room || room.state === 'over') return;
+    /* Both gone on the same deadline: neither is the one who stayed, so it is a draw, not whichever
+       seat the map happens to list first (Fable review 2026-10-27). */
+    if (due.length === 2 && room.players.get(due[0]).away === room.players.get(due[1]).away) {
+      console.log('[SW] ' + room.id + ': both dropped seats ran out together');
+      room.finish(null, 'both out');
+      this.sweep(room);
+      return;
     }
+    due.sort((a, b) => room.players.get(a).away - room.players.get(b).away);
+    const id = due[0];
+    /* The seat still here has already crashed but the judging has not reached it (it trails by up
+       to LAG_MAX ticks): wait for judge to settle that crash rather than turn it into a draw at the
+       deadline, which a player could time (Fable review 2026-10-27). */
+    const other = room.players.get(room.opponentOf(id));
+    if (other && !other.car.alive && room.state !== 'over') return;
+    console.log('[SW] ' + room.id + ': a dropped seat did not come back in time');
+    this.leave(id);
   }
 
   /* A RECONNECT TAKES ITS SEAT BACK. The key (sent only to the seat's own
@@ -212,7 +226,9 @@ class SwimLobby {
      result instead (it may have been decided while the link was down). */
   rejoin(socket, key, now) {
     const fail = (extra) => { send(socket, 'sw:rejoinfail', extra || {}); return { ok: false }; };
-    if (!socket || typeof socket.id !== 'string' || !isKey(key) || this.stopping) return fail();
+    // Restarting: every paid seat was turned into an owed refund (shutdownSettle), so the page says so.
+    if (this.stopping) return fail({ restart: true });
+    if (!socket || typeof socket.id !== 'string' || !isKey(key)) return fail();
     if (this.holds(socket.id)) return fail();
     for (const room of this.rooms.values()) {
       if (!room.keys || !room.keys.has(key)) continue;

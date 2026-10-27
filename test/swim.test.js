@@ -584,3 +584,17 @@ test('a newcomer is never paired with a bot race whose person is away', () => {
   assert.ok(lobby.rooms.get(botRoom.id) === botRoom && botRoom.players.has(a.id), 'the held seat stays in its own race');
   assert.ok(lobby.queue.some(e => e.socket.id === b.id), 'the newcomer waits');
 });
+
+test('both seats running out of grace together is a draw that refunds both, not a win for one', () => {
+  const { lobby, settles, room, a, b } = paidRace();
+  lobbyRun(lobby, room, 60, { [a.id]: S.NEUTRAL, [b.id]: S.NEUTRAL });
+  lobby.drop(a.id, at(room, 60));
+  lobby.drop(b.id, at(room, 60));
+  lobbyRun(lobby, room, 362, {});
+  assert.strictEqual(room.state, 'over');
+  assert.strictEqual(room.overWhy, 'both out');
+  assert.strictEqual(settles.length, 1);
+  assert.strictEqual(settles[0].winnerId, null);
+  assert.deepStrictEqual(settles[0].seats.map(s => s.wallet).sort(), ['WA', 'WB']);
+  assert.strictEqual(lobby.rooms.size, 0);
+});
