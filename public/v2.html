@@ -375,10 +375,34 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
 .card{flex:0 0 calc((100% - (var(--per) - 1) * var(--gap)) / var(--per));
   scroll-snap-align:start;
   display:block;text-align:left;padding:0;cursor:pointer;
-  transition:transform .22s cubic-bezier(.4,0,.2,1)}
+  transition:transform .3s ease-in-out}
 /* The whole card lifts, artwork and label together. Lifting only the art
-   opened a gap under it and left the name sitting behind. */
-.card:hover{transform:translateY(-4px)}
+   opened a gap under it and left the name sitting behind.
+   Rainbet's card hover, measured on rainbet.com headless (2026-10-27): a 3px
+   lift and a 0 4px 6px 1px 15% shadow, both over 300ms ease-in-out, and an
+   overlay that snaps (no transition) to a 149deg 65% gradient with a 30px
+   white play arrow in the middle. Their gradient is their own navy; the same
+   two stops hue-turned to this page's warm ink (blue 207deg to 36deg, the
+   saturation and lightness kept) so it reads as the lobby dimming, not as a
+   blue film over the art. The shadow tops out 6px above the card, exactly the
+   track's padding, so the rail's overflow clip does not cut it.
+   Mouse only, so a tap on a phone never leaves a card stuck lifted. Not behind
+   reduced motion: the global rule there makes the lift instant, and the dim
+   and the arrow have no motion to remove. A shut (soon) card lifts but gets no
+   arrow, since there is nothing to play. */
+.art{transition:box-shadow .3s ease-in-out}
+.card:not(.soon) .art::before{content:"";position:absolute;inset:0;z-index:2;
+  background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 34'%3E%3Cpath fill='%23fff' d='M27.055 14.955 2.695.283A1.8 1.8 0 0 0 1.741 0C.787 0 .01.797.01 1.77H0v30.46h.009c0 .973.779 1.77 1.732 1.77.359 0 .656-.124.98-.301l24.334-14.654A2.67 2.67 0 0 0 28 17a2.68 2.68 0 0 0-.945-2.045'/%3E%3C/svg%3E") center/30px 30px no-repeat,
+    linear-gradient(149deg,rgba(182,141,73,.65) -1.28%,rgba(72,46,5,.65) 100%);
+  opacity:0;pointer-events:none}
+@media(hover:hover){
+  .card:hover{transform:translateY(-3px)}
+  .card:hover .art{box-shadow:0 4px 6px 1px rgba(0,0,0,.15)}
+  .card:not(.soon):hover .art::before{opacity:1}
+}
+.card:focus-visible{transform:translateY(-3px)}
+.card:focus-visible .art{box-shadow:0 4px 6px 1px rgba(0,0,0,.15)}
+.card:not(.soon):focus-visible .art::before{opacity:1}
 .card:focus-visible{outline-offset:2px}   /* inside the track's 6px padding: at 5px the rail clipped it away */
 /* 2:3, not 3:4. The paintings run about 0.65 wide-to-tall (median of the
    thirteen), so a 3:4 card cover-cropped 12.6% off their height on average and
