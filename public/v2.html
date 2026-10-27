@@ -519,7 +519,7 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
    from -50% back to 0, so the names travel left to right (Owen, 2026-10-26:
    "I need that to scroll to the right"); both ends show the same picture. */
 .tickerwrap{position:relative;margin-top:30px}
-/* On a PC it heads the page, above the Games row (the script after #home moves it there). */
+/* It heads the page, above the Games row. */
 .tickerwrap.top{margin-top:22px}
 .tickerwrap.top+.head{margin-top:30px}
 .ticker{overflow:hidden;
@@ -552,10 +552,10 @@ body.ingame>.howveil,body.ingame>.meveil,body.ingame>.apscreen,body.ingame>.bshe
   .tkc.new{animation-duration:.5s!important}
   .ltag .dot{animation-duration:1.8s!important;animation-iteration-count:infinite!important}
 }
-/* PC: Owen's pick A (2026-10-27), Rainbet's Live Wins row. Each win is the game's card art, the name under it and
+/* Owen's pick A (2026-10-27), Rainbet's Live Wins row, on PC and phone. Each win is the game's card art, the name under it and
    the amount in green under that. It holds still, and every few seconds the newest win slides in at the left and
    pushes the row right. The "Live wins" tag is a small pill over the top-left of the first card, never over a name
-   or an amount. Same wins as the phone's line of text (drawTicker); phones keep that line as it is. */
+   or an amount. The wins are the ones the old line of text showed (WINS, drawTicker). */
 .ltag{display:none}
 .tickerwrap.top .ltag{display:inline-flex;align-items:center;gap:4px;position:absolute;left:3px;top:3px;z-index:2;
   padding:3px 6px 3px 5px;border-radius:var(--rf);background:rgba(16,14,11,.84);color:var(--tx);
@@ -2085,6 +2085,15 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
   .head{margin:24px 0 12px}
   main.wrap>.head:first-child{margin-top:14px}
   .tickerwrap{margin-top:12px}
+  /* The Live wins row on a phone (Owen 2026-10-27): smaller cards, and the Games heading keeps its phone gap. */
+  .tickerwrap.top{margin-top:12px}
+  .tickerwrap.top+.head{margin-top:18px}
+  .tkc{width:60px;margin-right:8px}
+  .tkc img{width:60px;height:84px;border-radius:7px}
+  .tkc .nm{font-size:10.5px;gap:3px}
+  .tkc .am{font-size:11.5px}
+  .tickerwrap.top .ltag{font-size:9px;padding:2px 5px 2px 4px;gap:3px;left:2px;top:2px}
+  .ltag .dot{width:5px;height:5px}
   .tiles{grid-template-columns:1fr 1fr;gap:10px}
   .tile{padding:15px 16px}
   .tile .v{font-size:25px}
@@ -2366,6 +2375,14 @@ body.scr-anim { overflow-x:hidden }
 
 <!-- ══ HOME ══ -->
 <main id="home" class="wrap">
+  <!-- Above the Games row on PC and phone alike (Owen 2026-10-27, PC first, then phones too).
+       Read-only decoration: it exists to show the board is alive and people
+       are winning. No controls of any kind, by explicit instruction. -->
+  <div class="tickerwrap top">
+    <span class="ltag" aria-hidden="true"><span class="dot"></span>Live wins</span>
+    <div class="ticker"><div class="tkrun" id="tkrun"></div></div>
+  </div>
+
   <div class="head">
     <div><h2>Games</h2></div>
     <div class="sp"></div>
@@ -2384,13 +2401,6 @@ body.scr-anim { overflow-x:hidden }
     <button class="nb r" onclick="spin(1)" aria-label="Next games">&#8250;</button>
   </div>
 
-  <!-- Read-only decoration: it exists to show the board is alive and people
-       are winning. No controls of any kind, by explicit instruction. -->
-  <div class="tickerwrap">
-    <span class="ltag" aria-hidden="true"><span class="dot"></span>Live wins</span>
-    <div class="ticker"><div class="tkrun" id="tkrun"></div></div>
-  </div>
-
   <!-- No caption and no "See all": the caption restated the heading, and the
        link went nowhere (2026-10-15 audit). -->
   <div class="head">
@@ -2403,23 +2413,6 @@ body.scr-anim { overflow-x:hidden }
        on the screen people actually use to start a game. It comes back when
        there is something real to put in it. -->
 </main>
-
-<script>
-/* On a PC the wins strip sits above the Games row, which moves down under it (Owen 2026-10-27). A phone keeps it
-   under the cards, where Owen likes it. One strip, moved between the two places as the width crosses the phone
-   breakpoint (the same 760px as the CSS), so its run and its id stay single. */
-(function(){
-  const mq=matchMedia('(max-width:760px)');
-  function place(){
-    const home=document.getElementById('home'), tw=home&&home.querySelector('.tickerwrap');
-    if(!tw)return;
-    if(mq.matches){const rail=home.querySelector('.railwrap'); if(tw.previousElementSibling!==rail)rail.after(tw); tw.classList.remove('top');}
-    else{const games=home.querySelector('.head'); if(tw.nextElementSibling!==games)games.before(tw); tw.classList.add('top');}
-  }
-  place();
-  if(mq.addEventListener)mq.addEventListener('change',place);
-})();
-</script>
 
 <!-- Said in the corner rather than under the field: the field is mid-column
      and a message there pushes the Play button down as it appears. -->
@@ -4815,36 +4808,24 @@ const WINS=(()=>{
   return out;
 })();
 
-const TK_PC=matchMedia('(min-width:761px)');
 const TK_RANK='<svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true"><path d="M6 .8 11.2 6 6 11.2.8 6Z" fill="#c9915a"/><path d="M6 .8 11.2 6H.8Z" fill="#e8b47c"/></svg>';
 let tkTimer=0;
 function drawTicker(){
   const run=document.getElementById('tkrun');
   clearInterval(tkTimer); run.classList.remove('cards'); run.style.transform=''; run.style.transition='';
-  if(TK_PC.matches){
-    /* Twice over, so the card that leaves on the right is never the one coming in on the left. */
-    const card=w=>`<div class="tkc"><img src="${artSrc(w.g)}" alt="${G(w.g).name}" width="70" height="98" decoding="async">
-      <div class="nm">${TK_RANK}<b>${w.who}</b></div><div class="am num">$${w.amt.toFixed(2)}</div></div>`;
-    run.innerHTML=WINS.map(card).join('')+WINS.map(w=>card(w).replace('class="tkc"','class="tkc" aria-hidden="true"')).join('');
-    run.classList.add('cards');
-    tkTimer=setInterval(()=>{
-      if(document.hidden||document.body.classList.contains('ingame'))return;
-      const c=run.lastElementChild; if(!c)return;
-      run.prepend(c); c.classList.remove('new'); void c.offsetWidth; c.classList.add('new');
-      run.style.transition='none'; run.style.transform=`translateX(${-(c.offsetWidth+9)}px)`;
-      run.getBoundingClientRect();
-      run.style.transition=''; run.style.transform='';
-    },2600);
-    return;
-  }
-  const one=WINS.map(w=>`<span class="tki"><span class="who">${w.who}</span>
-    <span class="won">won</span><span class="amt num">$${w.amt.toFixed(2)}</span>
-    <span class="sep"></span><span class="gm">${G(w.g).name}</span></span>`).join('');
-  /* Second copy is decoration for the loop, so it is hidden from readers
-     rather than read out twice. */
-  document.getElementById('tkrun').innerHTML=
-    `<span style="display:flex">${one}</span>`+
-    `<span style="display:flex" aria-hidden="true">${one}</span>`;
+  /* Twice over, so the card that leaves on the right is never the one coming in on the left. */
+  const card=w=>`<div class="tkc"><img src="${artSrc(w.g)}" alt="${G(w.g).name}" width="70" height="98" decoding="async">
+    <div class="nm">${TK_RANK}<b>${w.who}</b></div><div class="am num">$${w.amt.toFixed(2)}</div></div>`;
+  run.innerHTML=WINS.map(card).join('')+WINS.map(w=>card(w).replace('class="tkc"','class="tkc" aria-hidden="true"')).join('');
+  run.classList.add('cards');
+  tkTimer=setInterval(()=>{
+    if(document.hidden||document.body.classList.contains('ingame')||!run.offsetParent)return;
+    const c=run.lastElementChild; if(!c)return;
+    run.prepend(c); c.classList.remove('new'); void c.offsetWidth; c.classList.add('new');
+    run.style.transition='none'; run.style.transform=`translateX(${-(c.offsetWidth+parseFloat(getComputedStyle(c).marginRight))}px)`;
+    run.getBoundingClientRect();
+    run.style.transition=''; run.style.transform='';
+  },2600);
 }
 
 /* The lobby list is V2Board now, polling /api/live. Three rows are visible;
@@ -5605,7 +5586,6 @@ document.getElementById('adveil').addEventListener('click',e=>{
    from a hardcoded 38:59 towards an event that was never going to happen. */
 
 drawNav();V2Wallet.render();drawRail();drawTicker();V2Board.start();
-if(TK_PC.addEventListener)TK_PC.addEventListener('change',drawTicker);
 </script>
 <!-- The lobby is built: fade the loading screen out. A script of its own so
      that it still runs if the one above threw. -->
