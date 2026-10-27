@@ -46,15 +46,26 @@
     try {
       const r = await fetch('/api/live');
       if (r.ok === false) throw new Error('HTTP ' + r.status);   // a real Response; test stubs carry no ok
-      const j = await r.json();
-      LOBBIES = Array.isArray(j.lobbies) ? j.lobbies : [];
-      EXTRAS = Array.isArray(j.extras) ? j.extras : [];
-      COUNTS = j.counts && typeof j.counts === 'object' ? j.counts : null;
-      if (window.V2Maint && j.maintenance) window.V2Maint.set(j.maintenance);
-      loadedOnce = true; failing = false;
+      take(await r.json());
     } catch (_) {
       failing = true;
     }
+    draw();
+    if (window.V2_paintCounts) window.V2_paintCounts();
+  }
+  function take(j) {
+    LOBBIES = Array.isArray(j.lobbies) ? j.lobbies : [];
+    EXTRAS = Array.isArray(j.extras) ? j.extras : [];
+    COUNTS = j.counts && typeof j.counts === 'object' ? j.counts : null;
+    if (window.V2Maint && j.maintenance) window.V2Maint.set(j.maintenance);
+    loadedOnce = true; failing = false;
+  }
+  /* The server's push (toasts.js's socket, 'live'): the same board, sent the moment its rows change, so a
+     person joining a queue or a paid room shows up within a second (Owen 2026-10-27). Ignored while a game
+     is up: the lobby does no work behind a game, and start() loads afresh when it closes. */
+  function push(j) {
+    if (!j || typeof j !== 'object' || (document.body && document.body.classList.contains('ingame'))) return;
+    take(j);
     draw();
     if (window.V2_paintCounts) window.V2_paintCounts();
   }
@@ -260,8 +271,11 @@
     }, 10000);
   }
   function stop() { if (timer) { clearInterval(timer); timer = null; } }
+  /* A tab coming back is a board that missed everything while hidden: fresh at once, not on the next tick. */
+  if (typeof document.addEventListener === 'function')
+    document.addEventListener('visibilitychange', () => { if (timer && !document.hidden) load(); });
 
-  window.V2Board = { load: load, draw: draw, join: join, start: start, stop: stop,
+  window.V2Board = { load: load, push: push, draw: draw, join: join, start: start, stop: stop,
                      playableStakes: playableStakes, rowsToShow: rowsToShow,
                      get lobbies() { return LOBBIES; },
                      get counts() { return COUNTS; },

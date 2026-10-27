@@ -3817,7 +3817,7 @@ app.post('/api/br/owner', socialLimiter, (req, res) => {
   res.json({ isOwner: !!w && w.length <= 64 && OWNER_WALLETS.has(w) });
 });
 
-app.get('/api/live', (_req, res) => {
+function liveSnapshot() {
   try {
     /* The ladder ships with the board so the buy-in control offers exactly the
        rungs the server will accept. A client with its own copy is a client
@@ -3902,12 +3902,30 @@ app.get('/api/live', (_req, res) => {
        what players already see: the switch and its message. */
     const mt = ops.get();
     out.maintenance = mt.maintenance ? { on: true, message: mt.message } : { on: false };
-    res.json(out);
+    return out;
   } catch (e) {
     console.error('[LIVE]', e.message);
-    res.json({ lobbies: [], stakes: ALL_STAKES, extras: [], br: null, counts: null, unknown: ['all'] });
+    return { lobbies: [], stakes: ALL_STAKES, extras: [], br: null, counts: null, unknown: ['all'] };
   }
-});
+}
+app.get('/api/live', (_req, res) => res.json(liveSnapshot()));
+
+/* The lobby's Open lobbies board, pushed (Owen 2026-10-27: a player waiting in a queue or joining a paid room
+   "doesn't show up until I reload my page"; the 10 s poll was the only way it learned). A lobby page's listen-only
+   socket (toasts.js) joins 'live:watch'. Once a second, only while one is watching, the board is built once for
+   everybody and sent only when its rows changed: at most one small message a second however busy it gets, and
+   nothing at all when nobody is on the lobby. The lobby still polls as a fallback. */
+let liveSig = '';
+setInterval(() => {
+  const room = io.sockets.adapter.rooms.get('live:watch');
+  if (!room || !room.size) { liveSig = ''; return; }
+  const s = liveSnapshot();
+  const board = { lobbies: s.lobbies, extras: s.extras, counts: s.counts, maintenance: s.maintenance };
+  const sig = JSON.stringify(board);
+  if (sig === liveSig) return;
+  liveSig = sig;
+  io.to('live:watch').emit('live', board);
+}, 1000).unref();
 
 /* ─── Ladder rooms ────────────────────────────────────────────────────────────
    Created on demand, one per (game, region, rung), and swept when they have
@@ -4713,6 +4731,8 @@ io.on('connection', (socket) => {
   // Every client message goes through here: anything but nothing-or-a-plain-object is dropped
   // before its handler runs (isSocketMsg, above). Only the first argument is passed on.
   const on = (ev, fn) => socket.on(ev, (msg) => { if (isSocketMsg(msg)) fn(msg); });
+  // A lobby page watching the Open lobbies board (liveSnapshot's push above). Joins a room; counts nobody.
+  on('live:watch', () => socket.join('live:watch'));
 
   socket.emit(C.EVENTS.LOBBY_STATE, {
     playerCount:      totalInGame()     + (remoteStats.playerCount     || 0),

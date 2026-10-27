@@ -339,6 +339,10 @@
       sock.on('announce', announced);
       // The owner's maintenance switch, live (maint.js draws the banner and gates Play).
       sock.on('maintenance', (m) => { if (window.V2Maint) window.V2Maint.set(m); });
+      /* The Open lobbies board, pushed when it changes (board.js push). Asked for on every connect, since a
+         reconnect is a new socket in no rooms. Joining that room counts nobody either. */
+      sock.on('connect', () => sock.emit('live:watch'));
+      sock.on('live', (j) => { if (window.V2Board && window.V2Board.push) window.V2Board.push(j); });
     } catch (_) {}
     return true;
   }
