@@ -43,6 +43,17 @@
       sunburst:  5,
     },
     // Paper.io
+    // Pac-Man (chomp; CHOSEN 2026-10-26 on the other games' spread, Owen to adjust)
+    chomp: {
+      twotone:   1,
+      candy:     1,
+      frost:     2,
+      checker:   2,
+      neon:      3,
+      lava:      3,
+      grape:     4,
+      rainbow:   5,
+    },
     paper: {
       mint:      1,
       ice:       1,

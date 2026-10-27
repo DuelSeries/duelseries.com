@@ -32,6 +32,19 @@
       { id: 'galaxy',     name: 'Galaxy',     col: '#1d1846', art: 'stars', alt: '#b49cff' },
       { id: 'sunburst',   name: 'Sunburst',   col: '#ffc21a', art: 'rays',  alt: '#ff8a00' },
     ],
+    /* Pac-Man (chomp): the arcade chomper is a 13 px pixel disc, so a skin is a colour for each of its pixels
+       (chompPx): halves, stripes, a rim, checks or bands, in colours that are no ghost's. */
+    chomp: [
+      { id: 'twotone', name: 'Two Tone', col: '#ffe14d', art: 'split',   alt: '#3fa9f5' },
+      { id: 'candy',   name: 'Candy',    col: '#ffffff', art: 'stripes', alt: '#e8323c' },
+      { id: 'frost',   name: 'Frost',    col: '#e6f6ff', art: 'rim',     alt: '#5aa9ff' },
+      { id: 'checker', name: 'Checker',  col: '#ffffff', art: 'checks',  alt: '#9a6bff' },
+      { id: 'neon',    name: 'Neon',     col: '#0f4d1a', art: 'rim',     alt: '#39ff14' },
+      { id: 'lava',    name: 'Lava',     col: '#ff7a00', art: 'bands',   bands: ['#ffd23f', '#ff9a1a', '#ff5a1f', '#c81e00'] },
+      { id: 'grape',   name: 'Grape',    col: '#9a4fe0', art: 'stripes', alt: '#ffd1ff' },
+      { id: 'rainbow', name: 'Rainbow',  col: '#ffe14d', art: 'bands',
+        bands: ['#ff4040', '#ff9a1a', '#ffe14d', '#5cc95c', '#3fa9f5', '#9a4fe0'] },
+    ],
     paper: [
       { id: 'mint',      name: 'Mint',      col: '#3ee8b0', art: 'checks' },
       { id: 'ice',       name: 'Ice',       col: '#9fdcff', art: 'stripes' },
@@ -188,6 +201,23 @@
     }
   }
 
+  /* ── Pac-Man (chomp): the colour of the chomper's pixel (dx, dy) from its centre pixel, -6..6 (the 13 px disc of
+     public/js/chomp/chompPixel.js chomper). The lobby's previews draw the same pixels bigger (shopArt paintChomp), and
+     the free colours (shared/chompSkins.js, { col }) come out plain. ─────── */
+  function chompPx(k, dx, dy) {
+    switch (k.art) {
+      case 'split': return dy < 0 ? k.col : k.alt;
+      case 'stripes': return Math.floor((dy + 7) / 2) % 2 ? k.alt : k.col;
+      case 'rim': return dx * dx + dy * dy > 20.25 ? k.alt : k.col;
+      case 'checks': return (Math.floor((dx + 9) / 3) + Math.floor((dy + 9) / 3)) % 2 ? k.alt : k.col;
+      case 'bands': {
+        var n = k.bands.length;
+        return k.bands[Math.max(0, Math.min(n - 1, Math.floor((dy + 6.5) / 13 * n)))];
+      }
+      default: return k.col;
+    }
+  }
+
   /* ── Knockout: a piece of radius pr at (x, y): the disc, its design clipped to it, then knockout.js's darker
      inner disc (inner = that disc's alpha, the game's own). ─────────────── */
   function knockoutPiece(ctx, k, x, y, pr, inner) {
@@ -223,7 +253,7 @@
   }
 
   var api = { SKINS: SKINS, byId: byId, snakeBytes: snakeBytes, agarArt: agarArt, paperArt: paperArt,
-              knockoutPiece: knockoutPiece, hullFor: hullFor, hexRgb: hexRgb, rgbHex: rgbHex, mix: mix };
+              knockoutPiece: knockoutPiece, hullFor: hullFor, chompPx: chompPx, hexRgb: hexRgb, rgbHex: rgbHex, mix: mix };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (root) root.DS_SHOP_SKINS = api;
 })(typeof window !== 'undefined' ? window : null);

@@ -54,7 +54,10 @@
     FRIGHT_S: 6,                 // DOSSIER Table A.1 "Fright. Time" 6 s
     FRIGHT_FLASHES: 5,           // DOSSIER Table A.1 "# of Flashes" 5
     FLASH_TICKS: 14,             // jspacman (4 frames x 7 ticks a flash) and pacman500 (14): 14 ticks blue, 14 white
-    FRIGHT_RADIUS: 18,           // ARENA: ghosts within this many tiles of the eater turn blue (the arcade has one screen)
+    // Owen 2026-10-26: an energizer turns EVERY ghost blue for its eater only (each player has their own fright timer;
+    // chompRoom blueFor). A ghost blue for somebody within FLEE_RADIUS tiles wanders and slows, the arcade's frightened
+    // walk, for everyone (one ghost has one body).
+    FLEE_RADIUS: 10,
 
     // ---- scatter / chase, level 1 column (seconds). DOSSIER: S7 C20 S7 C20 S5 C20 S5 then chase for ever.
     // ARENA: an endless arena loops the list instead of chasing for ever.
@@ -74,6 +77,9 @@
     // ---- fruit (DOSSIER Chapter 1): after 70 and 170 dots, on screen 9 to 10 s. ARENA: per module, the count loops.
     FRUIT_AT: [70, 170],
     FRUIT_S: [9, 10],
+    // Owen 2026-10-26: a fruit also gives its eater a short burst of speed, small enough not to be a big edge
+    FRUIT_BOOST: 1.1,            // CHOSEN: 10% faster (80% -> 88% of full speed; 90% -> 99% while powered)
+    FRUIT_BOOST_S: 3,
 
     // ---- the arena (all ARENA / CHOSEN)
     MODULES_X: 2,                // Owen 2026-10-26: the arena starts at 2 x 2 modules (each 28 x 31 tiles with its own

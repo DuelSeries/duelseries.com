@@ -21,16 +21,17 @@
   var doc = root.document;
   var AP = root.DuelAgarLib && root.DuelAgarLib.agPaid;
 
+  var NAME = root.DS_CHOMP_NAME || 'Chomp';     // the shown name (shared/chompName.js)
   var WORDS = {
-    noAnswerSeat: 'Your seat, if you had one, waits 3 minutes. Join a paid Chomp room from the lobby to get back ' +
+    noAnswerSeat: 'Your seat, if you had one, waits 3 minutes. Join a paid ' + NAME + ' room from the lobby to get back ' +
       'into it; that new entry is refunded.',
     reconnect: 'Your chomper keeps going for 5 seconds, then waits where it is for 3 minutes and can still be caught. ' +
       'If you are not back by then, what you hold is cashed out to your wallet.',
     escTouch: 'Hold Cash out to leave'
   };
   var REFUSED = {
-    'not-open': ['Not open', 'Paid Chomp rooms are not open right now.'],
-    full: ['Rooms full', 'Every Chomp room at this stake is full.'],
+    'not-open': ['Not open', 'Paid ' + NAME + ' rooms are not open right now.'],
+    full: ['Rooms full', 'Every ' + NAME + ' room at this stake is full.'],
     'no-room': ['No safe spot', 'There was no safe place to start you, away from the ghosts.']
   };
 

@@ -52,8 +52,10 @@
   // Pac-Man-style chomper. Measured (1x captures): a 13 px disc (every pixel within 6.5 of the centre pixel, 137
   // pixels shut), the centre at sprite pixel (7, 7). Mouth frames: 'half' is a wedge from 1 px behind the centre,
   // half-width 0.4 per pixel; 'wide' from 2 px behind, half-width 1 per pixel (45 degrees). dir 0 up 1 left 2 down 3 right.
+  // color: a colour, or a bought Customize skin (shared/shopSkins.js SKINS.chomp) whose chompPx colours each pixel
   function chomper(color, dir, frame, extraOpen) {
-    var key = 'c' + color + dir + frame + (extraOpen || 0);
+    var skin = typeof color === 'string' ? null : color;
+    var key = 'c' + (skin ? 'k' + skin.id : color) + dir + frame + (extraOpen || 0);
     return sprite(key, 16, 16, function (i, j) {
       var dx = i - 7, dy = j - 7;
       if (dx * dx + dy * dy > 42.25) return null;
@@ -68,7 +70,7 @@
         // the death: the wedge keeps opening past wide (our drawing; the frame count and timing are sourced)
         if (Math.atan2(across, along + 2) <= Math.PI / 4 + extraOpen * (3 * Math.PI / 4)) return null;
       }
-      return color;
+      return skin ? window.DS_SHOP_SKINS.chompPx(skin, dx, dy) : color;
     });
   }
 
@@ -314,13 +316,13 @@
     // jspacman GameScene draw order: Pac-Man first, then the ghosts with Blinky last, so ghosts cover chompers
     s.players.forEach(function (p) {
       if (p.hidden) return;
-      var color = p.scared ? (p.scaredFlash ? C.white : C.blue) : p.color;
+      var color = p.scared ? (p.scaredFlash ? C.white : C.blue) : (p.skin && window.DS_SHOP_SKINS ? p.skin : p.color);
       if (p.halo && p.dying == null && Math.floor(s.tick / 8) % 2 === 0) at(halo(p.color), p.x, p.y, -3, -3);
       if (p.dying != null) {
         var f = p.dying;                       // death frame 0..13, or -1 frozen before it starts
         if (f < 0) at(chomper(color, 0, 2), p.x, p.y);
         else if (f < 11) at(chomper(color, 0, 3, (f + 1) / 11), p.x, p.y);
-        else if (f < 13) at(burst(color, f - 11), p.x, p.y);
+        else if (f < 13) at(burst(p.scared ? color : p.color, f - 11), p.x, p.y);   // a colour, never a skin
       } else at(chomper(color, p.dir, p.frame), p.x, p.y);
     });
     s.ghosts.slice().sort(function (a, b) { return b.ki - a.ki; }).forEach(function (q) {

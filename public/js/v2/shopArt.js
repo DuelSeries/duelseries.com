@@ -74,6 +74,10 @@
          anything between; server/ag/agSim.js playerColour), so the free look
          walks through a few of those. */
       def: { name: 'Random colour', cols: ['#ff4007', '#07ff8a', '#5a07ff', '#ffd407', '#07c4ff', '#ff07a8'] }, skins: SK.SKINS.agar },
+    /* Pac-Man (chomp, its shown name shared/chompName.js): the game's own yellow, then the free colours of
+       shared/chompSkins.js in Customize. */
+    { id: 'chomp', name: root.DS_CHOMP_NAME || 'Chomp', bg: '#000000', def: { name: 'Classic yellow', col: '#ffff00' },
+      skins: SK.SKINS.chomp },
     { id: 'knockout', name: 'Knockout', bg: '#0b0907', def: { name: 'Default', col: '#f4f1ea' }, skins: SK.SKINS.knockout },
     { id: 'battleship', name: 'Battleship', bg: '#0a1622', def: { name: 'Default', native: true }, skins: SK.SKINS.battleship },
     { id: 'omgshooter', name: 'Awesome Tanks', bg: '#1d2016', def: { name: 'Default', team: 'you' }, skins: SK.SKINS.omgshooter },
@@ -314,7 +318,28 @@
     ctx.closePath(); ctx.fill(); ctx.restore();
   }
 
-  var PAINT = { snake: paintSnake, agar: paintAgar, paper: paintPaper, knockout: paintKnockout,
+  /* ── Pac-Man (chomp) ─────────────────────────────────────────────────── */
+  /* The game's own pixels (shared/shopSkins.js chompPx over chompPixel.js's 13 px disc), mouth wide to the right,
+     on the arcade's black with the next dots ahead of it (bare: the chomper alone, centred). */
+  function paintChomp(cv, k, t, big, bare) {
+    var ctx = cv.getContext('2d'), w = cv.width, h = cv.height;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    if (!bare) { ctx.fillStyle = '#000000'; ctx.fillRect(0, 0, w, h); }
+    var px = Math.max(1, Math.floor(Math.min(w, h) * (big ? 0.55 : 0.7) / 13));
+    var dots = bare ? 0 : Math.max(0, Math.min(2, Math.floor((w - 13 * px) / (8 * px) / 1.5)));
+    var x0 = Math.round((w - (13 + dots * 8) * px) / 2), y0 = Math.round((h - 13 * px) / 2);
+    for (var dy = -6; dy <= 6; dy++) for (var dx = -6; dx <= 6; dx++) {
+      if (dx * dx + dy * dy > 42.25) continue;
+      if (dx + 2 >= 0 && Math.abs(dy) <= dx + 2) continue;           // the wide mouth (chompPixel frame 2), right
+      ctx.fillStyle = SK.chompPx(k, dx, dy);
+      ctx.fillRect(x0 + (dx + 6) * px, y0 + (dy + 6) * px, px, px);
+    }
+    ctx.fillStyle = '#ffb8ae';                                         // the arcade's dots: 2 px, a tile (8 px) apart
+    for (var i = 1; i <= dots; i++) ctx.fillRect(x0 + (6 + i * 8) * px, y0 + 6 * px - px / 2, 2 * px, 2 * px);
+  }
+
+  var PAINT = { snake: paintSnake, agar: paintAgar, paper: paintPaper, chomp: paintChomp, knockout: paintKnockout,
     battleship: paintBattleship, omgshooter: paintShooter, tanks: paintTanks };
   /* Which previews move. The rest are painted once per size, which keeps a
      page of forty-odd canvases off the frame budget. */

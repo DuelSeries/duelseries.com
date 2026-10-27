@@ -41,7 +41,7 @@ function makeModuleGhosts(m, first) {
       dir: 1,                              // DOSSIER: ghosts move left once outside
       state: kind === 'blinky' ? 'active' : 'house',
       bob: ki % 2 ? 0 : 2,                 // house bobbing: up first or down first
-      fright: 0, reverse: false, dk: -1, plan: -1,
+      fright: 0, backAt: -1, reverse: false, dk: -1, plan: -1,
     });
   });
   m.house = { dots: 0, lastDotTick: 0 };
@@ -156,7 +156,6 @@ function toward(v, t, step) {
 }
 
 function step(g, A, room, dt) {
-  if (g.fright > 0) g.fright--;
   let rem = speedOf(g, A) * dt;
   const H = Maze.HOUSE, ox = g.home.ox, oy = g.home.oy;
   if (g.state === 'house') {
@@ -181,7 +180,7 @@ function step(g, A, room, dt) {
     if (Math.abs(g.x - dx) > EPS) { g.dir = g.x < dx ? 3 : 1; g.x = toward(g.x, dx, rem); return; }
     g.dir = 2;
     g.y = toward(g.y, oy + H.inY, rem);
-    if (Math.abs(g.y - (oy + H.inY)) <= EPS) { g.state = 'leaving'; g.fright = 0; }
+    if (Math.abs(g.y - (oy + H.inY)) <= EPS) { g.state = 'leaving'; g.fright = 0; g.backAt = room.tick; }
     return;
   }
   // active or eyes: on the grid

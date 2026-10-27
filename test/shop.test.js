@@ -37,7 +37,8 @@ function fakeCanvas() {
 function lobbyGames() {
   const html = fs.readFileSync(path.join(ROOT, 'public/v2.html'), 'utf8');
   const list = html.slice(html.indexOf('const GAMES=['), html.indexOf('\n];', html.indexOf('const GAMES=[')));
-  return [...list.matchAll(/\{id:'(\w+)',name:'[^']*'[^\n]*/g)]
+  // a name is a literal, or Pac-Man's one constant (window.DS_CHOMP_NAME||'Chomp', shared/chompName.js)
+  return [...list.matchAll(/\{id:'(\w+)',name:(?:'[^']*'|window\.\w+\|\|'[^']*')[^\n]*/g)]
     .filter(m => !/\bsoon:1\b/.test(m[0])).map(m => m[1]);
 }
 

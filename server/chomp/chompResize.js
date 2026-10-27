@@ -174,7 +174,7 @@ function apply(room, pl) {
     if (removed(Math.floor(g.x), Math.floor(g.y))) {
       // a ghost of a kept module standing in the removed band (nobody can see it there): back in its own house
       const s = Maze.GHOST_START.pinky;
-      g.x = m2.ox + s.x; g.y = m2.oy + s.y; g.state = 'house'; g.fright = 0; g.plan = -1;
+      g.x = m2.ox + s.x; g.y = m2.oy + s.y; g.state = 'house'; g.fright = 0; g.plan = -1; g.backAt = room.tick;
     } else {
       g.x = fx(g.x); g.y = fy(g.y);
     }
@@ -236,6 +236,8 @@ function apply(room, pl) {
   for (const [m, m2] of modMap) if (m2) modIndex.set(m.index, m2.index);
   room.events = room.events.filter((e) => e.k !== 'fruit' || modIndex.has(e.m)).map((e) => {
     if (e.k === 'fruit') return Object.assign({}, e, { m: modIndex.get(e.m) });
+    if (e.k === 'eatg') e = Object.assign({}, e, { g: gmap[e.g] });
+    if (e.k === 'power') e = Object.assign({}, e, { home: (e.home || []).map((i) => gmap[i]).filter((j) => j >= 0) });
     if (typeof e.x === 'number' && typeof e.y === 'number') return Object.assign({}, e, { x: fx(e.x), y: fy(e.y) });
     return e;
   });

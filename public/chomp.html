@@ -7,6 +7,12 @@
 <meta name="robots" content="noindex">
 <title>Chomp - DuelSeries</title>
 <link rel="icon" type="image/png" sizes="32x32" href="/img/favicon-32.png">
+<script>
+  /* In the lobby's game frame the game starts by itself, so the title card must not paint first: it flashed for a
+     split second on Play (Owen 2026-10-26). chompMain.js unveil() hands it back to its hidden attribute once the game
+     is up (or after 5 s, so a server that never answers still shows the Play button). */
+  try { if (window.frameElement && window.frameElement.id === 'game-frame') document.documentElement.className = 'veil'; } catch (e) {}
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <!-- Press Start 2P (SIL Open Font Licence): an arcade-style face, not anyone's logo. -->
@@ -17,7 +23,7 @@
   body { font-family: 'Press Start 2P', monospace; color: var(--ink); -webkit-user-select: none; user-select: none; }
   #cv { position: fixed; inset: 0; display: block; }
   #title { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(0, 0, 0, 0.55); }
-  #title[hidden], #toast[hidden] { display: none; }
+  #title[hidden], #toast[hidden], .veil #title { display: none; }
   .card {
     width: min(440px, calc(100vw - 32px)); box-sizing: border-box; padding: 34px 28px 26px; text-align: center;
     background: #000; border: 3px solid var(--wall); outline: 3px solid var(--wall); outline-offset: 5px; border-radius: 14px;
@@ -77,6 +83,9 @@
 <script src="/js/shared/dsChat.js"></script>
 <script src="/js/shared/dsWatchBar.js"></script>
 <script src="/js/dsSfx.js"></script>
+<script src="/shared/chompName.js"></script>
+<script src="/shared/chompSkins.js"></script>
+<script src="/shared/shopSkins.js"></script>
 <script src="/shared/chompRules.js"></script>
 <script src="/shared/chompMaze.js"></script>
 <script src="/shared/chompMove.js"></script>

@@ -174,11 +174,11 @@ test('eaten ghosts get home: eyes reach the house door from anywhere in the aren
 
 test('the wire round-trips', () => {
   const buf = Wire.encode(123456, 1, [{ id: 9, x: 12.25, y: 40.5, dir: 2, flags: 5, seq: 77, since: 3, power: 120 }],
-    [{ x: 3.5, y: 4.75, dir: 1, kind: 2, state: 3, fright: 36 }]);
+    [{ x: 3.5, y: 4.75, dir: 1, kind: 2, state: 3 }]);
   const s = Wire.decode(buf);
   assert.strictEqual(s.tick, 123456);
   assert.deepStrictEqual(s.players[0], { id: 9, x: 12.25, y: 40.5, dir: 2, flags: 5, seq: 77, since: 3, power: 120 });
-  assert.deepStrictEqual(s.ghosts[0], { x: 3.5, y: 4.75, dir: 1, look: 1, kind: 2, state: 3, fright: 36 });
+  assert.deepStrictEqual(s.ghosts[0], { x: 3.5, y: 4.75, dir: 1, look: 1, kind: 2, state: 3 });
 });
 
 test('late turn: a turn the page took a tick ago is honoured at that tile', () => {

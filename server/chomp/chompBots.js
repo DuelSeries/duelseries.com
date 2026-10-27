@@ -66,7 +66,7 @@ function threats(room, p) {
   if (p.safe > 0) return [];
   const out = [];
   for (const g of room.ghosts) {
-    if (g.state !== 'active' || g.fright > 0) continue;
+    if (g.state !== 'active' || room.blueFor(p, g)) continue;
     if (Math.abs(room.A.dx(p.x, g.x)) + Math.abs(room.A.dy(p.y, g.y)) <= DANGER) out.push(g);
   }
   if (p.power <= 0) {
@@ -106,7 +106,7 @@ function think(room, p) {
   if (p.power > R.TICK_HZ) {
     const prey = new Set();
     for (const g of room.ghosts) {
-      if (g.state === 'active' && g.fright > R.TICK_HZ && Math.abs(A.dx(p.x, g.x)) + Math.abs(A.dy(p.y, g.y)) <= HUNT) {
+      if (g.state === 'active' && room.blueFor(p, g) && Math.abs(A.dx(p.x, g.x)) + Math.abs(A.dy(p.y, g.y)) <= HUNT) {
         prey.add(Math.floor(g.y) * A.W + Math.floor(g.x));
       }
     }

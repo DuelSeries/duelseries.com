@@ -11,6 +11,11 @@ original maze layout, the name or the logo. Our maze module is our own layout (`
 computed from a shape test (`public/js/chomp/chompDraw.js`), the sounds are synthesized (`chompSound.js`), and the game
 is called Chomp.
 
+Exception, Owen's call 2026-10-26 ("just change it to Pac-Man for now... we'll change it back later"): the name players
+SEE is "Pac-Man" (the lobby card, the page title and title card, the paid door's lines, the join and earnings pushes).
+That is Bandai Namco's trademark, so it is one constant, `shared/chompName.js`; changing it back is one line. Ids,
+routes, keys, the owner console and shared links (`shared/shareGames.js`) stay Chomp.
+
 ## Files
 
 | Where | What |
@@ -53,6 +58,20 @@ out at the edge. Dots, the pellet queue, fruit, ghosts (a new module brings its 
 never where a person can see) carry over, and in a paid room every coin in a removed column moves to the nearest path
 tile outside it: no balance changes. The pages get `c:arena { axis, shift, mx, my, dots, coins, fruit, gmap }` before
 the next snapshot and turn everything they hold the same way.
+
+## Power pellets are per player; fruit; Customize (Owen 2026-10-26)
+
+An energizer turns EVERY ghost blue for its eater only (`chompRoom.blueFor`): each player has their own fright timer
+(`p.power` from `p.powerAt`), other players keep meeting normal ghosts unless they ate their own, and collisions use
+the player's own state (a ghost blue for someone on its tile is eaten and its eyes fly home for everyone; else it
+catches everyone there not blinking safe). A ghost that went home as eyes since your energizer comes back out normal for
+you (`g.backAt`), as in the arcade. One ghost has one body, so its walk is shared: blue for any eater within
+`FLEE_RADIUS` it takes the frightened walk (random turns, half speed). The ghost's fright left the wire: each page draws
+blue from its own timer with the same rule (`chompMain.js` `ghostHome`: ghosts in eyes when your energizer lands, and
+every one eaten since). A fruit also gives its eater `FRUIT_BOOST` (10%) speed for `FRUIT_BOOST_S` (3 s), predicted on
+the page. Customize: free colours in `shared/chompSkins.js` (`duel.chomp.skin`) and the Shop's skins in
+`shared/shopSkins.js` `SKINS.chomp` (pixel patterns, `chompPx`), sent in the socket handshake and checked once by
+`chompBoot.skinOf` (a bought one only with a genuine skin pass), then carried to every page in the chomper's meta `s`.
 
 ## Netcode in one paragraph
 

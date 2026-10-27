@@ -45,7 +45,7 @@ const GAMES = Object.freeze({
   br: 'Battle Royale',
   tanks: 'Bowmasters',
   shooter: 'Awesome Tanks',
-  chomp: 'Chomp',
+  chomp: require('../shared/chompName'),   // the shown name, one constant (Pac-Man for now)
 });
 
 const WALLET_LIKE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/; // a whole base58 address typed as a name

@@ -35,7 +35,7 @@ const GAMES = Object.freeze({
   paper: 'Paper.io',
   knockout: 'Knockout',
   battleship: 'Battleship',
-  chomp: 'Chomp',
+  chomp: require('../shared/chompName'),   // the shown name, one constant (Pac-Man for now)
 });
 
 function dollars(n) {

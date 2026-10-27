@@ -25,6 +25,16 @@
   var canvas = document.getElementById('cv');
   var ctx = canvas.getContext('2d');
   var titleEl = document.getElementById('title');
+  // the shown name (shared/chompName.js, Pac-Man for now): the tab and the title card's mark
+  var NAME = window.DS_CHOMP_NAME || 'Chomp';
+  document.title = NAME + ' - DuelSeries';
+  if (NAME !== 'Chomp') {
+    var markEl = titleEl.querySelector('.mark');
+    if (markEl) { markEl.textContent = NAME.toUpperCase(); markEl.setAttribute('aria-label', NAME); }
+  }
+  // chomp.html's veil keeps the title card off screen in the lobby's frame until the game is up (no flash on Play)
+  function unveil() { document.documentElement.classList.remove('veil'); }
+  setTimeout(unveil, 5000);
   var nameEl = document.getElementById('name');
   var playEl = document.getElementById('play');
 
@@ -50,10 +60,21 @@
   var snaps = [], offset = null;
   var me = null, L = 0, hist = new Map(), inputs = [], seq = 0, predicting = false;
   var smooth = { x: 0, y: 0 }, cam = { x: 0, y: 0 }, camSet = false;
-  var myPower = 0, mySafe = 0, myScore = 0, myLives = R.LIVES, myRank = 0, roomN = 0;
+  var myPower = 0, myBoost = 0, fruitTaken = -1, mySafe = 0, myScore = 0, myLives = R.LIVES, myRank = 0, roomN = 0;
   var phase = attract ? 'watch' : 'title';
   var pops = [], dying = new Map(), mouthPhase = new Map(), lastPos = new Map();
   var lbRows = [], board = null, scaredUntil = 0, readyUntil = 0;
+  // Owen 2026-10-26: every ghost is blue for YOU while your own energizer lasts, for nobody else (server/chomp/
+  // chompRoom.js blueFor, the same rule): except one that went home as eyes since your energizer (it comes back out
+  // normal). ghostHome lists those by index: the ones in eyes when your energizer landed (the server's power event
+  // lists them; freshPower guesses from the newest snapshot until it lands), and every one eaten since.
+  var ghostHome = new Set();
+  function freshPower() {
+    ghostHome = new Set();
+    var s = snaps[snaps.length - 1];
+    if (s) s.ghosts.forEach(function (g, i) { if (g.state === 3 || g.state === 4) ghostHome.add(i); });
+  }
+  function blueForMe(i, g) { return myPower > 0 && predicting && g.state !== 3 && g.state !== 4 && !ghostHome.has(i); }
   var stats = { checks: 0, fixes: 0, fixDist: 0 };       // prediction health, read by the test harness
 
   // ---- sizing
@@ -74,6 +95,17 @@
     var opts = undefined;
     if (paidMode) opts = { auth: { paid: 1 } };
     else if (watchStake > 0) opts = { auth: { watchStake: watchStake } };
+    // the look picked in the lobby's Customize: a free colour (duel.chomp.skin) and a bought skin with the lobby's
+    // skin pass (duel.shop.chomp, duel.skinpass); the server wears only what it checks (chompBoot skinOf)
+    if (watchStake <= 0) {
+      try {
+        var ls = window.localStorage, look = {};
+        var free = ls && ls.getItem('duel.chomp.skin'), shopId = ls && ls.getItem('duel.shop.chomp'), pass = ls && ls.getItem('duel.skinpass');
+        if (typeof free === 'string' && free && free.length <= 32) look.skin = free;
+        if (shopId && pass && /^[a-z][a-z0-9]{0,23}$/.test(shopId) && pass.length <= 4096) { look.shop = shopId; look.skinPass = pass; }
+        if (look.skin || look.shop) { opts = opts || { auth: {} }; Object.assign(opts.auth, look); }
+      } catch (e) { /* storage blocked: the game's own look */ }
+    }
     socket = opts ? window.io('/chomp', opts) : window.io('/chomp');
     socket.on('c:init', onInit);
     socket.on('c:chat', function (m) {
@@ -82,7 +114,7 @@
       chat.add({ name: m.name, text: m.text, me: !!m.me, color: m.me ? '#ffff00' : (draw ? draw.L.players[(m.c % others) + 1] : '#dedeff') });
     });
     socket.on('c:chatnote', function (m) { if (chat && m && m.text) chat.add({ kind: 'sys', text: m.text }); });
-    socket.on('c:you', function (m) { closeWatch(); myId = m.id; (m.metas || []).forEach(setMeta); predicting = false; phase = 'play'; titleEl.hidden = true; readyUntil = performance.now() + 1500; cueSpawn(); Snd.play('ch.ready'); });
+    socket.on('c:you', function (m) { unveil(); closeWatch(); myId = m.id; (m.metas || []).forEach(setMeta); predicting = false; phase = 'play'; titleEl.hidden = true; readyUntil = performance.now() + 1500; cueSpawn(); Snd.play('ch.ready'); });
     socket.on('c:s', onSnap);
     socket.on('c:dots', onDots);
     socket.on('c:ev', onEvents);
@@ -189,7 +221,16 @@
     cashBtn.hidden = !(phase === 'play' && myId && flow && flow.canSteer());
   }
 
-  function setMeta(m) { metas.set(m.id, { n: m.n, c: m.c }); }
+  function setMeta(m) { metas.set(m.id, { n: m.n, c: m.c, look: lookOf(m.s) }); }
+  // A chomper's Customize look from its meta's s ('f:<id>' a free colour, shared/chompSkins.js; 'p:<id>' a bought
+  // skin, shared/shopSkins.js SKINS.chomp, drawn pixel by pixel by chompPixel): { col, k }, or null for the game's own.
+  function lookOf(s) {
+    if (typeof s !== 'string' || s.length < 3) return null;
+    var id = s.slice(2), k = null;
+    if (s[0] === 'f' && window.DS_CHOMP_SKINS) k = window.DS_CHOMP_SKINS.byId(id);
+    else if (s[0] === 'p' && window.DS_SHOP_SKINS) k = window.DS_SHOP_SKINS.byId('chomp', id);
+    return k ? { col: k.col, k: k } : null;
+  }
 
   function onInit(m) {
     stakeNow = Number(m.stake) > 0 ? Number(m.stake) : 0;
@@ -232,6 +273,9 @@
       sn.players.forEach(function (p) { p.x = fx(p.x); p.y = fy(p.y); });
       var g2 = [];
       sn.ghosts.forEach(function (g, i) { var j = gmap[i]; if (j >= 0) { g.x = fx(g.x); g.y = fy(g.y); g2[j] = g; } });
+      var home = new Set();
+      ghostHome.forEach(function (i) { if (gmap[i] >= 0) home.add(gmap[i]); });
+      ghostHome = home;
       sn.ghosts = g2;
     });
     if (me) { me.x = fx(me.x); me.y = fy(me.y); }
@@ -278,6 +322,7 @@
       if (e.k === 'meta') setMeta(e);
       else if (e.k === 'gone') { metas.delete(e.id); dying.delete(e.id); }
       else if (e.k === 'eatg') {
+        ghostHome.add(e.g);
         pop(e.x, e.y, String(e.pts), '#00ffff');
         if (e.id === myId) Snd.play('ch.ghost');
       } else if (e.k === 'eatp') {
@@ -285,14 +330,21 @@
         if (e.id === myId) Snd.play('ch.player');
       } else if (e.k === 'die') {
         dying.set(e.id, now);
-        if (e.id === myId) { Snd.play('ch.death'); predicting = false; myPower = 0; }
+        if (e.id === myId) { Snd.play('ch.death'); predicting = false; myPower = 0; myBoost = 0; }
       } else if (e.k === 'spawn') {
         dying.delete(e.id);
         if (e.id === myId) { readyUntil = now + 1500; cueSpawn(); Snd.play('ch.ready'); }
       } else if (e.k === 'power') {
-        if (e.id === myId) scaredUntil = now + R.FRIGHT_S * 1000;
+        if (e.id === myId) { scaredUntil = now + R.FRIGHT_S * 1000; ghostHome = new Set(e.home || []); }
       } else if (e.k === 'fruit') {
         if (e.on) fruitOn.add(e.m); else fruitOn.delete(e.m);
+        // a fruit's speed burst: ours if the server says we took it (we may have seen it first, stepLocal); one
+        // somebody else beat us to is not
+        if (!e.on && e.pts) {
+          if (e.id === myId && fruitTaken !== e.m) myBoost = R.FRUIT_BOOST_S * R.TICK_HZ;
+          else if (e.id !== myId && fruitTaken === e.m) myBoost = 0;
+        } else if (!e.on && fruitTaken === e.m) myBoost = 0;
+        if (fruitTaken === e.m) fruitTaken = -1;
         if (!e.on && e.pts) {
           var m = A.modules[e.m];
           pop(m.ox + Maze.FRUIT.x, m.oy + Maze.FRUIT.y, String(e.pts), '#ffb8ff', 80 * STEP_MS);
@@ -360,6 +412,7 @@
     if (bar) bar.watching(watchName || 'Player');
   }
   function startWatch() {
+    unveil();
     phase = 'watch'; titleEl.hidden = true; predicting = false;
     if (window.DSWatchBar) window.DSWatchBar.open({
       game: 'chomp', stake: 0,
@@ -443,18 +496,26 @@
   playEl.addEventListener('click', join);
 
   // ---- prediction
-  function mySpeed() { return R.speed(myPower > 0 ? R.PAC_FRIGHT_SPEED : R.PAC_SPEED); }
+  function mySpeed() { return R.speed((myPower > 0 ? R.PAC_FRIGHT_SPEED : R.PAC_SPEED) * (myBoost > 0 ? R.FRUIT_BOOST : 1)); }
 
   function stepLocal() {
     if (myPower > 0) myPower--;
+    if (myBoost > 0) myBoost--;
     L++;                                  // counts even while not predicting: it is the clock the server's echo maps onto
     if (!predicting || !me) return;
     var paused = me.pause > 0;
     Move.tick(me, A, mySpeed(), DT, dotsView, function (k, kind) {
       dotsView[k] = 0;
       pending.set(k, performance.now() + 1500);
-      if (kind === Maze.ENERGIZER) { myPower = R.FRIGHT_S * R.TICK_HZ; Snd.play('ch.power'); } else Snd.eat();
+      if (kind === Maze.ENERGIZER) { myPower = R.FRIGHT_S * R.TICK_HZ; freshPower(); Snd.play('ch.power'); } else Snd.eat();
     });
+    // the fruit, as the server takes it (chompRoom checkFruit): its speed burst starts now, not a round trip later
+    var fm = fruitOn.size ? A.moduleAt(me.x, me.y) : null;
+    if (fm && fruitOn.has(fm.index) && fruitTaken !== fm.index && Math.floor(me.y) === fm.oy + Math.floor(Maze.FRUIT.y) &&
+        (Math.floor(me.x) === fm.ox + Maze.FRUIT.x - 1 || Math.floor(me.x) === fm.ox + Maze.FRUIT.x)) {
+      fruitTaken = fm.index;
+      myBoost = R.FRUIT_BOOST_S * R.TICK_HZ;
+    }
     if (me.dir >= 0) me.face = me.dir;
     hist.set(L, { x: me.x, y: me.y, dir: me.dir, paused: paused });
     hist.delete(L - 300);
@@ -563,7 +624,7 @@
     if (e < TK.deathFreeze) return -1;
     return Math.min(TK.deathFrames, Math.floor((e - TK.deathFreeze) / TK.deathFrame));
   }
-  var lastRender = 0;
+  var lastRender = 0, renderErr = false;
   function render(now) {
     if (!draw || !A) return;
     var dtTicks = lastRender ? Math.min(10, (now - lastRender) / STEP_MS) : 0;
@@ -579,9 +640,10 @@
         var pos = lerp(ga, gb, w.k);
         var mode = 0;
         if (gb.state === 3 || gb.state === 4) mode = 3;
-        else if (gb.fright > 0) mode = (pixel ? flashing(gb.fright) : gb.fright < FLASH_WINDOW && flashOn) ? 2 : 1;
+        var blue = blueForMe(i, gb);
+        if (blue) mode = (pixel ? flashing(myPower) : myPower < FLASH_WINDOW && flashOn) ? 2 : 1;
         // while it flashes the skirt keeps step with the flash: 4 frames of 7 ticks (jspacman Ghost.js animations[2])
-        var frame = gb.fright > 0 && gb.fright < FLASH_WINDOW ? Math.floor((FLASH_WINDOW - gb.fright) / (TK.flash / 2)) % 2 : Math.floor(tick / TK.skirt) % 2;
+        var frame = blue && myPower < FLASH_WINDOW ? Math.floor((FLASH_WINDOW - myPower) / (TK.flash / 2)) % 2 : Math.floor(tick / TK.skirt) % 2;
         ghosts.push({ x: pos.x, y: pos.y, dir: gb.dir, look: gb.look, ki: gb.kind, mode: mode, frame: frame });
       });
       w.b.players.forEach(function (pb) {
@@ -591,7 +653,8 @@
         var others = draw.L.players.length - 1;
         var o = {
           x: pos.x, y: pos.y, dir: pb.dir >= 0 ? pb.dir : 1, name: meta.n, me: pb.id === myId,
-          color: pb.id === myId || (paidMode && pb.id === lastMyId) ? draw.L.me : draw.L.players[(meta.c % others) + 1],
+          color: meta.look ? meta.look.col : pb.id === myId || (paidMode && pb.id === lastMyId) ? draw.L.me : draw.L.players[(meta.c % others) + 1],
+          skin: meta.look && meta.look.k.art ? meta.look.k : null,
           mouth: mouthFor(pb.id, pos.x, pos.y, pb.flags & Wire.F.MOVING),
           frame: chewFrame(pb.id, pb.flags & Wire.F.MOVING, dtTicks)
         };
@@ -613,9 +676,10 @@
     }
     if (predicting && me) {
       smooth.x *= 0.82; smooth.y *= 0.82;
-      var mx = me.x + smooth.x, my = me.y + smooth.y;
+      var mx = me.x + smooth.x, my = me.y + smooth.y, myMeta = metas.get(myId), myLook = myMeta && myMeta.look;
       players.push({
-        x: mx, y: my, dir: me.face, me: true, color: draw.L.me, mouth: mouthFor(myId, mx, my, me.moving),
+        x: mx, y: my, dir: me.face, me: true, color: myLook ? myLook.col : draw.L.me, skin: myLook && myLook.k.art ? myLook.k : null,
+        mouth: mouthFor(myId, mx, my, me.moving),
         frame: chewFrame(myId, me.moving, dtTicks),
         alpha: !pixel && mySafe ? (Math.floor(now / 120) % 2 ? 0.35 : 1) : 1, hidden: pixel && mySafe && Math.floor(tick / 8) % 2 === 1, halo: myPower > 0
       });
@@ -765,7 +829,8 @@
     acc += now - last; last = now;
     if (acc > 250) acc = 250;
     while (acc >= STEP_MS) { stepLocal(); acc -= STEP_MS; }
-    render(now);
+    // a drawing error must never stop the loop (the game and its steering go on); it is reported once
+    try { render(now); } catch (e) { if (!renderErr) { renderErr = true; console.error('[chomp] render', e); } }
     requestAnimationFrame(loop);
   }
 
@@ -799,6 +864,7 @@
   } catch (e) { /* storage blocked: the title card shows */ }
   if (paidMode) {
     titleEl.hidden = true;
+    unveil();
     phase = 'joining';
     var AP = window.DuelAgarLib.agPaid;
     pcard = PAID.createCard({ onLobby: function () { backToLobby(); }, onSpectate: function () { pcard.hide(); startWatch(); } });
@@ -846,6 +912,16 @@
       paid: paidMode, stake: stakeNow, money: myMoney, coins: coins.size, locked: !!(lock && lock.locked()), hold: hold ? hold.progress() : 0,
       flow: flow ? flow.state() : null, card: pcard ? pcard.kind : '' }; },
     dims: function () { return A ? A.mx + 'x' + A.my : null; },
+    // read only, for the headless checks: the maze, the dots as drawn, your own fright and boost, how many ghosts are
+    // blue for you in the newest snapshot, and your Customize look
+    view: function () {
+      var s = snaps[snaps.length - 1], mm = metas.get(myId);
+      return { A: A, dots: dotsView, power: myPower, boost: myBoost,
+        blue: s ? s.ghosts.filter(function (g, i) { return blueForMe(i, g); }).length : 0,
+        ghosts: s ? s.ghosts.length : 0, gt: s ? s.ghosts.map(function (g) { return [Math.floor(g.x), Math.floor(g.y), g.state]; }) : [],
+        eyes: s ? s.ghosts.filter(function (g) { return g.state === 3 || g.state === 4; }).length : 0,
+        skin: mm && mm.look ? (mm.look.k.id || mm.look.col) : '' };
+    },
     setLook: function (n) { lookName = n; if (A) { draw = n === 'pixel' && window.ChompPixel ? new window.ChompPixel(canvas, A) : new Draw(canvas, A, n); resize(); } } };
   if (!(flow && flow.offline())) connect();
   requestAnimationFrame(loop);

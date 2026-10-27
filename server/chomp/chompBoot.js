@@ -39,10 +39,26 @@ const PER_IP = 10;                 // CHOSEN: sockets one address may hold on /c
 const RATE = { join: 500, dir: 12, leave: 500, chat: 300, ready: 250, hold: 50 };   // CHOSEN: flood stops (ms)
 const PAID_DEFAULT = true;
 
-// The door's answers in Chomp's words (agPaidDoor's TEXT keeps the rest).
+const chompSkins = require('../../shared/chompSkins');
+const { sharedPass: sharedSkinPass } = require('../skinPass');
+
+// The Customize look a socket wears (docs/skin-purchases.md), from its handshake: a bought skin when the lobby's pass
+// is genuine and lists 'chomp:<id>' ('p:<id>'), else a free colour listed in shared/chompSkins.js ('f:<id>'), else ''
+// (the game's own look). Checked once, at connect. Cosmetic only: no money path reads it.
+function skinOf(auth) {
+  if (!auth || typeof auth !== 'object') return '';
+  const shop = typeof auth.shop === 'string' ? auth.shop : null;
+  const pass = typeof auth.skinPass === 'string' && auth.skinPass.length <= 4096 ? auth.skinPass : null;
+  const bought = shop && pass ? sharedSkinPass().wornSkin('chomp', shop, pass) : null;
+  if (bought) return 'p:' + bought;
+  return chompSkins.byId(auth.skin) ? 'f:' + auth.skin : '';
+}
+
+// The door's answers in Chomp's words (agPaidDoor's TEXT keeps the rest), under its shown name (shared/chompName.js).
+const NAME = require('../../shared/chompName');
 const DOOR_TEXT = Object.freeze({
-  'not-open': 'Paid Chomp rooms are not open right now. Your entry was refunded.',
-  full: 'Every Chomp room at this stake is full. Your entry was refunded.',
+  'not-open': 'Paid ' + NAME + ' rooms are not open right now. Your entry was refunded.',
+  full: 'Every ' + NAME + ' room at this stake is full. Your entry was refunded.',
   'no-room': 'There was no safe place to start you. Your entry was refunded.',
 });
 
@@ -154,6 +170,7 @@ function openChomp({ io, env = process.env, helpers = {}, money = null, paidSwit
     // lobby's Spectate on a paid rung (auth { watchStake }) watches that rung's busiest room; anyone else sees the
     // free arena.
     const auth = socket.handshake && socket.handshake.auth ? socket.handshake.auth : {};
+    socket.chSkin = skinOf(auth);
     if (auth.paid === 1 && arenas.paidEnabled) arenas.connectPaid(socket);
     else if (typeof auth.watchStake === 'number' && auth.watchStake > 0) {
       if (!arenas.connectWatch(socket, auth.watchStake)) refuse(socket, 'nobody');
@@ -183,7 +200,7 @@ function openChomp({ io, env = process.env, helpers = {}, money = null, paidSwit
       const was = arenas.roomOfSocket(socket.id);
       if (was) { was.removeSocket(socket.id); arenas.bySocket.delete(socket.id); }
       room.attach(socket);
-      const p = room.addPlayer({ name: clean(msg.name).slice(0, 15), socketId: socket.id });
+      const p = room.addPlayer({ name: clean(msg.name).slice(0, 15), socketId: socket.id, skin: socket.chSkin });
       if (!p) { socket.emit('c:refused', { why: 'full' }); return; }
       socket.emit('c:you', { id: p.id, metas: room.metas() });
       if (typeof helpers.notifyJoin === 'function') {
@@ -262,4 +279,4 @@ function openChomp({ io, env = process.env, helpers = {}, money = null, paidSwit
   };
 }
 
-module.exports = { openChomp, switchOn, paidSwitch, DOOR_TEXT };
+module.exports = { openChomp, switchOn, paidSwitch, DOOR_TEXT, skinOf };

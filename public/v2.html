@@ -3129,6 +3129,7 @@ body.scr-anim { overflow-x:hidden }
 <script src="/shared/constants.js"></script>
 <script src="/shared/lockedGames.js"></script>
 <script src="/shared/stakeLadder.js"></script>
+<script src="/shared/chompName.js"></script>
 <script src="/js/HexGrid.js"></script>
 <script src="/js/Camera.js"></script>
 <script src="/js/SnakeGL.js"></script>
@@ -3171,6 +3172,7 @@ body.scr-anim { overflow-x:hidden }
      bought where it is worn, in Customize. -->
 <script src="/shared/shopPrices.js"></script>
 <script src="/shared/agSkins.js"></script>
+<script src="/shared/chompSkins.js"></script>
 <script src="/shared/shopSkins.js"></script>
 <script src="/js/battleshipArt.js"></script>
 <script src="/js/v2/shopArt.js"></script>
@@ -3235,8 +3237,9 @@ const GAMES=[
  /* Chomp (server/chomp, page /chomp), in the lobby since 2026-10-26 (Owen's OK). Its rooms are rungs of the same
     ladder (Free, $0.50, $1.00): Free opens /chomp straight in the game frame (no stake, play.js OWN_PAGE), a paid
     rung goes through the wallet widget, which writes the one-shot chompPaidLaunch mark with the token. A paid rung
-    is offered only while /api/live lists it open (CHOMP_PAID on, chomp:paid:off not thrown). */
- {id:'chomp',name:'Chomp',c:['#1a1726','#e8c860'],type:'p',ladder:1,
+    is offered only while /api/live lists it open (CHOMP_PAID on, chomp:paid:off not thrown). Its shown name is
+    shared/chompName.js (Pac-Man for now, Owen 2026-10-26). */
+ {id:'chomp',name:window.DS_CHOMP_NAME||'Chomp',c:['#1a1726','#e8c860'],type:'p',ladder:1,
   d:'Eat the dots, dodge the ghosts, and grab the coins anyone caught drops on the maze.'},
  /* Built, and free while it is new: no ladder, no lobby list, its own page,
     and none of the money path involved in it. `solo` is what says so. */
@@ -3868,6 +3871,13 @@ const AG_LOOKS=(AGS?AGS.SKINS:[]).map(s=>({id:'ag:'+s.id,game:'agar',ag:s,name:s
 let agSkinId='';
 try{agSkinId=String(localStorage.getItem(AGS?AGS.KEY:'')||'').trim()}catch(_){}
 if(!AG_LOOKS.some(s=>s.ag.id===agSkinId))agSkinId='';   /* unknown or stale: a dealt colour */
+/* Pac-Man (chomp) keeps one of its free colours (shared/chompSkins.js) the same way, under duel.chomp.skin, sent
+   by /chomp in its handshake (public/js/chomp/chompMain.js) and checked by its server (chompBoot.js skinOf). */
+const CHS=window.DS_CHOMP_SKINS;
+const CH_LOOKS=(CHS?CHS.SKINS:[]).map(s=>({id:'ch:'+s.id,game:'chomp',ch:s,name:s.name,col:s.col}));
+let chSkinId='';
+try{chSkinId=String(localStorage.getItem(CHS?CHS.KEY:'')||'').trim()}catch(_){}
+if(!CH_LOOKS.some(s=>s.ch.id===chSkinId))chSkinId='';   /* unknown or stale: the game's own look */
 /* What a game keeps: how to read the skin being worn, and how to store a new
    one (null is the game's free look: a random colour in both). */
 /* A paid skin (docs/skin-purchases.md) is worn through DSSkins (public/js/v2/skinBuy.js): its id under
@@ -3886,6 +3896,9 @@ const SAVED={
   agar:{worn:()=>paidWorn('agar')||AG_LOOKS.find(s=>s.ag.id===agSkinId)||null,
     put:s=>{wearPaid('agar',s);if(s&&s.shop)return;agSkinId=s&&s.ag?s.ag.id:'';
       try{if(agSkinId)localStorage.setItem(AGS.KEY,agSkinId);else localStorage.removeItem(AGS.KEY)}catch(_){}}},
+  chomp:{worn:()=>paidWorn('chomp')||CH_LOOKS.find(s=>s.ch.id===chSkinId)||null,
+    put:s=>{wearPaid('chomp',s);if(s&&s.shop)return;chSkinId=s&&s.ch?s.ch.id:'';
+      try{if(chSkinId)localStorage.setItem(CHS.KEY,chSkinId);else localStorage.removeItem(CHS.KEY)}catch(_){}}},
 };
 /* Every other game's only choice is its free look or a paid skin. */
 ['paper','knockout','battleship','omgshooter','tanks'].forEach(g=>{
@@ -3903,7 +3916,7 @@ function lookList(g){
   }):[];
   /* Every free skin first, then every paid one: one run of each. */
   const free=g.look?LOOKS
-    :[{id:'default',game:g.id,name:S.defaultName(g.id)}].concat(g.id==='agar'?AG_LOOKS:[]);
+    :[{id:'default',game:g.id,name:S.defaultName(g.id)}].concat(g.id==='agar'?AG_LOOKS:g.id==='chomp'?CH_LOOKS:[]);
   return free.concat(paid);
 }
 let LK=[];   /* what the open chooser lists, from lookList */
@@ -3945,11 +3958,11 @@ function paintLook(cv){
   const s=cv.dataset.skin?LK.find(l=>l.id===cv.dataset.skin):wornIn(cur);
   /* Any game but slither.io: its own piece, drawn alone, from shopArt. */
   if(key==='mini'&&cur&&!cur.look){
-    if(window.V2Shop){if(s&&s.ag)V2Shop.paintWith(cv,cur.id,{col:s.col},lookT,false,true);
+    if(window.V2Shop){if(s&&(s.ag||s.ch))V2Shop.paintWith(cv,cur.id,{col:s.col},lookT,false,true);
       else V2Shop.paint(cv,cur.id,s&&s.shop?s.shop.id:'default',lookT,false,true)}
     return}
   if(s&&s.game&&s.game!=='snake'){
-    if(s.ag)V2Shop.paintWith(cv,s.game,{col:s.col},lookT,false,true);
+    if(s.ag||s.ch)V2Shop.paintWith(cv,s.game,{col:s.col},lookT,false,true);
     else V2Shop.paint(cv,s.game,s.shop?s.shop.id:'default',lookT,false,true);
     return}
   /* slither.io: a free skin by number, a Shop skin by its stripe runs. */
@@ -4201,7 +4214,7 @@ function lookMeta(){
   document.getElementById('lookname').textContent=s.locked
     ?s.name+(s.sale?'':', coming soon')
     :s.owned?s.name+', yours'
-    :((s.cv!=null&&s.cv<9)||s.id==='default'||s.ag?s.name+'  ':'')+(lookIx+1)+' / '+LK.length;   /* a striped skin's name IS its number */
+    :((s.cv!=null&&s.cv<9)||s.id==='default'||s.ag||s.ch?s.name+'  ':'')+(lookIx+1)+' / '+LK.length;   /* a striped skin's name IS its number */
   const btn=document.querySelector('#lookveil .ap-save-btn');
   if(btn){const buy=!!(s.locked&&s.sale);
     btn.disabled=!!(s.locked&&!s.sale);
