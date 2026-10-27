@@ -2,6 +2,14 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-10-27-new-game-cards",
+      "date": "2026-10-27",
+      "tag": "new",
+      "title": "New game cards",
+      "body": "Every game in the lobby has a new card, all painted in one bright style with the game's name on it. The player count now sits at the top of the card so it never covers the name.",
+      "image": {"src": "/updates/new-game-cards.webp", "alt": "The lobby's row of new game cards: Pac-Man, Slither.io, Agar.io, Paper.io, Head Soccer, Swim, Knockout and Battleship"}
+    },
+    {
       "id": "2026-10-27-card-hover",
       "date": "2026-10-27",
       "tag": "new",

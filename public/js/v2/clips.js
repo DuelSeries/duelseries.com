@@ -63,7 +63,9 @@
   function poster(c) {
     if (c.provider === 'youtube') return 'https://i.ytimg.com/vi/' + encodeURIComponent(c.vid) + '/hqdefault.jpg';
     if (c.media && c.media.poster) return c.media.poster;
-    return '/img/games/' + (ART[c.game] || 'snake') + '-wide.png';
+    const g = ART[c.game] || 'snake';
+    // The lobby's card art (v2.html artSrc); the old wide png only if that is missing.
+    return window.V2_artSrc ? window.V2_artSrc(g, true) : '/img/games/' + g + '-wide.png';
   }
   function clock(ms) {
     const s = Math.round(ms / 1000);

@@ -79,7 +79,7 @@ test('the battle royale shows it is the slither.io game, and its state survives 
   const html = v2();
   // Owen's pick C (2026-10-16): Join rides the bar with Spectate, the slither.io art on it.
   const bar = html.slice(html.indexOf('<div class="evbar"'), html.indexOf('</main>', html.indexOf('<div class="evbar"')));
-  assert.ok(bar.includes('src="/img/games/snake.png"') && bar.includes('alt="Slither.io"'), 'the slither.io art, named, on Join');
+  assert.ok(bar.includes('src="/img/games/snake-card.webp?v=1"') && bar.includes('alt="Slither.io"'), 'the slither.io art, named, on Join');
   assert.ok(/getElementById\('ev-join-t'\)\|\|join\)\.textContent/.test(html), 'tick writes the label, not the button');
   assert.ok(/<h3 class="evname">Battle Royale<\/h3>/.test(html), 'one name for the event');
 });

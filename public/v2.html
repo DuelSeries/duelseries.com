@@ -85,7 +85,7 @@
   --fm:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace;
   /* Rail geometry, shared by the card width and the arrow placement so the
      two cannot drift apart. */
-  --gap:18px; --capGap:10px; --capH:34px;
+  --gap:18px; --capGap:0px; --capH:0px;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html{scroll-behavior:smooth}
@@ -434,8 +434,9 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
    2026-10-09; it was black on white), so it stands out on the lighter cards.
    White on 86% black is above 13:1 even over pure white art; the hairline ring
    is what keeps the pill's edge visible on the darkest paintings. Hidden until
-   the server has said, and for a game the server does not count. */
-.gpc{position:absolute;left:6px;bottom:6px;z-index:3;display:inline-flex;align-items:center;
+   the server has said, and for a game the server does not count. Top left since
+   the card art carries the game's name along its bottom (2026-10-27). */
+.gpc{position:absolute;left:6px;top:6px;z-index:3;display:inline-flex;align-items:center;
   gap:2px;padding:1px 6px 1px 4px;border-radius:999px;background:rgba(0,0,0,.86);
   color:#fff;font:700 10px/14px var(--fm);font-variant-numeric:tabular-nums;
   box-shadow:0 1px 3px rgba(0,0,0,.35),inset 0 0 0 1px rgba(255,255,255,.16);pointer-events:none}
@@ -455,6 +456,11 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
 .cap{margin:var(--capGap) 2px 0;min-height:var(--capH);
   display:flex;flex-direction:column}
 .cap h3{font-size:13px;font-weight:600;letter-spacing:-.1px;line-height:1.3}
+/* The card art carries the game's name (2026-10-27), so the caption under it is
+   kept for screen readers only, and --capGap/--capH are 0 so the rail arrows
+   centre on the art. To show it again: delete this rule and restore
+   --capGap:10px --capH:34px (phones 8px and 22px). */
+.cap h3{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 /* Arrows flank the rail rather than sitting in the corner, so they read as
    controls for the games rather than as page chrome. They live outside
    .rail because that clips overflow. Top, bottom and height are all set so
@@ -490,12 +496,12 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
      cards with a half of the next showing past each edge. Four put an 80px
      card on a 375px screen, too small to read the painting or the name. */
   .track{--per:3}
-  :root{--gap:10px; --capH:22px; --capGap:8px}
+  :root{--gap:10px; --capH:0px; --capGap:0px}
   .cap h3{font-size:13px}
   /* The card is ~110px wide here, so the badge scales with it. */
   .card.soon .art::after{width:38px;height:38px;margin:-19px 0 0 -19px;
     background-size:17px 17px}
-  .gpc{left:5px;bottom:5px;font-size:10px;line-height:13px;padding:1px 6px 1px 4px}
+  .gpc{left:5px;top:5px;font-size:10px;line-height:13px;padding:1px 6px 1px 4px}
   .gpc svg{width:9px;height:9px}
   .gpc .ldot{width:5px;height:5px;margin-right:1px}
   /* Small and tucked into the very edge. There used to be a gradient scrim
@@ -553,6 +559,9 @@ body.ingame>.howveil,body.ingame>.meveil,body.ingame>.apscreen,body.ingame>.bshe
   border-radius:var(--r2);border-color:transparent}
 .lswatch{width:34px;height:34px;border-radius:var(--r2);overflow:hidden;flex:0 0 auto}
 .lswatch svg,.lswatch .gart{display:block;width:100%;height:100%;object-fit:cover}
+/* The card art carries its name along the bottom; a square crop keeps the picture
+   above it rather than half the lettering. */
+.lswatch .gart{object-position:50% 20%}
 /* Name over its details, so the row is two things to read instead of five. */
 .lmid{display:flex;flex-direction:column;gap:3px;min-width:0}
 .lname{font-size:14.5px;font-weight:550}
@@ -967,7 +976,7 @@ body.ingame>.howveil,body.ingame>.meveil,body.ingame>.apscreen,body.ingame>.bshe
   pointer-events:none}
 .evgo:disabled::after{display:none}
 @media(prefers-reduced-motion:reduce){.evgo::after{animation:none;display:none}}
-.evart{width:40px;height:40px;border-radius:10px;object-fit:cover;flex:none;
+.evart{width:40px;height:40px;border-radius:10px;object-fit:cover;object-position:50% 20%;flex:none;
   transition:filter .15s,opacity .15s}
 /* The last ten minutes: Join breathes. Nothing else on the screen does. */
 .evgo.hot{animation:evhot 2.2s infinite}
@@ -2887,7 +2896,7 @@ body.scr-anim { overflow-x:hidden }
     <div class="evbar" id="ev-bar">
       <button type="button" class="evown" id="ev-own" hidden onclick="V2Event.ownerStart()">Start match now<small>Owner</small></button>
       <button type="button" class="evbtn evgo" id="ev-join" onclick="V2Play.launch('snake',{lobbyType:'br'})">
-        <img class="evart" src="/img/games/snake.png" alt="Slither.io" draggable="false">
+        <img class="evart" src="/img/games/snake-card.webp?v=1" alt="Slither.io" draggable="false">
         <span class="evt"><b id="ev-join-t">Join</b><small id="ev-join-s">Free entry</small></span>
       </button>
       <button type="button" class="evbtn evwatch" id="ev-watch" onclick="V2Play.spectateEvent()" style="visibility:hidden">
@@ -3210,6 +3219,16 @@ body.scr-anim { overflow-x:hidden }
    opponent. Rock Paper Scissors is decided by a coin, and a site that takes a
    cut of a coin flip is a gambling site wearing a game's clothes. That is not
    what this is, so it is gone rather than parked. */
+/* The card art (Owen's pick, 2026-10-27): one ChatGPT sheet in a single style, cut
+   into 2:3 webps (<id>-card.webp, 360x540) that carry the game's name, plus a wide
+   copy (<id>-card-wide.webp) for clip posters. Every surface asks artSrc, so a
+   replaced file is one ART_V bump. The old <id>.png, -wide.png and -loop files stay
+   on disk: point artSrc back at them to revert. */
+const ART_V=1;
+const artSrc=(id,wide)=>`/img/games/${id}-card${wide?'-wide':''}.webp?v=${ART_V}`;
+window.V2_artSrc=artSrc;
+/* The Events Join button's art is in the markup above; this keeps it on ART_V too. */
+{const e=document.querySelector('#ev-join .evart');if(e&&e.getAttribute('src')!==artSrc('snake'))e.src=artSrc('snake')}
 const GAMES=[
  /* `ladder:1` means this game's rooms are RUNGS, priced by stake, and that its
     Free is the stake-0 rung rather than a fixed tier. The play path needs that
@@ -3997,7 +4016,7 @@ function drawSkins(){
   if(row){row.disabled=!look;row.classList.toggle('snk',!!(cur&&cur.look))}
   if(img&&!look&&cur){
     if(cur.noart)img.removeAttribute('src');
-    else if(img.getAttribute('src')!=='/img/games/'+cur.id+'.png')img.src='/img/games/'+cur.id+'.png';
+    else if(img.getAttribute('src')!==artSrc(cur.id))img.src=artSrc(cur.id);
   }
   /* Just the word Customize beside the big preview (Owen, 2026-10-15): the
      line under it that named the skin ("Purple", "Random colour") is gone.
@@ -4439,20 +4458,22 @@ function art(g,still){
   if(g.noart)return `<div class="gart noart" style="background:${g.c[0]}"></div>`;
   if(!still&&LOOPS.has(g.id)){const b=`/img/games/${g.id}-loop`;
     return `<video class="gart" muted loop playsinline disablepictureinpicture disableremoteplayback preload="auto" poster="${b}.webp" aria-hidden="true"><source src="${b}.webm" type="video/webm"><source src="${b}.mp4" type="video/mp4"></video>`}
-  return `<img class="gart" src="/img/games/${g.id}.png" alt="" draggable="false">`;
+  return `<img class="gart" src="${artSrc(g.id)}" alt="" draggable="false">`;
 }
 /* The moving cards (Owen picked seven, 2026-10-27): each game's own renderer,
    staged headless and cut to a 3 to 5 s seamless loop, at 360x540 so the lot
    is about 1.4 MB. Head Soccer joined them later the same day (a real header
    goal, his pick). Bowmasters stays a still for now (his call). The lobby-row
-   swatches keep the png (V2_SWATCH asks for a still), like the canvas scenes.
+   swatches always take the still (V2_SWATCH asks for one), like the canvas scenes.
    Not gated on reduced motion, for the same reason as the scenes below.
    Only a card that is on screen plays, and none while a game is up: the rail
    holds three copies of every card and the game's iframe shares this thread.
    No autoplay attribute, so this is the one thing that starts them. Watching
    afresh on every call also drops the videos a re-render threw away, and the
    first callback says which of the new ones are in view. */
-const LOOPS=new Set(['chomp','snake','agar','paper','knockout','battleship','omgshooter','headsoccer']);
+/* Off since the named card art (2026-10-27): every card is its still. To bring the
+   moving cards back: new Set(['chomp','snake','agar','paper','knockout','battleship','omgshooter','headsoccer']) */
+const LOOPS=new Set([]);
 const loopIO='IntersectionObserver' in window?new IntersectionObserver(es=>es.forEach(e=>{
   const v=e.target;
   if(e.isIntersecting&&!_paused){const p=v.play();if(p)p.catch(()=>{})}else v.pause();
@@ -4802,7 +4823,9 @@ function open_(id){
   dart.style.display=live?'block':'none';
   still.style.display=live?'none':'block';
   still.style.backgroundColor=cur.c[0];
-  still.style.backgroundImage=cur.noart?'none':"url('/img/games/"+cur.id+"-wide.png')";
+  /* The card itself, cover-cropped and blurred: the wide copy's sharp card would
+     come up huge behind the controls with its name in it. */
+  still.style.backgroundImage=cur.noart?'none':"url('"+artSrc(cur.id)+"')";
   SCENES.delete(dart);
   document.getElementById('dname').textContent=cur.name;
   /* Play, or shut with a padlock on a game that is not open yet. */

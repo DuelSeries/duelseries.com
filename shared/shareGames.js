@@ -13,17 +13,17 @@
   'use strict';
   var SITE = 'https://duelseries.com';
   var GAMES = Object.freeze([
-    Object.freeze({ slug: 'snake', game: 'snake', name: 'Snake', accent: '#c080ff', image: '/og/snake.jpg',
+    Object.freeze({ slug: 'snake', game: 'snake', name: 'Snake', accent: '#c080ff', image: '/og/snake-card.jpg',
       blurb: 'Grow by eating and cut other snakes off. Free in your browser, no download.' }),
-    Object.freeze({ slug: 'paper', game: 'paper', name: 'Paper', accent: '#a887d6', image: '/og/paper.jpg',
+    Object.freeze({ slug: 'paper', game: 'paper', name: 'Paper', accent: '#a887d6', image: '/og/paper-card.jpg',
       blurb: 'Claim ground by looping back home before anyone crosses your trail. Free in your browser, no download.' }),
-    Object.freeze({ slug: 'cells', game: 'agar', name: 'Cells', accent: '#65c8e8', image: '/og/cells.jpg',
+    Object.freeze({ slug: 'cells', game: 'agar', name: 'Cells', accent: '#65c8e8', image: '/og/cells-card.jpg',
       blurb: 'Eat anything smaller than you, split to chase, stay clear of anything bigger. Free in your browser, no download.' }),
-    Object.freeze({ slug: 'chomp', game: 'chomp', name: 'Chomp', accent: '#e8c860', image: '/og/chomp.jpg',
+    Object.freeze({ slug: 'chomp', game: 'chomp', name: 'Chomp', accent: '#e8c860', image: '/og/chomp-card.jpg',
       blurb: 'Eat the dots, dodge the ghosts, and turn the tables with a power pellet. Free in your browser, no download.' }),
-    Object.freeze({ slug: 'knockout', game: 'knockout', name: 'Knockout', accent: '#e0a05c', image: '/og/knockout.jpg',
+    Object.freeze({ slug: 'knockout', game: 'knockout', name: 'Knockout', accent: '#e0a05c', image: '/og/knockout-card.jpg',
       blurb: 'Two pieces each on a shrinking disc. Aim, commit, and see whose read was right. Free 1v1 in your browser.' }),
-    Object.freeze({ slug: 'battleship', game: 'battleship', name: 'Battleship', accent: '#7b93c4', image: '/og/battleship.jpg',
+    Object.freeze({ slug: 'battleship', game: 'battleship', name: 'Battleship', accent: '#7b93c4', image: '/og/battleship-card.jpg',
       blurb: 'Hide your fleet, then find theirs first. Free 1v1 in your browser.' }),
   ]);
   var HOME = Object.freeze({

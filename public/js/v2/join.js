@@ -44,6 +44,8 @@
 
   const $ = (id) => document.getElementById(id);
   const NS = 'http://www.w3.org/2000/svg';
+  // The lobby's card art (v2.html artSrc); the old png only if that is missing.
+  const cardArt = (g) => (window.V2_artSrc ? window.V2_artSrc(g) : '/img/games/' + g + '.png');
   function el(tag, cls, text) {
     const n = document.createElement(tag);
     if (cls) n.className = cls;
@@ -99,7 +101,7 @@
     const m = el('span', 'jn-m jn-wh');
     const ph = el('span', 'jn-phone');
     const img = el('img');
-    img.src = '/img/games/snake.png'; img.alt = ''; img.draggable = false; img.decoding = 'async';
+    img.src = cardArt('snake'); img.alt = ''; img.draggable = false; img.decoding = 'async';
     ph.appendChild(img);
     m.appendChild(ph);
     return m;
@@ -159,7 +161,7 @@
     // Middle card first in the file, then out to the edges; join.css places them.
     ['snake', 'agar', 'paper', 'knockout', 'battleship'].forEach((g, i) => {
       const img = el('img', 'jn-c' + i);
-      img.src = '/img/games/' + g + '.png'; img.alt = ''; img.draggable = false; img.decoding = 'async';
+      img.src = cardArt(g); img.alt = ''; img.draggable = false; img.decoding = 'async';
       fan.appendChild(img);
     });
     const icon = el('img', 'jn-icon');

@@ -1,5 +1,6 @@
 /* The name players see for Chomp. Owen 2026-10-26: "just change it to Pac-Man for now... we'll change it back
-   later". Changing it back is this one line: NAME = 'Chomp'.
+   later". Changing it back is this one line: NAME = 'Chomp'. The lobby card art (public/img/games/chomp-card.webp,
+   2026-10-27) has PAC-MAN painted in, so a switch back also wants a new card picture.
 
    Everything a player reads takes it from here: the lobby card (public/v2.html), the game page's title, title card
    and paid cards (public/js/chomp/chompMain.js, chompPaid.js), the paid door's refusals (server/chomp/chompBoot.js)

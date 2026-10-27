@@ -2045,8 +2045,9 @@ test('each playable game card carries a people count, and a padlocked one does n
     }
     throw new Error('unterminated ' + name);
   };
-  // The slot: bottom left of the art, a person drawn as SVG (not an emoji), hidden until counted.
-  assert.ok(/\.gpc\{position:absolute;left:6px;bottom:6px/.test(html), 'bottom left of the card image');
+  // The slot: top left of the art (the art's name runs along the bottom), a person drawn as SVG
+  // (not an emoji), hidden until counted.
+  assert.ok(/\.gpc\{position:absolute;left:6px;top:6px/.test(html), 'top left of the card image');
   assert.ok(/\.gpc\{[^}]*background:rgba\(0,0,0,\.8\d\)[^}]*color:#fff/.test(html),
     'white person and number on a black pill (BACKLOG 1.2), so it stands out on light art');
   // The green dot beside the person exists only while somebody is playing.
