@@ -1664,18 +1664,8 @@ body.no-foot footer{display:none}
    field (in the header card now), Spectate and Customize are for a game you
    can play, so they go rather than sitting there shut. */
 #detail.soon .lookrow,#detail.soon .spec{display:none}
-/* Invite a friend: under Play and Spectate, on the Free rung of an open game
-   only (js/v2/invite.js copies the link). Quiet like Spectate; the link icon
-   turns into a tick for a moment once it is copied. On the paid rungs its
-   space stays, empty, so nothing below moves when you switch rungs (Owen,
-   2026-10-26: "I don't want them to shift"). */
-.invite{display:none;width:100%;height:40px;margin-top:8px;align-items:center;justify-content:center;
-  gap:8px;background:var(--s2);border-radius:var(--r2);color:var(--tx2);font-size:13.5px;
-  font-weight:650;transition:background .15s,color .15s}
-#detail:not(.soon) .invite{display:flex}
-#detail:not(.freerung) .invite{visibility:hidden}
-.invite:hover{background:var(--s3);color:var(--tx)}
-.invite.done{color:var(--tx)}
+/* No Invite a friend button on the game panel (Owen, 2026-10-27: "it's kind of in the way"): stake rows,
+   then Play, Spectate and Customize right under. /play/<game> links still work (js/v2/invite.js). */
 /* The narrowest phones (320 to 360 px): a rung is about 90 px there, so the
    words keep a little air on each side. Two classes deep so the phone block
    further down does not undo it. */
@@ -2770,16 +2760,6 @@ body.scr-anim { overflow-x:hidden }
         Spectate
       </button>
     </div>
-    <!-- Invite a friend (2026-10-26): copies duelseries.com/play/<game>, which
-         opens this game's free room for them (js/v2/invite.js). Free rung of
-         an open game only; a paid table is never something we invite to. -->
-    <button type="button" class="invite" id="invbtn" onclick="window.V2Invite&&V2Invite.copy()">
-      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
-           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
-        <path d="M19 8v6M22 11h-6"/></svg>
-      <span id="invlabel">Invite a friend</span>
-    </button>
     <div class="fine" id="play-msg" hidden style="color:var(--money)"></div>
 
     <!-- Customize (BACKLOG 3.1, Owen's name for it). The whole row is the

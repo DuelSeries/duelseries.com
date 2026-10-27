@@ -119,11 +119,9 @@ test('withMeta: the marked block only, and a page without marks is sent unchange
   assert.ok(SP.gameMeta(Object.assign({}, g, { name: '<b>"x"</b>' }), 'https://duelseries.com').includes('&lt;b&gt;&quot;x&quot;&lt;/b&gt;'), 'escaped');
 });
 
-test('the lobby: Invite a friend on the Free rung of an open game, and invite.js after the play module', () => {
+test('the lobby: no Invite a friend button (Owen 2026-10-27), and invite.js after the play module', () => {
   const html = read('public/v2.html');
-  assert.match(html, /<button type="button" class="invite" id="invbtn" onclick="window\.V2Invite&&V2Invite\.copy\(\)">/);
-  assert.ok(html.includes('#detail:not(.soon) .invite{display:flex}') && html.includes('#detail:not(.freerung) .invite{visibility:hidden}'),
-    'Free rung, open game only; the paid rungs keep its space so nothing shifts');
+  assert.ok(!html.includes('id="invbtn"') && !/\.invite\{/.test(html), 'the panel is stake rows, Play, Spectate, Customize');
   const shareAt = html.indexOf('<script src="/shared/shareGames.js"></script>');
   const invAt = html.indexOf('<script src="/js/v2/invite.js"></script>');
   assert.ok(html.indexOf('<script src="/js/v2/play.js"></script>') < shareAt && shareAt < invAt);
