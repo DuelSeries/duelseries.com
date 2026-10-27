@@ -53,6 +53,7 @@ class HeadSoccerRoom extends KnockoutRoom {
     this.turn = 0;                 // the lobby's watch order reads it: goals scored so far
     this.lastSnap = null;
     this.goldenCalled = false;     // the golden-goal call has been made (once a match)
+    this.halfDone = false;         // half time has been called (once a match)
   }
 
   sideOfSocket(socketId) {
@@ -85,6 +86,7 @@ class HeadSoccerRoom extends KnockoutRoom {
     const t = typeof now === 'number' ? now : Date.now();
     this.match = Sim.newMatch();
     this.goldenCalled = false;
+    this.halfDone = false;
     this.state = 'countdown';
     this.phaseEndsAt = t + HS.COUNTDOWN_MS;
     this.lastStepAt = t;
@@ -119,6 +121,8 @@ class HeadSoccerRoom extends KnockoutRoom {
     if ((this.state === 'goal' || this.state === 'half' || this.state === 'golden') && t >= this.phaseEndsAt) {
       // An equaliser on the 90:00 whistle still gets the golden-goal call before its kick-off.
       if (this.state === 'goal' && this.match.msLeft <= 0 && this.match.score[0] === this.match.score[1] && !this.goldenCalled) this.callGolden(t);
+      // A goal in the step that crossed 45:00 still gets its half time, after the goal's own break (review 2026-10-27).
+      else if (this.state === 'goal' && this.halfDue()) this.halfTime(t);
       else this.kickoffCount(t);
     }
     if (this.state === 'settling' && t >= this.phaseEndsAt) { this.finishByScore(); return; }
@@ -137,7 +141,6 @@ class HeadSoccerRoom extends KnockoutRoom {
        that took the clock to 0:00 (an equaliser on the buzzer) would end a level match as a draw instead of going
        to sudden death (review 2026-10-27). */
     const golden = live && this.match.msLeft <= 0 && HS.TIE === 'golden';
-    const before = this.match.msLeft;
     // Input only while play is live; in every break the pitch still moves (S: disableInput, the physics runs on).
     const ev = Sim.step(this.match, this.inputs, HS.STEP, live, live);
     for (const e of ev) {
@@ -147,16 +150,18 @@ class HeadSoccerRoom extends KnockoutRoom {
         this.phaseEndsAt = t + HS.GOAL_PAUSE_MS;
         this.broadcast('hs:goal', { s: e.s, score: this.match.score.slice() });
         if (golden) { this.whistle(t); return; }
+        /* A goal that leaves the clock at 0:00 with the score NOT level decides the match: whistle now, so the result
+           is settled by the score. Through the goal break and the kick-off count the state was not 'settling', and
+           the leader closing the tab there forfeited the pot to the side that lost (Fable review 2026-10-27). */
+        if (this.match.msLeft <= 0 && this.match.score[0] !== this.match.score[1]) { this.whistle(t); return; }
         break;
       }
     }
     if (ev.length) this.sendEvents(ev);
     if (live && this.state === 'playing') {
       // Half time: the step that takes the clock past 45:00 (S: Timer halftime callback, kickoff 3 s later).
-      if (before > HS.HALF_MS && this.match.msLeft <= HS.HALF_MS) {
-        this.state = 'half';
-        this.phaseEndsAt = t + HS.HALF_PAUSE_MS;
-        this.broadcast('hs:half', { score: this.match.score.slice(), msLeft: Math.round(this.match.msLeft) });
+      if (this.halfDue()) {
+        this.halfTime(t);
       } else if (this.match.msLeft <= 0) {
         const [a, b] = this.match.score;
         // Level at 90:00 is golden goal (the clock sits at 90:00 and the next goal wins), with a safety stop that
@@ -166,6 +171,16 @@ class HeadSoccerRoom extends KnockoutRoom {
       }
     }
     this.maybeSnap();
+  }
+
+  // Half time is due once the clock is past 45:00 (and not yet at full time), once per match.
+  halfDue() { return !this.halfDone && this.match.msLeft <= HS.HALF_MS && this.match.msLeft > 0; }
+
+  halfTime(t) {
+    this.halfDone = true;
+    this.state = 'half';
+    this.phaseEndsAt = t + HS.HALF_PAUSE_MS;
+    this.broadcast('hs:half', { score: this.match.score.slice(), msLeft: Math.round(this.match.msLeft) });
   }
 
   whistle(t) {

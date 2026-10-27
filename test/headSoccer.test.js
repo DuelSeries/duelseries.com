@@ -324,3 +324,34 @@ test('a ball resting on the crossbar does not ring the post every step', () => {
   for (let i = 0; i < 120; i++) for (const e of Sim.step(m, null, HS.STEP, false)) if (e.e === 'post') posts++;
   assert.ok(posts <= 1, 'posts: ' + posts);
 });
+
+test('a winning goal on the buzzer whistles at once: the scorer leaving in the break still wins', () => {
+  const { lob, settled } = lobby();
+  const { room } = paidMatch(lob, 1);
+  let t = run(room, 0, HS.COUNTDOWN_MS + 100);
+  room.match.score = [0, 0];
+  room.match.msLeft = HS.STEP * 1000 * 0.5;          // this step takes it to 0:00
+  const b = room.match.ball;                          // and this step's ball crosses into the left goal: 0-1
+  b.x = -HS.GOAL_LINE_X + 0.5; b.y = HS.SHELF_Y - HS.BALL_R; b.vx = -60; b.vy = 0;
+  room.stepOnce(t);
+  assert.deepStrictEqual(room.match.score, [0, 1]);
+  assert.strictEqual(room.state, 'settling', 'decided: straight to the whistle');
+  const scorer = [...room.players].find(([, p]) => p.side === 1)[0];
+  lob.leave(scorer);
+  assert.strictEqual(settled.length, 1);
+  assert.strictEqual(settled[0].winnerId, scorer, 'paid to the side that scored, not the one who stayed');
+});
+
+test('a goal in the step that crosses half time still gets the half-time break', () => {
+  const { lob } = lobby();
+  const { room } = paidMatch(lob, 1);
+  let t = run(room, 0, HS.COUNTDOWN_MS + 100);
+  room.match.msLeft = HS.HALF_MS + HS.STEP * 1000 * 0.5;
+  const b = room.match.ball;
+  b.x = -HS.GOAL_LINE_X + 0.5; b.y = HS.SHELF_Y - HS.BALL_R; b.vx = -60; b.vy = 0;
+  room.stepOnce(t);
+  assert.strictEqual(room.state, 'goal');
+  let sawHalf = false;
+  for (const end = t + HS.GOAL_PAUSE_MS + 500; t < end; t += 1000 / 60) { room.tick(t); if (room.state === 'half') sawHalf = true; }
+  assert.ok(sawHalf, 'half time after the goal break');
+});
