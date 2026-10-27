@@ -165,3 +165,27 @@ Caution: the footage is v1.0 (V1) and about v2.x (V2). The current app (v7.x) ha
 - Right-hand (opponent) gauge fill: detector failed on the right bar; only left (South Korea) measured.
 - Official web version: none found. Only third party clones and unofficial Chrome extensions. dnddream.com lists no web build.
 - Store screenshots: App Store and Play pages did not expose image URLs to the fetch tool, so geometry comes from video frames instead.
+
+## 8. What the build uses (shared/hsSim.js, units = the V2 frame's pixels)
+
+Measured, used as measured: field 1196 x 720, soles y 598, ball rest centre y 576, goal 66 deep, crossbar underside
+y 404, ball 37 across, head 80 x 70, body 22 under the head, start x 248 / 948, head centre limits 86..1110, walk 315,
+gravity 705 (ball and players: within 5% of each other, one Box2D world), jump 70 px, restitution 0.64, kick-off ball
+at centre y 226.5 at rest, match 1:00, goal pause 2.0 s (1.5 to 2.5), power gauge 20 s and full on conceding, power
+freeze 0.9 s, level at 0:00 is sudden death with no charging (wiki), the next touch after Power is the shot (wiki), the
+CPU fires its power shot as soon as it has it (wiki).
+
+Derived: jump take-off sqrt(2 x 705 x 70) = 314 px/s (airtime 0.89 s vs 0.87 measured); head collider a circle of
+radius 37.5 (mean half-axes); restitution 0.64 off every surface (Box2D takes the max of the two); damping 0.07/s from
+the in-air curvature; walk acceleration 3150 px/s^2 (full speed in 0.1 s).
+
+CHOSEN, because the reference could not be measured (say so to Owen):
+- Kick swing: 200 ms, rising for the first 90 ms through 1.1 rad; boot collider radius 12. A clean kick leaves at the
+  measured 520 px/s, nearly flat (0.17 rad, the measured vy -90) when met low on the boot, up to 0.75 rad when met high,
+  plus half the player's own speed (a running kick reaches about 680, inside the measured 520 to 700 typical band).
+- Power shot speed 870 px/s (the fastest flight seen; South Korea's real shot speed is UNKNOWN), flies flat until it
+  touches anything. No knock-out on the opponent (the "every third use" knock-out is a later-version rule).
+- Crossbar 9 px thick (8 to 10 by eye), solid; a ceiling at the top of the screen (none was seen up to y 78).
+- Start countdown 3 s showing KICK OFF (the original shows KICK OFF with no numbers; its length was not measured).
+- Sudden death safety stop: 5 minutes, then a draw (refunded on a paid table). Never reached in testing.
+- DuelSeries additions the original does not have: player names under the gauges, team-colour badges instead of flags.
