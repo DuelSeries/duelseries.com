@@ -656,7 +656,7 @@ socket.on('connect', () => {
    paid one keeps looking for a person (a bot cannot cover a stake) and Cancel
    gives the buy-in back at once. The server sends the real numbers in
    ko:queued; the minute starts here so the clock is up before the answer. */
-const WAIT_MS = 60000;
+const WAIT_MS = window.DS_DUEL_WAIT_MS;   // shared/duelWait.js, the server's number too
 let waiting = false, waitPaid = false, waitEndsAt = 0, waitTimer = 0, resumeKey = null;
 function clockText(ms) {
   const s = Math.max(0, Math.ceil(ms / 1000));

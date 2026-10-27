@@ -891,7 +891,7 @@ socket.on('connect', () => {
 
 /* THE WAIT (Owen 2026-10-21), the same as Knockout's: a minute on screen, then a bot on a free table,
    while a paid one keeps looking for a person and Cancel gives the buy-in back at once. */
-const WAIT_MS = 60000;
+const WAIT_MS = window.DS_DUEL_WAIT_MS;   // shared/duelWait.js, the server's number too
 let waiting = false, waitPaid = false, waitEndsAt = 0, waitTimer = 0, resumeKey = null;
 function clockText(ms) {
   const s = Math.max(0, Math.ceil(ms / 1000));

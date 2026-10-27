@@ -413,7 +413,7 @@ socket.on('sw:chat', (m) => {
 socket.on('sw:chatnote', (m) => { if (m) chat.add({ kind: 'sys', text: m.text }); });
 
 /* ── the queue and the wait (Knockout's, word for word) ───────────────── */
-const WAIT_MS = 60000;
+const WAIT_MS = window.DS_DUEL_WAIT_MS;   // shared/duelWait.js, the server's number too
 let waiting = false, waitPaid = false, waitEndsAt = 0, waitTimer = 0, resumeKey = null, overShown = false, lastOver = null;
 let restake = null, restakeLine = '', restakeTimer = 0, firstRace = true;
 function clockText(ms) { const s = Math.max(0, Math.ceil(ms / 1000)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }

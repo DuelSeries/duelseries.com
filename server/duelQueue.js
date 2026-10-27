@@ -6,7 +6,7 @@
    many people are waiting at each rung, and what a restart owes the seats it
    is about to lose.
 
-   THE WAIT (Owen 2026-10-21). A free seat waits a full minute for a person and
+   THE WAIT (Owen 2026-10-21, cut to 20 s 2026-10-27, shared/duelWait.js). A free seat waited a full minute for a person and
    is told so, with a countdown, before it is given a bot. The old wait was a
    random 9 to 22 seconds, and measured with two real clients it put two people
    who queued 35 s apart into two separate bot matches: the first had a bot and
@@ -25,8 +25,9 @@
 const crypto = require('crypto');
 const { refundBound } = require('./stakeRules');
 
-const FREE_WAIT_MS = 60000;            // a free seat's wait before its bot
-const PAID_WAIT_MS = 60000;            // the countdown a paid seat is shown
+const DUEL_WAIT_MS = require('../shared/duelWait');   // one number for every duel, server and page
+const FREE_WAIT_MS = DUEL_WAIT_MS;     // a free seat's wait before its bot
+const PAID_WAIT_MS = DUEL_WAIT_MS;     // the countdown a paid seat is shown
 const PAID_GIVE_UP_MS = 15 * 60000;    // and when an abandoned paid seat is refunded
 
 /* One person, two seats (two tabs, or a page that queued twice): never paired

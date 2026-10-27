@@ -47,13 +47,16 @@ function lobbies() {
 }
 const humans = (room) => [...room.players.keys()].filter(id => !String(id).startsWith('bot_'));
 
-test('the reported bug: two people 35 s apart meet each other, not a bot each', () => {
+/* The bug was two people 35 s apart under a minute's wait; with the wait now 20 s (shared/duelWait.js) the same
+   case is the second person arriving with a few seconds of the first one's countdown left. */
+test('the reported bug: two people inside one countdown meet each other, not a bot each', () => {
+  const apart = duelQueue.FREE_WAIT_MS - 3000;
   for (const k of lobbies()) {
     const A = sock('A'), B = sock('B');
     k.enq(k.lob, A, 'WA', 0, 0, k.T0);
-    for (let t = k.T0; t <= k.T0 + 35000; t += 200) k.lob.tick(t);
-    assert.equal(k.lob.roomOf('A'), null, k.name + ': nobody gets a bot inside the minute');
-    k.enq(k.lob, B, 'WB', 0, 0, k.T0 + 35000);
+    for (let t = k.T0; t <= k.T0 + apart; t += 200) k.lob.tick(t);
+    assert.equal(k.lob.roomOf('A'), null, k.name + ': nobody gets a bot inside the countdown');
+    k.enq(k.lob, B, 'WB', 0, 0, k.T0 + apart);
     const room = k.lob.roomOf('A');
     assert.ok(room && room === k.lob.roomOf('B'), k.name + ': the two of them, together');
     assert.ok(!room.bot, k.name + ': and no bot');
@@ -67,7 +70,7 @@ test('two at once are matched at once; one alone plays a bot at 0:00, and the sc
     assert.ok(k.lob.roomOf('A') && k.lob.roomOf('A') === k.lob.roomOf('B'), k.name);
     const C = sock('C');
     k.enq(k.lob, C, 'WC', 0, 0, k.T0);
-    k.lob.tick(k.T0 + 59000);
+    k.lob.tick(k.T0 + duelQueue.FREE_WAIT_MS - 1000);
     assert.equal(k.lob.roomOf('C'), null, k.name + ': still looking at 0:01');
     k.lob.tick(k.T0 + duelQueue.FREE_WAIT_MS + 300);
     const room = k.lob.roomOf('C');
@@ -295,8 +298,8 @@ test('the real server: two clients meet, the board counts the one waiting, and a
         const gotQueued = first(A, queued);
         A.emit(q, { name: 'Alice', wallet: 'WalletAlice' });
         const qa = await gotQueued;
-        assert.equal(qa.waitMs, 60000, game + ': the minute the screen counts down');
-        assert.equal(qa.botAfterMs, 60000);
+        assert.equal(qa.waitMs, 20000, game + ': the 20 s the screen counts down');
+        assert.equal(qa.botAfterMs, 20000);
         assert.match(qa.resumeKey, /^[0-9a-f]{32}$/);
         const row = (await live()).extras.find(e => e.id === game + ':free');
         assert.equal(row.waiting, 1, game + ': Open lobbies counts the person waiting');

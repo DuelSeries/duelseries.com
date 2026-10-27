@@ -182,6 +182,7 @@ function boot(file, storage, { framed = true } = {}) {
   win.parent = framed ? { postMessage: (m) => posted.push(m) } : win;
   win.window = win;
   const ctx = vm.createContext(win);
+  vm.runInContext(fs.readFileSync(path.join(ROOT, 'shared', 'duelWait.js'), 'utf8'), ctx, { filename: 'duelWait.js' });
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'public', 'js', 'shared', 'dsEnd.js'), 'utf8'), ctx, { filename: 'dsEnd.js' });
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'public', 'js', 'shared', 'dsWatchBar.js'), 'utf8'), ctx, { filename: 'dsWatchBar.js' });
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'public', 'js', file), 'utf8'), ctx, { filename: file });
@@ -890,12 +891,12 @@ for (const [file, q, queued, unqueue, unqueued] of [
     const page = boot(file, { playerName: 'Owen' });
     page.deliver('connect');
     assert.strictEqual(page.sent(q).length, 1);
-    assert.match(page.$('waitMain').textContent, /^Looking for a player… (1:00|0:59)$/);
+    assert.match(page.$('waitMain').textContent, /^Looking for a player… (0:20|0:19)$/);
     assert.match(page.$('waitSub').textContent, /you'll play a bot/);
     assert.strictEqual(page.$('waitCancel').textContent, 'Back to the lobby');
     const key = 'ab'.repeat(16);
-    page.deliver(queued, { waitMs: 60000, waitingMs: 15000, resumeKey: key, stake: 0 });
-    assert.match(page.$('waitMain').textContent, /… 0:4[45]$/, 'the server\'s numbers');
+    page.deliver(queued, { waitMs: 20000, waitingMs: 5000, resumeKey: key, stake: 0 });
+    assert.match(page.$('waitMain').textContent, /… 0:1[45]$/, 'the server\'s numbers');
     page.deliver('connect');                                  // a reconnect while waiting
     const again = page.sent(q);
     assert.strictEqual(again.length, 2);
@@ -907,7 +908,7 @@ for (const [file, q, queued, unqueue, unqueued] of [
     page.deliver('connect');
     assert.match(page.$('waitSub').textContent, /Real players only, never a bot/);
     assert.strictEqual(page.$('waitCancel').textContent, 'Cancel and refund');
-    page.deliver(queued, { waitMs: 60000, waitingMs: 60000, resumeKey: 'cd'.repeat(16), stake: 1 });
+    page.deliver(queued, { waitMs: 20000, waitingMs: 20000, resumeKey: 'cd'.repeat(16), stake: 1 });
     assert.strictEqual(page.$('waitMain').textContent, 'Still looking for a player');
     page.$('waitCancel').click();
     assert.strictEqual(page.sent(unqueue).length, 1, 'refund asked for');
