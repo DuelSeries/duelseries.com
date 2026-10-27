@@ -2088,11 +2088,14 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
   /* The Live wins row on a phone (Owen 2026-10-27): smaller cards, and the Games heading keeps its phone gap. */
   .tickerwrap.top{margin-top:12px}
   .tickerwrap.top+.head{margin-top:18px}
-  .tkc{width:60px;margin-right:8px}
-  .tkc img{width:60px;height:84px;border-radius:7px}
+  /* Picture only on a phone (Owen 2026-10-27): the top of the art, so the game's name and the DUELSERIES line
+     printed on every card stay out of the square. 20% down the spare height keeps the hero centred and still clears
+     the lowest title (Head Soccer's), checked on all 16 cards. */
+  .tkc{width:54px;margin-right:8px}
+  .tkc img{width:54px;height:56px;border-radius:7px;object-position:50% 20%}
   .tkc .nm{font-size:10.5px;gap:3px}
   .tkc .am{font-size:11.5px}
-  .tickerwrap.top .ltag{font-size:9px;padding:2px 5px 2px 4px;gap:3px;left:2px;top:2px}
+  .tickerwrap.top .ltag{font-size:9px;padding:2px 4px 2px 3px;gap:3px;left:2px;top:2px}
   .ltag .dot{width:5px;height:5px}
   .tiles{grid-template-columns:1fr 1fr;gap:10px}
   .tile{padding:15px 16px}
