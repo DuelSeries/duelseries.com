@@ -14,7 +14,7 @@
      · a restart owes every held paid seat a 100% 'agowed:' refund row
    and then the game itself (Heads Arena Euro Soccer's rules and numbers,
    docs/head-soccer-reference.md): inputs are clamped, the clock ends a match,
-   half time breaks it, a goal counts, the kick is the reference's, and two bots
+   golden goal settles a level one, a goal counts, the kick is the reference's, and two bots
    finish a match with goals in it. */
 
 const test = require('node:test');
@@ -145,7 +145,7 @@ test('level at full time is sudden death: nothing settles, and the next goal win
   t = run(room, t, 200);
   assert.strictEqual(room.state, 'golden', 'the golden-goal call');
   t = run(room, t, HS.GOLDEN_FLASH_MS + HS.COUNTDOWN_MS + 200);
-  assert.strictEqual(settled.length, 0, 'no result at 90:00 while level');
+  assert.strictEqual(settled.length, 0, 'no result at 0:00 while level');
   assert.strictEqual(room.state, 'playing');
   // A goal for the right-hand seat (into the left goal).
   const b = room.match.ball;
@@ -240,32 +240,46 @@ test('two bots play a whole match to a result, with goals and kicks in it', () =
   assert.ok(kicks > 0, 'and the bots kick');
 });
 
-test('half time: the step past 45:00 stops play for 3 s, then both go back to their spots and count down', () => {
+test('no half time: the clock runs 2:00 down to 0:00 with no break, then a decided match settles once', () => {
+  const { lob, settled } = lobby();
+  const { room } = paidMatch(lob, 1);
+  let t = run(room, 0, HS.COUNTDOWN_MS + 100);
+  assert.strictEqual(room.state, 'playing');
+  room.match.score = [1, 0];
+  const states = new Set();
+  for (const end = t + HS.MATCH_MS + 200; t < end; t += 1000 / 60) { room.tick(t); states.add(room.state); }
+  assert.ok(!states.has('half') && !states.has('kickoff'), 'no break on the way: ' + [...states].join(','));
+  assert.strictEqual(room.match.msLeft, 0);
+  assert.strictEqual(room.state, 'settling', 'the whistle at 0:00');
+  run(room, t, HeadSoccerRoom.WIN_HOLD_MS + 200);
+  assert.strictEqual(settled.length, 1, 'settled once');
+  assert.strictEqual(settled[0].winnerId, room.players.get('A').side === 0 ? 'A' : 'B');
+});
+
+test('a free match also ends at 0:00 and settles once, with no money on it', () => {
   const room = new HeadSoccerRoom(io);
   room.addPlayer(sock('A'), 'A', null);
   room.addPlayer(sock('B'), 'B', null);
+  const fin = room.finish.bind(room);
+  let finishes = 0;
+  room.finish = (...a) => { finishes++; return fin(...a); };
   let t = 0;
   room.start(t);
   t = run(room, t, HS.COUNTDOWN_MS + 100);
-  assert.strictEqual(room.state, 'playing');
-  room.match.msLeft = HS.HALF_MS + 5;
-  room.match.p[0].x = 300;
-  t = run(room, t, 100);
-  assert.strictEqual(room.state, 'half');
-  assert.strictEqual(Sim.clockDigits(room.match.msLeft).slice(0, 2), '45');
-  t = run(room, t, HS.HALF_PAUSE_MS + 50);
-  assert.strictEqual(room.state, 'kickoff');
-  assert.ok(Math.abs(room.match.p[0].x + HS.START_X) < 1, 'back on the spot');
-  const frozen = room.match.msLeft;
-  for (let i = 0; i < 400 && room.state !== 'playing'; i++) { t += 1000 / 60; room.tick(t); }
-  assert.strictEqual(room.state, 'playing');
-  assert.ok(Math.abs(room.match.msLeft - frozen) < 40, 'the clock did not run through the break');
+  room.match.score = [0, 2];
+  t = run(room, t, HS.MATCH_MS + 200 + HeadSoccerRoom.WIN_HOLD_MS + 200);
+  assert.strictEqual(room.state, 'over');
+  assert.strictEqual(finishes, 1);
 });
 
-test('the clock shows 90 game minutes over the 60 s, and the kick is the reference one', () => {
-  assert.strictEqual(Sim.clockDigits(HS.MATCH_MS), '0000');
-  assert.strictEqual(Sim.clockDigits(HS.MATCH_MS - 1000), '0130');
-  assert.strictEqual(Sim.clockDigits(0), '9000');
+test('the clock counts down from 2:00 to 0:00, and the kick is the reference one', () => {
+  assert.strictEqual(HS.MATCH_MS, 120000);
+  assert.strictEqual(Sim.clockDigits(HS.MATCH_MS), '0200');
+  assert.strictEqual(Sim.clockDigits(HS.MATCH_MS - 1), '0200', 'a second shows until it has gone');
+  assert.strictEqual(Sim.clockDigits(HS.MATCH_MS - 1000), '0159');
+  assert.strictEqual(Sim.clockDigits(60000), '0100');
+  assert.strictEqual(Sim.clockDigits(400), '0001');
+  assert.strictEqual(Sim.clockDigits(0), '0000');
   // Measured in the reference: a grounded player facing right, ball 150 ahead and 50 up -> (437, -2007).
   const p = Sim.newPlayer(0); p.ground = true; p.left = false;
   const aim = Sim.kickAim(p, { x: p.x + 150, y: p.y - 50 });
@@ -342,16 +356,30 @@ test('a winning goal on the buzzer whistles at once: the scorer leaving in the b
   assert.strictEqual(settled[0].winnerId, scorer, 'paid to the side that scored, not the one who stayed');
 });
 
-test('a goal in the step that crosses half time still gets the half-time break', () => {
-  const { lob } = lobby();
-  const { room } = paidMatch(lob, 1);
+test('golden goal lasts one minute of play: the board counts it down, and still level it is a refunded draw', () => {
+  const { lob, settled } = lobby();
+  const { room } = paidMatch(lob, 0.5);
   let t = run(room, 0, HS.COUNTDOWN_MS + 100);
-  room.match.msLeft = HS.HALF_MS + HS.STEP * 1000 * 0.5;
-  const b = room.match.ball;
-  b.x = -HS.GOAL_LINE_X + 0.5; b.y = HS.SHELF_Y - HS.BALL_R; b.vx = -60; b.vy = 0;
-  room.stepOnce(t);
-  assert.strictEqual(room.state, 'goal');
-  let sawHalf = false;
-  for (const end = t + HS.GOAL_PAUSE_MS + 500; t < end; t += 1000 / 60) { room.tick(t); if (room.state === 'half') sawHalf = true; }
-  assert.ok(sawHalf, 'half time after the goal break');
+  room.match.score = [1, 1];
+  room.match.msLeft = 10;
+  t = run(room, t, 200);
+  assert.strictEqual(room.state, 'golden');
+  assert.strictEqual(room.snapshot().g, HS.GOLDEN_MAX_MS, 'the board shows the full minute');
+  t = run(room, t, HS.GOLDEN_FLASH_MS + HS.COUNTDOWN_MS + 200);
+  assert.strictEqual(room.state, 'playing');
+  // Keep the ball out of both goals for the minute.
+  const hold = () => { const b = room.match.ball; b.x = 0; b.y = 300; b.vx = 0; b.vy = 0; };
+  let half = null;
+  for (const end = t + HS.GOLDEN_MAX_MS - 2000; t < end; t += 1000 / 60) {
+    hold(); room.tick(t);
+    if (half === null && room.match.goldenMs >= 30000) half = room.snapshot().g;
+  }
+  assert.ok(Math.abs(half - 30000) < 100, 'half way: ' + half);
+  assert.strictEqual(settled.length, 0, 'still playing with 2 s left');
+  for (const end = t + 2500; t < end; t += 1000 / 60) { hold(); room.tick(t); }
+  assert.strictEqual(room.state, 'settling', 'the whistle after the minute');
+  run(room, t, HeadSoccerRoom.WIN_HOLD_MS + 200);
+  assert.strictEqual(settled.length, 1);
+  assert.strictEqual(settled[0].winnerId, null);
+  assert.deepStrictEqual(settled[0].seats.map(s => s.refund).sort(), [0.5, 0.5]);
 });

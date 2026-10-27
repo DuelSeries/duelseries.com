@@ -8,7 +8,7 @@
    press swings (player-kick), a kick that connects thumps harder the faster it
    sends the ball (normal under 1200, hard under 1400, hardest above), a jump,
    the grass, the crossbar (metal) and the net (wood), the countdown's beeps, the
-   whistle at 0, the half-time whistle and the crowd on a goal.
+   whistle at 0, the golden-goal horn and the crowd on a goal.
      a boot on the ball  hs.kick       a low thump with a slap of noise
      a header            hs.head       a short cartoon bonk
      the woodwork        hs.post       a metal clang that rings off
@@ -113,7 +113,6 @@
       root.setTimeout(() => play('hs.horn', { vol: 0.9, gap: 800 }), 140);
     });
     socket.on('hs:whistle', () => play('hs.whistleEnd', { gap: 800 }));
-    socket.on('hs:half', () => play('hs.whistleEnd', { gap: 800 }));
     socket.on('hs:golden', () => play('hs.horn', { vol: 0.9, gap: 800 }));
     socket.on('hs:refused', () => play('g.err', { vol: 0.7 }));
     socket.on('hs:over', (m) => {

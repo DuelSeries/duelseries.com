@@ -1,6 +1,6 @@
 'use strict';
 /* ─── Head Soccer, the client ─────────────────────────────────────────────────
-   Two big heads, one ball, a minute on the clock. This page draws the match
+   Two big heads, one ball, two minutes on the clock. This page draws the match
    (public/js/headsoccer/hsArt.js paints it), reads your keys or thumbs, and
    sends the server what you are pressing.
 
@@ -125,11 +125,11 @@ let restakeLine = '';         // a restake's error, said on the card
 let restakeTimer = 0;
 
 let clockC = HS.MATCH_MS, clockAt = 0, clockShown = HS.MATCH_MS;   // the server's msLeft, when it came, what is shown
-let clockText = '0000';       // the board's MMSS (90 game minutes over the 60 s)
+let goldC = -1;               // in golden goal: its minute's ms left (the board counts it down), else -1
+let clockText = '0200';       // the board's MMSS, the time left
 let goalAt = -1e9;            // the GOAL! word's start
 let goalGolden = false;       // that goal was the golden one
-let goldenAt = -1e9;          // the GOLDEN GOAL call (level at 90:00)
-let halfAt = -1e9;            // HALF TIME
+let goldenAt = -1e9;          // the GOLDEN GOAL call (level at 0:00)
 let countAt = -1e9;           // the 3, 2, 1, 0 countdown's start (the opening one or a kick-off's)
 let playAt = -1e9;            // when play last started (the 0 shows for 600 ms after it)
 let lastCount = -1;           // the number last shown, for its tick
@@ -441,7 +441,7 @@ function onSnap(s) {
   base.p[0] = Sim.unpackPlayer(s.p[0], 0);
   base.p[1] = Sim.unpackPlayer(s.p[1], 1);
   if (Array.isArray(s.sc) && s.sc.length === 2) score = [s.sc[0] | 0, s.sc[1] | 0];
-  if (typeof s.c === 'number' && s.c >= 0) { clockC = s.c; clockAt = t; }
+  if (typeof s.c === 'number' && s.c >= 0) { clockC = s.c; clockAt = t; goldC = typeof s.g === 'number' && s.g >= 0 ? s.g : -1; }
   if (!WATCH && mySeat >= 0 && Array.isArray(s.a)) {
     baseAck = Number(s.a[mySeat]) || 0;
     // Changes the server has had are only needed back to the newest of them.
@@ -454,9 +454,9 @@ function onSnap(s) {
 }
 socket.on('hs:snap', onSnap);
 
-/* Phases: countdown (the opening one), kickoff (the same after a break), playing, goal, half, golden, settling,
+/* Phases: countdown (the opening one), kickoff (the same after a break), playing, goal, golden, settling,
    over. The pitch moves in all of them but over, so the replay runs through them all; only playing takes input. */
-const LIVE_PHASES = { countdown: 1, kickoff: 1, playing: 1, goal: 1, half: 1, golden: 1, settling: 1 };
+const LIVE_PHASES = { countdown: 1, kickoff: 1, playing: 1, goal: 1, golden: 1, settling: 1 };
 function setPhase(p, t) {
   if (p === phase) return;
   const was = phase;
@@ -627,9 +627,9 @@ function update(now, dt) {
   drawable = true;
   // The whole input again every 250 ms while the match runs: a dropped message heals itself.
   if (canPlay() && phase !== 'settling' && now - sentAt > 250) sendInput(false);
-  // The board: the server's msLeft, run down smoothly between snapshots while play is live, shown as game time.
-  let ms = clockC;
-  if (phase === 'playing') ms = clockC - (now - clockAt);
+  // The board: the time left (in golden goal, its minute's), run down smoothly between snapshots while play is live.
+  let ms = clockC > 0 || goldC < 0 ? clockC : goldC;
+  if (phase === 'playing') ms -= now - clockAt;
   ms = Math.max(0, ms);
   if (ms < clockShown || ms > clockShown + 600) clockShown = ms;
   clockText = Sim.clockDigits(clockShown);
@@ -641,7 +641,7 @@ function update(now, dt) {
     const a = anim[i], p = rp[i];
     a.blink = ((now / 1000 + i * 1.7) % 3.4) < 0.12;
     if (now > moodUntil) a.mood = 0;
-    if (p.mv && p.ground) a.run += dt * 0.06;
+    if (p.mv && p.ground && !(p.kickMs >= 0 && p.kickMs < HS.KICK_MS)) a.run += dt * 0.06;   // their run steps stop during a kick
     // A new kick: the boot's target is where the ball is right now (S: kick() moves the boot to the ball).
     if (p.kickMs >= 0 && (a.kickMs < 0 || p.kickMs < a.kickMs)) {
       const dx = (rb.x - HS.KICK_AIM_X * (i === 0 ? 1 : -1)) - p.x, dy = (rb.y - HS.KICK_AIM_Y) - p.y;
@@ -677,7 +677,7 @@ function draw(now) {
     // The other player first, so mine is on top where two heads meet.
     const first = mySeat === 1 ? 0 : 1;
     drawPlayer(first, now); drawPlayer(1 - first, now);
-    art.ballAt(ctx, rb.x, rb.y, rb.rot, clockC <= 0 && (phase === 'playing' || phase === 'kickoff' || phase === 'goal' || phase === 'settling'));
+    art.ballAt(ctx, rb.x, rb.y, rb.rot, goldC >= 0 && (phase === 'playing' || phase === 'kickoff' || phase === 'goal' || phase === 'settling'));
     art.goalFronts(ctx);
     if (mySeat >= 0 && (phase === 'countdown' || (kickoffs === 1 && now - firstKickAt < 1500))) art.youMark(ctx, rp[mySeat].x, rp[mySeat].y, now);
   }
@@ -691,13 +691,13 @@ function draw(now) {
     hud.plate = platesOn;
     hud.keys = !touchUI && !WATCH && canPlay();
     hud.scoreBig = (phase === 'settling' || (phase === 'over' && !overShown)) ? Math.max(1, now - whistleAt) : 0;
+    hud.sudden = goldC >= 0 && now - goldenAt >= 2000 && (phase === 'kickoff' || phase === 'playing' || phase === 'goal');
     art.hudDraw(ctx, hud, now);
     const n = countNumber(now);
     if (n >= 0) art.countText(ctx, n, n === 0 ? now - playAt : (now - countAt) % HS.COUNT_STEP_MS);
     const gm = now - goalAt;
     if (gm >= 0 && gm < 3000) art.goalFlash(ctx, gm, goalGolden);
-    else if (now - goldenAt < 3000) art.goalFlash(ctx, now - goldenAt, true);
-    if (now - halfAt < 2000) art.flashText(ctx, 'Half time', now - halfAt);
+    else if (now - goldenAt < 2000) art.flashText(ctx, 'SUDDEN DEATH', now - goldenAt);
   }
   ctx.restore();
   // The phone buttons, in CSS pixels.
@@ -773,7 +773,7 @@ function startMatch(m) {
   overShown = false; lastOver = null;
   phase = null; setPhase(m.state || 'countdown');
   if (m.state === 'countdown') countAt = performance.now() - Math.max(0, HS.COUNTDOWN_MS - (Number(m.phaseMs) || HS.COUNTDOWN_MS));
-  goalAt = -1e9; goldenAt = -1e9; halfAt = -1e9; whistleAt = -1e9; playAt = -1e9; goalGolden = false;
+  goalAt = -1e9; goldenAt = -1e9; whistleAt = -1e9; playAt = -1e9; goalGolden = false; goldC = -1;
   kickoffs = m.state === 'countdown' ? 0 : 1; firstKickAt = -1e9;
   platesOn = m.state !== 'countdown';
   countAt = performance.now() - Math.max(0, HS.COUNTDOWN_MS - (Number(m.phaseMs) || HS.COUNTDOWN_MS)); lastCount = -1;
@@ -910,7 +910,7 @@ socket.on('hs:kickoff', (m) => {
   setPhase('playing', t);
 });
 
-/* Back to the spots after a goal, half time or the golden-goal call, and the countdown again. */
+/* Back to the spots after a goal or the golden-goal call, and the countdown again. */
 socket.on('hs:count', (m) => {
   if (!match) return;
   const t = performance.now();
@@ -919,24 +919,17 @@ socket.on('hs:count', (m) => {
   forceSnap = true;                        // the jump back to the spots is a jump, not something to ease
   setPhase('kickoff', t);
 });
-socket.on('hs:half', (m) => {
-  if (!match) return;
-  const t = performance.now();
-  halfAt = t;
-  if (m && typeof m.msLeft === 'number') { clockC = m.msLeft; clockAt = t; }
-  setPhase('half', t);
-});
 socket.on('hs:golden', () => {
   if (!match) return;
   const t = performance.now();
-  goldenAt = t; clockC = 0; clockAt = t;
+  goldenAt = t; clockC = 0; clockAt = t; goldC = HS.GOLDEN_MAX_MS;
   setPhase('golden', t);
 });
 
 socket.on('hs:goal', (m) => {
   if (!match || !m) return;
   const t = performance.now();
-  goalGolden = clockC <= 0;
+  goalGolden = goldC >= 0;
   goalAt = t;
   if (Array.isArray(m.score)) score = [m.score[0] | 0, m.score[1] | 0];
   // S: responseAnimations: the scorer cheers, the other is sad, for 3 s.
@@ -1019,7 +1012,7 @@ function paintOver() {
     card.facts = time ? [['Time', time]] : [];
   }
   if (m.why === 'opponent left') card.notes.push('They left the match.');
-  else if (m.why === 'a draw') card.notes.push('Still level after ' + Math.round(HS.GOLDEN_MAX_MS / 60000) + ' minutes of sudden death.');
+  else if (m.why === 'a draw') card.notes.push('Still level after the minute of sudden death.');
 
   /* The same three buttons on every card, paid and free: Lobby, Spectate, Play again. Lobby and Spectate are shut
      while the wallet is open: the lobby blanks this frame on game:done, and a token minted after that would have
@@ -1392,7 +1385,7 @@ fit();
 /* The canvas lettering (GOAL!, KICK OFF, the scores, the ad board) is Archivo's heavy italics: once they have
    loaded, the parts painted ahead of time are painted again with them. */
 if (document.fonts && document.fonts.load) {
-  Promise.all(['italic 900 40px Archivo', 'italic 800 25px Archivo', '800 14px Archivo', '700 16px Archivo']
+  Promise.all(['italic 900 40px Archivo', 'italic 800 25px Archivo', '800 14px Archivo', '700 16px Archivo', '700 40px "Sofia Sans Extra Condensed"']
     .map(f => document.fonts.load(f).catch(() => null)))
     .then(() => build(VIEW.s * VIEW.dpr));
 }

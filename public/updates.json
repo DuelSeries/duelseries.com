@@ -2,6 +2,17 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-10-27-head-soccer-two-minutes",
+      "date": "2026-10-27",
+      "tag": "new",
+      "title": "Head Soccer: new look, 2-minute matches",
+      "body": "Head Soccer has been redrawn from top to bottom: the stadium and its crowd, the goals and nets, the big scoreboard, and two new big-headed players.\n\nEvery match is now one 2-minute game, counting down from 2:00 on the board, with no half time.\n\nLevel at 0:00? One minute of sudden death: the next goal wins. If nobody scores in that minute, it ends in a draw.",
+      "image": {
+        "src": "/updates/head-soccer-two-minutes.webp",
+        "alt": "Head Soccer at kick-off: the packed stadium, the scoreboard reading 02:00, two big-headed players and the ball on the pitch"
+      }
+    },
+    {
       "id": "2026-10-27-slither-card-real-play",
       "date": "2026-10-27",
       "tag": "new",
@@ -13,7 +24,7 @@
       "date": "2026-10-27",
       "tag": "new",
       "title": "Head Soccer has a new look",
-      "body": "Head Soccer now plays in a sunny stadium packed with fans. The big board counts the match from 00:00 to 90:00 with half time at 45:00, and the score sits at the bottom of the screen.\n\nEvery kick-off counts down 3, 2, 1 while the ball drops onto the centre spot. Run with the arrow keys, jump with Up (press it again in the air for a second jump) and kick with Space. On a phone the arrows are bottom left, Kick and Jump bottom right.\n\nLevel at 90:00? Golden goal: the next goal wins.",
+      "body": "Head Soccer now plays in a sunny stadium packed with fans. The score sits at the bottom of the screen.\n\nEvery kick-off counts down 3, 2, 1 while the ball drops onto the centre spot. Run with the arrow keys, jump with Up (press it again in the air for a second jump) and kick with Space. On a phone the arrows are bottom left, Kick and Jump bottom right.",
       "image": {
         "src": "/updates/head-soccer-new-look.webp",
         "alt": "Two big-headed players and the ball in the new Head Soccer stadium, with the clock on the big board and the score at the bottom"

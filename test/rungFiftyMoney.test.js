@@ -71,6 +71,7 @@ const until = async (fn, ms = 6000) => {
 };
 
 let port, ledgerDb, REVENUE;
+let hsLobby = null;    // the real index.js's Head Soccer lobby, caught when it starts (the sudden-death proofs drive its room)
 let landed = 0.5;
 let payer = 'Payer0';
 let sigN = 0;
@@ -90,6 +91,9 @@ test.before(async () => {
   ]);
   const log = console.log; const warn = console.warn;
   console.log = () => {}; console.warn = () => {};
+  const { HeadSoccerLobby } = require(path.join(ROOT, 'server', 'HeadSoccerLobby.js'));
+  const hsStart = HeadSoccerLobby.prototype.start;
+  HeadSoccerLobby.prototype.start = function () { hsLobby = this; return hsStart.apply(this, arguments); };
   try {
     ({ ledgerDb } = require(path.join(ROOT, 'scripts', 'dev-local.js')));
   } finally {
@@ -249,6 +253,62 @@ test('Battleship at $0.50: the same split through its own lobby', async () => {
 
 test('Head Soccer at $0.50: the same split through its own lobby (the Knockout queue and room underneath)', async () => {
   await duel('hs', 'Hs');
+});
+
+/* Head Soccer's sudden death at $0.50 (Owen 2026-10-27): level at 0:00 is one minute of golden goal. A goal in it
+   pays the scorer like any win; still level after the minute is a draw, each seat refunded its whole stake. */
+async function hsSuddenDeath(pre, ending) {
+  const A = wallet(pre + 'A'), B = wallet(pre + 'B');
+  const revBefore = sentTo(REVENUE).length;
+  const tokA = await stake(0.5, A);
+  const tokB = await stake(0.5, B);
+  const a = await connect(), b = await connect();
+  await new Promise((r) => setTimeout(r, 1100));   // the queue's own rate limit
+  a.s.emit('hs:queue', { name: 'a', stake: 0.5, entryToken: tokA });
+  assert.ok(await until(() => a.has('hs:queued')));
+  b.s.emit('hs:queue', { name: 'b', stake: 0.5, entryToken: tokB });
+  assert.ok(await until(() => a.has('hs:start') && b.has('hs:start'), 8000), 'matched');
+  assert.ok(hsLobby, 'the lobby was caught at boot');
+  const room = [...hsLobby.rooms.values()].find((r) => r.players.has(a.s.id));
+  assert.ok(room, 'their room');
+  const { HS } = require(path.join(ROOT, 'shared', 'hsSim.js'));
+  assert.ok(await until(() => room.state === 'playing', 6000), 'kicked off');
+  // Level with a moment left: the whistle at 0:00 calls golden goal, nothing settles.
+  room.match.score = [1, 1];
+  room.match.msLeft = 30;
+  assert.ok(await until(() => room.state === 'golden', 3000), 'golden goal called: ' + room.state);
+  assert.ok(await until(() => a.has('hs:golden') && b.has('hs:golden'), 2000), 'both screens told');
+  assert.ok(await until(() => room.state === 'playing', HS.GOLDEN_FLASH_MS + HS.COUNTDOWN_MS + 2000), 'golden kick-off');
+  assert.deepStrictEqual(sentTo(A).concat(sentTo(B)), [], 'nothing paid while level');
+  const sideA = room.players.get(a.s.id).side;
+  if (ending === 'goal') {
+    // The ball into the goal that scores for A's side: past the left line scores for the right seat, and back.
+    const b0 = room.match.ball, dir = sideA === 0 ? 1 : -1;
+    b0.x = dir * (HS.GOAL_LINE_X + 30); b0.y = HS.SHELF_Y - HS.BALL_R - 5; b0.vx = dir * 40; b0.vy = 0;
+    await until(() => sentTo(A).length && sentTo(REVENUE).length > revBefore, HS.GOAL_PAUSE_MS + 8000);
+    assert.deepStrictEqual(sentTo(A), [900000], 'the golden goal pays its scorer 90 percent of the 1.00 pot');
+    assert.deepStrictEqual(sentTo(REVENUE).slice(revBefore), [100000], 'the house keeps 10 percent');
+    assert.deepStrictEqual(sentTo(B), [], 'the other seat is paid nothing');
+  } else {
+    // Nobody scores in the minute: run its clock to the end (the room's own steps keep counting it).
+    room.match.ball.x = 0; room.match.ball.y = 300; room.match.ball.vx = 0; room.match.ball.vy = 0;
+    room.match.goldenMs = HS.GOLDEN_MAX_MS - 50;
+    await until(() => sentTo(A).length && sentTo(B).length, 8000);
+    await new Promise((r) => setTimeout(r, 300));
+    assert.deepStrictEqual(sentTo(A), [500000], 'a draw hands A its whole stake back');
+    assert.deepStrictEqual(sentTo(B), [500000], 'and B its own');
+    assert.deepStrictEqual(sentTo(REVENUE).slice(revBefore), [], 'no rake on a draw');
+  }
+  assert.strictEqual(depositsBy([A, B]), 1000000);
+  for (const s of [a, b]) s.s.close();
+}
+
+test('Head Soccer at $0.50: a golden goal after 0:00 pays its scorer 900000 and the house 100000', async () => {
+  await hsSuddenDeath('HsGold', 'goal');
+});
+
+test('Head Soccer at $0.50: still level after the golden minute is a draw, each seat refunded 500000', async () => {
+  await hsSuddenDeath('HsDraw', 'draw');
 });
 
 test('every payout this run is accounted for: nothing paid that did not land', () => {

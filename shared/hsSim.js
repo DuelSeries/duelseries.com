@@ -74,17 +74,15 @@
     DROP_Y: 576,                     // S: ball setStart(.3 * Game height)
     DROP_VX_PER_GOAL: 5,             // S: moveRight((left score - right score) * Game.scale(5))
     // The match (logic.Timer and GameplayHandler, S).
-    MATCH_MS: 60000,                 // S: _actualTimeLimit 60 s of play
-    HALF_MS: 30000,                  // S: half time when the clock passes half of 90 minutes
-    CLOCK_MIN: 90,                   // S: _timeLimit 90: the board counts 90 game minutes over the 60 s
+    MATCH_MS: 120000,                // OURS (Owen 2026-10-27): one 2-minute match, no half time, the board counts
+                                     //    down 2:00 to 0:00 (the reference plays 60 s shown as 90 minutes, with a half)
     COUNTDOWN_MS: 2400,              // S: doCountDown: 3, 2, 1, 0 every 600 ms, play at the 0
     COUNT_STEP_MS: 600,              // S
     GOAL_PAUSE_MS: 3000,             // S: _goalTimeout 3E3 then kickoff()
-    HALF_PAUSE_MS: 3000,             // S: halftime callback: setTimeout(kickoff, 3E3)
     GOLDEN_FLASH_MS: 2000,           // S: fulltime level: flashGoldenGoal, setTimeout(goldenGoalKickoff, 2E3)
-    TIE: 'golden',                   // S: level at full time -> golden goal: the clock stays at 90:00, next goal wins
-    GOLDEN_MAX_MS: 300000,           // OURS (not the reference's): a money match must end; 5 minutes level in golden
-                                     //    goal stops as a draw, each seat refunded (the rule this game already had)
+    TIE: 'golden',                   // S: level at full time -> golden goal, the next goal wins
+    GOLDEN_MAX_MS: 60000,            // OURS (Owen 2026-10-27): golden goal lasts one minute, shown counting down 1:00 to
+                                     //    0:00; still level then is a draw, each seat refunded its own stake
     // The power shot is not in this reference (no special moves in its source). OFF, kept as one switch.
     POWER_SHOT: false,
     POWER_FREEZE_MS: 900,
@@ -396,10 +394,10 @@
     return b;
   }
 
-  // The board's clock (S: Timer._getDisplayTime): 90 game minutes over the 60 s, as "MMSS".
+  // The board's clock: the time left as "MMSS", counting down. A second shows until it has fully gone, so the
+  // board reads 2:00 at the whistle and 0:00 only at the end.
   function clockDigits(msLeft) {
-    var played = clamp(HS.MATCH_MS - msLeft, 0, HS.MATCH_MS);
-    var gs = Math.floor(played / 1000 * HS.CLOCK_MIN + 1e-6), mm = Math.floor(gs / 60), ss = gs % 60;
+    var s = Math.ceil(Math.max(0, msLeft) / 1000 - 1e-6), mm = Math.floor(s / 60), ss = s % 60;
     return (mm < 10 ? '0' : '') + mm + (ss < 10 ? '0' : '') + ss;
   }
 
