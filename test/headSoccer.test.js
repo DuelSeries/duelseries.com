@@ -134,12 +134,31 @@ test('a win settles once, to the winner, from the pot', () => {
   assert.strictEqual(settled.length, 1, 'never a second time');
 });
 
-test('a draw at full time settles with no winner (each seat refunded its own stake)', () => {
+test('level at full time is sudden death: nothing settles, and the next goal wins it', () => {
   const { lob, settled } = lobby();
   const { room } = paidMatch(lob, 0.5);
   let t = run(room, 0, HS.COUNTDOWN_MS + 100);
   room.match.score = [1, 1];
   room.match.msLeft = 10;
+  t = run(room, t, 200 + HeadSoccerRoom.WIN_HOLD_MS);
+  assert.strictEqual(settled.length, 0, 'no result at 0:00 while level');
+  assert.strictEqual(room.state, 'playing');
+  // A goal for the right-hand seat (into the left goal).
+  const b = room.match.ball;
+  b.x = HS.GOAL_D - HS.BALL_R - 3; b.y = HS.BALL_FLOOR_Y; b.vx = -40; b.vy = 0;
+  run(room, t, 200 + HeadSoccerRoom.WIN_HOLD_MS);
+  assert.strictEqual(settled.length, 1);
+  const right = [...room.players].find(([, p]) => p.side === 1)[0];
+  assert.strictEqual(settled[0].winnerId, right);
+});
+
+test('sudden death that never ends is stopped as a draw: each seat refunded its own stake', () => {
+  const { lob, settled } = lobby();
+  const { room } = paidMatch(lob, 0.5);
+  let t = run(room, 0, HS.COUNTDOWN_MS + 100);
+  room.match.score = [2, 2];
+  room.match.msLeft = 0;
+  room.match.goldenMs = HS.GOLDEN_MAX_MS;
   run(room, t, 200 + HeadSoccerRoom.WIN_HOLD_MS);
   assert.strictEqual(settled.length, 1);
   assert.strictEqual(settled[0].winnerId, null);

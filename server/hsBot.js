@@ -19,14 +19,14 @@ const { HS, IN } = Sim;
 
 // Where the ball will be after `t` seconds, ignoring players: gravity, the grass and the walls.
 function ballAfter(b, t) {
-  let x = b.x, y = b.y, vx = b.vx, vy = b.vy, flat = b.flatMs / 1000;
+  let x = b.x, y = b.y, vx = b.vx, vy = b.vy, straight = !!b.straight;
   const dt = 1 / 30;
   for (let s = 0; s < t; s += dt) {
-    if (flat > 0) flat -= dt; else vy += HS.BALL_G * dt;
+    if (!straight) vy += HS.G * dt;
     x += vx * dt; y += vy * dt;
-    if (y + HS.BALL_R > HS.GROUND_Y) { y = HS.GROUND_Y - HS.BALL_R; vy = vy > 60 ? -vy * HS.BALL_E_GROUND : 0; }
-    if (x < HS.BALL_R) { x = HS.BALL_R; vx = -vx * HS.BALL_E_WALL; }
-    if (x > HS.W - HS.BALL_R) { x = HS.W - HS.BALL_R; vx = -vx * HS.BALL_E_WALL; }
+    if (y > HS.BALL_FLOOR_Y) { y = HS.BALL_FLOOR_Y; vy = vy > 40 ? -vy * HS.BALL_E : 0; straight = false; }
+    if (x < HS.BALL_R) { x = HS.BALL_R; vx = -vx * HS.BALL_E; straight = false; }
+    if (x > HS.W - HS.BALL_R) { x = HS.W - HS.BALL_R; vx = -vx * HS.BALL_E; straight = false; }
   }
   return { x, y, vx, vy };
 }
@@ -70,13 +70,14 @@ function think(room, bot, me, foe, now) {
 
   // The boot: the ball in front of it, low, close.
   const front = (ball.x - me.x) * dir;
-  const reach = HS.FOOT_PIVOT_X + HS.FOOT_LEN + HS.FOOT_R + HS.BALL_R;
+  const reach = HS.FOOT_X + HS.FOOT_LEN + HS.FOOT_R + HS.BALL_R;
   if (front > 0 && front < reach + 14 && ball.y > me.y - HS.HEAD_R * 0.3 && ahead < 0) plan.kick = Math.random() < 0.85;
   // A header: dropping onto it, close.
   if (Math.abs(ball.x - me.x) < HS.HEAD_R * 1.4 && ball.y < me.y - HS.HEAD_R && ball.y > me.y - HS.HEAD_R * 5
       && ball.vy > 0 && me.ground) plan.jump = true;
-  // The power shot: full gauge, the ball right in front, facing the goal it attacks.
-  if (me.power >= 1 && front > 0 && front < HS.POWER_RANGE && ahead < 0) plan.power = true;
+  // The power shot: the CPU in Head Soccer fires it as soon as it has it (reference W-PS). Pressed with a full gauge
+  // it arms, and the next touch is the shot.
+  if (me.power >= 1 && !me.powerArmed) plan.power = true;
 
   // A person hesitates sometimes.
   if (Math.random() < 0.07) { plan.move = 0; plan.kick = false; }

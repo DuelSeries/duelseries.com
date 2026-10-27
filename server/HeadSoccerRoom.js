@@ -102,6 +102,7 @@ class HeadSoccerRoom extends KnockoutRoom {
     const live = this.state === 'playing';
     const ev = Sim.step(this.match, this.inputs, HS.STEP, live);
     for (const e of ev) {
+      if (e.e === 'power') this.broadcast('hs:power', { s: e.s, freezeMs: HS.POWER_FREEZE_MS });
       if (e.e === 'goal' && live) {
         this.turn++;
         const golden = this.match.msLeft <= 0 && HS.TIE === 'golden';
@@ -115,8 +116,9 @@ class HeadSoccerRoom extends KnockoutRoom {
     if (ev.length) this.sendEvents(ev);
     if (live && this.match.msLeft <= 0 && this.state === 'playing') {
       const [a, b] = this.match.score;
-      if (a !== b || HS.TIE === 'draw') { this.whistle(t); return; }
-      // 'golden': the clock sits at 0:00 and the next goal wins.
+      // Level at 0:00 is sudden death (the clock sits at 0:00 and the next goal wins), with a safety stop that
+      // makes it a draw, refunded, after GOLDEN_MAX_MS. A draw rule instead ends it here.
+      if (a !== b || HS.TIE === 'draw' || this.match.goldenMs >= HS.GOLDEN_MAX_MS) { this.whistle(t); return; }
     }
     this.maybeSnap();
   }

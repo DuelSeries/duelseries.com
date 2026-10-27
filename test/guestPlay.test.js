@@ -49,6 +49,7 @@ test('a guest plays every free room at once, as Guest####, with no wallet and no
     ['chomp', { stake: 0 }, 'game-frame', '/chomp'],
     ['knockout', { lobbyType: 'free' }, 'game-frame', '/knockout'],
     ['battleship', { lobbyType: 'free' }, 'game-frame', '/battleship'],
+    ['headsoccer', { lobbyType: 'free' }, 'game-frame', '/headsoccer'],
   ];
   for (const [game, sel, frame, page] of cases) {
     const L = lobby();

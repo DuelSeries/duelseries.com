@@ -26,7 +26,7 @@ function stale(h) {
 
 test('Spectate opens each game\'s own page with its watch mark, and no money key survives', async () => {
   for (const [game, page] of [['snake', '/sl'], ['paper', '/paper-arena'], ['knockout', '/knockout'],
-    ['battleship', '/battleship']]) {
+    ['battleship', '/battleship'], ['headsoccer', '/headsoccer']]) {
     const h = lobbyHarness([SL_FREE]);
     await h.win.V2Board.load();
     stale(h);

@@ -3242,6 +3242,12 @@ const GAMES=[
     shared/chompName.js (Pac-Man for now, Owen 2026-10-26). */
  {id:'chomp',name:window.DS_CHOMP_NAME||'Chomp',c:['#1a1726','#e8c860'],type:'p',ladder:1,
   d:'Eat the dots, dodge the ghosts, and grab the coins anyone caught drops on the maze.'},
+ /* Head Soccer (server/HeadSoccerLobby.js, page /headsoccer), a duel on Knockout's queue: Free seats you against a
+    bot after the countdown, and play.js OWN_PAGE opens it straight in the game frame. freeOnly:1, not paid:1, because
+    its paid rungs are off (HS_PAID_ON in server/index.js). Hidden from the lobby until Owen has seen it: see
+    HS_PREVIEW below. */
+ {id:'headsoccer',name:'Head Soccer',c:['#12261a','#7fd36b'],type:'m',duel:1,built:1,freeOnly:1,
+  d:'One on one, oversized heads, and a ball that rarely goes where you meant it to.'},
  /* Built, and free while it is new: no ladder, no lobby list, its own page,
     and none of the money path involved in it. `solo` is what says so. */
  {id:'omgshooter',name:'Awesome Tanks',c:['#1d2016','#a8bd63'],type:'p',built:1,solo:1,
@@ -3268,8 +3274,6 @@ const GAMES=[
     worth renaming before any of them ships on a public lobby. */
  {id:'rooftop',name:'Rooftop Snipers',c:['#20181c','#e08a7a'],type:'m',soon:1,duel:1,
   d:'Two rooftops, one shot at a time, and the loser is whoever falls off first.'},
- {id:'headsoccer',name:'Head Soccer',c:['#141e18','#6fd39a'],type:'m',soon:1,duel:1,
-  d:'One on one, oversized heads, and a ball that rarely goes where you meant it to.'},
  /* Built. One arena that everybody drops into, so it is neither a rung on
     the buy-in ladder nor an opponent to be matched with — which is what the
     solo flag means here: no ladder, no lobby list, its own page. Free while it
@@ -3334,6 +3338,22 @@ const GAMES=[
    playable ones. The rail and the full games grid both draw GAMES in this
    order. */
 GAMES.splice(0,GAMES.length,...GAMES.filter(g=>!g.soon),...GAMES.filter(g=>g.soon));
+/* HS_PREVIEW: Head Soccer is built but Owen has not seen it, so its card is in the lobby only on ?headsoccer=preview,
+   kept for this tab in sessionStorage (ds.hs.preview) so going between screens keeps it. Without it the game is taken
+   out of GAMES here, before anything reads the list: no card on the rail or the grid, no row on Open lobbies
+   (V2_GAME_NAMES and board.js leave it out), no count. /headsoccer itself opens either way. */
+(function(){
+  let on=/(^|[?&])headsoccer=preview(&|$)/.test(location.search);
+  try{ if(on)sessionStorage.setItem('ds.hs.preview','1'); else on=sessionStorage.getItem('ds.hs.preview')==='1'; }catch(_){}
+  const i=GAMES.findIndex(g=>g.id==='headsoccer');
+  /* Without the flag it is the "coming soon" card it was before, in its old place after Rooftop Snipers. */
+  if(!on&&i>=0){
+    const g=GAMES.splice(i,1)[0];
+    const soon={id:g.id,name:g.name,c:['#141e18','#6fd39a'],type:'m',soon:1,duel:1,d:g.d};
+    const r=GAMES.findIndex(x=>x.id==='rooftop');
+    GAMES.splice(r>=0?r+1:GAMES.length,0,soon);
+  }
+})();
 /* The lobby list is real now: V2Board polls /api/live. The hand-written rows
    that used to be here claimed player counts the server never had. */
 /* Buy-ins the board is actually offering, not a wishlist. The hardcoded

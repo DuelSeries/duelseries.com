@@ -2,99 +2,105 @@
 // (server/HeadSoccerRoom.js); the browser runs the very same player step for its own player (prediction), so a
 // key press moves you at once on screen and the server agrees about where you went.
 //
-// Every number in HS is from docs/head-soccer-reference.md, which says where each one was measured. World units:
-// the field is W wide, y grows DOWN (canvas order), the ground line is GROUND_Y.
+// UNITS ARE THE REFERENCE'S PIXELS. The field is the measured game frame, 1196 x 720 (docs/head-soccer-reference.md,
+// source V2), so every number below is the measured one as it was measured, with no conversion to get wrong. y grows
+// DOWN (canvas order). Each constant says where it came from: measured (M), derived from measured values (D), the
+// wiki (Wk), or CHOSEN where the reference could not be measured (the doc lists those as UNKNOWN).
 //
 // Sides: seat 0 starts on the LEFT, defends the left goal and shoots right; seat 1 is the mirror.
 (function (root) {
   'use strict';
 
+  var G = 705;                       // M: ball gravity 705 +-20 px/s^2; player gravity measured 740, within 5%: one world (Box2D)
+  var JUMP_H = 70;                   // M: head top 506 -> 436
+
   var HS = {
-    STEP: 1 / 60,               // the fixed step, seconds
-    W: 1000, H: 600,            // the field, world units (aspect from the reference screenshots)
-    GROUND_Y: 520,              // the grass line the players stand on and the ball bounces off
-    // Goals: one at each end, from the wall to the mouth (GOAL_D deep), GOAL_H tall, under a crossbar BAR_T thick
-    // that reaches BAR_OVER past the mouth. The crossbar is solid: the ball and the players bounce off it and can
-    // sit on top of it.
-    GOAL_D: 70, GOAL_H: 190, BAR_T: 10, BAR_OVER: 6,
-    // The ball.
-    BALL_R: 17,
-    BALL_G: 1500,               // gravity on the ball, units/s^2
-    BALL_E_GROUND: 0.72,        // restitution off the grass
-    BALL_E_WALL: 0.7,           // off the side walls, the ceiling and the crossbar
-    BALL_ROLL: 0.6,             // horizontal speed kept per second while rolling on the grass
-    BALL_AIR: 0.99,             // horizontal speed kept per second in the air
-    BALL_MAX: 1800,             // a hard cap on ball speed
-    // The players: a big head with one boot under its front edge.
-    HEAD_R: 34,
-    FOOT_H: 16,                 // boot height under the head (the head's bottom sits FOOT_H above the grass)
-    WALK: 330,                  // walking speed, units/s
-    JUMP_V: 780,                // take-off speed, units/s
-    PLAYER_G: 2100,             // gravity on a player, units/s^2
-    START_X: 250,               // seat 0's kick-off x (seat 1 at W - START_X)
-    HEAD_E: 0.55,               // restitution of a header (head treated as immovable, moving at the player's speed)
-    // The kick: the boot swings up and forward and back down.
-    KICK_MS: 220,               // the whole swing
-    KICK_UP_MS: 90,             // the part of it that rises (contact counts only here)
-    KICK_ANGLE: 1.25,           // radians the boot rises through
-    FOOT_PIVOT_X: 10, FOOT_LEN: 30, FOOT_R: 13,
-    KICK_SPEED: 1050,           // the ball's speed off a clean kick
-    KICK_LIFT: 0.62,            // radians above horizontal a clean kick leaves at
+    STEP: 1 / 60,
+    W: 1196, H: 720,                 // M: the game frame
+    GROUND_Y: 598,                   // M: boot soles standing
+    BALL_FLOOR_Y: 576,               // M: ball centre resting on the grass, 574 to 578
+    // Goals: from the wall to the mouth, under a solid crossbar.
+    GOAL_D: 66,                      // M: 0..66 and 1130..1196
+    BAR_Y: 404,                      // M: goal top edge (crossbar underside), 194 above the soles
+    BAR_T: 9,                        // M (by eye, low confidence): white bar 8 to 10 px
+    BALL_R: 18.5,                    // M: 37 +-2 px across
+    G: G,
+    BALL_E: 0.64,                    // M: ground restitution 0.64 +-0.04; Box2D mixes restitution as the max, so the
+                                     //    ball's 0.64 holds off every surface it meets (D)
+    BALL_DAMP: 0.07,                 // D: in-air x curvature -35 px/s^2 at 341 px/s -> linear damping 0.1/s; 0.07 is
+                                     //    the same within the fit (negligible either way)
+    BALL_MAX: 1400,                  // CHOSEN: a cap far above anything measured (870 max seen)
+    // The players: a big head over tiny boots.
+    HEAD_W: 80, HEAD_HT: 70,         // M: head box 80 x 70
+    HEAD_R: 37.5,                    // D: the collider circle, mean of the measured half-width and half-height
+    BODY_H: 22,                      // M: boots and neck band under the head (player 92 tall)
+    WALK: 315,                       // M: 315 +-10 px/s
+    WALK_ACCEL: 3150,                // D: full speed within about 0.1 s
+    JUMP_V: Math.sqrt(2 * G * JUMP_H), // D: 314 px/s (airtime 0.89 s vs 0.87 +-0.03 measured)
+    START_X: 248,                    // M: 248 and 948 (= W - 248)
+    X_MIN: 86, X_MAX: 1110,          // M: head box 46..1150, so the head centre stays 86..1110
+    // The kick. Its swing could not be measured from 30 fps video (doc: kick impulse UNKNOWN); these are CHOSEN so
+    // the ball leaves at the measured speeds: a ground ball off a standing kick at 513 to 520 px/s with a slight lift
+    // (vy about -90), typical launches 520 to 700, the fastest flights 800 to 870.
+    KICK_MS: 200, KICK_UP_MS: 90, KICK_ANGLE: 1.1,
+    FOOT_X: 14, FOOT_LEN: 26, FOOT_R: 12,
+    KICK_SPEED: 520,                 // M: the measured standing kick
+    KICK_LIFT_LOW: 0.17,             // M: atan(90/513), a ball met low on the boot
+    KICK_LIFT_HIGH: 0.75,            // CHOSEN: a ball met at the top of the swing goes up more steeply
+    KICK_CARRY: 0.5,                 // CHOSEN: share of the player's own speed added (a running kick reaches ~680)
     // The power shot.
-    POWER_FULL_S: 10,           // seconds of play to fill an empty gauge
-    POWER_TOUCH: 0.05,          // and each touch of the ball adds this much
-    POWER_RANGE: 95,            // how close the ball must be to the boot to fire one
-    POWER_SPEED: 1650,          // the ball's speed off a power shot
-    POWER_FLAT_MS: 650,         // the power shot flies flat (no gravity) for this long
-    STUN_MS: 1200,              // a power shot that hits the other player knocks them down this long
+    POWER_FILL_S: 20,                // M: empty to full in about 20 s of clock (19 to 23), linear
+    POWER_FREEZE_MS: 900,            // M: the lightning cutscene, about 0.9 s, everything stops
+    POWER_SPEED: 870,                // CHOSEN: South Korea's straight shot speed is UNKNOWN; the fastest flight seen
     // The match.
-    MATCH_MS: 60000,
-    COUNTDOWN_MS: 3000,
-    GOAL_PAUSE_MS: 2200,        // "GOAL" on screen, then kick-off again
-    DROP_Y: 140,                // a kick-off drops the ball at centre from this height
-    TIE: 'draw',                // a level score at full time: 'draw' (refund on a paid table) or 'golden' (next goal wins)
+    MATCH_MS: 60000,                 // M: 1:00
+    COUNTDOWN_MS: 3000,              // CHOSEN: "KICK OFF" shows at the start (M), its length was not measured
+    GOAL_PAUSE_MS: 2000,             // M: the clock stops 1.5 to 2.5 s per goal while the ball keeps rolling
+    DROP_X: 598, DROP_Y: 226.5,      // M: ball appears at (600, 226.5) at rest; x is W/2 here so neither side is nearer
+    TIE: 'golden',                   // Wk: level at 0:00 is sudden death, no time limit, first goal wins
+    GOLDEN_MAX_MS: 300000,           // CHOSEN: a safety stop, never seen in play: 5 minutes of sudden death is a draw
   };
 
-  // Input bits held down; jump, kick and power are presses, counted (see press()).
   var IN = { LEFT: 1, RIGHT: 2 };
 
   function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
+  function standY() { return HS.GROUND_Y - HS.BODY_H - HS.HEAD_HT / 2; }   // head centre standing: 541
 
   function newPlayer(side) {
     return {
       side: side, dir: side === 0 ? 1 : -1,
-      x: side === 0 ? HS.START_X : HS.W - HS.START_X,
-      y: HS.GROUND_Y - HS.FOOT_H - HS.HEAD_R,
+      x: side === 0 ? HS.START_X : HS.W - HS.START_X, y: standY(),
       vx: 0, vy: 0, ground: true,
       kickMs: -1,                // ms into the current swing, -1 when the boot is down
       kickHit: false,            // this swing already struck the ball
       power: 0,                  // 0..1
-      powerArmed: false,         // power pressed with a full gauge: the next touch in range fires it
-      stunMs: 0,
+      powerArmed: false,         // power pressed with a full gauge: the next touch of the ball is the power shot
       held: 0,                   // IN bits
       jumps: 0, kicks: 0, powers: 0,   // press counters already acted on
     };
   }
 
   function newBall() {
-    return { x: HS.W / 2, y: HS.DROP_Y, vx: 0, vy: 0, rot: 0, flatMs: 0, powerBy: -1, lastTouch: -1 };
+    return { x: HS.DROP_X, y: HS.DROP_Y, vx: 0, vy: 0, rot: 0, straight: false, powerBy: -1 };
   }
 
   function newMatch() {
-    return { p: [newPlayer(0), newPlayer(1)], ball: newBall(), score: [0, 0], msLeft: HS.MATCH_MS, tick: 0 };
+    return { p: [newPlayer(0), newPlayer(1)], ball: newBall(), score: [0, 0], msLeft: HS.MATCH_MS, goldenMs: 0,
+             tick: 0, freezeMs: 0 };
   }
 
+  // Back to the kick-off spots with a new ball dropping at centre. Gauges, presses and the armed shot carry over.
   function kickoff(m) {
-    var a = newPlayer(0), b = newPlayer(1);
     for (var s = 0; s < 2; s++) {
-      var q = s === 0 ? a : b, o = m.p[s];
-      q.power = o.power; q.held = o.held; q.jumps = o.jumps; q.kicks = o.kicks; q.powers = o.powers;
+      var o = m.p[s], q = newPlayer(s);
+      q.power = o.power; q.powerArmed = o.powerArmed; q.held = o.held;
+      q.jumps = o.jumps; q.kicks = o.kicks; q.powers = o.powers;
       m.p[s] = q;
     }
     m.ball = newBall();
   }
 
-  // Where the boot's toe circle is right now, and how fast it is moving (for the kick contact).
+  // Where the boot's toe circle is right now, and whether the boot is on its way up.
   function footAt(p) {
     var a = 0;
     if (p.kickMs >= 0) {
@@ -102,217 +108,210 @@
       a = t < HS.KICK_UP_MS ? HS.KICK_ANGLE * (t / HS.KICK_UP_MS)
         : HS.KICK_ANGLE * Math.max(0, 1 - (t - HS.KICK_UP_MS) / (HS.KICK_MS - HS.KICK_UP_MS));
     }
-    var px = p.x + p.dir * HS.FOOT_PIVOT_X, py = p.y + HS.HEAD_R + HS.FOOT_H * 0.5;
-    return { x: px + p.dir * Math.cos(a) * HS.FOOT_LEN, y: py - Math.sin(a) * HS.FOOT_LEN, a: a,
+    var px = p.x + p.dir * HS.FOOT_X, py = p.y + HS.HEAD_HT / 2 + HS.BODY_H - HS.FOOT_R;
+    return { x: px + p.dir * Math.cos(a) * HS.FOOT_LEN * 0.5, y: py - Math.sin(a) * HS.FOOT_LEN, a: a,
              rising: p.kickMs >= 0 && p.kickMs < HS.KICK_UP_MS };
   }
 
-  function feetY(p) { return p.y + HS.HEAD_R + HS.FOOT_H; }
-
   // The two crossbars as boxes: [x0, y0, x1, y1].
-  function bars() {
-    var top = HS.GROUND_Y - HS.GOAL_H - HS.BAR_T, bot = HS.GROUND_Y - HS.GOAL_H, reach = HS.GOAL_D + HS.BAR_OVER;
-    return [[0, top, reach, bot], [HS.W - reach, top, HS.W, bot]];
-  }
   var BARS = null;
-  function barBoxes() { return BARS || (BARS = bars()); }
+  function barBoxes() {
+    if (BARS) return BARS;
+    var top = HS.BAR_Y - HS.BAR_T, bot = HS.BAR_Y;
+    return (BARS = [[0, top, HS.GOAL_D, bot], [HS.W - HS.GOAL_D, top, HS.W, bot]]);
+  }
 
-  // One player's step from its input: walking, jumping, the boot, the gauge. No ball and no other player here;
-  // that is the part the browser can run for its own player as well.
+  // One player's step from its input: walking, jumping, the boot. No ball and no other player here; that is the
+  // part the browser can run for its own player as well.
   //   inp: { held, jumps, kicks, powers } — held bits and running press counts (counts only ever go up).
-  function stepPlayer(p, inp, dt) {
+  function stepPlayer(p, inp, dt, canCharge) {
     var ms = dt * 1000;
     if (inp) {
       p.held = inp.held | 0;
-      if (inp.jumps > p.jumps) { p.jumps = inp.jumps; if (p.ground && p.stunMs <= 0) { p.vy = -HS.JUMP_V; p.ground = false; } }
-      if (inp.kicks > p.kicks) { p.kicks = inp.kicks; if (p.kickMs < 0 && p.stunMs <= 0) { p.kickMs = 0; p.kickHit = false; } }
-      if (inp.powers > p.powers) { p.powers = inp.powers; if (p.power >= 1 && p.stunMs <= 0) p.powerArmed = true; }
+      if (inp.jumps > p.jumps) { p.jumps = inp.jumps; if (p.ground) { p.vy = -HS.JUMP_V; p.ground = false; } }
+      if (inp.kicks > p.kicks) { p.kicks = inp.kicks; if (p.kickMs < 0) { p.kickMs = 0; p.kickHit = false; } }
+      if (inp.powers > p.powers) { p.powers = inp.powers; if (p.power >= 1) p.powerArmed = true; }
     }
-    if (p.stunMs > 0) { p.stunMs = Math.max(0, p.stunMs - ms); p.vx = 0; }
-    else {
-      var want = ((p.held & IN.RIGHT) ? 1 : 0) - ((p.held & IN.LEFT) ? 1 : 0);
-      p.vx = want * HS.WALK;
-    }
-    p.vy += HS.PLAYER_G * dt;
+    var want = (((p.held & IN.RIGHT) ? 1 : 0) - ((p.held & IN.LEFT) ? 1 : 0)) * HS.WALK;
+    var dv = HS.WALK_ACCEL * dt;
+    p.vx = p.vx < want ? Math.min(want, p.vx + dv) : Math.max(want, p.vx - dv);
+    p.vy += HS.G * dt;
     p.x += p.vx * dt; p.y += p.vy * dt;
-    // The grass.
-    var floor = HS.GROUND_Y - HS.FOOT_H - HS.HEAD_R;
     p.ground = false;
-    if (p.y >= floor) { p.y = floor; p.vy = 0; p.ground = true; }
-    // The walls behind the goals.
-    p.x = clamp(p.x, HS.HEAD_R, HS.W - HS.HEAD_R);
-    // The crossbars: a head bumps the underside, a player lands on top.
-    var bb = barBoxes();
-    for (var i = 0; i < 2; i++) {
-      var b = bb[i];
-      if (p.x + HS.HEAD_R * 0.6 < b[0] || p.x - HS.HEAD_R * 0.6 > b[2]) continue;
-      var fy = feetY(p), headTop = p.y - HS.HEAD_R;
-      if (p.vy >= 0 && fy >= b[1] && fy - p.vy * dt <= b[1] + 1) { p.y = b[1] - HS.FOOT_H - HS.HEAD_R; p.vy = 0; p.ground = true; }
-      else if (p.vy < 0 && headTop <= b[3] && headTop - p.vy * dt >= b[3] - 1) { p.y = b[3] + HS.HEAD_R; p.vy = 0; }
-    }
+    if (p.y >= standY()) { p.y = standY(); p.vy = 0; p.ground = true; }
+    if (p.x < HS.X_MIN) { p.x = HS.X_MIN; if (p.vx < 0) p.vx = 0; }
+    if (p.x > HS.X_MAX) { p.x = HS.X_MAX; if (p.vx > 0) p.vx = 0; }
     if (p.kickMs >= 0) { p.kickMs += ms; if (p.kickMs >= HS.KICK_MS) p.kickMs = -1; }
+    if (canCharge && !p.powerArmed) p.power = Math.min(1, p.power + dt / HS.POWER_FILL_S);
   }
 
-  // Push two heads apart, sideways only, half each.
+  // Two heads are solid: pushed apart along the line between them, and one coming down on the other stands on it.
   function collidePlayers(a, b) {
     var dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy), min = HS.HEAD_R * 2;
-    if (d >= min || d === 0) return;
-    var push = (min - d) / 2, nx = dx / d;
-    a.x -= nx * push; b.x += nx * push;
-    a.x = clamp(a.x, HS.HEAD_R, HS.W - HS.HEAD_R); b.x = clamp(b.x, HS.HEAD_R, HS.W - HS.HEAD_R);
+    if (d >= min) return;
+    if (d === 0) { dx = 1; dy = 0; d = 1; }
+    var nx = dx / d, ny = dy / d, push = (min - d) / 2;
+    var top = ny > 0.6 ? a : ny < -0.6 ? b : null;     // a head well above the other is on top of it
+    if (top) {
+      var under = top === a ? b : a;
+      var ddx = top.x - under.x;
+      top.y = under.y - Math.sqrt(Math.max(0, min * min - ddx * ddx)) - 0.01;
+      if (top.vy > 0) top.vy = 0;
+      top.ground = true;
+      top.x += (top === a ? -nx : nx) * push * 0.5;
+    } else {
+      a.x -= nx * push; b.x += nx * push;
+    }
+    a.x = clamp(a.x, HS.X_MIN, HS.X_MAX); b.x = clamp(b.x, HS.X_MIN, HS.X_MAX);
   }
 
   // Ball against a circle moving at (vx, vy) that the ball cannot move. Returns the closing speed of the contact
   // (0 for a ball merely resting against it), or -1 for no contact.
-  function bounceOffCircle(ball, cx, cy, r, vx, vy, e) {
+  function bounceOffCircle(ball, cx, cy, r, vx, vy) {
     var dx = ball.x - cx, dy = ball.y - cy, d = Math.hypot(dx, dy), min = r + HS.BALL_R;
     if (d >= min) return -1;
     if (d === 0) { dx = 0; dy = -1; d = 1; }
     var nx = dx / d, ny = dy / d;
     ball.x = cx + nx * min; ball.y = cy + ny * min;
     var rvx = ball.vx - vx, rvy = ball.vy - vy, vn = rvx * nx + rvy * ny;
-    if (vn < 0) { ball.vx -= (1 + e) * vn * nx; ball.vy -= (1 + e) * vn * ny; return -vn; }
+    if (vn < 0) { ball.vx -= (1 + HS.BALL_E) * vn * nx; ball.vy -= (1 + HS.BALL_E) * vn * ny; return -vn; }
     return 0;
   }
 
-  // A touch worth a sound and a sliver of power: a real hit, not a ball rolling along a head.
-  var TOUCH_SPEED = 160;
-
-  // Ball against a box (a crossbar).
-  function bounceOffBox(ball, b, e) {
+  // Ball against a box (a crossbar). Returns true on contact.
+  function bounceOffBox(ball, b) {
     var cx = clamp(ball.x, b[0], b[2]), cy = clamp(ball.y, b[1], b[3]);
     var dx = ball.x - cx, dy = ball.y - cy, d = Math.hypot(dx, dy);
     if (d >= HS.BALL_R) return false;
     var nx, ny;
-    if (d === 0) { nx = 0; ny = ball.y < (b[1] + b[3]) / 2 ? -1 : 1; d = 0; }
+    if (d === 0) { nx = 0; ny = ball.y < (b[1] + b[3]) / 2 ? -1 : 1; }
     else { nx = dx / d; ny = dy / d; }
     ball.x = cx + nx * HS.BALL_R; ball.y = cy + ny * HS.BALL_R;
     var vn = ball.vx * nx + ball.vy * ny;
-    if (vn < 0) { ball.vx -= (1 + e) * vn * nx; ball.vy -= (1 + e) * vn * ny; }
+    if (vn < 0) { ball.vx -= (1 + HS.BALL_E) * vn * nx; ball.vy -= (1 + HS.BALL_E) * vn * ny; }
     return true;
   }
 
-  function capBall(ball) {
-    var s = Math.hypot(ball.vx, ball.vy);
-    if (s > HS.BALL_MAX) { ball.vx *= HS.BALL_MAX / s; ball.vy *= HS.BALL_MAX / s; }
-  }
+  // A touch worth a sound: a real hit, not a ball rolling along a head.
+  var TOUCH_SPEED = 120;
 
-  function addPower(p, v) { p.power = Math.min(1, p.power + v); }
-
-  // A player's touch on the ball; `kick` is a rising boot, else a head or a resting boot.
-  function touch(m, p, ev, kick) {
+  // The power shot leaves the touch point flat and fast toward the far goal, and stays flat until it meets anything.
+  function firePower(m, p, ev) {
     var ball = m.ball;
-    ball.lastTouch = p.side;
-    if (p.powerArmed) {
-      var f = footAt(p);
-      if (Math.hypot(ball.x - f.x, ball.y - f.y) <= HS.POWER_RANGE + HS.BALL_R) {
-        p.powerArmed = false; p.power = 0;
-        ball.vx = p.dir * HS.POWER_SPEED; ball.vy = 0;
-        ball.flatMs = HS.POWER_FLAT_MS; ball.powerBy = p.side;
-        ev.push({ e: 'power', s: p.side });
-        return;
-      }
-    }
-    addPower(p, HS.POWER_TOUCH);
-    if (kick) {
-      ball.vx = p.dir * Math.cos(HS.KICK_LIFT) * HS.KICK_SPEED + p.vx * 0.3;
-      ball.vy = -Math.sin(HS.KICK_LIFT) * HS.KICK_SPEED + Math.min(0, p.vy) * 0.3;
-      ev.push({ e: 'kick', s: p.side });
-    }
+    p.powerArmed = false; p.power = 0;
+    ball.vx = p.dir * HS.POWER_SPEED; ball.vy = 0;
+    ball.straight = true; ball.powerBy = p.side;
+    m.freezeMs = HS.POWER_FREEZE_MS;
+    ev.push({ e: 'power', s: p.side });
   }
 
-  // The whole match, one step. inputs[side] as stepPlayer takes them. `live` false freezes the clock and scoring
-  // (the goal pause): the ball still rolls in the net. Returns the events of this step: kick, head, power, post,
-  // bounce, goal { s: who scored }, stun { s: who went down }.
+  function endStraight(ball) { ball.straight = false; ball.powerBy = -1; }
+
+  // The whole match, one step. inputs[side] as stepPlayer takes them. `live` false freezes the clock, the gauges
+  // and scoring (the goal pause): the ball still rolls in the net. A power shot freezes everything for its cutscene
+  // (m.freezeMs). Returns the events of this step: kick, head, power, post, bounce, goal { s: who scored }.
   function step(m, inputs, dt, live) {
     var ev = [], ball = m.ball, i, p;
     m.tick++;
-    for (i = 0; i < 2; i++) stepPlayer(m.p[i], inputs ? inputs[i] : null, dt);
+    if (m.freezeMs > 0) { m.freezeMs = Math.max(0, m.freezeMs - dt * 1000); return ev; }
+    var golden = live && m.msLeft <= 0;
+    for (i = 0; i < 2; i++) stepPlayer(m.p[i], inputs ? inputs[i] : null, dt, live && !golden);
     collidePlayers(m.p[0], m.p[1]);
     if (live) {
-      m.msLeft = Math.max(0, m.msLeft - dt * 1000);
-      for (i = 0; i < 2; i++) if (m.p[i].stunMs <= 0) addPower(m.p[i], dt / HS.POWER_FULL_S);
+      if (m.msLeft > 0) m.msLeft = Math.max(0, m.msLeft - dt * 1000);
+      else m.goldenMs += dt * 1000;
     }
 
     // The ball flies.
-    if (ball.flatMs > 0) ball.flatMs = Math.max(0, ball.flatMs - dt * 1000);
-    else ball.vy += HS.BALL_G * dt;
+    if (!ball.straight) ball.vy += HS.G * dt;
+    var damp = Math.exp(-HS.BALL_DAMP * dt);
+    ball.vx *= damp; if (!ball.straight) ball.vy *= damp;
     ball.x += ball.vx * dt; ball.y += ball.vy * dt;
-    var onGrass = false;
-    if (ball.y + HS.BALL_R >= HS.GROUND_Y) {
-      ball.y = HS.GROUND_Y - HS.BALL_R;
+    if (ball.y >= HS.BALL_FLOOR_Y) {
+      ball.y = HS.BALL_FLOOR_Y;
       if (ball.vy > 0) {
         if (ball.vy > 120) ev.push({ e: 'bounce' });
-        ball.vy = ball.vy > 60 ? -ball.vy * HS.BALL_E_GROUND : 0;
+        ball.vy = ball.vy > 40 ? -ball.vy * HS.BALL_E : 0;
       }
-      onGrass = ball.vy === 0;
+      if (ball.straight) endStraight(ball);
     }
-    if (ball.y - HS.BALL_R <= 0) { ball.y = HS.BALL_R; if (ball.vy < 0) ball.vy = -ball.vy * HS.BALL_E_WALL; }
-    if (ball.x - HS.BALL_R <= 0) { ball.x = HS.BALL_R; if (ball.vx < 0) ball.vx = -ball.vx * HS.BALL_E_WALL; }
-    if (ball.x + HS.BALL_R >= HS.W) { ball.x = HS.W - HS.BALL_R; if (ball.vx > 0) ball.vx = -ball.vx * HS.BALL_E_WALL; }
+    if (ball.y - HS.BALL_R <= 0) { ball.y = HS.BALL_R; if (ball.vy < 0) ball.vy = -ball.vy * HS.BALL_E; endStraight(ball); }
+    if (ball.x - HS.BALL_R <= 0) { ball.x = HS.BALL_R; if (ball.vx < 0) ball.vx = -ball.vx * HS.BALL_E; endStraight(ball); }
+    if (ball.x + HS.BALL_R >= HS.W) { ball.x = HS.W - HS.BALL_R; if (ball.vx > 0) ball.vx = -ball.vx * HS.BALL_E; endStraight(ball); }
     var bb = barBoxes();
-    for (i = 0; i < 2; i++) if (bounceOffBox(ball, bb[i], HS.BALL_E_WALL)) { ev.push({ e: 'post' }); ball.flatMs = 0; }
-    ball.vx *= Math.pow(onGrass ? HS.BALL_ROLL : HS.BALL_AIR, dt);
+    for (i = 0; i < 2; i++) if (bounceOffBox(ball, bb[i])) { ev.push({ e: 'post' }); endStraight(ball); }
 
-    // Players on the ball: the boot first (a kick beats a header), then the heads.
+    // Players on the ball: the boot first (a kick beats a header), then the head.
     for (i = 0; i < 2; i++) {
       p = m.p[i];
       var f = footAt(p);
-      var fvx = p.vx, fvy = p.vy;
-      var hitF = bounceOffCircle(ball, f.x, f.y, HS.FOOT_R, fvx, fvy, HS.HEAD_E);
+      var was = ball.straight && ball.powerBy !== p.side;    // somebody else's power shot arriving
+      var hitF = bounceOffCircle(ball, f.x, f.y, HS.FOOT_R, p.vx, p.vy);
       if (hitF >= 0) {
+        if (was) endStraight(ball);
         var kick = f.rising && !p.kickHit;
         if (kick) p.kickHit = true;
-        // A power shot that meets the player it was fired at knocks them down instead of being stopped quietly.
-        if (ball.powerBy >= 0 && ball.powerBy !== p.side && ball.flatMs > 0) stun(p, ev);
-        if (kick || hitF > TOUCH_SPEED || p.powerArmed) touch(m, p, ev, kick);
+        if (p.powerArmed && (kick || hitF > TOUCH_SPEED || hitF === 0)) firePower(m, p, ev);
+        else if (kick) {
+          // Low on the boot goes out nearly flat (the measured kick), high on it goes up more steeply.
+          var up = clamp((f.y - ball.y) / (HS.FOOT_R + HS.BALL_R), 0, 1);
+          var lift = HS.KICK_LIFT_LOW + (HS.KICK_LIFT_HIGH - HS.KICK_LIFT_LOW) * up;
+          ball.vx = p.dir * Math.cos(lift) * HS.KICK_SPEED + p.vx * HS.KICK_CARRY;
+          ball.vy = -Math.sin(lift) * HS.KICK_SPEED + Math.min(0, p.vy) * HS.KICK_CARRY;
+          ev.push({ e: 'kick', s: p.side });
+        }
       }
-      var hitH = bounceOffCircle(ball, p.x, p.y, HS.HEAD_R, p.vx, p.vy, HS.HEAD_E);
+      var hitH = bounceOffCircle(ball, p.x, p.y, HS.HEAD_R, p.vx, p.vy);
       if (hitH >= 0) {
-        if (ball.powerBy >= 0 && ball.powerBy !== p.side && ball.flatMs > 0) stun(p, ev);
+        if (was) endStraight(ball);
+        if (p.powerArmed && (hitH > TOUCH_SPEED || hitH === 0)) firePower(m, p, ev);
         else if (hitH > TOUCH_SPEED) ev.push({ e: 'head', s: p.side });
-        if (hitH > TOUCH_SPEED || p.powerArmed) touch(m, p, ev, false);
       }
     }
-    capBall(ball);
+    var s = Math.hypot(ball.vx, ball.vy);
+    if (s > HS.BALL_MAX) { ball.vx *= HS.BALL_MAX / s; ball.vy *= HS.BALL_MAX / s; }
     ball.rot += (ball.vx * dt) / HS.BALL_R;
 
-    // A goal: the whole ball past the mouth, under the bar.
-    if (live && ball.y - HS.BALL_R > HS.GROUND_Y - HS.GOAL_H) {
-      if (ball.x + HS.BALL_R < HS.GOAL_D) { m.score[1]++; ev.push({ e: 'goal', s: 1 }); }
-      else if (ball.x - HS.BALL_R > HS.W - HS.GOAL_D) { m.score[0]++; ev.push({ e: 'goal', s: 0 }); }
+    // A goal: the whole ball past the mouth (under the bar, which is solid, so nothing else can be there).
+    if (live && ball.y > HS.BAR_Y) {
+      var scored = ball.x + HS.BALL_R < HS.GOAL_D ? 1 : ball.x - HS.BALL_R > HS.W - HS.GOAL_D ? 0 : -1;
+      if (scored >= 0) {
+        m.score[scored]++;
+        // M: being scored on fills the conceding side's gauge (seen 2 of 2, from 86% and 66%). Not in sudden death,
+        // where gauges do not charge (Wk), and moot then anyway: the goal ends it.
+        if (!golden) m.p[1 - scored].power = 1;
+        ev.push({ e: 'goal', s: scored });
+      }
     }
     return ev;
-  }
-
-  function stun(p, ev) {
-    if (p.stunMs > 0) return;
-    p.stunMs = HS.STUN_MS; p.kickMs = -1; p.powerArmed = false;
-    ev.push({ e: 'stun', s: p.side });
   }
 
   // ── the wire: one snapshot as small integer arrays (positions to a tenth of a unit) ────────────────────────
   var r10 = function (v) { return Math.round(v * 10); };
   function packPlayer(p) {
-    var flags = (p.ground ? 1 : 0) | (p.powerArmed ? 2 : 0) | (p.stunMs > 0 ? 4 : 0);
-    return [r10(p.x), r10(p.y), r10(p.vx), r10(p.vy), flags, Math.round(p.kickMs), Math.round(p.power * 1000)];
+    var flags = (p.ground ? 1 : 0) | (p.powerArmed ? 2 : 0);
+    // The press counts the server has acted on ride along, so a page replaying its own presses on top of this state
+    // (prediction) replays only the ones the server has not seen yet.
+    return [r10(p.x), r10(p.y), r10(p.vx), r10(p.vy), flags, Math.round(p.kickMs), Math.round(p.power * 1000),
+            p.jumps, p.kicks, p.powers, p.kickHit ? 1 : 0];
   }
   function unpackPlayer(a, side) {
     var p = newPlayer(side);
     p.x = a[0] / 10; p.y = a[1] / 10; p.vx = a[2] / 10; p.vy = a[3] / 10;
-    p.ground = !!(a[4] & 1); p.powerArmed = !!(a[4] & 2); p.stunMs = (a[4] & 4) ? 1 : 0;
+    p.ground = !!(a[4] & 1); p.powerArmed = !!(a[4] & 2);
     p.kickMs = a[5]; p.power = a[6] / 1000;
+    p.jumps = a[7] | 0; p.kicks = a[8] | 0; p.powers = a[9] | 0; p.kickHit = !!a[10];
     return p;
   }
-  function packBall(b) { return [r10(b.x), r10(b.y), r10(b.vx), r10(b.vy), Math.round(b.rot * 100), b.flatMs > 0 ? 1 : 0]; }
+  function packBall(b) { return [r10(b.x), r10(b.y), r10(b.vx), r10(b.vy), Math.round(b.rot * 100), b.straight ? 1 : 0]; }
   function unpackBall(a) {
     var b = newBall();
-    b.x = a[0] / 10; b.y = a[1] / 10; b.vx = a[2] / 10; b.vy = a[3] / 10; b.rot = a[4] / 100; b.flatMs = a[5] ? 1 : 0;
+    b.x = a[0] / 10; b.y = a[1] / 10; b.vx = a[2] / 10; b.vy = a[3] / 10; b.rot = a[4] / 100; b.straight = !!a[5];
     return b;
   }
 
   var Sim = { HS: HS, IN: IN, newMatch: newMatch, newPlayer: newPlayer, newBall: newBall, kickoff: kickoff,
-              stepPlayer: stepPlayer, step: step, footAt: footAt, barBoxes: barBoxes,
+              stepPlayer: stepPlayer, step: step, footAt: footAt, barBoxes: barBoxes, standY: standY,
               packPlayer: packPlayer, unpackPlayer: unpackPlayer, packBall: packBall, unpackBall: unpackBall };
   if (typeof module === 'object' && module.exports) module.exports = Sim;
   else root.HSSim = Sim;

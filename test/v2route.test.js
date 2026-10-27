@@ -1522,7 +1522,7 @@ test('a duel shows the same screen as every other game, on the one shared ladder
      shut. */
   const html = v2();
 
-  for (const id of ['rooftop', 'headsoccer']) {
+  for (const id of ['rooftop']) {
     const m = html.match(new RegExp("\\{id:'" + id + "'[^\\n]*"));
     assert.ok(m, id + ' is in the game list');
     assert.ok(/duel:1/.test(m[0]), id + ' is a duel');
@@ -1533,6 +1533,11 @@ test('a duel shows the same screen as every other game, on the one shared ladder
   const swim = html.match(new RegExp("\\{id:'swim'[^\\n]*"))[0];
   assert.ok(/duel:1/.test(swim) && /built:1/.test(swim) && /paid:1/.test(swim), 'swim is a built paid duel');
   assert.ok(html.includes('if(g&&!open){g.soon=1;delete g.built;delete g.paid;delete g.duel;}'), 'and shut by default');
+
+  /* Head Soccer is a built duel on Knockout's queue, free only while its paid rungs are off. */
+  const hs = html.match(/\{id:'headsoccer'[^\n]*/)[0];
+  assert.ok(/duel:1/.test(hs) && /built:1/.test(hs) && /freeOnly:1/.test(hs) && !/paid:1/.test(hs) && !/soon:1/.test(hs),
+    'headsoccer is a built, free-only duel');
 
   /* Tanks is the first of them actually built. It is still a duel — matched
      into rather than dropped into — but it is not 'soon' any more, and it seats
@@ -2164,6 +2169,52 @@ test('a locked game is padlocked like an unreleased one, and nothing on the lobb
 /* Owen, 2026-10-10: the locked games keep their "In development" screen but
    move off to the side, so the games that are open show first. Worked out at
    load from the soon flag, so unlocking a game puts it back by itself. */
+/* Head Soccer is built but unseen by Owen: its card, its Open lobbies row and its people count exist only on
+   ?headsoccer=preview (kept for the tab in sessionStorage ds.hs.preview). /headsoccer itself opens either way. */
+test('Head Soccer is in the lobby only on ?headsoccer=preview, and the tab remembers it', async () => {
+  const html = v2();
+  const a = html.indexOf('const GAMES=[');
+  const s = html.indexOf('GAMES.splice(0,GAMES.length,', a);
+  const flag = html.indexOf('headsoccer=preview', s);
+  assert.ok(flag > s, 'the flag is read right after the order is set');
+  const b = html.indexOf('})();', flag) + 5;
+  const ids = (search, store) => {
+    const ss = { getItem: k => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)) };
+    return new Function('window', 'DS_LOCKED', 'location', 'sessionStorage',
+      html.slice(a, b) + '\nreturn GAMES.filter(g=>!g.soon).map(g=>g.id);')({}, null, { search }, ss);
+  };
+  const soonIds = (search) => new Function('window', 'DS_LOCKED', 'location', 'sessionStorage',
+    html.slice(a, b) + '\nreturn GAMES.filter(g=>g.soon).map(g=>g.id);')({}, null, { search },
+    { getItem: () => null, setItem: () => {} });
+  const mem = new Map();
+  assert.ok(!ids('', mem).includes('headsoccer'), 'no playable card for a normal visitor');
+  assert.ok(soonIds('').includes('headsoccer'), 'but still the coming soon card it was before');
+  assert.strictEqual(mem.size, 0, 'and nothing stored');
+  assert.ok(ids('?headsoccer=preview', mem).includes('headsoccer'), 'the preview link shows it');
+  assert.ok(!soonIds('?headsoccer=preview').includes('headsoccer'), 'as a playable card, not coming soon');
+  assert.strictEqual(mem.get('ds.hs.preview'), '1', 'and the tab remembers it');
+  assert.ok(ids('', mem).includes('headsoccer'), 'so going to another screen keeps it');
+  assert.ok(!ids('?x=headsoccer=preview2', new Map()).includes('headsoccer'), 'only the exact flag counts');
+
+  // Open lobbies: its pinned Free row is listed only while the lobby has its card.
+  const none = lobbyHarness([]);
+  await none.win.V2Board.load();
+  assert.ok(!none.el('lob').innerHTML.includes('headsoccer'), 'no row before the games are named');
+  const hidden = lobbyHarness([]);
+  hidden.win.V2_GAME_NAMES = { knockout: 'Knockout', battleship: 'Battleship' };
+  await hidden.win.V2Board.load();
+  assert.ok(!hidden.el('lob').innerHTML.includes('headsoccer'), 'no row without the card');
+  const soon = lobbyHarness([]);
+  soon.win.V2_GAME_NAMES = { knockout: 'Knockout', headsoccer: 'Head Soccer' };
+  soon.win.V2_IS_SOON = (id) => id === 'headsoccer';
+  await soon.win.V2Board.load();
+  assert.ok(!soon.el('lob').innerHTML.includes('headsoccer'), 'no row while it is only coming soon');
+  const shown = lobbyHarness([]);
+  shown.win.V2_GAME_NAMES = { knockout: 'Knockout', headsoccer: 'Head Soccer' };
+  await shown.win.V2Board.load();
+  assert.ok(shown.el('lob').innerHTML.includes('headsoccer:free'), 'a row with it');
+});
+
 test('every playable game is listed before any locked or unreleased one', () => {
   const LOCK = require(path.join(ROOT, 'shared/lockedGames.js'));
   const html = v2();
@@ -2175,15 +2226,15 @@ test('every playable game is listed before any locked or unreleased one', () => 
     html.slice(a, b + 1) + '\nreturn GAMES.map(g=>g.id);')({ DS_LOCKED: lock }, lock);
 
   assert.deepStrictEqual(run(LOCK), [
-    'snake', 'paper', 'agar', 'chomp', 'knockout', 'battleship',
-    'omgshooter', 'tanks', 'rooftop', 'headsoccer', 'swim', 'stumble',
+    'snake', 'paper', 'agar', 'chomp', 'headsoccer', 'knockout', 'battleship',
+    'omgshooter', 'tanks', 'rooftop', 'swim', 'stumble',
     'pool8', 'omgshoot2', 'airhockey', 'crossy',
   ], 'playable in their own order, then locked and unreleased in theirs');
 
   // Unlocked, both go straight back to their own place among the playable ones.
   const none = { LOCKED_GAMES: [], isLocked: () => false };
-  assert.deepStrictEqual(run(none).slice(0, 8),
-    ['snake', 'paper', 'agar', 'chomp', 'omgshooter', 'tanks', 'knockout', 'battleship']);
+  assert.deepStrictEqual(run(none).slice(0, 9),
+    ['snake', 'paper', 'agar', 'chomp', 'headsoccer', 'omgshooter', 'tanks', 'knockout', 'battleship']);
 
   // The rail and the full grid both draw from that order.
   assert.ok(/order=GAMES\.slice\(\)/.test(html) && html.indexOf('order=GAMES.slice()') > s, 'the rail copies it after the sort');

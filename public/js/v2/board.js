@@ -156,6 +156,10 @@
       stake: null, lobbyType: 'free', players: 0, state: 'open' },
     { id: 'battleship:free', game: 'battleship', region: 'na',
       stake: null, lobbyType: 'free', players: 0, state: 'open' },
+    /* Head Soccer, the same kind of duel. needsCard: listed only while the lobby has its PLAYABLE card (v2.html
+       HS_PREVIEW leaves it a "coming soon" card for everyone but ?headsoccer=preview). */
+    { id: 'headsoccer:free', game: 'headsoccer', region: 'na',
+      stake: null, lobbyType: 'free', players: 0, state: 'open', needsCard: true },
     /* Paper and agar.io are not pinned here. Their rooms are on the server and
        /api/live reports a row per rung (paper:na:s0, ag:na:s0, ...), so their
        Free comes off the real board in rowsToShow. */
@@ -187,6 +191,8 @@
       /* A locked game (shared/lockedGames.js) has no room behind its row, so
          it is not listed. Its pinned entry stays above for when it unlocks. */
       if (window.DS_LOCKED && window.DS_LOCKED.isLocked(p.game)) return;
+      if (p.needsCard && (!(window.V2_GAME_NAMES && window.V2_GAME_NAMES[p.game])
+        || (typeof window.V2_IS_SOON === 'function' && window.V2_IS_SOON(p.game)))) return;
       /* The pinned row keeps its own id, stake and door — those are what make
          it work — and takes only its population from the server. */
       const live = EXTRAS.find(e => e.id === p.id);
