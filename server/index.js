@@ -2770,11 +2770,10 @@ const swPaidSwitch = createPaidSwitchStore({
   file: process.env.SW_PAID_SWITCH_PATH || path.join(path.dirname(agJournal.file), 'sw-paid-switch.json'),
   tag: '[SW]', what: 'paid ' + SWIM_NAME,
 });
-/* Swim's lobby card is shut (soon) until Owen has played it: the game runs and is reachable at /swim,
-   but the lobby's people counts leave it out until this is true (public/v2.html, the SWIM gate). Until
-   then its PAID door also boots shut whatever was saved (Fable review 2026-10-27: a game nobody has
-   signed off must not take a stake); the owner console's sw:paid:on opens it until the next restart. */
-const SWIM_IN_LOBBY = false;
+/* Swim's lobby card: open since 2026-10-27 (Owen: "open it now"). While this is false the lobby's
+   people counts leave it out and its PAID door boots shut whatever was saved (Fable review 2026-10-27:
+   a game nobody has signed off must not take a stake); sw:paid:on then opens it until the next restart. */
+const SWIM_IN_LOBBY = true;
 let swPaidOpen = SWIM_IN_LOBBY && !swPaidSwitch.closedAtBoot().closed;
 if (!swPaidOpen) console.warn('[SW] paid door CLOSED at boot' + (SWIM_IN_LOBBY ? ": the owner's sw:paid:off outlived the restart" : ' (SWIM_IN_LOBBY is off)'));
 if (!koPaidOpen) console.warn('[KO] paid door CLOSED at boot: the owner\'s ko:paid:off outlived the restart');

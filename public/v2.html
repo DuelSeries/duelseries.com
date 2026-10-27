@@ -3247,6 +3247,12 @@ const GAMES=[
     $1 rungs stake through the wallet widget (HS_PAID_ON in server/index.js, the owner's hs:paid:off on top). In the lobby for everyone since 2026-10-27 (Owen). */
  {id:'headsoccer',name:'Head Soccer',c:['#12261a','#7fd36b'],type:'m',duel:1,built:1,paid:1,
   d:'One on one, oversized heads, and a ball that rarely goes where you meant it to.'},
+ /* Swim (server/swim, page /swim): built, a duel with a buy-in on Knockout's terms (free races a bot after a
+    minute, a paid table waits for a person and refunds if none comes). Its name is SwimSim.NAME
+    (shared/swimSim.js), the one place to change it. After Head Soccer, in the lobby since 2026-10-27
+    (Owen: "open it now"). */
+ {id:'swim',name:(window.SwimSim&&SwimSim.NAME)||'Swim',c:['#141a16','#8fd06a'],type:'m',duel:1,built:1,paid:1,
+  d:'Weave through endless traffic. Touch a car, or fall 200 m behind, and you lose.'},
  /* Built, and free while it is new: no ladder, no lobby list, its own page,
     and none of the money path involved in it. `solo` is what says so. */
  {id:'omgshooter',name:'Awesome Tanks',c:['#1d2016','#a8bd63'],type:'p',built:1,solo:1,
@@ -3278,12 +3284,6 @@ const GAMES=[
     solo flag means here: no ladder, no lobby list, its own page. Free while it
     is new, so none of the money path is involved in it. */
 
- /* Swim (server/swim, page /swim): built, a duel with a buy-in on Knockout's terms (free races a bot after a
-    minute, a paid table waits for a person and refunds if none comes). Its name is SwimSim.NAME
-    (shared/swimSim.js), the one place to change it. The card stays shut until Owen has played it: see the
-    SWIM gate just below. */
- {id:'swim',name:(window.SwimSim&&SwimSim.NAME)||'Swim',c:['#141a16','#8fd06a'],type:'m',duel:1,built:1,paid:1,
-  d:'Weave through endless traffic. Touch a car, or fall 200 m behind, and you lose.'},
  /* Every game here has a painting. A new one added before its art exists can
     carry noart:1 and render as a plain block in its own colour instead of a
     broken image; drop the flag when public/img/games/<id>.png lands. */
@@ -3301,20 +3301,6 @@ const GAMES=[
  {id:'crossy',name:'Crossy Road',c:['#16201a','#82ce54'],type:'p',soon:1,
   d:'Hop across roads and rivers, and do not stop for long.'},
 ];
-/* THE SWIM GATE (2026-10-27). Swim is playable at /swim, but its card shows shut (soon:1, like the
-   placeholders) until Owen has seen it. ?swim=1 opens it on this device (remembered in localStorage
-   'ds.swim'), ?swim=0 shuts it again. Opening it for everybody is deleting this block (and setting
-   SWIM_IN_LOBBY in server/index.js, which puts its people count on the card). */
-(function(){
-  let open=false;
-  try{
-    const q=/[?&]swim=([01])/.exec(location.search);
-    if(q){if(q[1]==='1')localStorage.setItem('ds.swim','1');else localStorage.removeItem('ds.swim');}
-    open=localStorage.getItem('ds.swim')==='1';
-  }catch(_){}
-  const g=GAMES.find(x=>x.id==='swim');
-  if(g&&!open){g.soon=1;delete g.built;delete g.paid;delete g.duel;}
-})();
 /* Locked games (shared/lockedGames.js, the list the server reads too: today
    Awesome Tanks and Bowmasters). Their entries above stay as they are; for this
    page load each one is shown exactly like Stumble Guys: soon:1 greys the card,

@@ -2,6 +2,17 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-10-27-swim",
+      "date": "2026-10-27",
+      "tag": "new",
+      "title": "New game: Swim",
+      "body": "Race one other player down an endless highway, both of you in the same traffic. Weave between the cars with W A S D or the arrow keys, or on a phone drag on the left to steer and hold Gas or Brake on the right.\n\nTouch any car and you lose. Fall 200 m behind and you lose. The road gets faster and busier the longer you both last, so somebody always slips up.",
+      "image": {
+        "src": "/updates/swim-new.webp",
+        "alt": "A gold car and a teal car racing down a desert highway at sunset, 148 km/h"
+      }
+    },
+    {
       "id": "2026-10-27-head-soccer",
       "date": "2026-10-27",
       "tag": "new",

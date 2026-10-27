@@ -156,6 +156,8 @@
       stake: null, lobbyType: 'free', players: 0, state: 'open' },
     { id: 'battleship:free', game: 'battleship', region: 'na',
       stake: null, lobbyType: 'free', players: 0, state: 'open' },
+    { id: 'swim:free',       game: 'swim',       region: 'na',
+      stake: null, lobbyType: 'free', players: 0, state: 'open' },
     /* Head Soccer, the same kind of duel. needsCard: listed only while the lobby has its PLAYABLE card (v2.html
        HS_PREVIEW leaves it a "coming soon" card for everyone but ?headsoccer=preview). */
     { id: 'headsoccer:free', game: 'headsoccer', region: 'na',

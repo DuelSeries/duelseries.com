@@ -1528,11 +1528,9 @@ test('a duel shows the same screen as every other game, on the one shared ladder
     assert.ok(/duel:1/.test(m[0]), id + ' is a duel');
     assert.ok(/soon:1/.test(m[0]), id + ' is still unbuilt, and still says so');
   }
-  /* Swim is built (a duel with a buy-in, server/swim), and its card is kept shut behind the SWIM gate
-     until Owen has played it: closed, the gate puts it back exactly in the placeholders' state. */
+  /* Swim is built (a duel with a buy-in, server/swim) and in the lobby since 2026-10-27. */
   const swim = html.match(new RegExp("\\{id:'swim'[^\\n]*"))[0];
-  assert.ok(/duel:1/.test(swim) && /built:1/.test(swim) && /paid:1/.test(swim), 'swim is a built paid duel');
-  assert.ok(html.includes('if(g&&!open){g.soon=1;delete g.built;delete g.paid;delete g.duel;}'), 'and shut by default');
+  assert.ok(/duel:1/.test(swim) && /built:1/.test(swim) && /paid:1/.test(swim) && !/soon:1/.test(swim), 'swim is a built paid duel');
 
   /* Head Soccer is a built duel on Knockout's queue, paid like Knockout (HS_PAID_ON). */
   const hs = html.match(/\{id:'headsoccer'[^\n]*/)[0];
@@ -2201,15 +2199,15 @@ test('every playable game is listed before any locked or unreleased one', () => 
     html.slice(a, b + 1) + '\nreturn GAMES.map(g=>g.id);')({ DS_LOCKED: lock }, lock);
 
   assert.deepStrictEqual(run(LOCK), [
-    'snake', 'paper', 'agar', 'chomp', 'headsoccer', 'knockout', 'battleship',
-    'omgshooter', 'tanks', 'rooftop', 'swim', 'stumble',
+    'snake', 'paper', 'agar', 'chomp', 'headsoccer', 'swim', 'knockout', 'battleship',
+    'omgshooter', 'tanks', 'rooftop', 'stumble',
     'pool8', 'omgshoot2', 'airhockey', 'crossy',
   ], 'playable in their own order, then locked and unreleased in theirs');
 
   // Unlocked, both go straight back to their own place among the playable ones.
   const none = { LOCKED_GAMES: [], isLocked: () => false };
-  assert.deepStrictEqual(run(none).slice(0, 9),
-    ['snake', 'paper', 'agar', 'chomp', 'headsoccer', 'omgshooter', 'tanks', 'knockout', 'battleship']);
+  assert.deepStrictEqual(run(none).slice(0, 10),
+    ['snake', 'paper', 'agar', 'chomp', 'headsoccer', 'swim', 'omgshooter', 'tanks', 'knockout', 'battleship']);
 
   // The rail and the full grid both draw from that order.
   assert.ok(/order=GAMES\.slice\(\)/.test(html) && html.indexOf('order=GAMES.slice()') > s, 'the rail copies it after the sort');
