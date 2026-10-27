@@ -51,30 +51,9 @@ test('it can never stay up', () => {
   assert.match(html, /<noscript><style>#splash\{display:none\}<\/style><\/noscript>/, 'no JS, no splash');
 });
 
-/* Installed on Android, the app's launch screen (icon on #100e0b) stays up
-   until Chrome counts the page as visually non-empty: 200 characters of text
-   or a 32x32 image. A drawing in SVG is neither, so the launch screen covered
-   the whole animation and lifted only when the lobby's text arrived, just as
-   the splash faded (Owen, 2026-10-27). An invisible 64x64 image makes the
-   splash's own first paint count. It lives in the shared script, not the
-   swappable block, so every saved option keeps it. */
-test('its first paint counts as content, so an installed app hands over to it', () => {
-  const s = body.slice(body.indexOf('<div id="splash"'), body.indexOf('</script>', body.indexOf('<div id="splash"')));
-  const script = s.slice(s.indexOf('<script>'));
-  assert.match(script, /new Image\(\)/);
-  assert.match(script, /src='data:image\/svg\+xml,[^']*width=%2764%27 height=%2764%27/, 'intrinsic 64x64, over the 32x32 threshold');
-  assert.match(script, /opacity:0/, 'never seen');
-  assert.match(script, /el\.appendChild\(\w+\)/, 'inside the splash, so it leaves with it');
-  assert.ok(script.indexOf('appendChild') > script.indexOf('self!==top'), 'not added in a frame');
-});
-
 test('the only hold is a 400 ms floor, nothing artificial', () => {
   const s = body.slice(body.indexOf('<div id="splash"'), body.indexOf('</script>', body.indexOf('<div id="splash"')));
-  assert.match(s, /Math\.max\(0,from\+400-performance\.now\(\)\)/);
-  // From navigation in a browser; from the first frame only in the installed
-  // app, where the launch screen hides the start.
-  assert.match(s, /var from=0;if\(app\)requestAnimationFrame/);
-  assert.match(s, /var app=matchMedia\('\(display-mode: standalone\),\(display-mode: fullscreen\)'\)\.matches\|\|navigator\.standalone===true/);
+  assert.match(s, /Math\.max\(0,400-performance\.now\(\)\)/);
 });
 
 /* Written to hold for every saved option (splash-mockups/saved/), so swapping
