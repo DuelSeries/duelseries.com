@@ -14,8 +14,9 @@ const catalog = require('../server/skinCatalog');
 
 const quiet = { error() {}, warn() {}, log() {} };
 
-test('a free colour is worn only when listed; anything else is the game\'s own look', () => {
-  assert.strictEqual(skinOf({ skin: 'lime' }), 'f:lime');
+test('no free colour since 2026-10-27 (every Pac-Man is the classic yellow); anything else is the game\'s own look', () => {
+  assert.strictEqual(chompSkins.SKINS.length, 0);
+  assert.strictEqual(skinOf({ skin: 'lime' }), '', 'a colour stored before is worn as yellow');
   assert.strictEqual(skinOf({ skin: 'gold' }), '');
   assert.strictEqual(skinOf({ skin: '__proto__' }), '');
   assert.strictEqual(skinOf({ skin: 7 }), '');
@@ -26,7 +27,7 @@ test('a free colour is worn only when listed; anything else is the game\'s own l
 test('a bought skin needs a genuine pass that lists it; a forged or missing pass falls back', () => {
   const { pass } = sharedPass().mint('W-test', ['chomp:candy', 'agar:moon']);
   assert.strictEqual(skinOf({ shop: 'candy', skinPass: pass }), 'p:candy');
-  assert.strictEqual(skinOf({ shop: 'rainbow', skinPass: pass, skin: 'mint' }), 'f:mint', 'not in the pass');
+  assert.strictEqual(skinOf({ shop: 'rainbow', skinPass: pass, skin: 'mint' }), '', 'not in the pass');
   assert.strictEqual(skinOf({ shop: 'candy', skinPass: pass.slice(0, -2) + 'xx' }), '', 'forged');
   assert.strictEqual(skinOf({ shop: 'candy' }), '');
   const other = sharedPass().mint('W-test', ['agar:moon']).pass;

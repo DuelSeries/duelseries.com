@@ -319,8 +319,11 @@
   }
 
   /* ── Pac-Man (chomp) ─────────────────────────────────────────────────── */
-  /* The game's own pixels (shared/shopSkins.js chompPx over chompPixel.js's 13 px disc), mouth wide to the right,
-     on the arcade's black with the next dots ahead of it (bare: the chomper alone, centred). */
+  /* The game's own pixels (shared/shopSkins.js chompPx over chompPixel.js's 13 px disc), chomping to the right
+     (the game's mouth frames shut, half, wide, half; Owen 2026-10-27: the Customize button's Pac-Man chomps, and the
+     lobby paints it every frame whatever the OS's reduced-motion says), on the arcade's black with the next dots ahead
+     of it (bare: the chomper alone, centred). */
+  var CHOMP_CHEW = [0, 1, 2, 1];
   function paintChomp(cv, k, t, big, bare) {
     var ctx = cv.getContext('2d'), w = cv.width, h = cv.height;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -329,9 +332,12 @@
     var px = Math.max(1, Math.floor(Math.min(w, h) * (big ? 0.55 : 0.7) / 13));
     var dots = bare ? 0 : Math.max(0, Math.min(2, Math.floor((w - 13 * px) / (8 * px) / 1.5)));
     var x0 = Math.round((w - (13 + dots * 8) * px) / 2), y0 = Math.round((h - 13 * px) / 2);
+    var fr = CHOMP_CHEW[Math.floor((t || 0) / 0.09) % 4];
     for (var dy = -6; dy <= 6; dy++) for (var dx = -6; dx <= 6; dx++) {
       if (dx * dx + dy * dy > 42.25) continue;
-      if (dx + 2 >= 0 && Math.abs(dy) <= dx + 2) continue;           // the wide mouth (chompPixel frame 2), right
+      // the mouth, facing right: chompPixel's frame 1 (half) and frame 2 (wide); frame 0 is shut
+      if (fr === 1 && dx + 1 >= 0 && Math.abs(dy) <= Math.floor(0.4 * (dx + 1.5))) continue;
+      if (fr === 2 && dx + 2 >= 0 && Math.abs(dy) <= dx + 2) continue;
       ctx.fillStyle = SK.chompPx(k, dx, dy);
       ctx.fillRect(x0 + (dx + 6) * px, y0 + (dy + 6) * px, px, px);
     }
@@ -343,7 +349,7 @@
     battleship: paintBattleship, omgshooter: paintShooter, tanks: paintTanks };
   /* Which previews move. The rest are painted once per size, which keeps a
      page of forty-odd canvases off the frame budget. */
-  var MOVES = { snake: 1, paper: 1, omgshooter: 1, tanks: 1 };
+  var MOVES = { snake: 1, paper: 1, chomp: 1, omgshooter: 1, tanks: 1 };
 
   /* skinId 'default' is the game's free look (each game's `def`). bare draws
      the piece alone on a clear canvas, for Customize's dark chooser. */

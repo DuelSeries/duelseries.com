@@ -7,22 +7,14 @@
 
    The choice is stored in the lobby under duel.chomp.skin and sent by the /chomp page in its socket handshake
    (public/js/chomp/chompMain.js). The bought skins are shared/shopSkins.js SKINS.chomp. Cosmetic only: no money path
-   reads it. */
+   reads it.
+
+   EMPTY since 2026-10-27 (Owen: "too much going on, too many colours"): every Pac-Man is the classic yellow for now,
+   so Customize offers no free colour and the server wears none (a stored id falls back to yellow). The colours it
+   had were lime, emerald, mint, sky, violet, orchid, coral, tangerine, peach, lemon and snow (git history has them). */
 (function (root) {
   'use strict';
-  var SKINS = [
-    { id: 'lime',      name: 'Lime',      col: '#8fe03a' },
-    { id: 'emerald',   name: 'Emerald',   col: '#19b866' },
-    { id: 'mint',      name: 'Mint',      col: '#5fe3c0' },
-    { id: 'sky',       name: 'Sky',       col: '#5aa9ff' },
-    { id: 'violet',    name: 'Violet',    col: '#9a6bff' },
-    { id: 'orchid',    name: 'Orchid',    col: '#c06bf0' },
-    { id: 'coral',     name: 'Coral',     col: '#ff6f61' },
-    { id: 'tangerine', name: 'Tangerine', col: '#ff8a1f' },
-    { id: 'peach',     name: 'Peach',     col: '#ffc89a' },
-    { id: 'lemon',     name: 'Lemon',     col: '#fff59a' },
-    { id: 'snow',      name: 'Snow',      col: '#f4f4f4' },
-  ];
+  var SKINS = [];
   var BY = {};
   SKINS.forEach(function (s) { BY[s.id] = s; });
   /* The skin for an id, or null for anything not listed. */

@@ -650,10 +650,11 @@
         if (pb.id === myId && (predicting || !(pb.flags & Wire.F.DYING))) return;
         var pa = w.a.pmap.get(pb.id), pos = lerp(pa, pb, w.k);
         var meta = metas.get(pb.id) || { n: '', c: 0 };
-        var others = draw.L.players.length - 1;
         var o = {
           x: pos.x, y: pos.y, dir: pb.dir >= 0 ? pb.dir : 1, name: meta.n, me: pb.id === myId,
-          color: meta.look ? meta.look.col : pb.id === myId || (paidMode && pb.id === lastMyId) ? draw.L.me : draw.L.players[(meta.c % others) + 1],
+          // Owen 2026-10-27: every Pac-Man is the classic yellow (a bought Shop skin still shows); yours wears a thin
+          // outline and everyone else a name tag (chompPixel)
+          color: meta.look ? meta.look.col : draw.L.me,
           skin: meta.look && meta.look.k.art ? meta.look.k : null,
           mouth: mouthFor(pb.id, pos.x, pos.y, pb.flags & Wire.F.MOVING),
           frame: chewFrame(pb.id, pb.flags & Wire.F.MOVING, dtTicks)

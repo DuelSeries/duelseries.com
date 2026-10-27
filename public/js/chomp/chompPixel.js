@@ -356,6 +356,17 @@
       m.fillStyle = p.color;
       m.fillText(p.name, (ox + Math.floor(p.x * T)) * k, y);
     });
+    // Owen 2026-10-27: every Pac-Man is the classic yellow, so yours wears a thin, faint white outline (2 px clear of
+    // the 13 px disc, whose centre is sprite pixel 7: half a pixel left of and above floor(p * T)); the rest wear names
+    s.players.forEach(function (p) {
+      if (!p.me || p.hidden || p.dying != null) return;
+      m.globalAlpha = 0.55;
+      m.strokeStyle = '#ffffff';
+      m.lineWidth = Math.max(1, k * 0.75);
+      m.beginPath();
+      m.arc((ox + Math.floor(p.x * T) - 0.5) * k, (oy + Math.floor(p.y * T) - 0.5) * k, 8.5 * k, 0, Math.PI * 2);
+      m.stroke();
+    });
     m.globalAlpha = 1;
   };
 
