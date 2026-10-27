@@ -548,7 +548,32 @@ body.ingame>.howveil,body.ingame>.meveil,body.ingame>.apscreen,body.ingame>.bshe
    0.01ms cycle, so it is re-stated here. */
 @media(prefers-reduced-motion:reduce){
   .tkrun{animation-duration:52s!important;animation-iteration-count:infinite!important}
+  .tkrun.cards{transition-duration:.55s!important}
+  .tkc.new{animation-duration:.5s!important}
+  .ltag .dot{animation-duration:1.8s!important;animation-iteration-count:infinite!important}
 }
+/* PC: Owen's pick A (2026-10-27), Rainbet's Live Wins row. Each win is the game's card art, the name under it and
+   the amount in green under that. It holds still, and every few seconds the newest win slides in at the left and
+   pushes the row right. The "Live wins" tag is a small pill over the top-left of the first card, never over a name
+   or an amount. Same wins as the phone's line of text (drawTicker); phones keep that line as it is. */
+.ltag{display:none}
+.tickerwrap.top .ltag{display:inline-flex;align-items:center;gap:4px;position:absolute;left:3px;top:3px;z-index:2;
+  padding:3px 6px 3px 5px;border-radius:var(--rf);background:rgba(16,14,11,.84);color:var(--tx);
+  font-size:10px;font-weight:600;white-space:nowrap;pointer-events:none}
+.ltag .dot{width:6px;height:6px;border-radius:50%;background:var(--live);animation:ltping 1.8s infinite}
+@keyframes ltping{0%{box-shadow:0 0 0 0 rgba(142,208,129,.6)}70%,100%{box-shadow:0 0 0 6px rgba(142,208,129,0)}}
+.tickerwrap.top .ticker{-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 96px),transparent);
+          mask-image:linear-gradient(90deg,#000 calc(100% - 96px),transparent)}
+.tkrun.cards{animation:none;transition:transform .55s cubic-bezier(.16,1,.3,1)}
+.tkc{flex:none;width:70px;margin-right:9px;text-align:center}
+.tkc img{display:block;width:70px;height:98px;object-fit:cover;border-radius:8px;background:var(--s2)}
+.tkc .nm{display:flex;align-items:center;justify-content:center;gap:4px;margin-top:6px;font-size:11.5px;color:var(--tx2);
+  white-space:nowrap;overflow:hidden}
+.tkc .nm svg{flex:none}
+.tkc .nm b{font-weight:500;overflow:hidden;text-overflow:ellipsis}
+.tkc .am{margin-top:2px;font-size:12.5px;font-weight:600;color:var(--live)}
+.tkc.new{animation:tkin .5s cubic-bezier(.16,1,.3,1)}
+@keyframes tkin{from{opacity:0;transform:scale(.84)}to{opacity:1;transform:none}}
 
 /* ── lobby list ─────────────────────────────────────────────────────── */
 /* EVERY OPEN LOBBY SHOWS (Owen 2026-10-16: "make it so that they all load, I
@@ -2362,6 +2387,7 @@ body.scr-anim { overflow-x:hidden }
   <!-- Read-only decoration: it exists to show the board is alive and people
        are winning. No controls of any kind, by explicit instruction. -->
   <div class="tickerwrap">
+    <span class="ltag" aria-hidden="true"><span class="dot"></span>Live wins</span>
     <div class="ticker"><div class="tkrun" id="tkrun"></div></div>
   </div>
 
@@ -4789,7 +4815,28 @@ const WINS=(()=>{
   return out;
 })();
 
+const TK_PC=matchMedia('(min-width:761px)');
+const TK_RANK='<svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true"><path d="M6 .8 11.2 6 6 11.2.8 6Z" fill="#c9915a"/><path d="M6 .8 11.2 6H.8Z" fill="#e8b47c"/></svg>';
+let tkTimer=0;
 function drawTicker(){
+  const run=document.getElementById('tkrun');
+  clearInterval(tkTimer); run.classList.remove('cards'); run.style.transform=''; run.style.transition='';
+  if(TK_PC.matches){
+    /* Twice over, so the card that leaves on the right is never the one coming in on the left. */
+    const card=w=>`<div class="tkc"><img src="${artSrc(w.g)}" alt="${G(w.g).name}" width="70" height="98" decoding="async">
+      <div class="nm">${TK_RANK}<b>${w.who}</b></div><div class="am num">$${w.amt.toFixed(2)}</div></div>`;
+    run.innerHTML=WINS.map(card).join('')+WINS.map(w=>card(w).replace('class="tkc"','class="tkc" aria-hidden="true"')).join('');
+    run.classList.add('cards');
+    tkTimer=setInterval(()=>{
+      if(document.hidden||document.body.classList.contains('ingame'))return;
+      const c=run.lastElementChild; if(!c)return;
+      run.prepend(c); c.classList.remove('new'); void c.offsetWidth; c.classList.add('new');
+      run.style.transition='none'; run.style.transform=`translateX(${-(c.offsetWidth+9)}px)`;
+      run.getBoundingClientRect();
+      run.style.transition=''; run.style.transform='';
+    },2600);
+    return;
+  }
   const one=WINS.map(w=>`<span class="tki"><span class="who">${w.who}</span>
     <span class="won">won</span><span class="amt num">$${w.amt.toFixed(2)}</span>
     <span class="sep"></span><span class="gm">${G(w.g).name}</span></span>`).join('');
@@ -5558,6 +5605,7 @@ document.getElementById('adveil').addEventListener('click',e=>{
    from a hardcoded 38:59 towards an event that was never going to happen. */
 
 drawNav();V2Wallet.render();drawRail();drawTicker();V2Board.start();
+if(TK_PC.addEventListener)TK_PC.addEventListener('change',drawTicker);
 </script>
 <!-- The lobby is built: fade the loading screen out. A script of its own so
      that it still runs if the one above threw. -->
