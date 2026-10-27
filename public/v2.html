@@ -485,7 +485,9 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
 /* Social proof that survives a quiet board: real names and real amounts make
    the product feel alive even when two people are playing.
    The run holds the list twice, so translating it exactly -50% lands the
-   second copy where the first started and the loop has no seam. */
+   second copy where the first started and the loop has no seam. It runs
+   from -50% back to 0, so the names travel left to right (Owen, 2026-10-26:
+   "I need that to scroll to the right"); both ends show the same picture. */
 .tickerwrap{position:relative;margin-top:30px}
 .ticker{overflow:hidden;
   -webkit-mask-image:linear-gradient(90deg,transparent,#000 56px,#000 calc(100% - 96px),transparent);
@@ -499,7 +501,7 @@ body.ingame .tkrun{animation-play-state:paused}
    out again on the way back. What sits above the frame stays: the toasts and the wallet widget. */
 body.ingame>header,body.ingame>nav,body.ingame>main,body.ingame>footer,
 body.ingame>.howveil,body.ingame>.meveil,body.ingame>.apscreen,body.ingame>.bsheet{visibility:hidden}
-@keyframes tk{to{transform:translateX(-50%)}}
+@keyframes tk{from{transform:translateX(-50%)}to{transform:translateX(0)}}
 .tki{display:inline-flex;align-items:center;gap:8px;padding:9px 22px;
   font-size:13px;white-space:nowrap}
 .tki .who{color:var(--tx);font-weight:550}
