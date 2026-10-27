@@ -1534,10 +1534,10 @@ test('a duel shows the same screen as every other game, on the one shared ladder
   assert.ok(/duel:1/.test(swim) && /built:1/.test(swim) && /paid:1/.test(swim), 'swim is a built paid duel');
   assert.ok(html.includes('if(g&&!open){g.soon=1;delete g.built;delete g.paid;delete g.duel;}'), 'and shut by default');
 
-  /* Head Soccer is a built duel on Knockout's queue, free only while its paid rungs are off. */
+  /* Head Soccer is a built duel on Knockout's queue, paid like Knockout (HS_PAID_ON). */
   const hs = html.match(/\{id:'headsoccer'[^\n]*/)[0];
-  assert.ok(/duel:1/.test(hs) && /built:1/.test(hs) && /freeOnly:1/.test(hs) && !/paid:1/.test(hs) && !/soon:1/.test(hs),
-    'headsoccer is a built, free-only duel');
+  assert.ok(/duel:1/.test(hs) && /built:1/.test(hs) && /paid:1/.test(hs) && !/freeOnly:1/.test(hs) && !/soon:1/.test(hs),
+    'headsoccer is a built, paid duel');
 
   /* Tanks is the first of them actually built. It is still a duel — matched
      into rather than dropped into — but it is not 'soon' any more, and it seats
