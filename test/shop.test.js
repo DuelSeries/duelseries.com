@@ -39,7 +39,10 @@ function lobbyGames() {
   const list = html.slice(html.indexOf('const GAMES=['), html.indexOf('\n];', html.indexOf('const GAMES=[')));
   // a name is a literal, or Pac-Man's one constant (window.DS_CHOMP_NAME||'Chomp', shared/chompName.js)
   return [...list.matchAll(/\{id:'(\w+)',name:(?:'[^']*'|window\.\w+\|\|'[^']*')[^\n]*/g)]
-    .filter(m => !/\bsoon:1\b/.test(m[0])).map(m => m[1]);
+    .filter(m => !/\bsoon:1\b/.test(m[0])).map(m => m[1])
+    /* Head Soccer is playable only on ?headsoccer=preview (v2.html HS_PREVIEW) until Owen has seen it; everyone else
+       sees its coming-soon card. Its Shop section is waiting on his call, so it is not held to this yet. */
+    .filter(id => id !== 'headsoccer');
 }
 
 test('every game in the lobby that has been built has its own skins in the Shop', () => {
