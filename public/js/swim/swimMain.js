@@ -203,10 +203,11 @@ function drive(r) {
   }
   r.steer = steer; r.pedal = pedal;
   if (r.me.v > r.topV) r.topV = r.me.v;
-  // Send every other tick: the last six inputs, so a dropped packet costs nothing.
+  /* Send every other tick: everything since the last packet and at least the last six, so a dropped
+     packet costs nothing and a slow frame leaves no tick unsent (the server takes up to 12). */
   const last = r.me.tick - 1;
   if (r.me.alive && last >= 0 && last - r.sentTo >= 2) {
-    const from = Math.max(0, last - 5);
+    const from = Math.max(0, last - 11, Math.min(r.sentTo + 1, last - 5));
     const k = [];
     for (let t = from; t <= last; t++) k.push(r.inputs[t % R]);
     socket.volatile.emit('sw:in', { t: last, k });
@@ -438,8 +439,10 @@ function waitSpin(on) { const s = document.querySelector('.waitSpin'); if (s) s.
 
 socket.on('connect', () => {
   pingBurst();
+  if (!scene) return;                              // no road to drive on: never take a seat, never spend a token
   if (WATCH) { swapping = false; watch(null); return; }
   if (waiting && resumeKey) { queue(null, resumeKey); return; }
+  if (race && race.state === 'over') return;       // the result card is up: it stays, with its own buttons
   if (race && race.state !== 'over') {
     /* A reconnect mid-race: the server counted the drop as leaving (Knockout's rule), so the race is lost. */
     race.state = 'over';
@@ -468,7 +471,7 @@ function queue(token, resume) {
   waitPaid = myStake > 0;
   $('waitCancel').textContent = waitPaid ? 'Cancel and refund' : 'Back to the lobby';
   if (!resume) startWait(WAIT_MS); else paintWait();
-  socket.emit('sw:queue', { name: myName, wallet: myWallet, stake: myStake, entryToken: token || myEntryToken, resume: resume || undefined });
+  socket.emit('sw:queue', { name: myName, wallet: myWallet, stake: myStake, entryToken: token || myEntryToken, resume: resume || undefined, v: S.VERSION });
   myEntryToken = null;
   try { sessionStorage.removeItem('entryToken'); } catch (_) {}
 }
@@ -513,6 +516,14 @@ socket.on('sw:start', (m) => {
 socket.on('sw:go', () => { /* the clock already knows; the server says it for watchers that arrive late */ });
 socket.on('sw:s', (m) => {
   if (!race || !m || !Array.isArray(m.p)) return;
+  /* The server's clock was at tick T when it sent this, so ours, now, is at least that plus the trip.
+     Far off either way (a ping estimate that went wrong) and our ticks are moved back in line. */
+  if (Number.isInteger(m.T) && race.goAt && clock.off !== null) {
+    const ahead = serverNow() - (race.goAt + m.T * S.TICK_MS);
+    if (ahead > (clock.rtt || 0) + 150 || ahead < -40) {
+      clock.off -= ahead - (clock.rtt || 0) / 2; clock.want = clock.off; clock.samples = [];
+    }
+  }
   for (const row of m.p) takeRow(race, row);
 });
 socket.on('sw:cars', (m) => {
@@ -579,6 +590,7 @@ function paintOver() {
     'opponent left': 'They left the race.',
     time: 'Thirty minutes and nobody crashed, so it is a draw.',
     error: 'The race stopped, so it is a draw.',
+    'both out': 'They left after your crash had already happened, so it is a draw.',
   }[m.why];
   if (why) card.notes.push(why);
   const paid = myStake > 0;

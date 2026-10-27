@@ -13,6 +13,7 @@ const { KnockoutLobby } = require('./KnockoutLobby'); // the shrinking-disc duel
 const { BattleshipLobby } = require('./BattleshipLobby'); // the two-grid duel
 const { SwimLobby } = require('./swim/SwimLobby');       // the traffic race (Swim, shared/swimSim.js)
 const SWIM_NAME = require('../shared/swimSim').NAME;     // its player-facing name, kept in one place
+const SWIM_VERSION = require('../shared/swimSim').VERSION; // the step's version a page must run to be seated
 const chatGuard = require('./chatGuard').shared;           // every game's chat line goes through it
 const { ShooterRoom, SH: SHOOTER } = require('./ShooterRoom'); // the top-down tank arena
 /* Games switched off for now (Awesome Tanks, Bowmasters): no room, no socket
@@ -5459,9 +5460,11 @@ io.on('connection', (socket) => {
      several ticks a packet so a dropped one costs nothing); the server runs both cars against the
      traffic and decides everything (SwimRoom). Queueing, paying and refunding are bs:queue's line for
      line, with Swim's own door (consumePaidEntryAtStake(..., 'swim')) and off switch (sw:paid:off). */
-  on('sw:queue', ({ name, wallet, stake, entryToken, resume } = {}) => {
+  on('sw:queue', ({ name, wallet, stake, entryToken, resume, v } = {}) => {
     if (!socketRL(socket, 'swq', 1000)) return;
     if (ops.get().maintenance) { socket.emit('maintenance', ops.get()); return; }
+    /* A page from before a deploy runs an older step: turned away before anything is spent (an unused token refunds itself). */
+    if (v !== SWIM_VERSION) { socket.emit('sw:refused', { why: 'the game was updated, reload the page' }); return; }
 
     // A reconnect while waiting takes its seat back (see ko:queue).
     const back = swimLobby.resume(socket, resume);
@@ -5536,7 +5539,13 @@ io.on('connection', (socket) => {
      seat, the ticks and every code); a packet more than a few a frame is simply dropped, the next one
      repeats what it carried. */
   on('sw:in', (msg) => {
-    if (!socketRL(socket, 'swin', 12)) return;
+    /* A bucket, not a gap: packets that queued behind a hiccup arrive together and all count; a page
+       sends 30 a second, the bucket allows 60 with a burst of 12. */
+    const nowMs = Date.now();
+    const b = socket._swIn || (socket._swIn = { tokens: 12, at: nowMs });
+    b.tokens = Math.min(12, b.tokens + (nowMs - b.at) * 0.06); b.at = nowMs;
+    if (b.tokens < 1) return;
+    b.tokens -= 1;
     const room = swimLobby.roomOf(socket.id);
     if (room) room.input(socket.id, msg);
   });

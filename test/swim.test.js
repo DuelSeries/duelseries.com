@@ -356,3 +356,21 @@ test('a socket already racing cannot queue a second seat', () => {
   assert.strictEqual(lobby.enqueue(a, 'A', 'WA', 1, 1, 3, 1), false);
   assert.strictEqual(lobby.queue.length, 0);
 });
+
+test('a crashed car does not win by walkover when the other leaves before the crash is judged', () => {
+  const { room } = racing({ worth: 1, wa: 'WA', wb: 'WB' });
+  const settled = [];
+  room.onSettled = (x) => settled.push(x);
+  const rec = [1, 1, 0, 50, 0, 0];
+  room.traffic.add(rec.slice());
+  const c = crashTickFor(0, rec, S.NEUTRAL);
+  run(room, c + 5, S.NEUTRAL, S.NEUTRAL, c - 30);     // Ann crashes; Bob trails and has not reached it
+  assert.strictEqual(room.bySide(0).car.alive, false);
+  assert.strictEqual(room.state, 'racing');
+  room.removePlayer('b');
+  assert.strictEqual(room.state, 'over');
+  assert.strictEqual(room.overWhy, 'both out');
+  assert.strictEqual(settled.length, 1);
+  assert.strictEqual(settled[0].winnerId, null, 'a draw: every seat gets its own stake back');
+  assert.deepStrictEqual(settled[0].seats.map(s => s.wallet).sort(), ['WA', 'WB']);
+});

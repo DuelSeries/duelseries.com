@@ -240,7 +240,7 @@ function drainStatus(rooms, pending, duels, extraWhy) {
   if (pendingCount) why.push(pendingCount + ' paid entr' + (pendingCount === 1 ? 'y has' : 'ies have') + ' not joined yet');
   if (duelPaid || duelWorth > 0) {
     const n = duelPaid || 1;
-    why.push(n + ' paid Knockout or Battleship seat' + (n === 1 ? ' holds a stake' : 's hold stakes')
+    why.push(n + ' paid Knockout, Battleship or Swim seat' + (n === 1 ? ' holds a stake' : 's hold stakes')
       + ' (' + Math.round(duelWorth * 1e6) / 1e6 + ' USDC, queued or at a table)');
   }
   /* The caller's own reasons (a live battle royale: a restart voids it, Owen 2026-10-16). */

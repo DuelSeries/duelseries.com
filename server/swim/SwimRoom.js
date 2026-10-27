@@ -141,12 +141,20 @@ class SwimRoom {
 
   removePlayer(socketId) {
     if (!this.players.has(socketId)) return;
-    this.players.delete(socketId);
-    /* Walking out of a race ends it, and the one still here wins it. */
-    if (this.state !== 'over' && this.state !== 'waiting') {
-      const rest = [...this.players.keys()];
-      this.finish(rest.length === 1 ? rest[0] : null, 'opponent left');
+    if (this.state === 'over' || this.state === 'waiting') { this.players.delete(socketId); return; }
+    /* Walking out of a race ends it, and the one still here wins it, unless their car is already in a
+       crash the judging had not reached yet (their own timeline ran ahead): then both are out, a draw
+       that hands BOTH seats their own stake back, so it is settled while the leaver still has a seat
+       (netcode review 2026-10-27; it used to hand a crashed car the race). */
+    const restIds = [...this.players.keys()].filter(id => id !== socketId);
+    const stay = restIds.length === 1 ? this.players.get(restIds[0]) : null;
+    if (stay && !stay.car.alive) {
+      this.finish(null, 'both out');
+      this.players.delete(socketId);
+      return;
     }
+    this.players.delete(socketId);
+    this.finish(stay ? restIds[0] : null, 'opponent left');
   }
 
   /* A chat line from a seated player to both players and the watchers, by seat
@@ -260,7 +268,9 @@ class SwimRoom {
     const crashB = cb.alive ? Infinity : cb.crashTick;
     const zA = (t) => a.zHist[Math.min(t, ca.alive ? t : ca.crashTick) % HIST];
     const zB = (t) => b.zHist[Math.min(t, cb.alive ? t : cb.crashTick) % HIST];
-    for (let t = this.judged + 1; t <= upTo && t < Infinity; t++) {
+    /* Never further back than the history still holds (a stall longer than HIST ticks). */
+    const oldest = Math.min(ca.tick, cb.tick) - HIST + 2;
+    for (let t = Math.max(this.judged + 1, oldest); t <= upTo && t < Infinity; t++) {
       const hitA = crashA === t, hitB = crashB === t;
       if (hitA || hitB) {
         this.endTick = t;

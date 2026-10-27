@@ -35,6 +35,9 @@
 })(typeof window !== 'undefined' ? window : null, function () {
   /* The name players see, in one place (Owen's working title). */
   const NAME = 'Swim';
+  /* Bumped whenever the step or the traffic rules change: a page left open across a deploy runs the old
+     step and would disagree with the server on every tick, so the server turns it away (sw:queue). */
+  const VERSION = 1;
 
   const HZ = 60;
   const DT = 1 / HZ;
@@ -243,7 +246,7 @@
   const kmh = (v) => v * 3.6;
 
   return {
-    NAME, HZ, DT, TICK_MS, COUNTDOWN_MS, BEHIND_LOSE,
+    NAME, VERSION, HZ, DT, TICK_MS, COUNTDOWN_MS, BEHIND_LOSE,
     LANES, LANE_W, ROAD_HALF, LANE_V, laneX, CAR, WALL, TYPES, MAX_HL,
     V0, V1, T_HALF, TOP_K, FLOOR_MIN, VX_MAX,
     cruise, topSpeed, floorSpeed,
