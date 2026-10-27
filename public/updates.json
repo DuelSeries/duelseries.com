@@ -6,7 +6,7 @@
       "date": "2026-10-27",
       "tag": "new",
       "title": "New game: Swim",
-      "body": "Race one other player down an endless highway, both of you in the same traffic. Weave between the cars with W A S D or the arrow keys, or on a phone drag on the left to steer and hold Gas or Brake on the right.\n\nTouch any car and you lose. Fall 200 m behind and you lose. The road gets faster and busier the longer you both last, so somebody always slips up.",
+      "body": "Race one other player down an endless highway, both of you in the same traffic. Weave between the cars with W A S D or the arrow keys, or on a phone drag on the left to steer and hold Gas or Brake on the right.\n\nTouch any car and you lose. Fall 200 m behind and you lose. The road gets faster and busier the longer you both last, so somebody always slips up.\n\nIf your connection drops mid-race, your car keeps driving straight for 5 seconds while you get back in.",
       "image": {
         "src": "/updates/swim-new.webp",
         "alt": "A gold car and a teal car racing down a desert highway at sunset, 148 km/h"
