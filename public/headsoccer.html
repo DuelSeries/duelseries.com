@@ -12,18 +12,12 @@
 </head>
 <body>
 
-<!-- The whole match: the stadium, the two heads, the ball, the strip across the
-     top and, on a phone, the gold buttons. One canvas, because all of it lives in
-     the same 1196 x 720 frame the physics uses, and the buttons have to be hit
-     tested against what is drawn, finger by finger. -->
+<!-- The whole match: the stadium, the two heads, the ball, the board's clock,
+     the score plate, the key hint, the pause button and, on a phone, the touch
+     buttons. One canvas, because all of it lives in the same frame the physics
+     uses (Heads Arena Euro Soccer's, 1920 units high), and the buttons have to be
+     hit tested against what is drawn, finger by finger. -->
 <canvas id="pitch"></canvas>
-
-<!-- The keys, said once at the first kick-off on a computer. -->
-<div id="keys" hidden>
-  <span><kbd>A</kbd><kbd>D</kbd> move</span>
-  <span><kbd>W</kbd> jump</span>
-  <span><kbd class="wide">Space</kbd> kick</span>
-</div>
 
 <!-- Watching somebody else's match: what happened, in a line under the strip.
      Lobby, previous and next are the shared Spectate bar (dsWatchBar.js). -->
@@ -50,6 +44,8 @@
 <!-- The result card every DuelSeries game ends on. -->
 <script src="/js/shared/dsEnd.js"></script>
 <script src="/js/shared/dsChat.js"></script>
+<!-- The pause button's question (an online match cannot pause: it offers the way out). -->
+<script src="/js/shared/dsDialog.js"></script>
 <script src="/js/dsSfx.js"></script><script src="/js/dsSfxGame.js"></script><script src="/js/headsoccerSound.js"></script>
 <!-- The Spectate controls every game shares: Lobby, previous and next, and the empty table. -->
 <script src="/js/shared/dsEmptyArena.js"></script>

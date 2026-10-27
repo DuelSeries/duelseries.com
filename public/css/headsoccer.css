@@ -1,15 +1,16 @@
 /* ─── Head Soccer ─────────────────────────────────────────────────────────────
-   A night stadium. The match itself is all canvas (public/js/headsoccer/hsArt.js);
-   this file is the frame around it: the letterbox, the wait card, the key hint,
-   the watch line and the bot note.
+   A daytime stadium (Heads Arena Euro Soccer's look). The match itself is all
+   canvas (public/js/headsoccer/hsArt.js), key hint and pause button included;
+   this file is the frame around it: the letterbox, the wait card, the watch line
+   and the bot note.
 
-   The letterbox is the stadium's own navy, so a screen the wrong shape for the
-   pitch reads as more night sky rather than a black border. The cards are the
+   The letterbox is the stadium's slate, so a screen the wrong shape for the
+   pitch reads as more stadium rather than a black border. The cards are the
    product's warm ink, the same as every other duel's, so waiting for a match and
    reading a result look the same in every game. */
 
 :root {
-  --night: #001c33;        /* the letterbox: the sky's centre colour, a shade deeper */
+  --night: #1d2a44;        /* the letterbox: the stadium's slate, deepened */
   --ink:   #100e0b;
   --s2:    #1f1b15;
   --s3:    #282219;
@@ -37,29 +38,6 @@ html, body {
 }
 
 #pitch { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
-
-/* ── the key hint ──────────────────────────────────────────────────────────
-   Four pairs, said once, low on the pitch where the grass is, and gone after
-   the first few seconds of play. */
-#keys {
-  position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom)); z-index: 12;
-  transform: translateX(-50%);
-  display: flex; gap: 18px; align-items: center;
-  padding: 9px 16px; border-radius: 999px;
-  background: rgba(0, 16, 30, 0.72); color: var(--tx);
-  font-size: 13px; font-weight: 600; white-space: nowrap;
-  pointer-events: none;
-  transition: opacity 0.5s;
-}
-#keys[hidden] { display: none; }
-#keys.fade { opacity: 0; }
-#keys span { display: inline-flex; gap: 5px; align-items: center; color: #d9e4ef; }
-#keys kbd {
-  display: inline-block; min-width: 22px; padding: 2px 6px; border-radius: 5px;
-  font-family: var(--fm); font-size: 12px; font-weight: 600; text-align: center;
-  color: #3a1e02; background: linear-gradient(#ffe68a, #f2b12a);
-  box-shadow: inset 0 -2px 0 rgba(94, 50, 8, 0.45);
-}
 
 /* ── watching ──────────────────────────────────────────────────────────────
    Somebody else's match, from the lobby's Spectate. The pitch is the same;

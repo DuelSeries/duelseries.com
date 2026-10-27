@@ -1,107 +1,130 @@
 'use strict';
 /* ─── The free table's Head Soccer opponent ───────────────────────────────────
    It presses the same buttons a person does, through the same input the room
-   reads from a socket, so it can do nothing a player cannot: walk, jump, kick,
-   and fire the power shot once its gauge is full.
+   reads from a socket, so it can do nothing a player cannot: run, jump, kick.
 
-   How it plays: it reads the ball every 70 to 140 ms (a person's reaction, and
-   between reads it keeps doing what it decided), works out where the ball will
-   come down, and gets BEHIND it, on its own goal's side, so that a kick sends
-   it the right way. When the ball is coming at its goal and it cannot get
-   behind it in time, it falls back to the goal mouth and jumps for anything
-   high. It kicks what is in front of its boot, heads what drops onto it, and
-   fires the power shot when the ball sits in front of it facing the open
-   goal. It hesitates now and then and its timing is never exact, so it can be
-   beaten by a player who reads it. */
+   HOW IT PLAYS IS THE REFERENCE'S CPU (Heads Arena Euro Soccer, logic.AIControls
+   in its game.min.js, read 2026-10-27), rewritten here step for step at its
+   "medium" level (AILevels easy 1, medium 5, hard 9). Its own numbers, in the
+   reference's design units (shared/hsSim.js):
+     · every 10 x (10 - level) steps it re-reads where the ball will land
+       (_bufferBallPositionForSteps), and before its first read it is chasing a
+       ball it has not seen yet (the corner of the screen, as the reference's is)
+     · it stands .55 x the kick reach behind the ball, on its own goal's side
+       (_maxKickDelta), within half that (goToPosition's tolerance)
+     · near the ball (a third of the screen width) it runs to where the ball
+       will come down, otherwise straight at the ball (the "attacker" role the
+       solo CPU gets)
+     · with the ball 112 to 300 above its centre (_playerUnderBall, .75 to 2
+       jump distances) it presses jump every step, as the reference's does
+     · in line with the ball it kicks after its "average shot" check: the kick
+       is skipped only when every place it could meet the ball sends it at its
+       own goal before any sends it at the other one (_estimatedShot)
+   Above medium (level 6+) it would also run back for balls heading into its
+   own goal; at medium it does not, as the reference's medium does not. */
 
 const Sim = require('../shared/hsSim');
 const { HS, IN } = Sim;
 
-// Where the ball will be after `t` seconds, ignoring players: gravity, the grass and the walls.
-function ballAfter(b, t) {
-  let x = b.x, y = b.y, vx = b.vx, vy = b.vy, straight = !!b.straight;
-  const dt = 1 / 30;
-  for (let s = 0; s < t; s += dt) {
-    if (!straight) vy += HS.G * dt;
-    x += vx * dt; y += vy * dt;
-    if (y > HS.BALL_FLOOR_Y) { y = HS.BALL_FLOOR_Y; vy = vy > 40 ? -vy * HS.BALL_E : 0; straight = false; }
-    if (x < HS.BALL_R) { x = HS.BALL_R; vx = -vx * HS.BALL_E; straight = false; }
-    if (x > HS.W - HS.BALL_R) { x = HS.W - HS.BALL_R; vx = -vx * HS.BALL_E; straight = false; }
+const LEVEL = 5;                     // S: AIControls.AILevels.medium
+const MAX_LEVEL = 9;                 // S: _maxDifficulty
+const W = HS.VIEW_W_REF;             // its distances use Game.dimensions.width: a 16:9 screen
+const H = HS.VIEW_H;
+const BODY_H = 100;                  // S: the player body sprite, Game.scale(200) x scale .5
+const JUMP_DIST = 1.5 * BODY_H;      // S: _jumpDistance
+const MAX_KICK_DELTA = 0.55 * HS.KICK_RANGE;   // S: _maxKickDelta (signed by side below)
+const NEAR = W / 3;                  // S: _nearBallDistance with no team-mate
+const BUFFER = 10 * (10 - LEVEL);    // S: _bufferBallPositionForSteps
+
+
+const mod = (a) => LEVEL / MAX_LEVEL * a;      // S: _getDifficultyModifier
+
+// S: Ball.getTrajectory: its own rough flight, x += vx / 10 and y += vy / 10 + 9000 d^2 a point, stopping low.
+function trajectory(x, y, vx, vy, e) {
+  const out = [];
+  for (let d = 0; d < 40 * e; d += e) {
+    x += vx / 10; y += vy / 10 + 9000 * d * d;
+    out.push({ x, y });
+    if (y > H - 400) break;
   }
-  return { x, y, vx, vy };
+  return out;
 }
-
-function think(room, bot, me, foe, now) {
-  const ball = room.match.ball;
-  const dir = me.dir;                                   // the way it attacks
-  const goalX = me.side === 0 ? 0 : HS.W;               // the goal it defends
-  const plan = { move: 0, jump: false, kick: false, power: false };
-
-  // Where the ball comes into reach: the first moment it is low enough to play and the bot can get there.
-  let aim = ballAfter(ball, 0.25);
-  for (let t = 0.05; t <= 1.2; t += 0.05) {
-    const f = ballAfter(ball, t);
-    const low = f.y > me.y - HS.HEAD_R * 2.2;
-    if (low && Math.abs(f.x - me.x) / HS.WALK <= t + 0.05) { aim = f; break; }
-  }
-
-  // Ahead (toward the goal it attacks) of the ball, or behind it.
-  const ahead = (me.x - ball.x) * dir;                  // > 0: between the ball and the far goal (wrong side)
-  const towardOwn = ball.vx * -dir > 250;               // the ball is coming back at its goal
-  const ballOurHalf = (ball.x - HS.W / 2) * dir < 0;
-  const foeCloser = Math.abs(foe.x - ball.x) + 40 < Math.abs(me.x - ball.x);
-
-  let tx;
-  if ((towardOwn && ballOurHalf && ahead > 0) || (foeCloser && ballOurHalf && ahead > HS.HEAD_R)) {
-    // Too late to get behind it: guard the mouth.
-    tx = goalX + dir * (HS.GOAL_D + HS.HEAD_R + 8);
-    if (ball.y < me.y - HS.HEAD_R && Math.abs(ball.x - me.x) < 160 && ball.vy > -200) plan.jump = true;
-  } else {
-    // Behind the ball, close enough that the boot meets it.
-    tx = aim.x - dir * (HS.HEAD_R + HS.BALL_R * 0.4);
-    if (ahead > -HS.HEAD_R * 0.5 && Math.abs(ball.x - me.x) < HS.HEAD_R * 2.2) {
-      // On the wrong side with the ball at its feet: hop over it on the way round.
-      tx = ball.x - dir * (HS.HEAD_R * 2.5);
-      if (ball.y > me.y && me.ground) plan.jump = Math.random() < 0.5;
+// S: Arena.checkGoal over a trajectory: -1 into the right goal, 1 into the left one, 0 neither (the last one wins).
+function landsIn(points) {
+  let f = 0;
+  for (const p of points) {
+    if (p.y > HS.GOAL_TOP_Y && p.y < HS.GOAL_BOT_Y) {
+      if (p.x < -HS.GOAL_LINE_X) f = 1;
+      else if (p.x > HS.GOAL_LINE_X) f = -1;
     }
   }
-  const gap = tx - me.x;
-  if (Math.abs(gap) > 6) plan.move = gap > 0 ? 1 : -1;
+  return f;
+}
 
-  // The boot: the ball in front of it, low, close.
-  const front = (ball.x - me.x) * dir;
-  const reach = HS.FOOT_X + HS.FOOT_LEN + HS.FOOT_R + HS.BALL_R;
-  if (front > 0 && front < reach + 14 && ball.y > me.y - HS.HEAD_R * 0.3 && ahead < 0) plan.kick = Math.random() < 0.85;
-  // A header: dropping onto it, close.
-  if (Math.abs(ball.x - me.x) < HS.HEAD_R * 1.4 && ball.y < me.y - HS.HEAD_R && ball.y > me.y - HS.HEAD_R * 5
-      && ball.vy > 0 && me.ground) plan.jump = true;
-  // The power shot: the CPU in Head Soccer fires it as soon as it has it (reference W-PS). Pressed with a full gauge
-  // it arms, and the next touch is the shot.
-  if (me.power >= 1 && !me.powerArmed) plan.power = true;
-
-  // A person hesitates sometimes.
-  if (Math.random() < 0.07) { plan.move = 0; plan.kick = false; }
-  bot.plan = plan;
-  bot.nextAt = now + 70 + Math.random() * 70;
+function brainFor(bot) {
+  if (!bot.ai) bot.ai = { steps: Math.floor(30 * Math.random()), seen: false, traj: null, kickIn: -1 };
+  return bot.ai;
 }
 
 /* One step's worth of buttons for the bot's seat. */
 function drive(room, now, who) {
   const bot = who || room.bot;
   if (!bot || !room.match) return;
-  if (room.state !== 'playing' && room.state !== 'countdown') return;
+  if (room.state === 'waiting' || room.state === 'over') return;
   const side = room.sideOfSocket(bot.id);
   if (side === null) return;
-  const me = room.match.p[side], foe = room.match.p[1 - side];
+  const m = room.match, me = m.p[side], ball = m.ball;
   const inp = room.inputs[side];
-  if (room.state === 'countdown') { inp.held = 0; return; }
-  if (!bot.nextAt || now >= bot.nextAt) think(room, bot, me, foe, now);
-  const plan = bot.plan || { move: 0 };
-  inp.held = plan.move > 0 ? IN.RIGHT : plan.move < 0 ? IN.LEFT : 0;
-  // Presses: once per think, never held (the room acts on a count going up).
-  if (plan.jump) { inp.jumps++; plan.jump = false; }
-  if (plan.power) { inp.powers++; plan.power = false; }
-  if (plan.kick) { inp.kicks++; plan.kick = false; }
+  const ai = brainFor(bot);
+  const attacksLeft = side === 1;                       // the reference's "isLeft"
+  const delta = MAX_KICK_DELTA * (attacksLeft ? 1 : -1);
+  inp.held = 0;
+
+  // S: update(): idle, count, and every BUFFER steps look at the ball again.
+  ai.steps++;
+  const bp = ai.seen ? ball : { x: -W / 2, y: 0 };      // S: a fresh Phaser.Point, the screen's corner
+  const landing = () => {
+    const t = trajectory(ball.x, ball.y, ball.vx / 10, ball.vy / 10, 0.025);
+    return (t.length < 2 ? t[0].x : t[t.length - 2].x) + delta;
+  };
+  if (ai.steps % BUFFER === 0) { ai.seen = true; ai.traj = landing(); }
+  if (room.state !== 'playing') { ai.kickIn = -1; return; }
+
+  let move = 0;
+  const goTo = (x, tol) => { if (!(me.x > x - tol && me.x < x + tol)) move = me.x < x - tol ? 1 : -1; };
+  const dist = Math.hypot(bp.x - me.x, bp.y - me.y);
+  if (dist < NEAR) {
+    if (ai.traj === null) ai.traj = landing();
+    goTo(ai.traj, 0.5 * Math.abs(delta));                // S: _goToBallTrajectory
+  } else {
+    goTo(bp.x + delta, 0.5 * Math.abs(delta));           // S: the attacker's _goToBall
+  }
+
+  const ideal = bp.x + delta;
+  const aligned = me.x > ideal - Math.abs(delta) && me.x < ideal + Math.abs(delta);
+  if (aligned) {
+    if (bp.y > me.y - 2 * JUMP_DIST && bp.y < me.y - 0.75 * JUMP_DIST) inp.jumps++;   // S: _playerUnderBall
+    const reachY = Math.max(200, 100 * LEVEL);
+    if (bp.y > me.y - reachY && bp.y < me.y + reachY && ai.kickIn < 0) {
+      // S: _averageShot = _estimatedShot(mod(80), 40 - mod(40)): search the ball's path for a place to meet it.
+      const e = 0.0167 / (mod(80) / 100);
+      const path = trajectory(ball.x, ball.y, ball.vx / 10, ball.vy / 10, e);
+      let ownGoalRisk = false, at = 0;
+      for (let n = 0; n < path.length; n++) {
+        const v = Sim.kickVelocity(me, path[n].x, path[n].y);
+        if (!v) continue;
+        const r = landsIn(trajectory(path[n].x, path[n].y, v[0], v[1], e));
+        const scores = attacksLeft ? r === 1 : r === -1;
+        const own = attacksLeft ? r === -1 : r === 1;
+        if (scores) { ownGoalRisk = false; at = n * e; break; }
+        if (own) ownGoalRisk = true;
+      }
+      // S: setTimeout(_quickShot, f + b) with f in seconds read as ms: a step or two.
+      if (!ownGoalRisk) ai.kickIn = Math.max(1, Math.round((at + 40 - mod(40)) / (1000 / 60)));
+    }
+  }
+  if (ai.kickIn > 0 && --ai.kickIn === 0) { inp.kicks++; ai.kickIn = -1; }
+  inp.held = move > 0 ? IN.RIGHT : move < 0 ? IN.LEFT : 0;
 }
 
-module.exports = { drive, ballAfter };
+module.exports = { drive, trajectory, LEVEL };

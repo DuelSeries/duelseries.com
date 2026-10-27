@@ -18,10 +18,11 @@
    was predicted, the difference is eased out over about a tenth of a second
    instead of jumping, unless it is a big one (a kick-off), which snaps.
 
-   WORLD UNITS IN, PIXELS OUT. Everything happens in the measured 1196 x 720
-   frame (docs/head-soccer-reference.md); this file owns the one transform that
-   fits that frame to the screen, and the phone buttons, which in portrait live
-   under the pitch rather than on it.
+   WORLD UNITS IN, PIXELS OUT. Everything happens in the reference's own frame
+   (Heads Arena Euro Soccer: 1920 units high, as wide as the screen allows within
+   its 4:3 to 2.29:1 limits; docs/head-soccer-reference.md); this file owns the
+   one transform that fits that frame to the screen, and the phone buttons,
+   which in portrait live under the pitch rather than on it.
 
    The shell around the match (the wait card, the bot note, the result card, the
    paid Play again, Spectate, chat, maintenance, the reconnect key) is Knockout's
@@ -124,18 +125,25 @@ let restakeLine = '';         // a restake's error, said on the card
 let restakeTimer = 0;
 
 let clockC = HS.MATCH_MS, clockAt = 0, clockShown = HS.MATCH_MS;   // the server's msLeft, when it came, what is shown
-let clockSecs = -1, clockText = '1:00';
-let goalAt = -1e9;            // the GOAL! banner's start
+let clockText = '0000';       // the board's MMSS (90 game minutes over the 60 s)
+let goalAt = -1e9;            // the GOAL! word's start
+let goalGolden = false;       // that goal was the golden one
+let goldenAt = -1e9;          // the GOLDEN GOAL call (level at 90:00)
+let halfAt = -1e9;            // HALF TIME
+let countAt = -1e9;           // the 3, 2, 1, 0 countdown's start (the opening one or a kick-off's)
+let playAt = -1e9;            // when play last started (the 0 shows for 600 ms after it)
+let lastCount = -1;           // the number last shown, for its tick
+let platesOn = false;         // the score plate shows from the first whistle (S: _showScore)
+let whistleAt = -1e9;         // full time: the score rises to the middle
 let kickoffs = 0, firstKickAt = -1e9;
-let powerAt = -1e9, powerSide = 0, powerMs = HS.POWER_FREEZE_MS;   // the power shot's cutscene
-let lastPowerSide = -1;       // whose straight shot the ball is (the wire does not carry it)
-let powerShots = 0;           // cutscenes shown on this page (read by a headless check)
-let keysShown = false;
+const series = { mine: 0, theirs: 0 };   // matches won on this visit, the plate's counters (S: matchHistory)
+/* Each player's look, between frames: run steps, the kick's boot target, blinks, the face after a goal. */
+const anim = [{ run: 0, kickMs: -1, kdx: 0, kdy: 0, blink: false, mood: 0 }, { run: 0, kickMs: -1, kdx: 0, kdy: 0, blink: false, mood: 0 }];
+let moodUntil = 0;
 
 /* ── the latest snapshot ──────────────────────────────────────────────────── */
 const base = Sim.newMatch();  // unpacked, in HSSim's own shape
 let haveBase = false, baseK = 0, baseAt = 0, baseFresh = false, baseAck = 0;
-let prevStraight = false;
 const wbuf = [];              // a watcher's last few snapshots: { k, b, p0, p1 }
 
 /* ── prediction ───────────────────────────────────────────────────────────── */
@@ -143,12 +151,11 @@ const sim = Sim.newMatch();   // the present, as predicted
 let predicting = false;
 let clientTick = 0;           // the tick on screen (fractional), advanced by the wall clock
 let frontier = 0;             // the newest tick ever stepped: events at or before it were already heard
-let freezeEndTick = -1;       // the server's power-shot freeze ends at this tick
 let forceSnap = false;        // the next correction is a kick-off: snap, never ease
 const off = [{ x: 0, y: 0 }, { x: 0, y: 0 }, { x: 0, y: 0 }];   // eased corrections: seat 0, seat 1, ball
 const was = [{ x: 0, y: 0 }, { x: 0, y: 0 }, { x: 0, y: 0 }];
 const CORRECT_MS = 100;       // a correction is eased out over about this (the brief: 80 to 120 ms)
-const SNAP_PX = [60, 120, 140]; // bigger than this snaps: your own head, theirs (guessed between snapshots), the ball
+const SNAP_PX = [170, 340, 400]; // bigger than this snaps: your own head, theirs (guessed between snapshots), the ball
 
 const inp = { held: 0, jumps: 0, kicks: 0, powers: 0 };   // what I am pressing; the counts only ever go up
 const ZERO = { held: 0, jumps: 0, kicks: 0, powers: 0 };
@@ -188,19 +195,20 @@ function ping() {
 }
 
 /* ── the transform ───────────────────────────────────────────────────────────
-   One scale and one offset, recomputed on resize. Landscape: the whole frame,
-   as big as fits, centred, with the stadium's navy around it. Portrait on a
-   phone: the frame fits the width at the top and the buttons get the space
-   under it, where thumbs can reach them. */
-let VIEW = { s: 1, ox: 0, oy: 0, dpr: 1, w: 0, h: 0, portrait: false };
-let builtK = 0, resizeAt = 0;
+   One scale and one offset, recomputed on resize. Landscape: the reference's
+   way (Phaser SHOW_ALL with its ratio clamped): 1920 units high, as wide as the
+   window up to its limits (4:3 to 2.29:1), centred on the halfway line. Portrait
+   on a phone: the narrowest frame (4:3) fits the width at the top and the
+   buttons get the space under it, where thumbs can reach them. */
+let VIEW = { s: 1, ox: 0, oy: 0, dpr: 1, w: 0, h: 0, portrait: false, vw: HS.VIEW_W_REF };
+let builtK = 0, builtVW = 0, resizeAt = 0;
 let touchUI = (() => {
   try {
     if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) return true;
     return (navigator.maxTouchPoints || 0) > 0 && !(window.matchMedia && window.matchMedia('(pointer: fine)').matches);
   } catch (_) { return false; }
 })();
-let BTN = null;                // the button rects, CSS px: { L, R, K, J, P } each { x, y, w, h, cx, cy }
+let BTN = null;                // the button rects, CSS px: { L, R, K, J } each { x, y, w, h, cx, cy }
 
 function fit() {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -210,17 +218,21 @@ function fit() {
   cv.style.width = w + 'px';
   cv.style.height = h + 'px';
   const portrait = touchUI && w / h < 1.25;
-  let s, ox, oy;
-  if (portrait) { s = w / HS.W; ox = 0; oy = 0; }
-  else { s = Math.min(w / HS.W, h / HS.H); ox = (w - HS.W * s) / 2; oy = (h - HS.H * s) / 2; }
-  VIEW = { s, ox, oy, dpr, w, h, portrait };
+  let s, vw, oy;
+  if (portrait) { vw = HS.VIEW_W_MIN; s = w / vw; oy = Math.max(0, Math.min(60, (h - HS.VIEW_H * s) * 0.15)); }
+  else {
+    vw = Math.max(HS.VIEW_W_MIN, Math.min(HS.VIEW_W_MAX, HS.VIEW_H * w / h));
+    s = Math.min(h / HS.VIEW_H, w / vw);
+    oy = (h - HS.VIEW_H * s) / 2;
+  }
+  VIEW = { s, ox: w / 2, oy, dpr, w, h, portrait, vw };
   const k = s * dpr;
   // The stadium is repainted at the new size, but not on every frame of a window being dragged.
-  if (!builtK || Math.abs(k - builtK) / builtK > 0.01) { if (!builtK) build(k); else resizeAt = performance.now(); }
+  if (!builtK || Math.abs(k - builtK) / builtK > 0.01 || Math.abs(vw - builtVW) > 2) { if (!builtK) build(k); else resizeAt = performance.now(); }
   layoutButtons();
   placeOverlays();
 }
-function build(k) { builtK = k; art.build(k); }
+function build(k) { builtK = k; builtVW = VIEW.vw; art.build(k, VIEW.vw); }
 
 /* AND CHECKED EVERY FRAME, because a resize event is not a promise (knockout.js: the first measurement can be
    taken before the layout settles, and no resize ever comes to fix it). */
@@ -231,56 +243,76 @@ function refit() {
 window.addEventListener('resize', fit);
 window.addEventListener('orientationchange', fit);
 
-/* The phone buttons. Landscape: the measured spots over the bottom band of the pitch (doc sec 6: L x 23..213 and
-   R 228..418 at y 627..710; Kick 765..970 and Jump 985..1181 at y 624..708; Power left of Kick at about 554..772,
-   drawn 554..750 so it keeps the 15 px gap the others have). Portrait: the same four in a row under the pitch,
-   sized for thumbs, with Power over Kick and Jump. */
-const REF_BTN = { L: [23, 627, 213, 710], R: [228, 627, 418, 710], K: [765, 624, 970, 708], J: [985, 624, 1181, 708], P: [554, 624, 750, 708] };
+/* World to CSS px. */
+const sx = (x) => VIEW.ox + x * VIEW.s, sy = (y) => VIEW.oy + y * VIEW.s;
+
+/* The phone buttons. Landscape: the reference's four touch zones along the bottom (S: MobileControls, 400 x 350
+   units each: left and right from the left edge, kick then jump from the right edge), each drawn as a round button
+   1.2 x its 101 px art (269 units) in the middle of its zone. Portrait: the same four in a row under the pitch,
+   sized for thumbs. */
 function layoutButtons() {
   const V = VIEW, r = {};
   const mk = (x, y, w, h) => ({ x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h), cx: x + w / 2, cy: y + h / 2 });
   if (V.portrait) {
-    const m = 14, gap = 10, fieldBot = HS.H * V.s;
-    const bh = Math.max(64, Math.min(120, Math.min(V.w * 0.24, (V.h - fieldBot) * 0.28)));
+    const m = 14, gap = 10, fieldBot = V.oy + HS.VIEW_H * V.s;
+    const bh = Math.max(64, Math.min(120, Math.min(V.w * 0.24, (V.h - fieldBot) * 0.4)));
     const half = (V.w - 2 * m - gap) / 2, bw = (half - gap) / 2, y = V.h - m - bh - 8;
     r.L = mk(m, y, bw, bh); r.R = mk(m + bw + gap, y, bw, bh);
     r.K = mk(V.w / 2 + gap / 2, y, bw, bh); r.J = mk(V.w / 2 + gap / 2 + bw + gap, y, bw, bh);
-    r.P = mk(r.K.x, y - bh * 0.72 - gap, bw * 2 + gap, bh * 0.72);
   } else {
-    for (const k of Object.keys(REF_BTN)) {
-      const [x0, y0, x1, y1] = REF_BTN[k];
-      r[k] = mk(V.ox + x0 * V.s, V.oy + y0 * V.s, (x1 - x0) * V.s, (y1 - y0) * V.s);
-    }
+    const zw = 400 * V.s, zh = 350 * V.s, left = sx(-V.vw / 2), right = sx(V.vw / 2), bot = sy(HS.VIEW_H);
+    const btn = (x0) => { const d = 269 * V.s, cx = x0 + zw / 2, cy = bot - zh / 2; return mk(cx - d / 2, cy - d / 2, d, d); };
+    r.L = btn(left); r.R = btn(left + zw); r.J = btn(right - zw); r.K = btn(right - 2 * zw);
   }
   BTN = r;
 }
 
-/* Which button a finger is on. Generous: a little past each button's edge, the outer two out to the screen's
-   sides and all of them down to its bottom, the nearest centre winning where two reach. `moveOnly` asks only about
-   L and R (a finger sliding from one arrow to the other). */
-function hitButton(x, y, moveOnly, powerOn) {
+/* Which button a finger is on: the reference's whole zones (a finger anywhere in a button's 400 x 350 strip of the
+   bottom counts), the nearest centre winning where two reach. `moveOnly` asks only about L and R (a finger
+   sliding from one arrow to the other). */
+function hitButton(x, y, moveOnly) {
   if (!BTN) return null;
-  const pad = 12;
+  const pad = VIEW.portrait ? 12 : (400 * VIEW.s - BTN.L.w) / 2;
   let best = null, bestD = Infinity;
-  for (const k of moveOnly ? ['L', 'R'] : ['L', 'R', 'K', 'J', 'P']) {
-    if (k === 'P' && !powerOn) continue;
+  for (const k of moveOnly ? ['L', 'R'] : ['L', 'R', 'K', 'J']) {
     const b = BTN[k];
     const x0 = k === 'L' ? 0 : b.x - pad, x1 = k === 'J' ? VIEW.w : b.x + b.w + pad;
-    const y0 = b.y - pad, y1 = k === 'P' ? b.y + b.h + pad / 2 : VIEW.h;
+    const y0 = b.y - (VIEW.portrait ? pad : Math.max(pad, 40 * VIEW.s)), y1 = VIEW.h;
     if (x < x0 || x > x1 || y < y0 || y > y1) continue;
     const d = Math.hypot(x - b.cx, y - b.cy);
     if (d < bestD) { bestD = d; best = k; }
   }
   return best;
 }
+function onPause(x, y) {
+  const p = art.pauseAt();
+  return Math.hypot(x - sx(p.x), y - sy(p.y)) <= p.r * VIEW.s * 1.15;
+}
 
-/* The bot note, the watch line and the key hint sit just off the strip and the grass, wherever the pitch is. */
+/* The bot note and the watch line sit under the board; chat sits above the key hint. */
 function placeOverlays() {
-  const V = VIEW, under = Math.round(V.oy + 132 * V.s);
+  const V = VIEW, under = Math.round(sy(420));
   const note = $('botNote'); if (note) note.style.top = under + 'px';
   const line = $('watchLine'); if (line) line.style.top = under + 'px';
-  const keys = $('keys'); if (keys) keys.style.bottom = Math.round(V.h - (V.oy + HS.H * V.s) + 14) + 'px';
-  if (chat && chat.el) chat.el.style.setProperty('--dsc-t', (V.portrait ? Math.round(HS.H * V.s + 10) : 70) + 'px');
+  if (chat && chat.el) {
+    chat.el.style.setProperty('--dsc-t', (V.portrait ? Math.round(sy(HS.VIEW_H) + 10) : 70) + 'px');
+    chat.el.style.setProperty('--dsc-b', Math.round(V.h - sy(1640)) + 'px');
+  }
+}
+
+/* The pause button: an online match cannot stop, so it offers the way out (the same leave as the lobby's). */
+let pauseAsk = false;
+function pauseMenu() {
+  if (pauseAsk || !match || overShown) return;
+  if (WATCH) { toLobby(); return; }
+  if (!window.DSDialog) { toLobby(); return; }
+  pauseAsk = true;
+  releaseAll();
+  window.DSDialog.confirm({
+    title: 'Leave the match?',
+    line: 'The match keeps going without a pause. Leaving now hands it to your opponent.',
+    ok: 'Leave', cancel: 'Keep playing',
+  }).then((yes) => { pauseAsk = false; if (yes) toLobby(); }, () => { pauseAsk = false; });
 }
 
 /* ── input ────────────────────────────────────────────────────────────────────
@@ -290,8 +322,9 @@ function placeOverlays() {
    press is still counted by the next. A change goes reliably (it matters, and
    there are few); the repeats go volatile (they only heal). The server drops a
    flood past 40 in half a second, so this never sends more than 30. */
+// The reference's keys (S: InputList player 1: arrows, up to jump, SPACE to kick), with A/D/W and K as well.
 const KEYS = { KeyA: 'L', ArrowLeft: 'L', KeyD: 'R', ArrowRight: 'R', KeyW: 'J', ArrowUp: 'J',
-               Space: 'K', KeyK: 'K', KeyE: 'P', KeyL: 'P' };
+               Space: 'K', KeyK: 'K' };
 const downKeys = new Set();
 let touchHeld = 0;
 let sentAt = 0, winAt = 0, winN = 0, sendTimer = 0;
@@ -333,8 +366,7 @@ function setHeld() {
 function press(a) {
   if (a === 'J') inp.jumps++;
   else if (a === 'K') inp.kicks++;
-  else if (a === 'P') { if (!HS.POWER_SHOT) return; inp.powers++; }   // no power shot (Owen 2026-10-27)
-  else return;
+  else return;                             // no power shot (Owen 2026-10-27; the reference has none)
   inputChanged();
 }
 
@@ -343,6 +375,7 @@ const typingIn = (e) => {
   return !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
 };
 window.addEventListener('keydown', (e) => {
+  if (e.code === 'Escape' && canPlay()) { pauseMenu(); return; }
   const a = KEYS[e.code];
   if (!a || typingIn(e) || !canPlay()) return;
   e.preventDefault();
@@ -362,7 +395,7 @@ window.addEventListener('blur', releaseAll);
 document.addEventListener('visibilitychange', () => { if (document.hidden) releaseAll(); });
 
 /* Fingers. Each pointer is tracked on its own, so a thumb can hold R while the other taps Jump; a thumb on an arrow
-   can slide to the other arrow without lifting. Kick, Jump and Power count the moment they are touched. */
+   can slide to the other arrow without lifting. Kick and Jump count the moment they are touched. */
 const fingers = new Map();     // pointerId -> 'L' | 'R' | 'K' | 'J' | 'P' | null
 function fingersChanged() {
   touchHeld = 0;
@@ -370,23 +403,23 @@ function fingersChanged() {
   setHeld();
 }
 function fingerOn(k) { for (const b of fingers.values()) if (b === k) return true; return false; }
-const powerFull = () => mySeat >= 0 && haveBase && base.p[mySeat].power >= 1;
 cv.addEventListener('pointerdown', (e) => {
   if (e.pointerType === 'touch' && !touchUI) { touchUI = true; fit(); }
+  if (match && !overShown && onPause(e.clientX, e.clientY)) { e.preventDefault(); pauseMenu(); return; }
   if (!touchUI || !canPlay()) return;
   e.preventDefault();
   try { cv.setPointerCapture(e.pointerId); } catch (_) {}
-  const b = hitButton(e.clientX, e.clientY, false, powerFull());
+  const b = hitButton(e.clientX, e.clientY, false);
   fingers.set(e.pointerId, b);
-  if (b === 'K' || b === 'J' || b === 'P') press(b);
+  if (b === 'K' || b === 'J') press(b);
   fingersChanged();
 });
 cv.addEventListener('pointermove', (e) => {
   if (!fingers.has(e.pointerId)) return;
   const cur = fingers.get(e.pointerId);
-  if (cur === 'K' || cur === 'J' || cur === 'P') return;
+  if (cur === 'K' || cur === 'J') return;
   e.preventDefault();
-  const b = hitButton(e.clientX, e.clientY, true, false);
+  const b = hitButton(e.clientX, e.clientY, true);
   if (b !== cur) { fingers.set(e.pointerId, b); fingersChanged(); }
 });
 const lift = (e) => { if (fingers.delete(e.pointerId)) fingersChanged(); };
@@ -407,7 +440,6 @@ function onSnap(s) {
   base.ball = Sim.unpackBall(s.b);
   base.p[0] = Sim.unpackPlayer(s.p[0], 0);
   base.p[1] = Sim.unpackPlayer(s.p[1], 1);
-  if (base.ball.straight) base.ball.powerBy = lastPowerSide;
   if (Array.isArray(s.sc) && s.sc.length === 2) score = [s.sc[0] | 0, s.sc[1] | 0];
   if (typeof s.c === 'number' && s.c >= 0) { clockC = s.c; clockAt = t; }
   if (!WATCH && mySeat >= 0 && Array.isArray(s.a)) {
@@ -416,21 +448,23 @@ function onSnap(s) {
     while (hist.length > 1 && hist[1].seq <= baseAck) hist.shift();
   }
   if (typeof s.st === 'string') setPhase(s.st, t);
-  /* A watcher is not sent hs:power (HeadSoccerRoom.forWatchers leaves it out), so its cutscene starts from the
-     snapshot that first shows a straight shot. */
-  if (WATCH && base.ball.straight && !prevStraight) startPower(base.ball.vx > 0 ? 0 : 1, HS.POWER_FREEZE_MS, t);
-  prevStraight = base.ball.straight;
   oppHeld = mySeat >= 0 ? guessHeld(base.p[1 - mySeat]) : 0;
   baseK = k; baseAt = t; baseFresh = true; haveBase = true;
   if (WATCH) { wbuf.push({ k, b: base.ball, p0: base.p[0], p1: base.p[1] }); if (wbuf.length > 12) wbuf.shift(); }
 }
 socket.on('hs:snap', onSnap);
 
+/* Phases: countdown (the opening one), kickoff (the same after a break), playing, goal, half, golden, settling,
+   over. The pitch moves in all of them but over, so the replay runs through them all; only playing takes input. */
+const LIVE_PHASES = { countdown: 1, kickoff: 1, playing: 1, goal: 1, half: 1, golden: 1, settling: 1 };
 function setPhase(p, t) {
   if (p === phase) return;
+  const was = phase;
   phase = p;
   phaseAt = t || performance.now();
-  if (p !== 'playing' && p !== 'goal') predicting = false;
+  if (p === 'countdown' || p === 'kickoff') { countAt = phaseAt; lastCount = -1; forceSnap = true; }
+  if (p === 'playing' && (was === 'countdown' || was === 'kickoff')) { playAt = phaseAt; platesOn = true; }
+  if (!LIVE_PHASES[p]) predicting = false;
 }
 
 /* ── the replay ──────────────────────────────────────────────────────────────
@@ -460,15 +494,13 @@ function stepSim() {
   oppIn.held = oppHeld; oppIn.jumps = o.jumps; oppIn.kicks = o.kicks; oppIn.powers = o.powers;
   inputs[mySeat] = inputFor(t);
   inputs[1 - mySeat] = oppIn;
-  const ev = Sim.step(sim, inputs, HS.STEP, false);
+  const ev = Sim.step(sim, inputs, HS.STEP, false, phase === 'playing');
   if (t > frontier) {
     frontier = t;
     for (let i = 0; i < ev.length; i++) {
       const e = ev[i];
       if (e.s !== mySeat) continue;
-      if ((e.e === 'kick' || e.e === 'head') && SND) SND.local(e.e, e.s, sim.ball.x);
-      // My own power shot, as my screen sees it fire: the cutscene starts now, not a round trip later.
-      if (e.e === 'power') startPower(e.s, HS.POWER_FREEZE_MS, performance.now());
+      if ((e.e === 'kick' || e.e === 'swing' || e.e === 'jump') && SND) SND.local(e.e, e.s, sim.ball.x, e.v);
     }
   }
 }
@@ -481,7 +513,6 @@ function loadBase() {
   Object.assign(sim.p[1], base.p[1]);
   Object.assign(sim.ball, base.ball);
   sim.tick = base.tick;
-  sim.freezeMs = freezeEndTick > base.tick ? (freezeEndTick - base.tick) * 1000 / 60 : 0;
 }
 function bodyOf(i) { return i < 2 ? sim.p[i] : sim.ball; }
 
@@ -518,25 +549,25 @@ function predict(now, dt) {
   }
   const decay = Math.exp(-dt / CORRECT_MS);
   for (const o of off) { o.x *= decay; o.y *= decay; if (Math.abs(o.x) < 0.05) o.x = 0; if (Math.abs(o.y) < 0.05) o.y = 0; }
-  // Between two steps, carried on by velocity, so a 144 Hz screen is as smooth as a 60 Hz one. Not while frozen.
-  const frac = sim.freezeMs > 0 ? 0 : Math.max(0, Math.min(1, clientTick - sim.tick));
+  // Between two steps, carried on by velocity, so a 144 Hz screen is as smooth as a 60 Hz one.
+  const frac = Math.max(0, Math.min(1, clientTick - sim.tick));
   for (let i = 0; i < 2; i++) toRender(rp[i], sim.p[i], frac, off[i]);
   ballRender(sim.ball, frac, off[2]);
 }
 
+/* Carried on by velocity only when airborne or running: a body standing still on the grass stays put. */
 function toRender(r, p, frac, o) {
   const dt = frac * HS.STEP;
-  r.x = Math.max(HS.X_MIN, Math.min(HS.X_MAX, p.x + p.vx * dt + (o ? o.x : 0)));
-  r.y = Math.min(Sim.standY(), p.y + p.vy * dt + (o ? o.y : 0));
-  r.vx = p.vx; r.vy = p.vy; r.ground = p.ground;
-  r.kickMs = p.kickMs; r.power = p.power; r.powerArmed = p.powerArmed;
+  r.x = p.x + p.vx * dt + (o ? o.x : 0);
+  r.y = p.y + (p.ground && Math.abs(p.vy) < 1 ? 0 : p.vy * dt) + (o ? o.y : 0);
+  r.vx = p.vx; r.vy = p.vy; r.ground = p.ground; r.left = p.left; r.mv = p.mv;
+  r.kickMs = p.kickMs;
 }
 function ballRender(b, frac, o) {
   const dt = frac * HS.STEP;
-  rb.x = Math.max(HS.BALL_R, Math.min(HS.W - HS.BALL_R, b.x + b.vx * dt + (o ? o.x : 0)));
-  rb.y = Math.min(HS.BALL_FLOOR_Y, b.y + (b.straight ? 0 : b.vy * dt) + (o ? o.y : 0));
-  rb.rot = b.rot + (b.vx * dt) / HS.BALL_R;
-  rb.straight = b.straight;
+  rb.x = b.x + b.vx * dt + (o ? o.x : 0);
+  rb.y = b.y + b.vy * dt + (o ? o.y : 0);
+  rb.rot = b.rot;
 }
 
 /* A watcher has no seat to predict, so it draws the match about 100 ms behind the newest snapshot, between the two
@@ -555,7 +586,7 @@ function interpolate(now, dt) {
     for (let i = wbuf.length - 1; i > 0; i--) { if (wbuf[i - 1].k <= wTick) { a = wbuf[i - 1]; b = wbuf[i]; break; } }
   }
   const u = b.k > a.k ? Math.max(0, Math.min(1, (wTick - a.k) / (b.k - a.k))) : 1;
-  const jump = (p, q) => Math.abs(p.x - q.x) + Math.abs(p.y - q.y) > 100;
+  const jump = (p, q) => Math.abs(p.x - q.x) + Math.abs(p.y - q.y) > 300;
   const pl = (r, p, q) => {
     if (jump(p, q)) { toRender(r, u < 0.5 ? p : q, 0, null); return; }
     toRender(r, q, 0, null);
@@ -570,25 +601,9 @@ function interpolate(now, dt) {
   }
 }
 
-/* The power shot's cutscene: everything stops for HS.POWER_FREEZE_MS while the screen dims and the lightning
-   strikes (doc sec 3). The server's freeze is mirrored into the replay so the bodies hold still for it too. */
-function startPower(side, ms, t) {
-  if (t - powerAt < 1200) return;                // the same shot, told twice (my own screen, then the server)
-  powerAt = t; powerSide = side === 1 ? 1 : 0; powerMs = ms || HS.POWER_FREEZE_MS; powerShots++;
-  if (SND) SND.power();
-}
-socket.on('hs:power', (m) => {
-  if (!m || !match) return;
-  const t = performance.now();
-  lastPowerSide = m.s === 1 ? 1 : 0;
-  // The tick it fired on, as near as can be told: the server's clock when it was sent.
-  freezeEndTick = Math.round(baseK + (t - baseAt) * 0.06 + (Number(m.freezeMs) || HS.POWER_FREEZE_MS) * 0.06);
-  startPower(m.s, Number(m.freezeMs) || HS.POWER_FREEZE_MS, t);
-});
-
 /* ── the loop ─────────────────────────────────────────────────────────────── */
 let lastFrame = performance.now();
-const hud = { power: [0, 0], score: [0, 0], names: ['', ''], mine: -1, clock: '1:00', clockWarn: false, sudden: false };
+const hud = { digits: '0000', score: [0, 0], names: ['', ''], hist: [0, 0], mine: -1, plate: false, keys: false, scoreBig: 0 };
 
 function frame() {
   const now = performance.now();
@@ -604,7 +619,7 @@ function update(now, dt) {
   drawable = false;
   if (!match || !haveBase) return;
   if (WATCH) interpolate(now, dt);
-  else if (mySeat >= 0 && (phase === 'playing' || phase === 'goal')) predict(now, dt);
+  else if (mySeat >= 0 && LIVE_PHASES[phase]) predict(now, dt);
   else {
     for (let i = 0; i < 2; i++) toRender(rp[i], base.p[i], 0, null);
     ballRender(base.ball, 0, null);
@@ -612,73 +627,95 @@ function update(now, dt) {
   drawable = true;
   // The whole input again every 250 ms while the match runs: a dropped message heals itself.
   if (canPlay() && phase !== 'settling' && now - sentAt > 250) sendInput(false);
-  // The clock: the server's figure, run down smoothly between snapshots while play is live.
+  // The board: the server's msLeft, run down smoothly between snapshots while play is live, shown as game time.
   let ms = clockC;
-  if (phase === 'playing' && now - powerAt > powerMs) ms = clockC - (now - clockAt);
+  if (phase === 'playing') ms = clockC - (now - clockAt);
   ms = Math.max(0, ms);
   if (ms < clockShown || ms > clockShown + 600) clockShown = ms;
-  const secs = Math.ceil(clockShown / 1000);
-  if (secs !== clockSecs) { clockSecs = secs; clockText = Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0'); }
-  if (SND) SND.clock(secs, phase === 'playing' && clockC > 0);
-  if (keysShown && kickoffs > 0 && now - firstKickAt > 6000) hideKeys();
+  clockText = Sim.clockDigits(clockShown);
+  // The countdown's tick, once per number (S: doCountDown plays "countdown" each 600 ms, the whistle at 0).
+  const n = countNumber(now);
+  if (n !== lastCount) { lastCount = n; if (n >= 1 && SND && SND.count) SND.count(n); }
+  // Faces: blink now and then; after a goal the scorer smiles and the other one frowns for 3 s (S: cheer / sad).
+  for (let i = 0; i < 2; i++) {
+    const a = anim[i], p = rp[i];
+    a.blink = ((now / 1000 + i * 1.7) % 3.4) < 0.12;
+    if (now > moodUntil) a.mood = 0;
+    if (p.mv && p.ground) a.run += dt * 0.06;
+    // A new kick: the boot's target is where the ball is right now (S: kick() moves the boot to the ball).
+    if (p.kickMs >= 0 && (a.kickMs < 0 || p.kickMs < a.kickMs)) {
+      const dx = (rb.x - HS.KICK_AIM_X * (i === 0 ? 1 : -1)) - p.x, dy = (rb.y - HS.KICK_AIM_Y) - p.y;
+      const near = Math.hypot(dx, dy) < HS.KICK_RANGE;
+      a.kdx = near ? dx * (p.left ? -1 : 1) : 100; a.kdy = near ? dy : 100;
+    }
+    a.kickMs = p.kickMs;
+  }
+}
+
+/* Which countdown number shows now: 3, 2, 1 through the 2.4 s, then 0 for 600 ms as play starts (S: doCountDown
+   shows each number 600 ms after the last, the first 600 ms after the call). -1 for none. */
+function countNumber(now) {
+  if (phase === 'countdown' || phase === 'kickoff') {
+    const k = Math.floor((now - countAt) / HS.COUNT_STEP_MS);
+    return k >= 1 && k <= 3 ? 4 - k : -1;
+  }
+  if (phase === 'playing' && now - playAt < HS.COUNT_STEP_MS) return 0;
+  return -1;
 }
 
 function draw(now) {
   const V = VIEW, d = V.dpr;
   ctx.setTransform(d, 0, 0, d, 0, 0);
-  ctx.fillStyle = '#001c33';
+  ctx.fillStyle = '#1d2a44';
   ctx.fillRect(0, 0, V.w, V.h);
   if (!art.bg) return;
   ctx.setTransform(V.s * d, 0, 0, V.s * d, V.ox * d, V.oy * d);
   ctx.save();
-  ctx.beginPath(); ctx.rect(0, 0, HS.W, HS.H); ctx.clip();
-  art.field(ctx, now, now - goalAt < 2400);
+  ctx.beginPath(); ctx.rect(-V.vw / 2, 0, V.vw, HS.VIEW_H); ctx.clip();
+  art.field(ctx, now, now - goalAt < 4000);
   if (drawable) {
-    art.ballShadow(ctx, rb.x, rb.y);
     // The other player first, so mine is on top where two heads meet.
     const first = mySeat === 1 ? 0 : 1;
     drawPlayer(first, now); drawPlayer(1 - first, now);
-    art.ballAt(ctx, rb.x, rb.y, rb.rot);
+    art.ballAt(ctx, rb.x, rb.y, rb.rot, clockC <= 0 && (phase === 'playing' || phase === 'kickoff' || phase === 'goal' || phase === 'settling'));
     art.goalFronts(ctx);
-    const pm = now - powerAt;
-    if (pm >= 0 && pm < powerMs) {
-      art.powerDim(ctx, pm, powerMs);
-      drawPlayer(powerSide, now);
-      art.ballAt(ctx, rb.x, rb.y, rb.rot);
-      art.powerBolts(ctx, pm, powerMs, rp[powerSide].x, rp[powerSide].y - 10, now);
-    }
     if (mySeat >= 0 && (phase === 'countdown' || (kickoffs === 1 && now - firstKickAt < 1500))) art.youMark(ctx, rp[mySeat].x, rp[mySeat].y, now);
   }
   if (match) {
-    hud.power[0] = haveBase ? base.p[0].power : 0; hud.power[1] = haveBase ? base.p[1].power : 0;
+    hud.digits = clockText;
     hud.score[0] = score[0]; hud.score[1] = score[1];
     hud.names[0] = match.names[0]; hud.names[1] = match.names[1];
-    hud.mine = mySeat; hud.clock = clockText;
-    hud.clockWarn = phase === 'playing' && clockSecs <= 5 && clockC > 0;
-    hud.sudden = (phase === 'playing' || phase === 'goal') && clockC <= 0;
+    hud.mine = mySeat;
+    const mineSide = mySeat >= 0 ? mySeat : 0;
+    hud.hist[mineSide] = mySeat >= 0 ? series.mine : 0; hud.hist[1 - mineSide] = mySeat >= 0 ? series.theirs : 0;
+    hud.plate = platesOn;
+    hud.keys = !touchUI && !WATCH && canPlay();
+    hud.scoreBig = (phase === 'settling' || (phase === 'over' && !overShown)) ? Math.max(1, now - whistleAt) : 0;
     art.hudDraw(ctx, hud, now);
-    if (phase === 'countdown') art.kickOff(ctx, now - phaseAt);
+    const n = countNumber(now);
+    if (n >= 0) art.countText(ctx, n, n === 0 ? now - playAt : (now - countAt) % HS.COUNT_STEP_MS);
     const gm = now - goalAt;
-    if ((phase === 'goal' || phase === 'settling' || phase === 'over') && gm >= 0 && gm < 2600) art.goalBanner(ctx, gm, 'GOAL!');
-    else if (phase === 'settling' || (phase === 'over' && !overShown)) art.goalBanner(ctx, now - Math.max(phaseAt, goalAt + 2600), 'FULL TIME');
+    if (gm >= 0 && gm < 3000) art.goalFlash(ctx, gm, goalGolden);
+    else if (now - goldenAt < 3000) art.goalFlash(ctx, now - goldenAt, true);
+    if (now - halfAt < 2000) art.flashText(ctx, 'Half time', now - halfAt);
   }
   ctx.restore();
   // The phone buttons, in CSS pixels.
   if (touchUI && canPlay() && BTN) {
     ctx.setTransform(d, 0, 0, d, 0, 0);
-    const a = V.portrait ? 1 : 0.82;
+    const a = V.portrait ? 1 : 0.85;
     art.button(ctx, 'L', BTN.L, fingerOn('L') || !!(inp.held & IN.LEFT), d, a);
     art.button(ctx, 'R', BTN.R, fingerOn('R') || !!(inp.held & IN.RIGHT), d, a);
-    art.button(ctx, 'K', BTN.K, fingerOn('K'), d, V.portrait ? 1 : 0.9);
-    art.button(ctx, 'J', BTN.J, fingerOn('J'), d, V.portrait ? 1 : 0.9);
-    if (powerFull()) art.button(ctx, 'P', BTN.P, fingerOn('P') || base.p[mySeat].powerArmed, d, 1);
-    if (V.portrait) art.note(ctx, 'Turn your phone sideways for a bigger pitch', V.w / 2, (HS.H * V.s + BTN.P.y) / 2, 13);
+    art.button(ctx, 'K', BTN.K, fingerOn('K'), d, a);
+    art.button(ctx, 'J', BTN.J, fingerOn('J'), d, a);
+    if (V.portrait) art.note(ctx, 'Turn your phone sideways for a bigger pitch', V.w / 2, (sy(HS.VIEW_H) + BTN.L.y) / 2, 13);
   }
 }
 
 function drawPlayer(side, now) {
   const p = rp[side];
-  art.player(ctx, p, now, { charged: p.power >= 1, armed: p.powerArmed });
+  p.side = side;
+  art.player(ctx, p, anim[side], rb.x, now);
 }
 
 /* ── chat ──────────────────────────────────────────────────────────────────
@@ -689,7 +726,7 @@ let chatLive = false;          // a match is on screen (not the wait card, not t
 const chat = DSChat.mount({
   send: (t) => { socket.emit('hs:chat', { text: t }); return true; },
   canSend: () => chatLive && !WATCH,
-  pc: { left: 14, bottom: 14 },
+  pc: { left: 14, bottom: 120 },
   phoneAt: { left: 10, top: 70 },
 });
 function chatShow(on) { chatLive = on; chat.visible(on); }
@@ -709,20 +746,6 @@ function botNote() {
   n.hidden = false;
   clearTimeout(botNoteTimer);
   botNoteTimer = setTimeout(() => { n.hidden = true; }, 5000);
-}
-
-/* The keys, once per visit, on a computer, from the first kick-off's countdown to a few seconds into play. */
-function showKeys() {
-  if (WATCH || touchUI || keysShown) return;
-  try { if (sessionStorage.getItem('hs.keys') === '1') return; sessionStorage.setItem('hs.keys', '1'); } catch (_) {}
-  keysShown = true;
-  const k = $('keys'); k.hidden = false; k.classList.remove('fade');
-}
-function hideKeys() {
-  if (!keysShown) return;
-  keysShown = false;
-  const k = $('keys'); k.classList.add('fade');
-  setTimeout(() => { if (!keysShown) k.hidden = true; }, 600);
 }
 
 /* ── what the server says ──────────────────────────────────────────────── */
@@ -746,11 +769,15 @@ function startMatch(m) {
   }
   art.setKits(cols);
   score = Array.isArray(m.score) && m.score.length === 2 ? [m.score[0] | 0, m.score[1] | 0] : [0, 0];
-  clockC = typeof m.msLeft === 'number' ? m.msLeft : HS.MATCH_MS; clockAt = performance.now(); clockShown = clockC; clockSecs = -1;
+  clockC = typeof m.msLeft === 'number' ? m.msLeft : HS.MATCH_MS; clockAt = performance.now(); clockShown = clockC;
   overShown = false; lastOver = null;
   phase = null; setPhase(m.state || 'countdown');
-  goalAt = -1e9; powerAt = -1e9; kickoffs = m.state === 'countdown' ? 0 : 1; firstKickAt = -1e9;
-  lastPowerSide = -1; freezeEndTick = -1; prevStraight = false;
+  if (m.state === 'countdown') countAt = performance.now() - Math.max(0, HS.COUNTDOWN_MS - (Number(m.phaseMs) || HS.COUNTDOWN_MS));
+  goalAt = -1e9; goldenAt = -1e9; halfAt = -1e9; whistleAt = -1e9; playAt = -1e9; goalGolden = false;
+  kickoffs = m.state === 'countdown' ? 0 : 1; firstKickAt = -1e9;
+  platesOn = m.state !== 'countdown';
+  countAt = performance.now() - Math.max(0, HS.COUNTDOWN_MS - (Number(m.phaseMs) || HS.COUNTDOWN_MS)); lastCount = -1;
+  for (const a of anim) { a.run = 0; a.kickMs = -1; a.mood = 0; }
   // The input starts again at nothing: a new room counts from zero.
   inp.held = 0; inp.jumps = 0; inp.kicks = 0; inp.powers = 0; seq = 0; hist.length = 0; baseAck = 0;
   downKeys.clear(); fingers.clear(); touchHeld = 0;
@@ -760,7 +787,6 @@ function startMatch(m) {
   if (m.snap) onSnap(m.snap);
   $('wait').hidden = true;
   chatShow(true);
-  if (m.state === 'countdown') showKeys();
 }
 
 /* Every connect, the first and every reconnect after it: a seat, or in watch mode a match to watch. The server
@@ -881,22 +907,48 @@ socket.on('hs:kickoff', (m) => {
   if (m && typeof m.msLeft === 'number') { clockC = m.msLeft; clockAt = t; }
   kickoffs++;
   if (kickoffs === 1) firstKickAt = t;
-  forceSnap = true;                        // the jump back to the spots is a jump, not something to ease
-  lastPowerSide = -1; freezeEndTick = -1;
   setPhase('playing', t);
+});
+
+/* Back to the spots after a goal, half time or the golden-goal call, and the countdown again. */
+socket.on('hs:count', (m) => {
+  if (!match) return;
+  const t = performance.now();
+  if (m && Array.isArray(m.score)) score = [m.score[0] | 0, m.score[1] | 0];
+  if (m && typeof m.msLeft === 'number') { clockC = m.msLeft; clockAt = t; }
+  forceSnap = true;                        // the jump back to the spots is a jump, not something to ease
+  setPhase('kickoff', t);
+});
+socket.on('hs:half', (m) => {
+  if (!match) return;
+  const t = performance.now();
+  halfAt = t;
+  if (m && typeof m.msLeft === 'number') { clockC = m.msLeft; clockAt = t; }
+  setPhase('half', t);
+});
+socket.on('hs:golden', () => {
+  if (!match) return;
+  const t = performance.now();
+  goldenAt = t; clockC = 0; clockAt = t;
+  setPhase('golden', t);
 });
 
 socket.on('hs:goal', (m) => {
   if (!match || !m) return;
   const t = performance.now();
+  goalGolden = clockC <= 0;
   goalAt = t;
   if (Array.isArray(m.score)) score = [m.score[0] | 0, m.score[1] | 0];
+  // S: responseAnimations: the scorer cheers, the other is sad, for 3 s.
+  const sc = m.s === 1 ? 1 : 0;
+  anim[sc].mood = 1; anim[1 - sc].mood = -1; moodUntil = t + 3000;
   setPhase('goal', t);
 });
 
 socket.on('hs:whistle', (m) => {
   if (!match) return;
   if (m && Array.isArray(m.score)) score = [m.score[0] | 0, m.score[1] | 0];
+  whistleAt = performance.now();
   setPhase('settling');
 });
 
@@ -909,6 +961,7 @@ socket.on('hs:over', (m) => {
   /* Whose result it is, read now: a reconnect while the card is up changes the socket id, and the card is drawn
      again on every restake step. */
   lastOver = Object.assign({}, m || {}, { ms: matchAt ? Date.now() - matchAt : 0, me, seat: mySeat });
+  if (m && m.winnerId) { if (m.winnerId === me) series.mine++; else series.theirs++; }
   restake = null; restakeLine = '';
   paintOver();
   chatShow(false);
@@ -1326,8 +1379,8 @@ function watchOver(m) {
 /* What the match looks like right now, for a headless check (the same idea as window.__watch). Read only. */
 window.__hs = () => ({
   phase, mySeat, score: score.slice(), clock: clockText, predicting, rtt: Math.round(rtt), touchUI,
-  portrait: VIEW.portrait, over: overShown, powerShots, waiting, seq, ack: baseAck,
-  me: mySeat >= 0 ? { x: rp[mySeat].x, y: rp[mySeat].y, kickMs: rp[mySeat].kickMs, power: rp[mySeat].power } : null,
+  portrait: VIEW.portrait, over: overShown, waiting, seq, ack: baseAck, view: { s: VIEW.s, vw: VIEW.vw, ox: VIEW.ox, oy: VIEW.oy },
+  me: mySeat >= 0 ? { x: rp[mySeat].x, y: rp[mySeat].y, kickMs: rp[mySeat].kickMs, ground: rp[mySeat].ground } : null,
   them: mySeat >= 0 ? { x: rp[1 - mySeat].x, y: rp[1 - mySeat].y } : null,
   ball: { x: rb.x, y: rb.y }, corr: off.map(o => Math.round(Math.hypot(o.x, o.y) * 10) / 10), server: haveBase ? { k: baseK, me: mySeat >= 0 ? base.p[mySeat].x : null, ball: base.ball.x } : null,
   buttons: BTN && touchUI ? JSON.parse(JSON.stringify(BTN)) : null,
@@ -1341,7 +1394,7 @@ fit();
 if (document.fonts && document.fonts.load) {
   Promise.all(['italic 900 40px Archivo', 'italic 800 25px Archivo', '800 14px Archivo', '700 16px Archivo']
     .map(f => document.fonts.load(f).catch(() => null)))
-    .then(() => { art.btn = {}; art.goalLetters = null; build(VIEW.s * VIEW.dpr); });
+    .then(() => build(VIEW.s * VIEW.dpr));
 }
 requestAnimationFrame(frame);
 

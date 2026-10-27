@@ -4,6 +4,13 @@
    shared/hsSim.js and run here, server-side, at a fixed 60 steps a second; the
    clients send what they are pressing and draw what they are sent.
 
+   THE RULES ARE HEADS ARENA EURO SOCCER'S (docs/head-soccer-reference.md):
+   60 s of play shown as 90 game minutes; a 3, 2, 1, 0 countdown (2.4 s) before
+   every kick-off, with the ball already dropping and nobody able to move; a goal
+   stops the clock for 3 s, then both players go back to their spots; half time
+   at 45:00 is the same 3 s break and kick-off; level at 90:00 is golden goal
+   (2 s, then a kick-off, the clock stays at 90:00 and the next goal wins).
+
    THE SEATS AND THE MONEY ARE KNOCKOUT'S. This room extends KnockoutRoom for
    everything that decides who is owed what: addPlayer (the server-recorded
    worth from the entry token), pot(), removePlayer (walking out forfeits),
@@ -19,7 +26,8 @@ const { HS } = Sim;
 let nextId = 1;
 const SNAP_EVERY = 2;            // a snapshot every second step: 30 a second
 const MAX_CATCHUP_STEPS = 6;     // a stalled event loop is not replayed at speed: at most 0.1 s per tick
-const WIN_HOLD_MS = 2500;        // the final whistle sits on screen this long before the result card
+const WIN_HOLD_MS = 3000;        // the final whistle sits on screen this long before the result card
+                                 // (the reference's GameUI.endScreen holds the score for 3 s)
 
 /* A field from a client as a plain number, or NaN. Only a real number or a numeric string is read: Number() on a
    client-built object calls its toString/valueOf and can THROW (Fable review 2026-10-27: {h:{toString:1}} took the
@@ -44,6 +52,7 @@ class HeadSoccerRoom extends KnockoutRoom {
     this.steps = 0;
     this.turn = 0;                 // the lobby's watch order reads it: goals scored so far
     this.lastSnap = null;
+    this.goldenCalled = false;     // the golden-goal call has been made (once a match)
   }
 
   sideOfSocket(socketId) {
@@ -67,10 +76,15 @@ class HeadSoccerRoom extends KnockoutRoom {
     return true;
   }
 
+  /* States: 'countdown' is the opening one only (HeadSoccerLobby.earlyEnough reads it as "not kicked off yet");
+     'kickoff' is the same countdown after a goal, half time or the golden-goal call; 'goal', 'half' and 'golden'
+     are the breaks before it; 'settling' is the final whistle. The pitch keeps moving through all of them with
+     nobody's input, as the reference's does (its input is disabled, its physics is not). */
   start(now) {
     if (this.players.size < 2) return false;
     const t = typeof now === 'number' ? now : Date.now();
     this.match = Sim.newMatch();
+    this.goldenCalled = false;
     this.state = 'countdown';
     this.phaseEndsAt = t + HS.COUNTDOWN_MS;
     this.lastStepAt = t;
@@ -78,22 +92,36 @@ class HeadSoccerRoom extends KnockoutRoom {
     return true;
   }
 
+  // S: full time level -> flashGoldenGoal, then goldenGoalKickoff 2 s later. Once a match.
+  callGolden(t) {
+    this.goldenCalled = true;
+    this.state = 'golden';
+    this.phaseEndsAt = t + HS.GOLDEN_FLASH_MS;
+    this.broadcast('hs:golden', { score: this.match.score.slice() });
+  }
+
+  // Back to the spots and the countdown (S: GameplayHandler.kickoff / goldenGoalKickoff).
+  kickoffCount(t) {
+    Sim.kickoff(this.match);
+    this.state = 'kickoff';
+    this.phaseEndsAt = t + HS.COUNTDOWN_MS;
+    this.broadcast('hs:count', { ms: HS.COUNTDOWN_MS, score: this.match.score.slice(), msLeft: Math.round(this.match.msLeft) });
+    this.maybeSnap(true);
+  }
+
   tick(now) {
     const t = typeof now === 'number' ? now : Date.now();
     if (this.state === 'waiting' || this.state === 'over') return;
-    if (this.state === 'countdown' && t >= this.phaseEndsAt) {
+    if ((this.state === 'countdown' || this.state === 'kickoff') && t >= this.phaseEndsAt) {
       this.state = 'playing';
       this.broadcast('hs:kickoff', { score: this.match.score.slice(), msLeft: Math.round(this.match.msLeft) });
     }
-    if (this.state === 'goal' && t >= this.phaseEndsAt) {
-      Sim.kickoff(this.match);
-      this.state = 'playing';
-      this.broadcast('hs:kickoff', { score: this.match.score.slice(), msLeft: Math.round(this.match.msLeft) });
+    if ((this.state === 'goal' || this.state === 'half' || this.state === 'golden') && t >= this.phaseEndsAt) {
+      // An equaliser on the 90:00 whistle still gets the golden-goal call before its kick-off.
+      if (this.state === 'goal' && this.match.msLeft <= 0 && this.match.score[0] === this.match.score[1] && !this.goldenCalled) this.callGolden(t);
+      else this.kickoffCount(t);
     }
-    if (this.state === 'settling') {
-      if (t >= this.phaseEndsAt) this.finishByScore();
-      return;
-    }
+    if (this.state === 'settling' && t >= this.phaseEndsAt) { this.finishByScore(); return; }
     // Fixed steps for the time that has passed.
     this.acc += Math.max(0, t - this.lastStepAt) / 1000;
     this.lastStepAt = t;
@@ -104,15 +132,15 @@ class HeadSoccerRoom extends KnockoutRoom {
 
   stepOnce(t) {
     this.steps++;
-    if (this.state === 'countdown') { this.maybeSnap(); return; }   // frozen at kick-off positions
     const live = this.state === 'playing';
     /* Sudden death is the clock ALREADY at 0:00 when this step began. Read after the step, a goal in the very step
        that took the clock to 0:00 (an equaliser on the buzzer) would end a level match as a draw instead of going
        to sudden death (review 2026-10-27). */
     const golden = live && this.match.msLeft <= 0 && HS.TIE === 'golden';
-    const ev = Sim.step(this.match, this.inputs, HS.STEP, live);
+    const before = this.match.msLeft;
+    // Input only while play is live; in every break the pitch still moves (S: disableInput, the physics runs on).
+    const ev = Sim.step(this.match, this.inputs, HS.STEP, live, live);
     for (const e of ev) {
-      if (e.e === 'power') this.broadcast('hs:power', { s: e.s, freezeMs: HS.POWER_FREEZE_MS });
       if (e.e === 'goal' && live) {
         this.turn++;
         this.state = 'goal';
@@ -123,11 +151,19 @@ class HeadSoccerRoom extends KnockoutRoom {
       }
     }
     if (ev.length) this.sendEvents(ev);
-    if (live && this.match.msLeft <= 0 && this.state === 'playing') {
-      const [a, b] = this.match.score;
-      // Level at 0:00 is sudden death (the clock sits at 0:00 and the next goal wins), with a safety stop that
-      // makes it a draw, refunded, after GOLDEN_MAX_MS. A draw rule instead ends it here.
-      if (a !== b || HS.TIE === 'draw' || this.match.goldenMs >= HS.GOLDEN_MAX_MS) { this.whistle(t); return; }
+    if (live && this.state === 'playing') {
+      // Half time: the step that takes the clock past 45:00 (S: Timer halftime callback, kickoff 3 s later).
+      if (before > HS.HALF_MS && this.match.msLeft <= HS.HALF_MS) {
+        this.state = 'half';
+        this.phaseEndsAt = t + HS.HALF_PAUSE_MS;
+        this.broadcast('hs:half', { score: this.match.score.slice(), msLeft: Math.round(this.match.msLeft) });
+      } else if (this.match.msLeft <= 0) {
+        const [a, b] = this.match.score;
+        // Level at 90:00 is golden goal (the clock sits at 90:00 and the next goal wins), with a safety stop that
+        // makes it a draw, refunded, after GOLDEN_MAX_MS. A draw rule instead ends it here.
+        if (a !== b || HS.TIE === 'draw' || this.match.goldenMs >= HS.GOLDEN_MAX_MS) { this.whistle(t); return; }
+        if (!this.goldenCalled) this.callGolden(t);
+      }
     }
     this.maybeSnap();
   }
@@ -155,9 +191,9 @@ class HeadSoccerRoom extends KnockoutRoom {
     return { score: this.match.score.slice() };
   }
 
-  // The sounds and flashes of a step (kick, head, post, bounce, power, stun), to both screens, reliable but small.
+  // The sounds of a step (kick, swing, jump, head, bounce, post, net), to both screens, reliable but small.
   sendEvents(ev) {
-    const out = ev.filter(e => e.e !== 'goal').map(e => (e.s === undefined ? [e.e] : [e.e, e.s]));
+    const out = ev.filter(e => e.e !== 'goal').map(e => (e.s === undefined ? [e.e] : e.v ? [e.e, e.s, e.v] : [e.e, e.s]));
     if (out.length) this.broadcast('hs:ev', out);
   }
 
@@ -224,6 +260,9 @@ class HeadSoccerRoom extends KnockoutRoom {
       case 'hs:snap':
         return { k: p.k, c: p.c, st: p.st, b: p.b, p: p.p, sc: p.sc };
       case 'hs:kickoff':
+      case 'hs:count':
+      case 'hs:half':
+      case 'hs:golden':
       case 'hs:power':
       case 'hs:goal':
       case 'hs:whistle':

@@ -12,8 +12,10 @@
      · walking out of a paid queue gives the stake back, once
      · a free table never triggers a payout
      · a restart owes every held paid seat a 100% 'agowed:' refund row
-   and then the game itself: inputs are clamped, the clock ends a match, a
-   goal counts, and two bots finish a match with goals in it. */
+   and then the game itself (Heads Arena Euro Soccer's rules and numbers,
+   docs/head-soccer-reference.md): inputs are clamped, the clock ends a match,
+   half time breaks it, a goal counts, the kick is the reference's, and two bots
+   finish a match with goals in it. */
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -140,12 +142,14 @@ test('level at full time is sudden death: nothing settles, and the next goal win
   let t = run(room, 0, HS.COUNTDOWN_MS + 100);
   room.match.score = [1, 1];
   room.match.msLeft = 10;
-  t = run(room, t, 200 + HeadSoccerRoom.WIN_HOLD_MS);
-  assert.strictEqual(settled.length, 0, 'no result at 0:00 while level');
+  t = run(room, t, 200);
+  assert.strictEqual(room.state, 'golden', 'the golden-goal call');
+  t = run(room, t, HS.GOLDEN_FLASH_MS + HS.COUNTDOWN_MS + 200);
+  assert.strictEqual(settled.length, 0, 'no result at 90:00 while level');
   assert.strictEqual(room.state, 'playing');
   // A goal for the right-hand seat (into the left goal).
   const b = room.match.ball;
-  b.x = HS.GOAL_D - HS.BALL_R - 3; b.y = HS.BALL_FLOOR_Y; b.vx = -40; b.vy = 0;
+  b.x = -HS.GOAL_LINE_X - 30; b.y = HS.SHELF_Y - HS.BALL_R - 5; b.vx = -40; b.vy = 0;
   run(room, t, 200 + HeadSoccerRoom.WIN_HOLD_MS);
   assert.strictEqual(settled.length, 1);
   const right = [...room.players].find(([, p]) => p.side === 1)[0];
@@ -210,25 +214,64 @@ test('inputs are clamped: counts only go up, a few at a time; junk is ignored', 
 
 test('the ball past the mouth under the bar is a goal for the other side', () => {
   const m = Sim.newMatch();
-  m.ball.x = HS.GOAL_D - HS.BALL_R - 2; m.ball.y = HS.GROUND_Y - HS.BALL_R - 5; m.ball.vx = -50; m.ball.vy = 0;
+  m.ball.x = -HS.GOAL_LINE_X - 2; m.ball.y = HS.SHELF_Y - HS.BALL_R - 5; m.ball.vx = -50; m.ball.vy = 0;
   const ev = Sim.step(m, null, HS.STEP, true);
   assert.ok(ev.some(e => e.e === 'goal' && e.s === 1));
   assert.deepStrictEqual(m.score, [0, 1]);
 });
 
 test('two bots play a whole match to a result, with goals and kicks in it', () => {
+  // The reference's CPU against itself can stall 0-0 into golden goal, so up to three matches for one with goals.
+  let goals = 0, kicks = 0, ended = 0;
+  for (let g = 0; g < 3 && goals === 0; g++) {
+    const room = new HeadSoccerRoom(io);
+    room.addPlayer({ id: 'bot_a', join() {}, emit() {} }, 'A', null);
+    room.addPlayer({ id: 'bot_b', join() {}, emit() {} }, 'B', null);
+    const ba = { id: 'bot_a' }, bb = { id: 'bot_b' };
+    room.sendEvents = (ev) => { for (const e of ev) if (e.e === 'kick') kicks++; };
+    let t = 0;
+    room.start(t);
+    while (room.state !== 'over' && t < 400000) { t += 1000 / 60; hsBot.drive(room, t, ba); hsBot.drive(room, t, bb); room.tick(t); }
+    if (room.state === 'over') ended++;
+    goals += room.match.score[0] + room.match.score[1];
+  }
+  assert.ok(ended > 0, 'a match ended');
+  assert.ok(goals > 0, 'somebody scored');
+  assert.ok(kicks > 0, 'and the bots kick');
+});
+
+test('half time: the step past 45:00 stops play for 3 s, then both go back to their spots and count down', () => {
   const room = new HeadSoccerRoom(io);
-  room.addPlayer({ id: 'bot_a', join() {}, emit() {} }, 'A', null);
-  room.addPlayer({ id: 'bot_b', join() {}, emit() {} }, 'B', null);
-  const ba = { id: 'bot_a' }, bb = { id: 'bot_b' };
-  let kicks = 0;
-  room.sendEvents = (ev) => { for (const e of ev) if (e.e === 'kick') kicks++; };
+  room.addPlayer(sock('A'), 'A', null);
+  room.addPlayer(sock('B'), 'B', null);
   let t = 0;
   room.start(t);
-  while (room.state !== 'over' && t < 400000) { t += 1000 / 60; hsBot.drive(room, t, ba); hsBot.drive(room, t, bb); room.tick(t); }
-  assert.strictEqual(room.state, 'over', 'the match ended');
-  assert.ok(room.match.score[0] + room.match.score[1] > 0, 'somebody scored');
-  assert.ok(kicks > 0, 'and the bots kick');
+  t = run(room, t, HS.COUNTDOWN_MS + 100);
+  assert.strictEqual(room.state, 'playing');
+  room.match.msLeft = HS.HALF_MS + 5;
+  room.match.p[0].x = 300;
+  t = run(room, t, 100);
+  assert.strictEqual(room.state, 'half');
+  assert.strictEqual(Sim.clockDigits(room.match.msLeft).slice(0, 2), '45');
+  t = run(room, t, HS.HALF_PAUSE_MS + 50);
+  assert.strictEqual(room.state, 'kickoff');
+  assert.ok(Math.abs(room.match.p[0].x + HS.START_X) < 1, 'back on the spot');
+  const frozen = room.match.msLeft;
+  for (let i = 0; i < 400 && room.state !== 'playing'; i++) { t += 1000 / 60; room.tick(t); }
+  assert.strictEqual(room.state, 'playing');
+  assert.ok(Math.abs(room.match.msLeft - frozen) < 40, 'the clock did not run through the break');
+});
+
+test('the clock shows 90 game minutes over the 60 s, and the kick is the reference one', () => {
+  assert.strictEqual(Sim.clockDigits(HS.MATCH_MS), '0000');
+  assert.strictEqual(Sim.clockDigits(HS.MATCH_MS - 1000), '0130');
+  assert.strictEqual(Sim.clockDigits(0), '9000');
+  // Measured in the reference: a grounded player facing right, ball 150 ahead and 50 up -> (437, -2007).
+  const p = Sim.newPlayer(0); p.ground = true; p.left = false;
+  const aim = Sim.kickAim(p, { x: p.x + 150, y: p.y - 50 });
+  const v = Sim.kickVelocity(p, aim[0], aim[1]);
+  assert.ok(Math.abs(v[0] - 437) < 3 && Math.abs(v[1] + 2007) < 3, JSON.stringify(v));
+  assert.strictEqual(Sim.kickVelocity(p, p.x + 300, p.y), null, 'out of reach');
 });
 
 test('a client-built object in hs:in cannot throw (Number() on {toString} would)', () => {
@@ -264,19 +307,19 @@ test('an equaliser in the very step the clock reaches 0:00 goes to sudden death,
   room.match.score = [1, 0];
   room.match.msLeft = HS.STEP * 1000 * 0.5;          // this step takes it to 0:00
   const b = room.match.ball;                          // and this step's ball crosses into the left goal: 1-1
-  b.x = HS.GOAL_D - HS.BALL_R - 1; b.y = HS.BALL_FLOOR_Y; b.vx = -60; b.vy = 0;
+  b.x = -HS.GOAL_LINE_X + 0.5; b.y = HS.SHELF_Y - HS.BALL_R; b.vx = -60; b.vy = 0;
   room.stepOnce(t);
   assert.deepStrictEqual(room.match.score, [1, 1]);
   assert.strictEqual(room.state, 'goal', 'a goal pause, then play on');
-  t = run(room, t, HS.GOAL_PAUSE_MS + HeadSoccerRoom.WIN_HOLD_MS + 500);
+  t = run(room, t, HS.GOAL_PAUSE_MS + HS.GOLDEN_FLASH_MS + HS.COUNTDOWN_MS + 500);
   assert.strictEqual(settled.length, 0, 'no draw was settled');
   assert.strictEqual(room.state, 'playing', 'sudden death');
 });
 
 test('a ball resting on the crossbar does not ring the post every step', () => {
   const m = Sim.newMatch();
-  const top = Sim.barBoxes()[0][1];
-  m.ball.x = HS.GOAL_D / 2; m.ball.y = top - HS.BALL_R; m.ball.vx = 0; m.ball.vy = 0;
+  m.p[0].x = 0; m.p[1].x = 400;
+  m.ball.x = -HS.BAR_X; m.ball.y = HS.BAR_Y - HS.BAR_H / 2 - HS.BALL_R - 4; m.ball.vx = 0; m.ball.vy = 0;
   let posts = 0;
   for (let i = 0; i < 120; i++) for (const e of Sim.step(m, null, HS.STEP, false)) if (e.e === 'post') posts++;
   assert.ok(posts <= 1, 'posts: ' + posts);

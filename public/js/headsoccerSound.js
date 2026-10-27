@@ -4,6 +4,11 @@
    sounds only a football match has, defined here the same way: a few lines of
    numbers, synthesised once at load, no files.
 
+   The moments are Heads Arena Euro Soccer's (its util.Sound.playFx calls): a kick
+   press swings (player-kick), a kick that connects thumps harder the faster it
+   sends the ball (normal under 1200, hard under 1400, hardest above), a jump,
+   the grass, the crossbar (metal) and the net (wood), the countdown's beeps, the
+   whistle at 0, the half-time whistle and the crowd on a goal.
      a boot on the ball  hs.kick       a low thump with a slap of noise
      a header            hs.head       a short cartoon bonk
      the woodwork        hs.post       a metal clang that rings off
@@ -12,7 +17,7 @@
      full time           hs.whistleEnd short, short, long
      a goal              hs.roar + hs.horn   the crowd, then the stadium horn
      the power shot      hs.zap        an electric crackle under the lightning
-     the last 5 seconds  g.tick        soft, once a second
+     the last 5 seconds  g.tick        soft, once a second (and the 3, 2, 1 before a kick-off)
      match found / won / lost / refused   g.join, g.win, g.lose, g.err
 
    headsoccer.js feeds it: attach() once with the socket, local() for your own
@@ -72,7 +77,20 @@
       if (local) heard[name] = now();
       play(name === 'kick' ? 'hs.kick' : 'hs.head', { vol: mine ? 1 : 0.8, rate: 0.95 + Math.random() * 0.1, pan: panAt(x), gap: 60 });
     } else if (name === 'post') play('hs.post', { pan: panAt(x), gap: 120 });
+    else if (name === 'net') play('hs.bounce', { vol: 0.9, rate: 0.7, pan: panAt(x), gap: 120 });
     else if (name === 'bounce') play('hs.bounce', { vol: 0.7, pan: panAt(x), gap: 90 });
+  }
+  /* A kick's strength by the speed it gave the ball (S: GameplayHandler.ballKick's three sounds), a swing that
+     missed (S: player-kick), a jump (S: player-jump). */
+  function boot(name, side, x, v, local) {
+    const vw = view(), mine = !vw.watch && side === vw.mySide;
+    if (mine && !local && now() - heard[name === 'kick' ? 'kick' : 'head'] < 450) return;
+    if (local) heard[name === 'kick' ? 'kick' : 'head'] = now();
+    if (name === 'kick') {
+      const hard = v >= 1400 ? 2 : v >= 1200 ? 1 : 0;
+      play('hs.kick', { vol: (mine ? 1 : 0.8) * (0.8 + 0.1 * hard), rate: 1.05 - 0.08 * hard, pan: panAt(x), gap: 60 });
+    } else if (name === 'swing') play('hs.head', { vol: 0.35, rate: 1.5, pan: panAt(x), gap: 80 });
+    else if (name === 'jump') play('hs.head', { vol: 0.3, rate: 0.75, pan: panAt(x), gap: 80 });
   }
 
   function attach(socket, getter) {
@@ -85,7 +103,9 @@
       const x = view().ballX;
       for (let i = 0; i < list.length && i < 6; i++) {
         const e = list[i];
-        if (Array.isArray(e) && typeof e[0] === 'string') touch(e[0], e[1], x, false);
+        if (!Array.isArray(e) || typeof e[0] !== 'string') continue;
+        if (e[0] === 'kick' || e[0] === 'swing' || e[0] === 'jump') boot(e[0], e[1], x, e[2] | 0, false);
+        else if (e[0] !== 'head') touch(e[0], e[1], x, false);
       }
     });
     socket.on('hs:goal', () => {
@@ -93,6 +113,8 @@
       root.setTimeout(() => play('hs.horn', { vol: 0.9, gap: 800 }), 140);
     });
     socket.on('hs:whistle', () => play('hs.whistleEnd', { gap: 800 }));
+    socket.on('hs:half', () => play('hs.whistleEnd', { gap: 800 }));
+    socket.on('hs:golden', () => play('hs.horn', { vol: 0.9, gap: 800 }));
     socket.on('hs:refused', () => play('g.err', { vol: 0.7 }));
     socket.on('hs:over', (m) => {
       const v = view();
@@ -101,8 +123,10 @@
     });
   }
 
-  /* The page's own predicted touch (kick or head) for your seat. */
-  function local(name, side, x) { touch(name, side, x, true); }
+  /* The page's own predicted kick, swing or jump for your seat. */
+  function local(name, side, x, v) { boot(name, side, x, v | 0, true); }
+  /* A countdown number (3, 2, 1). */
+  function count() { play('g.tick', { vol: 0.6, rate: 1.1, gap: 300 }); }
 
   /* A power cutscene started (the page calls this once per cutscene, from whichever told it first). */
   function power() {
@@ -120,5 +144,5 @@
     }
   }
 
-  root.HeadSoccerSound = { attach, local, power, clock, setMuted: (v) => { muted = !!v; } };
+  root.HeadSoccerSound = { attach, local, power, clock, count, setMuted: (v) => { muted = !!v; } };
 })(window);

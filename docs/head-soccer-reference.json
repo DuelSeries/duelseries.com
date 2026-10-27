@@ -1,129 +1,512 @@
 {
   "meta": {
-    "game": "Head Soccer (D&D Dream, iOS Feb 2012), early versions only",
-    "written": "2026-10-26",
-    "rule": "Every value has status measured, derived, wiki or UNKNOWN. UNKNOWN means not found, never a guess.",
-    "frame": {
-      "note": "Pixel values are in the V2 video game frame. 1196 x 720 video px, about 800x480 logical at scale 1.495 (logical size inferred from aspect, not confirmed).",
-      "W": 1196,
-      "H": 720
+    "game": "Heads Arena Euro Soccer (Poki Studios, June 2016; Phaser 2.4.2 + P2)",
+    "written": "2026-10-27",
+    "rule": "Every value has a source: S (its game.min.js / config.json / atlases, identifier given), L (read live from its p2 world), M (measured by stepping it), A (its art measured pixel by pixel). UNKNOWN means not got, never a guess.",
+    "build": "https://5dd29b99-015f-11ea-ad56-9cb6d0d995f7.gdn.poki.com/1e942d4f-1d4c-4f04-9af3-8d992117cd15/index.html (via games.poki.com/822223/headsarenaeurosoccer, embedded at papajogos.com.br)",
+    "units": "design units: frame 1920 high; x from the halfway line, y down from the top. Game.scale(v) = imageScale * v, so source values are design units."
+  },
+  "frame": {
+    "height": {
+      "value": 1920,
+      "source": "S config.json workingHeight"
     },
-    "sources": {
-      "V1": "https://www.youtube.com/watch?v=zqLrbp1QrlA (early version, 480x272, 29.97 fps)",
-      "V2": "https://www.youtube.com/watch?v=nAvkW0aJKf4 (about 2013, v2.x, 1280x720, 29.97 fps, main measurement source)",
-      "W-SD": "https://headsoccer.wiki.gg/wiki/Sudden_Death",
-      "W-CT": "https://headsoccer.wiki.gg/wiki/Controls",
-      "W-PS": "https://headsoccer.wiki.gg/wiki/Power_Shot_Guide",
-      "W-UH": "https://headsoccer.wiki.gg/wiki/Update_History",
-      "W-CH": "https://headsoccer.wiki.gg/wiki/Characters",
-      "W-GL": "https://headsoccer.wiki.gg/wiki/Glitches",
-      "AS": "https://apps.apple.com/us/app/head-soccer/id487119327",
-      "IS": "https://iphonesoft.fr/2012/05/31/test-head-soccer"
+    "widthMin": {
+      "value": 2560,
+      "source": "S maxRatio .75"
+    },
+    "widthMax": {
+      "value": 4388.6,
+      "source": "S minRatio .4375"
+    }
+  },
+  "physics": {
+    "step": {
+      "value": 0.016666666666666666,
+      "source": "L p2.frameRate, useElapsedTime false"
+    },
+    "gravity": {
+      "value": 1600,
+      "source": "S _setupPhysics gravity.y Game.scale(1600); L"
+    },
+    "playerExtraGravity": {
+      "value": 2000,
+      "source": "S Player.update force[1] -= Game.scale(1E4), mass 100"
+    },
+    "friction": {
+      "value": 0.3,
+      "source": "S defaultContactMaterial.friction"
+    },
+    "playerFrictionDecel": {
+      "value": 480,
+      "source": "S/M .3 x 1600; M 8 units a step"
+    },
+    "ballRadius": {
+      "value": 46,
+      "source": "S setCircle(.45*sprite.width); L"
+    },
+    "ballMass": {
+      "value": 2,
+      "source": "S; L"
+    },
+    "ballDamping": {
+      "value": 0.1,
+      "source": "L p2 default; M rolling"
+    },
+    "playerMass": {
+      "value": 100,
+      "source": "S"
+    },
+    "playerDamping": {
+      "value": 0.5,
+      "source": "S"
+    },
+    "restitution": {
+      "pitch": {
+        "value": 0.8,
+        "source": "S contactMaterial ball/field; M 1568->1247"
+      },
+      "goals": {
+        "value": 0.6,
+        "source": "S ball/arena"
+      },
+      "players": {
+        "value": 0.3,
+        "source": "S ball/player"
+      },
+      "topWall": {
+        "value": 0,
+        "source": "S world bounds default material"
+      }
+    },
+    "ballSpinRolling": {
+      "value": "0.47 rad/s at 984 units/s",
+      "source": "M"
+    }
+  },
+  "player": {
+    "head": {
+      "value": [
+        [
+          -20,
+          50
+        ],
+        [
+          -70,
+          0
+        ],
+        [
+          -70,
+          -50
+        ],
+        [
+          -20,
+          -100
+        ],
+        [
+          20,
+          -100
+        ],
+        [
+          70,
+          -50
+        ],
+        [
+          70,
+          0
+        ],
+        [
+          20,
+          50
+        ]
+      ],
+      "source": "L octagon vertices from body centre"
+    },
+    "legs": {
+      "value": [
+        [
+          -20,
+          50
+        ],
+        [
+          20,
+          50
+        ],
+        [
+          20,
+          150
+        ],
+        [
+          -20,
+          150
+        ]
+      ],
+      "source": "L"
+    },
+    "run": {
+      "value": 1000,
+      "source": "S _moveSpeed; M"
+    },
+    "idleKeep": {
+      "value": 0.6,
+      "source": "S velocity.x *= .6"
+    },
+    "jumpVelocity": {
+      "value": 2000,
+      "source": "S jump(Game.scale(2E3)); M"
+    },
+    "jumps": {
+      "value": 2,
+      "source": "S _jumpLimit"
+    },
+    "kickRange": {
+      "value": 270,
+      "source": "S _ballKickDistance"
+    },
+    "kickSpeed": {
+      "value": 2900,
+      "source": "S _kickForce"
+    },
+    "kickVerticalScale": {
+      "value": 0.7,
+      "source": "S kick"
+    },
+    "kickLift": {
+      "value": "0.2 PI when grounded, signed by facing",
+      "source": "S getKickAngle"
+    },
+    "kickAim": {
+      "value": [
+        51.1,
+        50
+      ],
+      "source": "S ball sprite position - size/2 (ours mirrored for the right seat)"
+    },
+    "kickMs": {
+      "value": 200,
+      "source": "S _kickTime"
+    },
+    "kickRestMs": {
+      "value": 200,
+      "source": "S _kickDelay"
+    },
+    "kickSamples": {
+      "value": [
+        [
+          "150,-50",
+          "437,-2007"
+        ],
+        [
+          "200,0",
+          "1682,-1654"
+        ],
+        [
+          "60,-200",
+          "-1620,-1684"
+        ],
+        [
+          "-150,-50",
+          "-2860,337"
+        ],
+        [
+          "250,60",
+          "2429,-1109"
+        ],
+        [
+          "150,100",
+          "2863,-324"
+        ]
+      ],
+      "source": "M ball offset from player -> ball velocity"
+    }
+  },
+  "arena": {
+    "pitchY": {
+      "value": 1471.8,
+      "source": "L"
+    },
+    "shelfY": {
+      "value": 1181.8,
+      "source": "L"
+    },
+    "stepFaceX": {
+      "value": 990,
+      "source": "S _fieldSize/2"
+    },
+    "corner": {
+      "value": 40,
+      "source": "S _cornerSize"
+    },
+    "shelfEndX": {
+      "value": 1280,
+      "source": "S _midToEnd"
+    },
+    "netInnerX": {
+      "value": 1214.2,
+      "source": "L"
+    },
+    "crossbar": {
+      "value": {
+        "x": 1197,
+        "y": 752.2,
+        "w": 355.6,
+        "h": 40,
+        "deg": 12
+      },
+      "source": "S Goal.bar; L"
+    },
+    "goalBox": {
+      "value": {
+        "lineX": 1044.2,
+        "top": 755.2,
+        "bottom": 1259.2
+      },
+      "source": "S Goal.isInGoal"
+    },
+    "kickoff": {
+      "value": {
+        "playerX": 495,
+        "playerY": 1082.2,
+        "ballY": 576,
+        "ballDriftPerGoal": 5
+      },
+      "source": "S startGame, getPlayerStart, setStart"
     }
   },
   "rules": {
-    "match_length_s": { "value": 60, "status": "measured", "source": ["V1", "W-SD"] },
-    "timer_format": { "value": "M:SS, 1:00 down to 0:00, TIME label above", "status": "measured", "source": ["V1", "V2"] },
-    "timer_tick_s": { "value": 1.001, "status": "measured", "note": "real time, ticks 1.001 s apart in 29.97 fps media time", "source": ["V1"] },
-    "timer_pause_on_goal_s": { "value": [1.5, 2.5], "status": "measured", "confidence": "coarse", "source": ["V1"] },
-    "tie_rule": { "value": "sudden death, no time limit, first goal wins, power bars do not charge, held power shot carries over", "status": "wiki", "source": ["W-SD"] },
-    "draws": { "value": "only Head Cup group stage", "status": "wiki", "source": ["W-SD"] },
-    "score_limit": { "value": "none seen (finals 5-2 and 7-6)", "status": "measured", "source": ["V1", "V2"] },
-    "match_end": { "value": "clock 0:00 then RESULT screen with scores, reward points, NEXT", "status": "measured", "source": ["V2"] },
-    "kickoff": {
-      "value": "both players snap to start x, new ball appears at rest at screen centre and drops, nobody has possession; same after every goal",
-      "ball_spawn_x_px": 600,
-      "ball_spawn_x_frac_W": 0.502,
-      "ball_spawn_y_px": 226.5,
-      "ball_spawn_y_frac_H": 0.315,
-      "ball_spawn_v0_px_s": 0,
-      "status": "measured",
-      "source": ["V2"]
+    "matchMs": {
+      "value": 60000,
+      "source": "S _actualTimeLimit 60"
     },
-    "kickoff_text": { "value": "KICK OFF text at match start, no numeric countdown", "status": "measured", "source": ["V1"] },
-    "ball_stuck_rule": { "value": "UNKNOWN", "tried": "wiki Glitches, web searches" },
-    "own_goal_standing_rule": { "value": "UNKNOWN", "tried": "wiki Glitches (only a Senegal own-goal glitch)" }
+    "clockGameMinutes": {
+      "value": 90,
+      "source": "S _timeLimit 90"
+    },
+    "halfMs": {
+      "value": 30000,
+      "source": "S"
+    },
+    "countdownMs": {
+      "value": 2400,
+      "source": "S doCountDown 4 x 600"
+    },
+    "goalPauseMs": {
+      "value": 3000,
+      "source": "S _goalTimeout"
+    },
+    "halfPauseMs": {
+      "value": 3000,
+      "source": "S halftime setTimeout"
+    },
+    "goldenFlashMs": {
+      "value": 2000,
+      "source": "S fulltime setTimeout"
+    },
+    "tie": {
+      "value": "golden goal, no time limit",
+      "source": "S"
+    },
+    "endHoldMs": {
+      "value": 3000,
+      "source": "S GameUI.endScreen"
+    },
+    "powerShot": {
+      "value": "none",
+      "source": "S"
+    },
+    "ours": {
+      "goldenMaxMs": {
+        "value": 300000,
+        "source": "OURS: money safety stop, draw refunded"
+      }
+    }
   },
-  "controls": {
-    "buttons": ["L", "R", "Kick", "Jump", "Power (only while gauge full, left of Kick)"],
-    "move": "hold to walk, speed set instantly",
-    "jump": "single jump button, air steering allowed",
-    "kick": "boot swings out toward opponent side, works airborne; sample ball speed 513 px/s, vy about -90 px/s; general lift UNKNOWN",
-    "heading": "no button, head is a solid body (sample ball launch 646 px/s)",
-    "dash": "absent in early footage, added later (double tap)",
-    "status": "measured plus wiki",
-    "source": ["V1", "V2", "W-CT"]
-  },
-  "power": {
-    "fills_over": { "value": "game clock, about linear", "status": "measured", "source": ["V1"] },
-    "fill_time_empty_to_full_s": { "value": 20, "range": [19, 23], "status": "measured", "source": ["V1"] },
-    "fill_rate_px_per_s_480w_frame": { "value": 5.35, "status": "measured", "source": ["V1"] },
-    "after_use": { "value": "gauge empties, screen dims with lightning cutscene about 0.9 s, refills from zero", "status": "measured", "source": ["V1"] },
-    "concede_bonus": { "value": "gauge jumped to full 2 of 2 times (from 86 pct and 66 pct); set-to-full vs add at least 34 pct UNKNOWN", "status": "measured", "source": ["V1"] },
-    "score_bonus": { "value": "none seen, 3 of 3", "status": "measured", "source": ["V1"] },
-    "touch_fill": { "value": "not supported by data", "status": "measured" },
-    "full_cues": ["gauge saturated orange/red with glow", "yellow glow on character (early versions)", "Power button appears left of Kick"],
-    "sudden_death": { "value": "gauges do not charge", "status": "wiki", "source": ["W-SD"] },
-    "default_character": { "value": "South Korea, straight-line shot", "speed_and_trajectory": "UNKNOWN", "status": "wiki", "source": ["W-CH", "W-PS"] }
-  },
-  "geometry_px_V2": {
-    "ground_sole_y": { "px": 598, "frac_H": 0.831, "status": "measured" },
-    "ball_centre_on_ground_y": { "px": [574, 578], "status": "measured" },
-    "head_width": { "px": 80, "frac_W": 0.067, "frac_H": 0.111, "status": "measured" },
-    "head_height": { "px": 70, "frac_H": 0.097, "status": "measured" },
-    "player_height": { "px": 92, "frac_H": 0.128, "status": "measured" },
-    "boots_width": { "px": [60, 65], "status": "measured", "confidence": "by eye" },
-    "ball_diameter": { "px": 37, "tolerance_px": 2, "frac_W": 0.031, "frac_H": 0.051, "frac_head_width": 0.46, "status": "measured" },
-    "player_start_x_head_centre": { "left_px": 248, "right_px": 948, "left_frac_W": 0.207, "right_frac_W": 0.793, "status": "measured" },
-    "player_x_limits_head_box": { "min_x0_px": 46, "max_x1_px": 1150, "status": "measured" },
-    "goal_depth": { "px": 66, "frac_W": 0.055, "left_x": [0, 66], "right_x": [1130, 1196], "status": "measured" },
-    "goal_top_edge_y": { "px": 404, "frac_H": 0.561, "status": "measured" },
-    "goal_frame_bottom_y": { "px": 607, "frac_H": 0.843, "status": "measured" },
-    "goal_height": { "frame_px": 203, "above_soles_px": 194, "frac_H": 0.28, "in_ball_diameters": 5.5, "in_head_widths": 2.5, "status": "measured" },
-    "crossbar_thickness": { "value": "UNKNOWN", "note": "perspective sprite, top strip about 30 px incl net roof, white bar about 8 to 10 px by eye" },
-    "crossbar_is_ledge": { "value": "UNKNOWN", "tried": "10 Hz ball tracking of 91 s, no resting ball near goal top" },
-    "ceiling": { "value": "none seen up to ball top edge y about 78; above that UNKNOWN", "status": "measured" },
-    "side_walls": { "value": "playfield ends at goal backs x=0 and x=1196", "status": "measured" },
-    "camera": "static"
-  },
-  "physics": {
-    "gravity_px_s2": { "value": 705, "tolerance": 20, "frac_H_s2": 0.98, "logical_480h_px_s2": 470, "status": "measured", "method": "5 clean least squares fits 693 to 719, rms 1.7 to 3.9 px; two noisy arcs 600 to 670 not used", "source": ["V2"] },
-    "ball_restitution_ground": { "value": 0.64, "tolerance": 0.04, "status": "measured", "method": "apex heights 152, 65, 27 px above contact; ratios 0.43, 0.42", "source": ["V2"] },
-    "ball_air_drag": { "value": "negligible (x speed curvature -35 px/s2 over 1.3 s)", "status": "measured" },
-    "ball_launch_speed_px_s": { "typical": [520, 700], "frac_W_per_s": [0.43, 0.58], "max_seen": [800, 870], "status": "measured", "confidence": "kick cause of max not verified" },
-    "walk_speed_px_s": { "value": 315, "tolerance": 10, "frac_W_per_s": 0.263, "head_widths_per_s": 3.9, "status": "measured", "source": ["V2"] },
-    "walk_accel": "reaches full speed within about 0.1 s",
-    "air_control": "horizontal velocity kept in air",
-    "jump_height_px": { "value": 70, "frac_H": 0.097, "head_widths": 0.88, "goal_heights": 0.34, "status": "measured" },
-    "jump_airtime_s": { "value": 0.87, "tolerance": 0.03, "status": "measured" },
-    "jump_takeoff_speed_px_s": { "value": 322, "status": "derived", "arithmetic": "4*70/0.87" },
-    "player_gravity_implied_px_s2": { "value": 740, "status": "derived", "arithmetic": "8*70/0.87^2" },
-    "ball_spin": { "value": "UNKNOWN", "note": "visibly rotates, rate not measurable" },
-    "engine": { "value": "Box2D", "source": ["AS"] }
-  },
-  "hud_px_V2": {
-    "layout": "top strip mirrored about x=602: [left gauge][left flag][clock][right flag][right gauge][pause]",
-    "flag_left": { "x": [413, 513], "y": [20, 83] },
-    "flag_right": { "x": [692, 792], "y": [20, 83] },
-    "clock": { "x": [535, 690], "y": [10, 80] },
-    "score_digits": { "left_centre_x": 467, "right_centre_x": 745, "y": [84, 120] },
-    "gauge_left": { "x": [90, 400], "y": [28, 78] },
-    "gauge_right": { "x": [798, 1105], "y": [28, 78] },
-    "pause": { "centre": [1154, 44], "diameter": 64 },
-    "move_buttons": { "x": [23, 418], "y": [627, 710] },
-    "kick_button": { "x": [765, 970], "y": [624, 708] },
-    "jump_button": { "x": [985, 1181], "y": [624, 708] },
-    "power_button": { "x": [554, 772], "y": [624, 708], "only_when_full": true },
-    "goal_banner": "gold italic GOAL!, up to about x 112..950, y 198..502",
-    "names_portraits_in_match": "none",
-    "three_small_icons_under_clock": "meaning UNKNOWN"
+  "ai": {
+    "levels": {
+      "value": {
+        "easy": 1,
+        "medium": 5,
+        "hard": 9
+      },
+      "source": "S AILevels"
+    },
+    "ours": {
+      "value": 5,
+      "source": "medium"
+    },
+    "refreshSteps": {
+      "value": "10 x (10 - level)",
+      "source": "S _bufferBallPositionForSteps"
+    },
+    "behind": {
+      "value": "0.55 x 270",
+      "source": "S _maxKickDelta"
+    },
+    "near": {
+      "value": "screen width / 3",
+      "source": "S _nearBallDistance"
+    },
+    "jumpBand": {
+      "value": "0.75..2 x 150 above",
+      "source": "S _playerUnderBall"
+    },
+    "shot": {
+      "value": "average shot: kick unless every meeting point sends it at its own goal first",
+      "source": "S _estimatedShot"
+    }
   },
   "look": {
-    "sky": ["#002a48", "#13497d", "#1e5c7b"],
-    "concrete": ["#b2b0b6", "#696967"],
-    "grass": ["#9ec46a", "#aed077"],
-    "ad_board": ["#009ee2", "#0982c0", "magenta", "red"],
-    "style": "chibi huge heads, tiny black boots, pixel-art crowd in two tiers, glossy gold UI with brown strokes"
+    "sky": {
+      "value": [
+        "#72a0da",
+        "#b8d5f8"
+      ],
+      "source": "A bg-back"
+    },
+    "cloudSpeed": {
+      "value": "26.7 units/s",
+      "source": "S tilePosition.x += .2"
+    },
+    "roof": {
+      "value": {
+        "topMid": 548,
+        "at667": 568,
+        "at2001": 725
+      },
+      "source": "A tribune"
+    },
+    "board": {
+      "value": {
+        "x": [
+          -324,
+          324
+        ],
+        "y": [
+          63,
+          368
+        ],
+        "posts": [
+          [
+            -245,
+            -203
+          ],
+          [
+            203,
+            245
+          ]
+        ],
+        "digitRight": [
+          -163,
+          -40,
+          130,
+          253
+        ],
+        "digitY": 230
+      },
+      "source": "S GameUI; A tribune"
+    },
+    "crowd": {
+      "value": {
+        "fromY": 684,
+        "frameMs": 1000,
+        "afterGoalMs": 100
+      },
+      "source": "S Crowd"
+    },
+    "pitchArt": {
+      "value": {
+        "far": 1415,
+        "near": 1593,
+        "front": 1649,
+        "backLine": 1426,
+        "frontLine": 1565,
+        "circle": [
+          0,
+          1491,
+          278,
+          49
+        ]
+      },
+      "source": "A field"
+    },
+    "shelves": {
+      "value": {
+        "top": [
+          1120,
+          1235
+        ],
+        "front": [
+          1249,
+          1638
+        ]
+      },
+      "source": "A field"
+    },
+    "goals": {
+      "value": {
+        "frontPost": [
+          1084,
+          1120
+        ],
+        "backPost": [
+          988,
+          1022
+        ],
+        "tower": [
+          1130,
+          1290
+        ],
+        "pole": [
+          1277,
+          1308
+        ]
+      },
+      "source": "A goal-front, goal-back"
+    },
+    "plate": {
+      "value": {
+        "w": 878,
+        "h": 176,
+        "y": 1795,
+        "ballX": 385,
+        "histX": 340,
+        "scoreY": 1785,
+        "scoreSize": 120
+      },
+      "source": "S GameUI; A ui score"
+    },
+    "pause": {
+      "value": {
+        "r": 100,
+        "fromRight": 100,
+        "y": 100,
+        "color": "#60a241"
+      },
+      "source": "S RoundButton; A"
+    },
+    "keyHint": {
+      "value": {
+        "x": -1100,
+        "y": 1790,
+        "scale": 0.9,
+        "alpha": 0.8,
+        "color": "#0155dd"
+      },
+      "source": "S ControlsIndicator; A"
+    },
+    "phoneZones": {
+      "value": {
+        "w": 400,
+        "h": 350,
+        "button": 269
+      },
+      "source": "S MobileControls"
+    }
   },
-  "web_version": { "value": "none official found; only third party clones and unofficial Chrome extensions", "checked": ["dnddream.com", "web search"] }
+  "unknown": [
+    "mobile button art and colours",
+    "bitmap font glyph shapes",
+    "sound timbres",
+    "exact crowd figures, aisle and strut positions (approximated)"
+  ]
 }

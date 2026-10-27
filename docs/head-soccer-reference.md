@@ -1,191 +1,116 @@
-# Head Soccer (D&D Dream, 2012) reference numbers
+# Head Soccer reference: Heads Arena Euro Soccer (Poki, 2016)
 
-Scope: the base mobile game by D&D Dream (iOS Feb 2012, Android), not LaLiga or clones. Written 2026-10-26.
-Rule of this doc: every number has a source and a method, or is UNKNOWN. Nothing is a plausible guess.
-Machine-readable copy: `head-soccer-reference.json` (same numbers).
+Written 2026-10-27. Replaces the earlier D&D Dream "Head Soccer" reference: the owner's game is **Heads Arena
+Euro Soccer** (Poki Studios), not D&D Dream's.
+
+**Rule: no guessed numbers.** Every value below says where it came from. `UNKNOWN` means it could not be got,
+with what was tried. Machine-readable copy: `docs/head-soccer-reference.json`.
 
 ## Sources
 
-| id | what | URL |
+| Tag | What | How |
 |---|---|---|
-| V1 | Gameplay video, early version (Arcade, South Korea vs Cameroon), uploaded 2012 per page, 480x272, 29.97 fps, full-screen game capture | https://www.youtube.com/watch?v=zqLrbp1QrlA |
-| V2 | "Head Soccer: Gameplay & Review" by HMzGame, about 2013 (has League/Tournament screens, so v2.0 or later), 1280x720, 29.97 fps, Android tablet screen capture. Main measurement source | https://www.youtube.com/watch?v=nAvkW0aJKf4 |
-| W-SD | Wiki, Sudden Death | https://headsoccer.wiki.gg/wiki/Sudden_Death |
-| W-CT | Wiki, Controls | https://headsoccer.wiki.gg/wiki/Controls |
-| W-PS | Wiki, Power Shots and Power Shot Guide | https://headsoccer.wiki.gg/wiki/Power_Shots , https://headsoccer.wiki.gg/wiki/Power_Shot_Guide |
-| W-UH | Wiki, Update History (1.0 = 2012-02-03) | https://headsoccer.wiki.gg/wiki/Update_History |
-| W-CH | Wiki, Characters (South Korea is the only character not needing unlock) | https://headsoccer.wiki.gg/wiki/Characters |
-| W-GL | Wiki, Glitches | https://headsoccer.wiki.gg/wiki/Glitches |
-| W-GM | Wiki, Game Modes / Survival / Head Cup / Multiplayer | https://headsoccer.wiki.gg/wiki/Game_Modes |
-| AS | App Store listing (physics engine is Box2D) | https://apps.apple.com/us/app/head-soccer/id487119327 |
-| IS | iPhoneSoft review, May 2012 (power bar at top, "Trick" via Power button, buttons at bottom) | https://iphonesoft.fr/2012/05/31/test-head-soccer |
+| **S** | The game's own code: `game.min.js` (153 KB, BUILD_TIMESTAMP 1466667007676 = June 2016), Phaser 2.4.2 with P2 physics, plus its `assets/data/config.json` and the hd sprite atlases (`assets/sprites/hd/*.json`) | Found through the embed at papajogos.com.br: `games.poki.com/822223/headsarenaeurosoccer` frames `https://5dd29b99-015f-11ea-ad56-9cb6d0d995f7.gdn.poki.com/1e942d4f-1d4c-4f04-9af3-8d992117cd15/index.html`. Fetched with node (Referer header) into the scratchpad, never into the repo. Identifiers below are its class and field names. |
+| **L** | Its running physics world, read live | The mirrored files served locally to headless Chrome (the CDN's Cloudflare blocks a direct browser visit); a Solo Normal match started with `Game.game.state.start("GameState", ...)`; every p2 body's shapes, positions, materials and the world settings read from `Game.game.physics.p2`. |
+| **M** | Measured by stepping it | The same headless game, with its `gameplayHandler.update` hooked to record bodies every step while scripted moves, jumps, kicks and drops ran. |
+| **A** | Its art, measured | The hd atlas PNGs drawn to a canvas and scanned pixel by pixel (colour runs along rows and columns), placed where its code places each sprite. Layout and colour only: no art is copied. |
 
-Notes on method. The official-art screenshots on store pages were not usable (the App Store page returned no image URLs, the Play page did not load). All pixel numbers come from public gameplay videos V1 and V2, decoded frame by frame in the built-in browser (video drawn to a canvas, seek to exact frame times k*1001/30000 s, ball found by a white-disc detector, players by background subtraction against a median background, curves fitted by least squares). No frames or assets were saved or copied. The game surface in V2 is 1196 x 720 video px (black Android nav bar to the right of x=1195); this equals about 800x480 scaled 1.495. Call this frame W=1196, H=720. All V2 pixel values below are in this frame. "H/s^2" means screen heights per second squared. 800x480 logical values are only valid if the game's logical size really is 800x480 (inferred from the aspect, not confirmed).
+Poki's own page for the game now redirects to its category page (the game "has moved"); the papajogos embed still
+serves the build above.
 
-Caution: the footage is v1.0 (V1) and about v2.x (V2). The current app (v7.x) has more modes, a dash (double tap), 100+ characters. Only the early versions were measured.
+## Units
 
-## 1. Match rules
+Its frame is **1920 design units high** at any screen size (S: config.json `workingHeight` 1920; `Game.scale(v) =
+imageScale * v`, so a value v in its source is v design units; the hd atlas is drawn at imageScale .45). Its width
+follows the window's ratio, clamped to 4:3 .. 2.29:1 (S: `minRatio` .4375, `maxRatio` .75): 2560 to 4389 units. Our
+`shared/hsSim.js` uses these units directly, with x measured from the halfway line and y down from the top.
 
-| item | value | source | method |
-|---|---|---|---|
-| Match length | 60 s | V1, W-SD | Timer starts at "1:00" (V1 t=22 s) and counts down. Wiki says "the minute of play given at the beginning". |
-| Timer display | "M:SS", e.g. 1:00, 0:59 ... 0:00, small "TIME" label above, centred at top | V1, V2 | Frames |
-| Timer speed | 1 tick per 1.001 s of video time, i.e. real time | V1 | Tick-edge detection on the digits, ticks at 51.685, 52.686, 54.688, 55.689, 56.690, 57.691, 58.692 s |
-| Timer pauses | Clock freezes while the GOAL banner plays, about 2 to 2.5 s per goal (coarse) | V1 | Over 78 video s the clock only advanced 55 s with 6 goals plus power cutscenes; gauge and clock plateaus 1.5 to 2.5 s long |
-| Tie at 0:00 | Sudden death | W-SD | Wiki text |
-| Sudden death | No time limit, first goal wins immediately, power bars do not charge, a power shot already held carries over | W-SD | Wiki text |
-| Draws | Only in Head Cup group stage; all other modes go to sudden death | W-SD, W-GM | Wiki text |
-| Score limit | None seen. Final scores seen: 5-2, 7-6 (13 goals in 60 s of clock) | V1, V2 | Result screen at V2 t=138 s |
-| How a match ends | Clock hits 0:00, then a "RESULT" screen: "YOU WIN/LOSE", both flags and scores, "REWARD POINT", "TOTAL POINT", NEXT button | V2 | Frame at t=138 s |
-| Kickoff (start and after every goal) | Both players snap to fixed start x; a NEW ball appears at rest at screen centre and drops under gravity. Nobody gets possession. | V2 | Kickoffs at 38.84 s and 43.71 s: ball first seen at x=600, y=226 with v0 about 0 (fit v0 = 22 and 9 px/s) |
-| Ball spawn point | x = 600 px (0.50 W), y = 226.5 px (0.315 H), zero initial speed | V2 | Two kickoffs, fitted y0 = 226.7 and 226.2 |
-| Kickoff text | "KICK OFF" in yellow outlined lettering with a ball icon above, at match start; no 3-2-1 countdown seen | V1 | Frame at t=22 s |
-| Goal feedback | Big gold italic "GOAL!" banner, letters animate in, covers about 0.7 W by 0.4 H of screen centre, ball keeps rolling during it | V1, V2 | Frames at V2 t=38.0, 60.0, 83.0 |
-| Ball stuck rule | UNKNOWN. Tried: wiki Glitches, searches. Wiki only notes a ball "stalling in the air" glitch that was patched. | W-GL | |
-| Standing in own goal | UNKNOWN as a rule. Wiki lists an own-goal glitch for Senegal only. Players can walk into the goal mouth up to head-box x 46 (see 4). | W-GL | |
-| Modes (for scope) | Arcade (single match), Tournament, Survival, League (added 2.0), Head Cup (3.0), more later | W-UH, AS | |
+## Physics (all S unless marked)
 
-## 2. Controls (base game)
+| Thing | Value | Source |
+|---|---|---|
+| Engine | P2, fixed step 1/60 s, 10 solver iterations | L: `p2.frameRate`, `useElapsedTime` false, `world.solver.iterations` |
+| Gravity | 1600 units/s^2 | `_setupPhysics`: `p2.gravity.y = Game.scale(1600)`; L: 1600 |
+| Extra pull on players | 2000 units/s^2 (so 3600 in all) | `Player.update`: `data.force[1] -= Game.scale(1E4)` on mass 100 |
+| Contact friction | .3 (default material) | `defaultContactMaterial.friction = .3`; M: a released run loses about 8 a step beyond damping (480/s^2 = .3 x 1600) |
+| Ball | circle r 46, mass 2, damping .1/s | `setCircle(.45 * sprite.width)` (ball-front 92 px x .5 / .45); L: r 46, mass 2, damping .1; M: rolling 984 -> 967 in 10 steps |
+| Ball restitution | grass .8, goals .6, players .3, top wall 0 | `createContactMaterial(...).restitution`; bounds use the default material; M: 1568 -> 1247 off the grass |
+| Ball spin | barely turns: .47 rad/s rolling at 984 | M (it slides rather than rolls) |
+| Player body | head octagon 140 wide from -100 to +50, legs 40 wide from +50 to +150 (body centre to soles 150) | `_playerPolyRaw` x body.width x 2; L: exact vertices |
+| Player mass, damping | 100, .5/s, fixed rotation | `body.mass = 100`, `damping = .5`, `fixedRotation` |
+| Run | velocity set to 1000 every step a key is held; let go: x .6 each step | `_moveSpeed Game.scale(1E3)`, `update`: `velocity.x *= .6` when not moving; M: 16.35 units a step running |
+| Jump | velocity.y = -2000; 2 jumps (one from the ground, one in the air) | `jump(Game.scale(2E3))`, `_jumpLimit 2`; M: -2000, -1917, ... |
+| Ground | set when a contact begins with the pitch body (any face, so touching a step's wall gives the jumps back) or with a grounded player | `_setupCollisions` onBeginContact |
+| Kick | reach 270 from the body centre to the ball's sprite corner (ball centre - (51.1, 50)); angle = atan2 to that point + .2 PI if grounded (sign by facing); ball velocity (sin a x 2900, cos a x 2900 x .7) | `kick`, `getKickAngle`, `_ballKickDistance`, `_kickForce`; M: (150,-50) -> (437, -2007), (200,0) -> (1682,-1654), (-150,-50) -> (-2860, 337), all within 3 of the formula |
+| Kick timing | boot tween 200 ms + 200 ms before the next kick | `_kickTime`, `_kickDelay` |
+| Pitch | sunken pitch top y 1471.8 between x +-950; 40-unit chamfers; step faces at +-990; shelves at y 1181.8 from +-1030 to +-1280 | `FieldDrawer.drawArenaOnBody` with `_fieldSize 1980`, `_fieldDepth 290`, `_cornerSize 40`, `_goalAreaSize 250`; L: exact convex pieces |
+| Nets | walls, inner face x +-1214.2, full height | `Goal.net` (sprite width x 8 frames tall); L |
+| Crossbars | 355.6 x 40 boxes at (+-1197, 752.2), tilted 12 degrees down toward the pitch | `Goal.bar`; L |
+| Goal | ball centre past x +-1044.2 with y between 755.2 and 1259.2 | `Goal.isInGoal` (sprite.x -+ .5 width; sprite.y - .4 height .. sprite.y) |
+| Kick-off spots | players at x +-495, dropped from y 1082.2; ball dropped from (0, 576) drifting (left score - right score) x 5 units/s | `startGame`, `getPlayerStart`, `ball.setStart` |
 
-| item | value | source | method |
-|---|---|---|---|
-| On-screen buttons | Left arrow "L" and right arrow "R" at bottom left; "Kick" and "Jump" at bottom right; a "Power" button appears left of Kick only when the gauge is full | V1, V2, W-CT | Frames; wiki "appears only when the power bar is full" |
-| Move | Hold L or R to keep walking; speed set instantly (no ramp visible) | V2, W-CT | See 5 |
-| Jump | Single button, one jump, can steer in the air | V2 | Per-frame jump track |
-| Kick | Button swings the boot out toward the opponent side. Works while airborne (seen at kickoff, player mid-jump, boot extended to the ball). In that example a ball on the ground was sent left at about 520 px/s with a slight lift (vy about -90 px/s). General lift behaviour: UNKNOWN. | V2 | Frames 39.84 to 40.5 s, ball track 40.2 to 40.5 s |
-| Heading | No button. Head is a solid body; ball bounces off it (ball left a head at 646 px/s, vx 341, vy -549) | V2 | Track at 100.6 s |
-| Dash | Not in the early footage (no dash button). Current app adds double tap dash. | V2, W-CT | |
-| Combos | Controls can be combined (kick while running, power while jumping) | W-CT | |
-| Power activation | Tap Power when gauge is full; then the next ball touch becomes the power shot | W-CT | |
-| Key bindings | n/a on mobile. (Browser clones use A/D/W/S/Q, not the original.) | | |
+**Not symmetric in the reference:** its kick aims at the ball sprite's top-left corner for both players. Ours
+mirrors that corner for the right seat so neither seat kicks differently (a money duel must be fair).
 
-## 3. Power shot
+## Rules and clock (S)
 
-| item | value | source | method |
-|---|---|---|---|
-| Gauge fills over | Game clock, roughly linearly. Rate about 5.3 to 5.4 px/s on a 480 px wide frame. Empty to full about 20 clock seconds (range 19 to 23) | V1 | Left bar leading edge tracked at 10 Hz for 22 to 108 s; rate held between plateaus where the clock was frozen. Cycle check: reset at about 78 s, full at about 105 s with about 20 timer-seconds elapsed |
-| Gauge after using power | Empties instantly, screen dims (lightning cutscene) for about 0.9 s, then refills from zero | V1 | Bar not visible 48.5 to 49.4 s, refilled from 49.4 s |
-| Concede bonus | Being scored on tops the gauge up. Seen 2 of 2: 86% to full (at 46.5 s) and 66% to full (at 63.3 s). Whether it sets full or adds at least 34%: UNKNOWN | V1 | Bar edge jump right after the GOAL banner |
-| Scoring bonus | None seen (3 of 3 own goals: gauge unchanged) | V1 | Plateaus at 30, 38 to 40, 80 s |
-| Touch-based fill | Not supported by data (steady ramp between events) | V1 | |
-| Full state cues | Gauge turns saturated orange/red with a glow; the character gets a yellow glow (early versions, removed after 3.0); Power button appears left of Kick | V1, V2, W-CT | Frames |
-| Gauge look | Flame/lightning shaped bar with "POWER" printed in it, white/grey outline when empty, fills from the flag outward in yellow-green, yellow, orange, red | V1, V2 | Frames |
-| Sudden death | Gauges do not charge | W-SD | |
-| CPU behaviour | CPU fires its power shot as soon as it has it | W-PS | |
-| Default character | South Korea (only one not needing unlock). Its shot is a "straight-line shot"; wiki advice is to jump and fire from own half; knocks the opponent out every third use (current app). Speed and trajectory numbers: UNKNOWN | W-CH, W-PS | |
-| Cutscene | Power use triggers a dim/dark screen with lightning streaks, about 1 s | V1 | |
-| Counter | A power shot can instantly block an opponent's power shot | W-PS | |
+| Thing | Value | Source |
+|---|---|---|
+| Match | 60 s of play shown as 90 game minutes (1.5 game minutes a second) | `Timer`: `_timeLimit 90`, `_actualTimeLimit 60`, +1.5 game seconds every 1/60 s |
+| Clock | "MM:SS" of game time on the board, counting up 00:00 -> 90:00; stops during goals, breaks and countdowns | `_getDisplayTime`, `pause()` on goal |
+| Countdown | 3, 2, 1, 0, one every 600 ms (the first 600 ms after the call), play starts at the 0: 2.4 s; the ball is already falling and nobody can move | `GameUI.doCountDown`, `disableInput` |
+| Goal | input off, clock paused, GOAL! for 3 s, then back to the spots and the countdown | `GameplayHandler.update` goal callback, `_goalTimeout 3E3` |
+| Half time | at 45:00: whistle, "Half time", input off, 3 s, then the kick-off countdown. Sides do not swap | Timer halftime callback, `_doHalfTimeAdCall` (the ad is skipped here) |
+| Full time | at 90:00: level -> GOLDEN GOAL call, 2 s, kick-off with a golden ball, clock stays at 90:00, next goal wins (no time limit); else the score rises to the middle for 3 s | fulltime callback, `goldenGoalKickoff`, `endScreen` |
+| Power shots / specials | none in the game (a "Will Grigg's on fire" cheer effect for one character only) | whole source |
 
-## 4. Field geometry (V2 frame, W=1196, H=720)
+## Its CPU (logic.AIControls, S)
 
-| item | px | fraction | source / method |
-|---|---|---|---|
-| Game frame | 1196 x 720 | aspect 1.661 | Black from x=1196. About 800x480 at 1.495 |
-| Camera | static, no scroll or zoom | | Whole match |
-| Ground (boot soles) | y = 598 | 0.831 H | Player blob bottom at standing, both players, all kickoffs |
-| Ball resting-centre on ground | y about 574 to 578 | 0.80 H | Bounce data; bottom about 595, within 3 px of soles |
-| Ground inside goal (ball) | ball centre y = 586 at x = 30 | | Ball rested in left net 112.0 to 113.2 s |
-| Player head width | 80 | 0.067 W, 0.111 H | Blob bbox, many frames |
-| Player head height | 70 (hair top y=506 to chin y about 577) | 0.097 H | Crop with grid |
-| Player total height | 92 (y 506 to 598) | 0.128 H | Blob bbox |
-| Boots and body | tiny: black boots about 60 to 65 wide, short neck/shirt band, about 22 tall below the head | 0.05 W | Crop with grid |
-| Ball diameter | 37 (+-2) | 0.031 W, 0.051 H, 0.46 head width | Blob bbox 38x36, 42x38 |
-| Player start x (head centre) | left 248, right 948 (head box 208..288 and 908..988) | 0.207 W and 0.793 W | Kickoffs at 38.87, 43.74 s, repeatable to 2 px |
-| Player x limits (head box) | 46 to 1150 | 0.039 W to 0.961 W | Min x0 and max x1 over 91 s of play; symmetric (1196-1150=46) |
-| Goal depth (screen x) | left 0..66, right 1130..1196 | 0.055 W | Row scan: front white post x 36..44 (left) and 1152..1160 (right), grey side face to x 66 and 1130 |
-| Goal top edge (crossbar top) | y = 404 | 0.561 H | Column scan at x=1170, dark outline at y=404 |
-| Goal frame bottom | y = 607 | 0.843 H | Column scan at x=1190 |
-| Goal height | 203 (frame), 194 above the soles | 0.28 H, 5.5 balls, 2.5 head widths | |
-| Crossbar thickness | UNKNOWN. Goal is a perspective sprite: top strip about 30 px tall including net roof; the white bar edge by eye about 8 to 10 px | | Crop view, low confidence |
-| Crossbar a flat ledge the ball rests on | UNKNOWN. No resting ball near goal top in 91 s of 10 Hz tracking; physics shape not visible | | |
-| Jump vs crossbar | Jump apex head top y=436, crossbar top y=404: a player's head never reaches the bar height | | Jump track |
-| Ceiling | None observed up to ball top edge y about 78 (ball apex 99.55 s, centre y about 97, smooth arc behind the HUD). Above that UNKNOWN | | Crops 99.2 to 99.8 s |
-| Side walls | Playfield ends at the goal backs (x=0 and x=1196). Ball seen resting with centre x=30 in the net. | | Track |
-| Stadium layers (top to bottom) | HUD strip over night sky (y 0 to about 120), grey upper stand wall, two tiers of crowd (y about 130 to 330), teal/blue banner strips, crowd tier 2, red/yellow barrier, ad-board band (y about 500 to 545), grass (y about 545 to 720) | | Frames |
+Levels: easy 1, medium 5, hard 9 (`AILevels`); the solo CPU is the "attacker" role (easy plays the "idiot" role).
+Per step: re-read the ball's landing every 10 x (10 - level) steps (`_bufferBallPositionForSteps`); stand .55 x 270
+behind the ball toward its own goal (`_maxKickDelta`) within half that; near the ball (a third of the screen width)
+go to where it lands, otherwise to the ball; jump every step the ball is .75 to 2 jump distances (150) above it;
+when in line, kick after an "average shot" check that skips the kick only if it would send the ball toward its own
+goal (`_estimatedShot`, using its own rough `getTrajectory`). Level 6+ also runs back for balls heading into its own
+goal; 9 uses a "perfect shot". **Our bot is this at medium (5).**
 
-## 5. Physics (V2 unless noted)
+## The look (A, positions from S)
 
-| item | value | fraction | source / method |
-|---|---|---|---|
-| Ball gravity | 705 px/s^2 (+-20) | 0.98 H/s^2 | Five clean fits: kickoff drops 693, 709 (v0=0 forced; rms 1.7 px, 30 pts); same drops free fit 697, 708; free arc 100.63 to 101.94 s 719 (39 pts, rms 3.9; up leg 707, down leg 736); bounce-drop 75.0 to 75.93 s 718 (28 pts, rms 1.9). Two noisier arcs gave 600 to 670 (arc near HUD, coarse 0.1 s samples); not used |
-| Gravity in 480-high logical px | 470 (+-14) | | Derived: 705 / 1.5. Valid only if logical height = 480 |
-| Ball vertical restitution (ground) | 0.64 (+-0.04) | | Three successive apexes at x=600: y=424.1, 511.1, 548.9, ground-contact centre y about 576: heights 152, 65, 27, ratios 0.43 and 0.42, e=sqrt = 0.65 and 0.64. Time-based check gave 0.60. Window 75.0 to 77.3 s |
-| Ball air drag | negligible: horizontal speed fit 341 px/s with curvature -35 px/s^2 over 1.3 s | | Free arc fit |
-| Ball launch speed after contact | 520 to 700 px/s typical (0.43 to 0.58 W/s); head hit 646; fastest sustained flight seen 800 to 870 px/s (0.7 W/s, unverified cause, maybe a hard kick or power shot) | | Boot kick 40.2 to 40.5 s (513 px/s); head hit 100.6 s; 0.1 s track speeds, smooth runs only |
-| Player walk speed | 315 px/s (+-10) | 0.263 W/s, 3.9 head widths/s | 10 ground runs, 0.1 s samples, 277 to 337 px/s with most at 310 to 320 (e.g. 93.6 to 94.7 s: 316 px in 1.0 s). Reaches full speed within about 0.1 s |
-| Air control | Horizontal velocity kept in the air (320 px/s over a full jump) | | Jump track 78.35 to 78.98 s |
-| Jump height | 70 px (head top 506 to 436) | 0.097 H, 0.88 head widths, 0.34 goal heights | Per-frame track of a full jump; 6 more jumps at 0.1 s samples gave apex 434 to 440 |
-| Jump airtime | 0.87 s (+-0.03): leaves ground between 78.345 and 78.378 s, back down by 79.246 s; apex at about 78.80 s | | Per-frame blob track |
-| Jump take-off speed | 322 px/s up (0.45 H/s) | | Derived: v0 = 4h/T = 4*70/0.87 |
-| Player gravity (implied) | 740 px/s^2 | 1.03 H/s^2 | Derived: g = 8h/T^2. Within 5% of ball gravity, so likely the same world gravity |
-| Ball spin | Pattern visibly rotates in flight; angular speed UNKNOWN | | Frames |
-| Physics engine | Box2D (store listing) | | AS |
-| Kick impulse model, mass ratios, friction | UNKNOWN | | |
-
-## 6. HUD (V2 frame, 1196 x 720; V1 same layout)
-
-| element | position and look |
+| Thing | Value |
 |---|---|
-| Layout | Single strip at top, mirror symmetric around x=602: [left power gauge][left flag][TIME + clock][right flag][right power gauge][pause button] |
-| Flags | National flag in a 100 x 63 box with thin light-green border. Left x 413 to 513, right x 692 to 792, y 20 to 83. Flag shows the character's country; no names or portraits |
-| Clock | Dark rounded "TIME" label (yellow caps) above white "0:52" digits with dark outline, x about 535 to 690, y 10 to 80 |
-| Score | Large gold italic digits with dark outline directly below each flag: left centre x about 467, right about 745, y about 84 to 120 (about 40 px tall) |
-| Three small round grey icons (shield, "D", ball) under the clock, x about 560 to 660, y about 70 to 100. Meaning UNKNOWN |
-| Power gauges | Flame shaped bars, left x about 90 to 400, right x about 798 to 1105, y about 28 to 78. "POWER" text on the outer half. Fill starts at the flag and grows outward |
-| Pause | Round button, two vertical bars, brown ring, centre (1154, 44), diameter about 64 (x 1122 to 1186) |
-| Move buttons | Two gold arrow shapes "L" and "R", brown outline, semi-transparent, x 23 to 418, y 627 to 710, about 190 px each with a 15 px gap |
-| Kick, Jump | Rounded gold buttons with brown outline, Kick x 765 to 970, Jump x 985 to 1181, y 624 to 708 |
-| Power button | Same style, left of Kick, x about 554 to 772, only while gauge is full |
-| GOAL banner | Gold gradient italic "GOAL!", blue-white inner outline, dark drop shadow, huge, letters slam in; bbox up to about x 112..950, y 198..502 mid animation |
-| Pre-kickoff | "KICK OFF" text at match start only. No numeric countdown seen |
-| Player names/portraits | None in match HUD. Portraits appear on Player Select (big faces, "VS" lightning, PLAY button) and Result screens |
+| Sky | gradient #72a0da (top) .. #b8d5f8 (y 913 down); a cloud strip (#b6def4, tops near y 351) scrolling right at .2 px a frame (26.7 units/s) |
+| Roof | arch, top y 548 at the middle, 568 at x 667, 725 at x 2001; light band #acb8d3 (66), darker #8b9abb (102) with struts |
+| Board | slate panel x -324..324, y 63..368 on two posts (x +-203..245); digits right-aligned at x -163, -40, 130, 253, centred y 230; colon at x 0, y 185..208 and 230..252 |
+| Crowd | from y 684 (sprite at H/2 + 130), 5 frames cycling every 1 s, every 0.1 s for 4 s after a goal (`Crowd.setTempo`) |
+| Stand front | #bec8dd 1245..1263, #acb8d3 1263..1370, grass #76a75d from 1370 |
+| Pitch art | far edge y 1415, near edge 1593, front face to 1649; back line y 1422..1430 (x +-890), front line 1560..1571 (x +-980), centre ellipse (0, 1491) 278 x 49, spot (0, 1489) |
+| Shelves | top face y 1120..1235, edge to 1249, front face to 1638, side face x -1038..-941 (#76a75d) |
+| Greens | #93c47a, #a3ce8e, #96c280, faces #80b366, lawn #8bbc72 |
+| Goals | front post x 1084..1120 from 788 to 1237; back post 988..1022 from 752 to 1136; floodlight tower 1130..1290 from 3 to 730 with a glass panel; front pole 1277..1308 to the grass (right goal; left mirrored) |
+| Score plate | 878 x 176 at (0, 1795): side bar 1736..1854 (#465778, rim #8b9abb), centre box +-248 (#3f4f6c inside #677a9e); ball icons at +-385 (60 across); win counters at +-340; score "0 - 0" size 120 at y 1785. Hidden until the first countdown ends |
+| Pause | green round button r 100 at (right edge - 100, 100): #60a241, cream ring #ffeddf |
+| Key hint | blue (#0155dd) up / left / right keys and a SPACE bar, at (-1100, 1790), .9 scale, .8 alpha, desktop only |
+| Phone | four 400 x 350 touch zones along the bottom: left, right from the left edge; kick then jump from the right edge; buttons 269 across |
+| Words | countdown size 170 at the middle; GOAL! 2487 x 776 graphic: a copy grows up from the pitch (700 ms) while the big one drops from -600 to 400 (500 ms), shakes, flies off (1 s); HALF TIME fades in growing, holds, fades out |
+| Players | head image -102..+94 around the body centre, boots at (32.5, 130) and (-22.5, 130), hands at (87.5, 85) and (-97.5, 85), mirrored by facing; the head turns to the ball; the back boot kicks (jumps to the ball, eases home in 200 ms, 1.5x, turned 60 degrees); boots circle while running (30 across, 15 up, steps/3) |
 
-## 7. Look (describe, do not copy)
+Their players are caricatures of real footballers. Ours are our own cartoon characters.
 
-| item | description |
-|---|---|
-| Style | Chibi cartoon: huge heads, tiny black boots, almost no body, big eyes with bold brows, soft outlines, glossy gold UI with brown strokes. Crowd is tiny pixel-art spectators, so art is a mix of smooth and pixel |
-| Sky and stadium | Night: dark navy (#002a48 at top centre to #13497d / #1e5c7b at the sides) with big white spotlight glows (blue-white). Grey concrete upper wall (#b2b0b6, #696967) |
-| Crowd | Two tiers of pixel spectators in mixed shirt colours (red, yellow, green, blue, white), some waving yellow/red banners. Teal-blue banner strips (#0d85ef family) between tiers |
-| Ad board band | Continuous board about 45 px tall, y 500 to 545: pink/magenta, sky blue (#009ee2, #0982c0), red, white lettering ("SPECIAL THANKS ..." style). Red barrier strip above |
-| Grass | Light yellow-green #9ec46a base with #aed077 bands, soft horizontal stripes, white lines (#bfdd9c to #c8e3a3 thin) with a centre circle near x=600 and penalty boxes at each end |
-| Goals | White tubular frame, grey inner side face, light grey/white net grid with a slight red tint from the barrier behind, drawn in perspective (top frame leans toward the pitch) |
-| Ball | White with black pentagon pattern, outlined, no shading to speak of |
-| Characters | Per country: national flag in HUD, hair, skin tone and face differ, kit colours differ. Black boots on all in footage |
-| Power effects | Yellow glow on a charged character, flame-colour gauge, dark screen with lightning streaks for the shot, characters shout the shot name (TV Tropes) |
+## Ours versus theirs (deliberate)
 
-## Not found / UNKNOWN (and what was tried)
+- **Golden goal safety stop:** theirs has none. A money match must end, so 5 minutes level in golden goal stops as
+  a draw with each seat refunded (the rule this game already had).
+- **Kick aim mirrored per seat** (above).
+- **Pause:** an online match cannot pause, so the button (and Escape) asks "Leave the match?" and leaving is the
+  existing leave (it forfeits, as walking out always has).
+- **Names** of both players small over the plate's ends, and a YOU marker at the opening countdown.
+- **Header sounds:** theirs makes no sound for a ball off a head; we keep a soft one.
+- Cheering and sad faces after a goal are drawn; their cheer also makes the scorer hop (physics), ours does not.
 
-- Ball-stuck rule, own-goal standing rule: wiki Glitches page, searches; nothing stated as a rule.
-- Crossbar thickness (exact) and whether the bar is a ledge: no still with clean edge; no resting ball seen; physics shape not visible.
-- Ceiling above y about 78: highest ball seen is behind the HUD; no ball seen hitting a top boundary.
-- Default character's stats, shot speed and trajectory: wiki gives only "straight-line shot".
-- Whether the concede bonus sets full or adds a fixed share (only two observations, both reaching full).
-- Ball angular speed, kick impulse, friction, mass: not isolable from 30 fps lossy video.
-- Right-hand (opponent) gauge fill: detector failed on the right bar; only left (South Korea) measured.
-- Official web version: none found. Only third party clones and unofficial Chrome extensions. dnddream.com lists no web build.
-- Store screenshots: App Store and Play pages did not expose image URLs to the fetch tool, so geometry comes from video frames instead.
+## UNKNOWN
 
-## 8. What the build uses (shared/hsSim.js, units = the V2 frame's pixels)
-
-Measured, used as measured: field 1196 x 720, soles y 598, ball rest centre y 576, goal 66 deep, crossbar underside
-y 404, ball 37 across, head 80 x 70, body 22 under the head, start x 248 / 948, head centre limits 86..1110, walk 315,
-gravity 705 (ball and players: within 5% of each other, one Box2D world), jump 70 px, restitution 0.64, kick-off ball
-at centre y 226.5 at rest, match 1:00, goal pause 2.0 s (1.5 to 2.5), power gauge 20 s and full on conceding, power
-freeze 0.9 s, level at 0:00 is sudden death with no charging (wiki), the next touch after Power is the shot (wiki), the
-CPU fires its power shot as soon as it has it (wiki).
-
-Derived: jump take-off sqrt(2 x 705 x 70) = 314 px/s (airtime 0.89 s vs 0.87 measured); head collider a circle of
-radius 37.5 (mean half-axes); restitution 0.64 off every surface (Box2D takes the max of the two); damping 0.07/s from
-the in-air curvature; walk acceleration 3150 px/s^2 (full speed in 0.1 s).
-
-CHOSEN, because the reference could not be measured (say so to Owen):
-- Kick swing: 200 ms, rising for the first 90 ms through 1.1 rad; boot collider radius 12. A clean kick leaves at the
-  measured 520 px/s, nearly flat (0.17 rad, the measured vy -90) when met low on the boot, up to 0.75 rad when met high,
-  plus half the player's own speed (a running kick reaches about 680, inside the measured 520 to 700 typical band).
-- Power shot speed 870 px/s (the fastest flight seen; South Korea's real shot speed is UNKNOWN), flies flat until it
-  touches anything. No knock-out on the opponent (the "every third use" knock-out is a later-version rule).
-- Crossbar 9 px thick (8 to 10 by eye), solid; a ceiling at the top of the screen (none was seen up to y 78).
-- Start countdown 3 s showing KICK OFF (the original shows KICK OFF with no numbers; its length was not measured).
-- Sudden death safety stop: 5 minutes, then a draw (refunded on a paid table). Never reached in testing.
-- DuelSeries additions the original does not have: player names under the gauges, team-colour badges instead of flags.
+- **Mobile button art and colours** (`mobi-*` sprites): not scanned; ours are white translucent circles.
+- **The bitmap fonts' exact glyph shapes and widths** ("normal", "digital-time"): not measured; ours are Archivo
+  900 and drawn seven-segment digits sized to the measured digit positions.
+- **Sound timbres:** their wav files were not analysed; ours are the house synth sounds mapped to the same moments.
+- **Exact crowd figures, stair positions and roof struts:** approximated from the art sheet (aisles near x +-667).
