@@ -9,6 +9,10 @@
 // 27049e9b53526dda4188617deb8f6d5b, so the phone speed share changes nothing for a mouse or a bot. Re-pinned again
 // the same day for the board's score per row (Owen: the score beside each name); with the score taken off the rows,
 // both runs hashed as the line above (cdb6915d9754e3390c04e2d3ce4e7ba6, 8878be989fd4960f9e7c56640ec9e638).
+// Re-pinned 2026-10-27 for db46aab (2026-10-16, Owen: bots look like real players): free bots deal names from the
+// shared pool (server/botNames.js) instead of the old 20 words, still ONE rng draw a name. db46aab with its parent's
+// agBots.js still hashed c83904de.. and 2aa3ce50.., and db46aab hashes the same as origin/main 9e7662f, so the names
+// are the only change to what the free room sends.
 const test = require('node:test');
 const assert = require('node:assert');
 const crypto = require('crypto');
@@ -59,9 +63,9 @@ function run(laws, shippableOnly, ticks) {
 }
 
 test('the free room sends exactly what it sent before paid agar.io (FIXTURE laws, 3000 ticks)', () => {
-  assert.deepStrictEqual(run(FIXTURE, false, 3000), { hash: 'c83904dead608e46bdf3e48a00b79acc', bots: 46, tick: 3000 });
+  assert.deepStrictEqual(run(FIXTURE, false, 3000), { hash: '97a6b3281530eefe4a4d16aa4954d0c4', bots: 46, tick: 3000 });
 });
 
 test('the free room sends exactly what it sent before paid agar.io (the real laws, 1500 ticks)', () => {
-  assert.deepStrictEqual(run(LAWS, true, 1500), { hash: '2aa3ce503aba40b8a8b2cc46f777db3f', bots: 50, tick: 1500 });
+  assert.deepStrictEqual(run(LAWS, true, 1500), { hash: '603dc806ac0dee1ef50ff77f653d71df', bots: 50, tick: 1500 });
 });

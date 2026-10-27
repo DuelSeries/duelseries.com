@@ -315,8 +315,8 @@
      The server sends it to every socket on its main namespace. This page is
      the top page around every game frame, so one quiet socket here is how it
      reaches a player in any game: it is shown over the running game, as text.
-     The socket sends nothing and joins nothing (no lobby:join), so nobody is
-     counted by it; it only listens. The same message twice (a reconnect) is
+     The socket never sends lobby:join (its one message is live:watch, below), so nobody is
+     counted by it. The same message twice (a reconnect) is
      one card. */
   let lastAnnounce = null;
   function announced(m) {

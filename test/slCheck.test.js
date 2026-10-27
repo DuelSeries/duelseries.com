@@ -346,11 +346,16 @@ test('I9: an account that is not its wallet\'s seat, and a seat with no account 
   assert.deepStrictEqual(full(u), [{ kind: 'I9', detail: { why: 'not-seated', snakeId: 1, jid: 'j1' } }]);
 });
 
-test('I10: more live snakes than C_PAID_HUMAN_CAP (cheap)', () => {
+// I10 counts people only since 6fbcce3 (Owen 2026-10-17): the owner's bots sit on top of the 22, the border is pinned.
+test("I10: more live human snakes than C_PAID_HUMAN_CAP (cheap); the owner's bots on top never count", () => {
   const w = world();
-  for (let id = 100; w.sim.count() < 22; id++) w.sim.snakes.set(id, { id });
+  for (let id = 100; w.humans.size < 22; id++) { w.sim.snakes.set(id, { id }); w.humans.add(id); }
+  for (let id = 400; id < 440; id++) w.sim.snakes.set(id, { id }); // 40 bots, in the sim but not in room.humans
+  assert.deepStrictEqual(C.checkRoom(w.room), []);
+  w.humans.add(450); // a human who left the sim is not live
   assert.deepStrictEqual(C.checkRoom(w.room), []);
   w.sim.snakes.set(200, { id: 200 });
+  w.humans.add(200);
   assert.deepStrictEqual(C.checkRoom(w.room), [{ kind: 'I10', detail: { count: 23, cap: 22 } }]);
 });
 
@@ -398,7 +403,7 @@ test('no detail carries a wallet, even with every invariant broken at once', () 
   w.sim.log.deaths.push({ id: 1, cause: 'snake', killer: 2, drops: [] });
   w.walletSeat.delete('W1');
   w.walletSeat.set('W7', { room: w.room, snakeId: 7 });
-  for (let id = 300; id < 330; id++) w.sim.snakes.set(id, { id });
+  for (let id = 300; id < 330; id++) { w.sim.snakes.set(id, { id }); w.humans.add(id); }
   const r = full(w);
   assert.deepStrictEqual([...new Set(kinds(r))].sort(), ['I1', 'I10', 'I13', 'I2', 'I4', 'I5', 'I6', 'I7', 'I8', 'I9']);
   assert.doesNotMatch(JSON.stringify(r), /W\d/);

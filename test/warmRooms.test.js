@@ -90,9 +90,11 @@ test('Paper.io: the free arena #1 wakes after its warm-up, never a paid one, and
   free._goIdle = () => { idled++; };
   free._forgetSeat({ unit: { id: -1 }, socketId: null });
   assert.strictEqual(idled, 0, 'awake: no idle with nobody left');
-  // a paid arena and a warming one refuse
-  const paid = arenas._create(0.5, 0);
-  assert.strictEqual(paid.setAwake(true), false, 'a paid arena is never woken');
+  /* a paid arena and a warming one refuse. Since c45c737 a paid arena #1 holds the owner's bots and ticks while they
+     play (PaperArenas setBotTarget wakes it, test/paperPaidBots.test.js), so the people-only arena #2 is the one that never wakes */
+  const paid = arenas._create(0.5, 1);
+  assert.strictEqual(paid.paidBots, false);
+  assert.strictEqual(paid.setAwake(true), false, 'a paid arena without owner bots is never woken');
   const warming = arenas._create(0, 1);
   warming.warming = true;
   assert.strictEqual(warming.setAwake(true), false, 'not while the boot warm-up still runs');

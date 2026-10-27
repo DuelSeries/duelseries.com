@@ -148,7 +148,7 @@ test('state v2, maintenance and the paid Knockout door across a restart, bots:se
       for (const k of ['room', 'people', 'bots', 'money', 'botTarget', 'botsAllowed', 'botsNote']) assert.ok(k in row, g.id + ' ' + k);
       // paid duels stay people only; a paid arena rung takes the owner's bots when its paid directory is on
       if (row.rung > 0 && g.duel) assert.deepStrictEqual([row.botsAllowed, row.botsNote], [false, 'Paid duels stay people only: a bot would win or lose a real stake']);
-      if (row.rung > 0 && !g.duel && row.botsAllowed) assert.match(String(row.room), /^paidbots:(sl|ag|paper):/);
+      if (row.rung > 0 && !g.duel && row.botsAllowed) assert.match(String(row.room), /^paidbots:(sl|ag|paper|chomp):/);
     }
   }
   assert.ok(!s.games.some((g) => g.rungs.some((x) => /^na_(free|br)$/.test(String(x.room)))), 'the old tiers are not rows');
@@ -181,7 +181,13 @@ test('state v2, maintenance and the paid Knockout door across a restart, bots:se
   assert.strictEqual(r.status, 200, r.body);
   row = gameOf(r.json.state, 'agar').rungs[0];
   assert.strictEqual(row.botTarget, null);
+  /* The held bots go and the room's own daily curve (78a862d, agar 20 to 54) brings bots back one at a time,
+     FILL_GAP_MS apart, the way people arrive, so the fill climbs past the held 5 within a couple of seconds. */
+  assert.ok(Number.isInteger(row.botAim) && row.botAim >= 20, 'the curve aims at 20 or more: ' + row.botAim);
+  row = await until(async () => { const x = gameOf((await state(one.port)).json, 'agar').rungs[0]; return x.bots > 5 && x; }, 6000, 200)
+    || gameOf((await state(one.port)).json, 'agar').rungs[0];
   assert.ok(row.bots > 5, 'its own fill again: ' + row.bots);
+  assert.strictEqual(row.botTarget, null);
   r = await act(one.port, 'bots:set', { room: 'paper_na_s0', count: 3 });
   assert.strictEqual(r.status, 200, r.body);
   row = gameOf(r.json.state, 'paper').rungs[0];

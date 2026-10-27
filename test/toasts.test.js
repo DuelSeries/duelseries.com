@@ -248,7 +248,9 @@ test('the owner\'s announcement shows over a running game, as text, once; its so
   heard.announce({ text: '' });
   heard.announce(null);
   assert.strictEqual(p.cards().length, 1);
-  assert.ok(!/\.emit\(/.test(SRC), 'it sends nothing: no lobby:join, nobody counted');
+  /* Its one message since 29ebd01 (Open lobbies live): live:watch, which only joins the board's push room (index.js
+     on('live:watch') is a bare socket.join). Never lobby:join, so nobody is counted. */
+  assert.deepStrictEqual(SRC.match(/\.emit\([^)]*\)/g), [".emit('live:watch')"], 'it sends only live:watch: no lobby:join, nobody counted');
 });
 
 test('announcements stack over a game, newest on top, at most 4, each on its own word timer (Owen 2026-10-17)', () => {

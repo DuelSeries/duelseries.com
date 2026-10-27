@@ -76,7 +76,8 @@ const SLITHER_FIELDS = ['ang', 'sct', 'fam', 'rsc', 'xx', 'yy', 'id', 'kill_coun
 // DuelSlither members, and the one member each frozen module may be used for. slMain.nick is read only: the name their
 // Play kept (public/js/sl/slMain.js:99), for the results card's Play again.
 const D_MEMBERS = { slx: null, S: null, play: null, stats: null, slNet: ['makeSocketIoTransport'], slWire: ['decodeInput'],
-  slLoop: ['hooks'], slInput: ['setAcceleration'], slMain: ['nick'] };
+  slLoop: ['hooks'], slInput: ['setAcceleration'], slMain: ['nick'],
+  slApply: ['gdnm'] }; // slxHud.js: their name filter on the paid $ board (00d83a1)
 const HOOKS = ['onMenuShow', 'onMenuFade', 'onMenuDone'];
 const LAYER_EVENTS = ['sl:x', 'sl:hold', 'sl:vis', 'sl:chat', 'sl:diag'];
 // slxNet.js alone is also the resumable transport (SERVER-DESIGN 9.6, through the DuelSlitherConfig.transport seam;
