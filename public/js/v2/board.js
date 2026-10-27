@@ -135,6 +135,8 @@
     if (names && !names[l.game]) return false;
     return !(window.V2_IS_SOON && window.V2_IS_SOON(l.game));
   };
+  /* The lobby's first four games, in the order the cards are (public/v2.html GAMES). */
+  const GAME_ORDER = ['chomp', 'snake', 'agar', 'paper'];
   const occupied = () => LOBBIES.filter(l => playing(l) > 0 && isOpen(l));
 
   /* The one exception: the free slither.io room is always listed, even empty.
@@ -194,8 +196,8 @@
     const rows = occupied().filter(listable);
     const free = LOBBIES.find(l => Number(l.stake) === 0 && l.game === 'snake');
     if (free && !rows.some(r => r.id === free.id)) rows.unshift(free);
-    /* Paper's and agar.io's free rungs are always listed, from the server's own
-       row (paper:na:s0, ag:na:s0), in that order: the order the pinned rows had. */
+    /* Paper's, agar.io's and Pac-Man's free rungs are always listed too, from the server's own
+       row (paper:na:s0, ag:na:s0, chomp:na:s0); GAME_ORDER below puts them in the lobby's order. */
     ['paper', 'agar', 'chomp'].forEach(g => LOBBIES.forEach(l => {
       if (l.game === g && Number(l.stake) === 0 && !rows.includes(l)) rows.push(l);
     }));
@@ -225,7 +227,12 @@
       .sort((a, b) => Number(b.stake) - Number(a.stake) || playing(b) - playing(a));
     /* Then a free duel with somebody waiting for an opponent (Owen 2026-10-21): the row a person can act on. */
     const waitingFree = rows.filter(l => !paid.includes(l) && Number(l.waiting) > 0);
-    return paid.concat(waitingFree, rows.filter(l => !paid.includes(l) && !waitingFree.includes(l)));
+    /* The rest in the lobby's game order (Owen 2026-10-27: Pac-Man, Slither.io, Agar.io, Paper.io), any other
+       game after them in the order it already had. */
+    const rank = l => { const i = GAME_ORDER.indexOf(l.game); return i < 0 ? GAME_ORDER.length : i; };
+    const rest = rows.filter(l => !paid.includes(l) && !waitingFree.includes(l))
+      .map((l, i) => [l, i]).sort((a, b) => rank(a[0]) - rank(b[0]) || a[1] - b[1]).map(p => p[0]);
+    return paid.concat(waitingFree, rest);
   }
 
   function draw() {

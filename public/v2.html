@@ -3193,18 +3193,16 @@ const GAMES=[
  /* look:1 is the only game with something to customize today: the snake's
     skin, stored for /sl (BACKLOG 3.1). Every other game shows the Customize
     bar shut, saying there is nothing to change yet. */
+ /* Chomp (server/chomp, page /chomp), in the lobby since 2026-10-26 (Owen's OK). Its rooms are rungs of the same
+    ladder (Free, $0.50, $1.00): Free opens /chomp straight in the game frame (no stake, play.js OWN_PAGE), a paid
+    rung goes through the wallet widget, which writes the one-shot chompPaidLaunch mark with the token. A paid rung
+    is offered only while /api/live lists it open (CHOMP_PAID on, chomp:paid:off not thrown). Its shown name is
+    shared/chompName.js (Pac-Man for now, Owen 2026-10-26).
+    First in the lobby, then Slither.io, Agar.io and Paper.io (Owen 2026-10-27). */
+ {id:'chomp',name:window.DS_CHOMP_NAME||'Chomp',c:['#1a1726','#e8c860'],type:'p',ladder:1,
+  d:'Eat the dots, dodge the ghosts, and grab the coins anyone caught drops on the maze.'},
  {id:'snake',name:'Slither.io',c:['#15251c','#c080ff'],type:'p',real:1,ladder:1,look:1,
   d:'Grow by eating, cut other players off, and cash out before somebody cuts you off.'},
- /* Second, before agar.io (Owen 2026-10-21: "I just want paper.io before agar
-    because the game's pretty good"). Built, and an arena on the server now:
-    the rooms are rungs of the same ladder as slither.io (Free, $0.50, $1.00),
-    so it is ladder:1 and every rung goes through the wallet widget to
-    /paper-arena. It is not paid:1 or duel:1,
-    because it is dropped into rather than matched into. It had a line of
-    rules under Play; Owen asked for it gone (2026-09-28), and with it the
-    only use of the per-game rules line. */
- {id:'paper',name:'Paper.io',c:['#1e1826','#a887d6'],type:'p',built:1,ladder:1,
-  d:'Claim ground by looping back home without anyone crossing your trail.'},
  /* The agar.io redo (server/ag, page /ag), in the lobby since 2026-10-07; the
     old agar.io game is deleted. Its rooms are rungs of the same ladder as
     slither.io and Paper.io (Free, $0.50, $1.00; PAID-AGAR-DESIGN.md 7), so it
@@ -3215,13 +3213,15 @@ const GAMES=[
     plain colours at first), so its Customize bar says nothing to change yet. */
  {id:'agar',name:'Agar.io',c:['#141f28','#65c8e8'],type:'p',ladder:1,
   d:'Absorb anything smaller than you, split to chase, and stay clear of anything bigger.'},
- /* Chomp (server/chomp, page /chomp), in the lobby since 2026-10-26 (Owen's OK). Its rooms are rungs of the same
-    ladder (Free, $0.50, $1.00): Free opens /chomp straight in the game frame (no stake, play.js OWN_PAGE), a paid
-    rung goes through the wallet widget, which writes the one-shot chompPaidLaunch mark with the token. A paid rung
-    is offered only while /api/live lists it open (CHOMP_PAID on, chomp:paid:off not thrown). Its shown name is
-    shared/chompName.js (Pac-Man for now, Owen 2026-10-26). */
- {id:'chomp',name:window.DS_CHOMP_NAME||'Chomp',c:['#1a1726','#e8c860'],type:'p',ladder:1,
-  d:'Eat the dots, dodge the ghosts, and grab the coins anyone caught drops on the maze.'},
+ /* Fourth, after agar.io (Owen 2026-10-27: Pac-Man, Slither.io, Agar.io, Paper.io, then the rest). Built, and an arena on the server now:
+    the rooms are rungs of the same ladder as slither.io (Free, $0.50, $1.00),
+    so it is ladder:1 and every rung goes through the wallet widget to
+    /paper-arena. It is not paid:1 or duel:1,
+    because it is dropped into rather than matched into. It had a line of
+    rules under Play; Owen asked for it gone (2026-09-28), and with it the
+    only use of the per-game rules line. */
+ {id:'paper',name:'Paper.io',c:['#1e1826','#a887d6'],type:'p',built:1,ladder:1,
+  d:'Claim ground by looping back home without anyone crossing your trail.'},
  /* Head Soccer (server/HeadSoccerLobby.js, page /headsoccer), a duel on Knockout's queue: Free seats you against a
     bot after the countdown, and play.js OWN_PAGE opens it straight in the game frame. paid:1 like Knockout: $0.50 and
     $1 rungs stake through the wallet widget (HS_PAID_ON in server/index.js, the owner's hs:paid:off on top). In the lobby for everyone since 2026-10-27 (Owen). */

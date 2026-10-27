@@ -31,3 +31,15 @@ test('a paid room with only bots is listed, and paid rooms with anyone in them c
   assert.deepStrictEqual(ids.slice(0, 4), ['sl:na:s1', 'sl:na:s0.5', 'sl:na:s0', 'paper:na:s0']);
   assert.ok(!ids.includes('paper:na:s1'), 'an empty paid room stays off the list');
 });
+
+test('the free rooms follow the lobby order: Pac-Man, Slither.io, Agar.io, Paper.io (Owen 2026-10-27)', async () => {
+  const ids = await board([
+    { id: 'sl:na:s0', game: 'snake', stake: 0, players: 0, bots: 20, state: 'open' },
+    { id: 'paper:na:s0', game: 'paper', stake: 0, players: 0, bots: 6, state: 'open' },
+    { id: 'ag:na:s0', game: 'agar', stake: 0, players: 0, bots: 8, state: 'open' },
+    { id: 'chomp:na:s0', game: 'chomp', stake: 0, players: 0, bots: 3, state: 'open' },
+    { id: 'paper:na:s1', game: 'paper', stake: 1, players: 1, bots: 0, state: 'open' },
+  ]);
+  assert.deepStrictEqual(ids.slice(0, 5), ['paper:na:s1', 'chomp:na:s0', 'sl:na:s0', 'ag:na:s0', 'paper:na:s0'],
+    'a paid room with someone in it still comes first');
+});
