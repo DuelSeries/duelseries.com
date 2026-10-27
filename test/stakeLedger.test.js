@@ -419,7 +419,27 @@ test('index.js: every paid door claims the stake row before seating, submit-stak
   assert.doesNotMatch(src, /const entry = consumePaidEntry/);
   assert.match(src, /stakeLedger\.claimSeat\(entry\)\.then/);
   assert.strictEqual((src.match(/stakeLedger\.record\(sig,/g) || []).length, 2, 'both submit-stake paths');
-  assert.doesNotMatch(src, /db\.markStakeSig\(/, 'the bare claim is only reached through the ledger');
+  /* One named exception (2026-10-27, since 954495a / 389c2e2): botBankMigrate hands verifyTopup the bare claim
+     for the owner's one-time 3zNH deposit. That is not a player door: a ledger 'pending' row for it would be swept
+     and refunded as if a player had staked it. Exactly that one line, inside that one verifyTopup call, inside the
+     migration the deposit-3zNH flag runs once; any other bare claim (or db.markStakeSig handed on) still fails. */
+  const BOTBANK_CLAIM = 'markStakeSig: (sig) => db.markStakeSig(sig),';
+  assert.strictEqual(src.split(BOTBANK_CLAIM).length - 1, 1, 'the bot bank claim line appears exactly once');
+  const mig = src.indexOf('async function botBankMigrate(left) {');
+  const migEnd = mig + src.slice(mig).search(/\n\}/); // the function's closing brace at column 0
+  const call = src.indexOf("require('./botBankTopup').verifyTopup(BOTBANK_DEPOSIT_SIG, {", mig);
+  const callEnd = src.indexOf('})', call);
+  const at = src.indexOf(BOTBANK_CLAIM);
+  assert.ok(mig > 0 && call > mig && callEnd < migEnd && at > call && at < callEnd,
+    'the one bare claim sits in botBankMigrate, inside its verifyTopup(BOTBANK_DEPOSIT_SIG) call');
+  assert.match(src, /^async function botBankMigrate\(left\) \{\r?\n  if \(!botWallet \|\| botBank\.flag\('deposit-3zNH'\)\) return;\r?\n/m,
+    'the migration runs once: the deposit-3zNH gate is its first line');
+  assert.strictEqual((src.match(/\bBOTBANK_DEPOSIT_SIG\b/g) || []).length, 2, 'the deposit signature: its one const and its one use');
+  assert.ok(!/[{[]/.test(src.slice(src.indexOf('{', call) + 1, at)), 'the claim is a plain property of the verifyTopup object');
+  assert.match(src, /^const BOTBANK_DEPOSIT_SIG = '3zNHejSF77E7cxHSHAFGAqmZyXAuHbfxfVpS4rjxCLnvMhmsU3F3cMnDtGfCaPprDrqMbZRsdnTTptrtQCvvKKzV';$/m,
+    'the claim only ever sees the owner\'s 3zNH deposit');
+  const rest = src.slice(0, at) + src.slice(at + BOTBANK_CLAIM.length);
+  assert.doesNotMatch(rest, /db\s*\.\s*markStakeSig\b/, 'the bare claim is only reached through the ledger');
   assert.match(src, /await db\.init\(\);[\s\S]{0,400}stakeLedger\.sweep\(\{ boot: true \}\)/);
   assert.match(src, /everyStaggered\(\(\) => stakeLedger\.sweep\(\{ boot: false \}\), 300000/);
   assert.match(src, /ledger: stakeLedger,\s*paidEnabled: PAPER_PAID/);
