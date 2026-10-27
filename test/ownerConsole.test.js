@@ -108,7 +108,7 @@ test('duelStatus counts a paid seat waiting in the queue and a paid table until 
   // the drain says unsafe, with the duel money in the reason and in moneyInPlay
   const drain = ops.drainStatus([], { count: 0, worth: 0 }, d);
   assert.equal(drain.safe, false);
-  assert.match(drain.reason, /4 paid Knockout or Battleship seats hold stakes \(3 USDC, queued or at a table\)/);
+  assert.match(drain.reason, /4 paid Knockout, Battleship or Swim seats hold stakes \(3 USDC, queued or at a table\)/);
   assert.deepEqual([drain.duels, drain.moneyInPlay, drain.paidPeople, drain.people], [3, 3, 4, 4]);
 
   // a table that settled (somebody walked out: the payout is the settle hook's) holds nothing in memory any more
