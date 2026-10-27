@@ -22,7 +22,7 @@
    the ball, the plate, the pause button, the key hint), so a frame is a handful
    of drawImage calls plus the players, the clock digits and the words. */
 (function (root) {
-  const Sim = root.HSSim, HS = Sim.HS, S = root.HSScene, P = root.HSChars;
+  const Sim = root.HSSim, HS = Sim.HS, S = root.HSScene, F = root.HSPitch, P = root.HSChars;
   const FONT = 'Archivo, "Arial Black", "Segoe UI", Arial, sans-serif';
   const TAU = Math.PI * 2;
 
@@ -260,14 +260,14 @@
   /* ── the frame ──────────────────────────────────────────────────────────── */
   function build(k, vw) {
     K = k; VW = vw || HS.VIEW_W_REF;
-    S.setView(VW);
+    S.setView(VW); F.setView(VW);
     L.sky = layer(S.sky);
     const T = S.CLOUD.tile, cl = canvas(T * K, 1000 * K), cg = cl.getContext('2d');
     cg.setTransform(K, 0, 0, K, 0, 0); S.clouds(cg); L.clouds = cl;
     L.stands = Array.from({ length: S.CROWD_FRAMES }, (_, f) => layer((g) => { S.tribune(g); S.crowd(g, f); }));
     L.board = layerSmall(BOARD.x1 - BOARD.x0 + 20, roofY(BOARD.posts[0][0]) + 40, -BOARD.x0 + 10, 0, paintBoard);
-    L.field = layer((g) => { S.field(g); S.goalsBack(g); });
-    L.front = layer(S.goalsFront);
+    L.field = layer((g) => { F.field(g); F.goalsBack(g); });
+    L.front = layer(F.goalsFront);
     L.ball = paintBall(false); L.gold = paintBall(true);
     L.plate = paintPlate(); L.pause = paintPause(); L.keys = paintKeys();
     art.bg = true;
