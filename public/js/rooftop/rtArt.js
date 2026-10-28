@@ -281,7 +281,9 @@
       r(x + (w >> 1), y + 1, 1, h - 2, WOOD); r(x + 1, y + (h >> 1), w - 2, 1, WOOD);
     };
     win(57, 11, 7, 6);
-    r(2, 16, 117, 1, ROOF); r(1, 17, 119, 1, ROOF); r(0, 18, 121, 1, ROOF); r(1, 19, 119, 1, ROOF);
+    // the roof band, as wide each side as the mirrored collision (Owen 2026-10-28): the flat roof -556.5 / 557.1 over
+    // -+556.6, the eave -566.1 / 566.7 over its tips at -+565.7 (the reference's started a square further left)
+    r(3, 16, 116, 1, ROOF); r(2, 17, 118, 1, ROOF); r(1, 18, 120, 1, ROOF); r(2, 19, 118, 1, ROOF);
     r(11, 20, 100, 30, WALL); r(11, 20, 100, 1, TRIM);
     for (let x = 11; x < 111; x += 5) r(x, 21, 1, 29, TRIM);
     r(110, 21, 1, 29, TRIM);
@@ -298,10 +300,11 @@
     const c = mk(116, 51), r = sq(c.getContext('2d'));
     const LOGS = ['#423225', '#615245', '#4a3829'], POST = ['#635042', '#483b31', '#392b20', '#36281e', '#4b3a2c'];
     const FRAME = '#817d7a', GL = '#31302f';
-    // the steep roof's outer edge row by row (the peak at 57.5), then the eaves out to the full width
+    // the steep roof's outer edge row by row (the peak at 57.5), then the eaves the full width, both sides alike
+    // (-+556.8 under the mirrored collision's -+558.8, Owen 2026-10-28; they once stopped a square short on the right)
     const half = (y) => y <= 8 ? 1.5 + y * 2.4 : y === 9 ? 39.5 : y === 10 ? 52 : 57.5;
     for (let y = 0; y < 21; y++) {
-      const h = half(y), L = Math.round(57.5 - h), Rr = Math.round(57.5 + h);
+      const h = half(y), eave = y > 10, L = eave ? 0 : Math.round(57.5 - h), Rr = eave ? 116 : Math.round(57.5 + h);
       r(L, y, Rr - L, 1, y >= 8 ? '#f1f4f6' : '#fafbfc');
     }
     r(1, 20, 114, 1, '#e5eaed');

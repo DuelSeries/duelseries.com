@@ -261,9 +261,19 @@
     w.push(lift);
     return w;
   }
+  /* C (Owen 2026-10-28, fair paid matches): the House and the Cabin are mirror images about x = 0. In the reference
+     their left halves (red's starting side) reach further, so each left half here is its right half mirrored: the
+     narrower side for both, and no side gains room it did not have. right: the apex, then the right half's points
+     down to its wall's foot; the left half follows from the wall's foot back up, as the reference's polygon runs. */
+  function mirrored(right) {
+    var p = right.slice();
+    for (var i = right.length / 2 - 1; i >= 1; i--) p.push(-right[2 * i], right[2 * i + 1]);
+    return p;
+  }
   // T: House.tscn: the House StaticBody2D at (0, 74.8837), its CollisionPolygon2D scaled 0.75; the Ground at 367.3.
-  var HOUSE_POLY = [0, -296, 178, -115, 742.124, -115, 754.236, -64.6637, 640.287, -64.2359, 640.442, 319.983, -639.672,
-    320.018, -640.002, -63.8837, -767.55, -64.0022, -754.191, -115, -178, -115];
+  // Its right half; the reference's left half was (-639.672, 320.018), (-640.002, -63.8837), (-767.55, -64.0022),
+  // (-754.191, -115), (-178, -115): a flat roof to -565.7 (here -556.6) and an eave tip at -575.7 (here -565.7).
+  var HOUSE_POLY = mirrored([0, -296, 178, -115, 742.124, -115, 754.236, -64.6637, 640.287, -64.2359, 640.442, 319.983]);
   var HOUSE_PARTS = [[7, 8, 9, 10], [2, 3, 4, 1], [10, 0, 1], [10, 1, 4, 5, 6, 7]];
   function houseMap() {
     return [staticBody(0, 74.8837, polyPieces(HOUSE_POLY, 0.75, HOUSE_PARTS), 1, 0), boxBody(0, 367.336, 6691.1, 50, 0, 0, 1, 0)];
@@ -277,8 +287,10 @@
             boxBody(0, 5120, 10000, 292.62, 0, 0, 1, 0)];
   }
   // T: Cabin.tscn: the Cabin StaticBody2D at (0, 74.8837), its CollisionPolygon2D scaled 0.75; the Ground at 352.956.
-  var CABIN_POLY = [0, -312.907, 233.293, -209.777, 745.133, -171.5, 745.426, -43.1748, 716.855, -42.9479, 716.974, 314.75,
-    -717.327, 320.018, -716.562, -44.3328, -748.491, -44.5618, -748.143, -172.922, -236.477, -211.124];
+  // Its right half, mirrored (see mirrored); the reference's left half was (-717.327, 320.018), (-716.562, -44.3328),
+  // (-748.491, -44.5618), (-748.143, -172.922), (-236.477, -211.124): eaves to -561.1 (here -558.8).
+  var CABIN_POLY = mirrored([0, -312.907, 233.293, -209.777, 745.133, -171.5, 745.426, -43.1748, 716.855, -42.9479,
+    716.974, 314.75]);
   var CABIN_PARTS = [[4, 5, 6, 7, 10, 1], [7, 8, 9, 10], [2, 3, 4, 1], [10, 0, 1]];
   function cabinMap() {
     return [staticBody(0, 74.8837, polyPieces(CABIN_POLY, 0.75, CABIN_PARTS), 1, 0), boxBody(0, 352.956, 6691.1, 50, 0, 0, 1, 0)];

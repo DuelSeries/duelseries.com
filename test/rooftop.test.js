@@ -477,6 +477,24 @@ test('the winning fall rains civilians from 2 s on (S: game_over calls create_fa
   assert.ok(m.pointShown && m.fall.k === 1 && civ > 0, 'civilians after the point');
 });
 
+test('the House and the Cabin are mirror images about x = 0, at the narrower (right) side (Owen 2026-10-28)', () => {
+  // [map, the right side's flat roof / eave top, its eave tip], both x 0.75 (the reference's left reached further)
+  for (const [map, top, tip] of [[2, 742.124 * 0.75, 754.236 * 0.75], [4, 745.133 * 0.75, 745.426 * 0.75]]) {
+    const sh = Sim.MAPS[map].build()[0].sh;
+    const key = (x, y) => x.toFixed(9) + ',' + y.toFixed(9);
+    const piece = (s, f) => s.p.map(q => key(f * q[0], q[1])).sort().join(' ');
+    // every piece has its mirror among the pieces, so every left extent is minus a right one
+    assert.deepStrictEqual(sh.map(s => piece(s, -1)).sort(), sh.map(s => piece(s, 1)).sort(), 'map ' + map + ' pieces');
+    const pts = sh.flatMap(s => s.p);
+    for (const q of pts) assert.ok(pts.some(o => o[0] === -q[0] && o[1] === q[1]), 'map ' + map + ': (' + q + ') mirrored');
+    const xs = pts.map(q => q[0]);
+    assert.deepStrictEqual([Math.min(...xs), Math.max(...xs)], [-tip, tip], 'map ' + map + ' eave tips');
+    const tops = pts.filter(q => Math.abs(q[0]) === top);
+    assert.deepStrictEqual([...new Set(tops.map(q => q[0]))].sort((a, b) => a - b), [-top, top], 'map ' + map + ' roof edge');
+    assert.strictEqual(new Set(tops.map(q => q[1])).size, 1, 'map ' + map + ': both roof edges at one height');
+  }
+});
+
 test('each map: its spawn, a player resting on its roof, and its own death line', () => {
   // T: the roof each spawn drops onto: MainBuilding's top, the House's flat roof (-115 x 0.75 + 74.8837), the Blimp's
   // top (-396 + 374.567), the Cabin's eave slope between (233.293, -209.777) and (745.133, -171.5) x 0.75 + 74.8837
