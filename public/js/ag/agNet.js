@@ -203,7 +203,9 @@
     for (var k in opts) if (Object.prototype.hasOwnProperty.call(opts, k)) o[k] = opts[k];
     o.socket = socket;
     o.onMessage = onMessage;
-    return createNet(o);
+    var net = createNet(o);
+    net.socket = socket;                         // for the ping and FPS readout every game shares (agMain)
+    return net;
   }
 
   A.agNet = { EVENTS: EV, SIDE_EVENTS: SIDE_EVENTS, createNet: createNet, connect: connect };

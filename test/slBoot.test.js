@@ -161,7 +161,9 @@ test('slxTail: the layer files present, in the SERVER-DESIGN 3.2 order, then any
   assert.strictEqual(B.SLX_TAIL, B.slxTail(B.PUBLIC_DIR), 'SLX_TAIL is built from the repo at load');
   // the shared chat (4608813) sits between the end screens and the layer
   assert.ok(B.SLX_TAIL.includes('<script src="/js/shared/dsEnd.js"></script>\n<script src="/js/shared/dsChat.js"></script>\n' +
-    '<script src="/js/slx/slxNet.js"></script>'), 'the repo tail has it before slxNet');
+    '<script src="/js/shared/dsPerfHud.js"></script>\n<script src="/js/slx/slxNet.js"></script>'), 'the repo tail has it before slxNet');
+  // the shared ping and FPS readout (Owen 2026-10-27, every game the same): before the layer, slxStats mounts it
+  assert.strictEqual(B.SLX_TAIL.split('/js/shared/dsPerfHud.js').length, 2, 'the shared readout, once');
   assert.ok(!B.SLX_FILES.includes('slxTop.js') && !B.SLX_TAIL.includes('slxTop'), 'no biggest cash-out box (Owen 2026-10-16)');
   // the shared Spectate bar (slxWatch and slxBr open it) right after the empty table it draws, after the layer
   assert.ok(B.SLX_TAIL.includes('<script src="/js/shared/dsEmptyArena.js"></script>\n' +

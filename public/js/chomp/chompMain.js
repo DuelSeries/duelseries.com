@@ -107,6 +107,8 @@
       } catch (e) { /* storage blocked: the game's own look */ }
     }
     socket = opts ? window.io('/chomp', opts) : window.io('/chomp');
+    // The ping and FPS readout every game shares (public/js/shared/dsPerfHud.js), timed on this socket.
+    if (window.DSPerfHud) window.DSPerfHud.mount({ socket: socket });
     socket.on('c:init', onInit);
     socket.on('c:chat', function (m) {
       if (!chat) return;

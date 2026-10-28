@@ -649,7 +649,6 @@ function pressable(el, fn) {
 
   function draw() {
     requestAnimationFrame(draw);
-    countFrame();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = '#0b0f09';
     ctx.fillRect(0, 0, cv.width, cv.height);
@@ -1123,38 +1122,9 @@ function pressable(el, fn) {
   $('coLeaveBtn').addEventListener('click', leave);
 
   /* ── ping and frame rate ──────────────────────────────────────────────────
-     The same two readouts the snake game has, driven the same way: the server
-     already answers `ping_check` for every socket, so this needed no server
-     change at all. Every two seconds, because it is a health indicator rather
-     than a graph and a round trip every frame is itself traffic. */
-  var pingDot = $('ping-dot'), pingVal = $('ping-value'), fpsEl = $('fps-counter');
-  var pingSentAt = null;
-  function sendPing() { pingSentAt = performance.now(); socket.emit('ping_check'); }
-  socket.on('pong_check', function () {
-    if (pingSentAt === null) return;
-    var ms = Math.round(performance.now() - pingSentAt);
-    pingSentAt = null;
-    if (pingVal) pingVal.textContent = ms + ' ms';
-    if (pingDot) {
-      pingDot.className = 'ping-dot ' +
-        (ms < 50 ? 'ping-green' : ms < 100 ? 'ping-orange' : 'ping-red');
-    }
-  });
-  setInterval(sendPing, 2000);
-  sendPing();
-
-  /* Counted over a whole second rather than derived from one frame's delta,
-     which reads as a number flickering between 58 and 61 and tells you nothing
-     about the stutter you are actually looking at. */
-  var fpsFrames = 0, fpsSince = performance.now();
-  function countFrame() {
-    fpsFrames++;
-    var now = performance.now();
-    if (now - fpsSince < 1000) return;
-    var fps = Math.round(fpsFrames * 1000 / (now - fpsSince));
-    fpsFrames = 0; fpsSince = now;
-    if (fpsEl) fpsEl.textContent = 'FPS ' + fps;
-  }
+     The readout every game shares (public/js/shared/dsPerfHud.js): bottom
+     right, measured the same way in every game. */
+  if (window.DSPerfHud) window.DSPerfHud.mount({ socket: socket });
 
   /* The last snapshot, for the console. It is the same data the page has
      already been sent and can already read off the wire, so this gives nothing

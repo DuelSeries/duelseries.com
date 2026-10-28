@@ -21,9 +21,8 @@
 //    most PHONE_SIDE. Their page is laid out at 0.7 on a phone (sl.html:4, initial-scale 0.7, where is_mobile holds),
 //    so the board is drawn back up by 1/0.7 there to the size it has in every other game. A frame ignores the
 //    viewport line, so in a frame it is drawn up only when the lobby drew the frame at 0.7 (slx.hud.zoom() says).
-// 3. The ping and FPS line (slxStats) sits under their minimap's disc, centred on it: their holder (loch) is the disc
-//    plus a 12 px margin on every side (slHud.js setMinimapSize, fitMapCanvas), placed by its inline right, bottom and
-//    width, so the line follows a new minimap size.
+// 3. (The ping and FPS line is no longer placed here: it is the readout every game shares, in the bottom right corner
+//    under their minimap, public/js/shared/dsPerfHud.js, Owen 2026-10-27.)
 // 4. slx.hud.topSlot(w): the top, in px, where a block w px wide centred at the top of the screen covers neither the
 //    leaderboard nor the text of their top left box (vcm): beside them when there is room, else just under the board.
 //    The battle royale's block (slxBr.js) sits there.
@@ -43,7 +42,6 @@
   var lbn = S.lbn;
   var lbp = S.lbp;
   var lbf = S.lbf;
-  var loch = S.loch;
   var vcm = S.vcm;
   if (!lbh || !lbs || !lbn || !lbp || !lbh.style || !lbs.style || !lbn.style || !lbp.style) return;
 
@@ -207,31 +205,6 @@
     return { left: r.left, bottom: r.bottom, width: r.width };
   }
 
-  // ---- 3. the ping and FPS line under the minimap
-  var stats = slx.stats && slx.stats.element;
-  var MAP_MARGIN = 12;             // the holder's margin round the disc (slHud.js fitMapCanvas at 12)
-  var LINE_PX = 14;                // the line's height (slxStats CSS)
-  var LINE_GAP = 2;                // CHOSEN: between the disc and the line
-  var LINE_MIN_W = 120;            // CHOSEN: wide enough for "999 ms  FPS: 120" under a small map
-  var LINE_EDGE = 6;               // CHOSEN: the least gap to the window's right edge
-  var lochKey = '';
-
-  function placeStats() {
-    if (!stats || !loch || !loch.style) return;
-    var key = loch.style.right + '|' + loch.style.bottom + '|' + loch.style.width;
-    if (key === lochKey) return;
-    lochKey = key;
-    var r = parseFloat(loch.style.right);
-    var b = parseFloat(loch.style.bottom);
-    var w = parseFloat(loch.style.width);
-    if (!(r >= 0) || !(b >= 0) || !(w > 2 * MAP_MARGIN)) return;
-    var disc = w - 2 * MAP_MARGIN;
-    var lw = Math.max(disc, LINE_MIN_W);
-    stats.style.right = px(Math.max(LINE_EDGE, r + MAP_MARGIN + disc / 2 - lw / 2)); // a small map: kept on screen
-    stats.style.width = px(lw);
-    stats.style.bottom = px(Math.max(2, b + MAP_MARGIN - LINE_GAP - LINE_PX));
-  }
-
   // ---- 4. the top slot
   var vcmKey = null;
   var vcmRight = 0;
@@ -281,7 +254,6 @@
       }
     }
     follow();
-    placeStats();
     var t = vcm ? vcm.textContent : '';
     if (t !== vcmKey) {
       vcmKey = t;

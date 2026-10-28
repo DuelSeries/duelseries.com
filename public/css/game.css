@@ -385,50 +385,6 @@ body {
 .pod-btns .co-go:focus-visible { outline: 2px solid #f0a830; outline-offset: 2px; }
 .pod-next { margin: 14px 0 0; font-size: 12px; color: #7d8aa3; min-height: 1em; }
 
-#ping-display {
-  position: absolute;
-  bottom: 52px;
-  right: 20px;
-  font-size: 0.75rem;
-  color: rgba(255,255,255,0.4);
-  font-family: monospace;
-  letter-spacing: 1px;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-.ping-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  display: inline-block;
-  flex-shrink: 0;
-}
-.ping-green  { background: #22c55e; box-shadow: 0 0 4px #22c55e88; }
-.ping-orange { background: #f97316; box-shadow: 0 0 4px #f9731688; }
-.ping-red    { background: #ef4444; box-shadow: 0 0 4px #ef444488; }
-
-#fps-counter {
-  position: absolute;
-  bottom: 20px;
-  right: 20px;
-  font-size: 0.75rem;
-  color: rgba(255,255,255,0.4);
-  font-family: monospace;
-  letter-spacing: 1px;
-}
-
-#perf-counter {
-  position: absolute;
-  bottom: 36px;
-  right: 20px;
-  font-size: 0.75rem;
-  color: rgba(255,255,255,0.4);
-  font-family: monospace;
-  letter-spacing: 1px;
-}
-
-
 /* Admin console */
 #admin-console {
   display: none;

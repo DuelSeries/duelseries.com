@@ -14,6 +14,8 @@
    and draws what it is told. */
 
 const socket = io();
+// The ping and FPS readout every game shares (public/js/shared/dsPerfHud.js), timed on this socket.
+if (window.DSPerfHud) window.DSPerfHud.mount({ socket });
 const $ = (id) => document.getElementById(id);
 
 const GRID = 10;

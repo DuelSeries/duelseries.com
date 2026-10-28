@@ -51,9 +51,10 @@ const PAID_READ_S = ['foods', 'foods_c'];
 // royale's circle on it: read only, and only on an event page.
 const BR_READ_S = ['myloc', 'mmrad', 'flux_grd', 'grd'];
 // slxHud.js alone reads their HUD boxes (Owen 2026-10-16: their board and length box hidden, the shared board filled
-// from their rows, the stats line under the minimap): the element references only, never a field of their state and
-// never their slHud module, and it writes only inline styles their client never writes (slxHud.js header).
-const HUD_READ_S = ['lbh', 'lbs', 'lbn', 'lbp', 'lbf', 'loch'];
+// from their rows): the element references only, never a field of their state and never their slHud module, and it
+// writes only inline styles their client never writes (slxHud.js header). The stats line it once placed under their
+// minimap (loch) is the shared readout now (public/js/shared/dsPerfHud.js), so loch is no longer read.
+const HUD_READ_S = ['lbh', 'lbs', 'lbn', 'lbp', 'lbf'];
 // slxCard.js alone reads their best rank this connection (slApply.js:768), read only, for the shared card's Top rank
 // (Owen 2026-10-16: time, rank and length on every game's card). No other seam carries it: their HUD never shows it.
 const CARD_READ_S = ['best_rank'];

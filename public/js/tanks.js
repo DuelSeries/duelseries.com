@@ -18,6 +18,8 @@
   const cv = $('field');
   const ctx = cv.getContext('2d');
   const socket = io();
+  // The ping and FPS readout every game shares (public/js/shared/dsPerfHud.js), timed on this socket.
+  if (window.DSPerfHud) window.DSPerfHud.mount({ socket });
 
   const name = (() => {
     try { return sessionStorage.getItem('playerName') || localStorage.getItem('duelseries_playername') || 'Player'; } catch (_) { return 'Player'; }

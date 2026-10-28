@@ -562,24 +562,33 @@ test('slxChat: lines, own lines, kill lines, notes, snake colours, 60 kept, text
   assert.strictEqual(lines[59], 'n: m69');
 });
 
-test('slxStats: ping in the old format and colours, FPS over 500 ms, shown while playing', () => {
-  const P = page('slxStats.js');
+test('slxStats: the shared readout (dsPerfHud) timed on slx.echo, shown while playing; the diag keeps its own fps', () => {
+  const P = makePage();
+  P.load('dsEnd.js');
+  P.load('dsPerfHud.js');
+  P.load('slxStats.js');
   const st = P.slx.stats;
-  const dot = P.find('slx-ping-dot')[0];
+  assert.ok(st.hud && st.hud === P.win.DSPerfHud, 'the one shared readout');
+  assert.strictEqual(P.find('dsp-hud').length, 1);
+  assert.strictEqual(P.find('slx-stats').length, 0, 'no line of its own');
   assert.strictEqual(st.ping(), '-- ms');
-  for (const [rtt, text, cls] of [[42.4, '42 ms', 'slx-ping-green'], [49.6, '50 ms', 'slx-ping-orange'],
-    [99.4, '99 ms', 'slx-ping-orange'], [100, '100 ms', 'slx-ping-red'], [-1, '100 ms', 'slx-ping-red']]) {
-    P.slx.fire('pong', rtt);
-    assert.strictEqual(st.ping(), text, String(rtt));
-    assert.ok(dot.className.split(' ').includes(cls), String(rtt) + ' ' + dot.className);
-  }
+  P.raf(1, 20);
+  assert.strictEqual(P.echoes.length, 1, 'the echo goes on the first frame');
+  P.raf(1, 20);
+  P.echoes[0]();
+  assert.strictEqual(st.ping(), '20 ms');
+  P.slx.fire('pong', 300);                       // their ping record's round trip feeds the diag, not the readout
+  assert.strictEqual(st.ping(), '20 ms');
   P.raf(25, 20);
   assert.strictEqual(st.fps(), 50);
-  assert.strictEqual(P.find('slx-fps')[0].textContent, 'FPS: 50');
-  assert.strictEqual(st.element.style.display, undefined, 'hidden while their game is not showing');
+  assert.strictEqual(P.find('dsp-fps')[0].textContent, 'FPS 50');
+  assert.strictEqual(st.hud.element.hidden, true, 'hidden while their game is not showing');
   P.S.playing = true;
   P.raf(1, 20);
-  assert.strictEqual(st.element.style.display, 'flex');
+  assert.strictEqual(st.hud.element.hidden, false);
+  P.setConnected(false);
+  P.raf(1, 20);
+  assert.strictEqual(st.ping(), '-- ms', 'off the socket: no number');
 });
 
 // Their HUD boxes as sl.html gives them (sl.html:20-26), on the fake page, after the shared end screens.
@@ -594,6 +603,7 @@ function hudPage(win, S, more) {
   P.S.loch = box({ right: '16px', bottom: '16px', width: '124px', height: '124px' });
   P.D.slMain = { nick: 'Owen' };
   P.load('dsEnd.js');
+  P.load('dsPerfHud.js');
   P.load('slxStats.js');
   P.load('slxHud.js');
   P.raf(1);
@@ -642,7 +652,7 @@ function ourRows(P) {
 const TEN = [['Ann', 9120], ['Bob', 8001], ['Owen', 7340], ['<b>x</b>', 6000], ['Cy', 5012], ['Di', 4100], ['Ed', 3300],
   ['Fay', 2200], ['Gus', 1500], ['Hal', 999]];
 
-test('slxHud: their length box and four boxes hidden on every screen; the stats line sits under the minimap', () => {
+test('slxHud: their length box and four boxes hidden on every screen; the shared readout is left where it is', () => {
   for (const [w, h, mobile] of [[1920, 1080, false], [535, 1159, true], [500, 400, false]]) {
     const P = hudPage({ innerWidth: w, innerHeight: h }, { is_mobile: mobile });
     const S = P.S;
@@ -663,17 +673,11 @@ test('slxHud: their length box and four boxes hidden on every screen; the stats 
   const P = hudPage({ innerWidth: 1920, innerHeight: 1080 });
   const S = P.S;
   assert.strictEqual(P.slx.hud.phone(), false);
-  // the 100 px disc of a 124 px holder at right 16, bottom 16: the line centred on it, under it
-  const st = P.slx.stats.element.style;
-  assert.deepStrictEqual([st.right, st.width, st.bottom], ['18px', '120px', '12px']);
-  // their setMinimapSize makes a bigger map: the line follows
+  // the readout every game shares keeps its own corner (dsPerfHud's CSS): slxHud no longer places it by their minimap
+  const st = P.slx.stats.hud.element.style;
   S.loch.style.width = S.loch.style.height = '160px';
   P.raf(1);
-  assert.deepStrictEqual([st.right, st.width, st.bottom], ['28px', '136px', '12px']);
-  // their first map is tiny (setMinimapSize(24) at the game start): the line stays on screen
-  S.loch.style.width = S.loch.style.height = '48px';
-  P.raf(1);
-  assert.deepStrictEqual([st.right, st.width], ['6px', '120px']);
+  assert.deepStrictEqual([st.right, st.width, st.bottom], [undefined, undefined, undefined]);
 });
 
 test('slxHud: ours is the shared board with their rows: names as text, lengths, the own row marked', () => {
@@ -1421,6 +1425,7 @@ test('HUD files: .slx- selectors only, no Math.random, no markup writes, every n
   for (const k of ['lbh', 'lbs', 'lbn', 'lbp']) P.S[k] = new P.El(P.doc, 'div');   // so slxHud makes its board
   P.load('dsEnd.js');
   P.load('dsChat.js');
+  P.load('dsPerfHud.js');
   for (const f of HUD) P.load(f);
   const styles = P.doc.head.children.filter((e) => e.tagName === 'STYLE');
   const shared = styles.filter((e) => e.getAttribute('data-dse') === '1');
@@ -1436,8 +1441,13 @@ test('HUD files: .slx- selectors only, no Math.random, no markup writes, every n
     for (const m of flat.matchAll(/([^{}]+)\{[^{}]*\}/g)) for (const s of m[1].split(',')) out.push(s.trim());
     return out;
   };
-  const selectors = selectorsOf(styles.filter((e) => !shared.includes(e) && !chatCss.includes(e)));
-  assert.ok(selectors.length >= 5, 'parsed ' + selectors.length);
+  const perfCss = styles.filter((e) => e.getAttribute('data-ds') === 'perf');
+  assert.strictEqual(perfCss.length, 1, 'the shared ping and FPS readout styled the page once');
+  const dsp = selectorsOf(perfCss);
+  assert.ok(dsp.length >= 5, 'parsed ' + dsp.length + ' of dsPerfHud');
+  for (const s of dsp) assert.ok(/^\.dsp-/.test(s), 'dsPerfHud selector outside .dsp-: ' + s);
+  // the layer's own rules (slxStats' line went to the shared readout, Owen 2026-10-27)
+  const selectors = selectorsOf(styles.filter((e) => !shared.includes(e) && !chatCss.includes(e) && !perfCss.includes(e)));
   const dsc = selectorsOf(chatCss);
   assert.ok(dsc.length > 30, 'parsed ' + dsc.length + ' of dsChat');
   for (const s of dsc) assert.ok(/^\.dsc(?:[-.:\s>\[]|$)/.test(s), 'dsChat selector outside .dsc: ' + s);
@@ -1446,16 +1456,17 @@ test('HUD files: .slx- selectors only, no Math.random, no markup writes, every n
   assert.ok(dse.length > 40, 'parsed ' + dse.length + ' of dsEnd');
   for (const s of dse) assert.ok(/^\.ds[eb](?:[-.:\s>]|$)/.test(s), 'dsEnd selector outside .dse / .dsb: ' + s);
   const files = HUD.map((f) => [f, path.join(SLX_DIR, f)]).concat([['dsEnd.js', DSEND],
-    ['dsChat.js', path.join(ROOT, 'public', 'js', 'shared', 'dsChat.js')]]);
+    ['dsChat.js', path.join(ROOT, 'public', 'js', 'shared', 'dsChat.js')],
+    ['dsPerfHud.js', path.join(ROOT, 'public', 'js', 'shared', 'dsPerfHud.js')]]);
   for (const [f, file] of files) {
     const src = fs.readFileSync(file, 'utf8');
     assert.ok(!/Math\.random/.test(src), f + ': Math.random');
     assert.ok(!/innerHTML\s*=[^=]/.test(src), f + ': writes innerHTML');
     assert.ok(!/insertAdjacentHTML|document\.write|outerHTML\s*=/.test(src), f + ': markup write');
-    if (f !== 'dsEnd.js' && f !== 'dsChat.js') assert.ok(/if \(!D \|\| !D\.slx \|\| !D\.slx\.active\) return;/.test(src), f + ': the inert check');
+    if (f !== 'dsEnd.js' && f !== 'dsChat.js' && f !== 'dsPerfHud.js') assert.ok(/if \(!D \|\| !D\.slx \|\| !D\.slx\.active\) return;/.test(src), f + ': the inert check');
     assert.ok(!src.includes(String.fromCharCode(0x2014)), f + ': em dash');
     // every named number of the layer says where it comes from: a comment on its line or the line above it
-    if (f === 'dsEnd.js' || f === 'dsChat.js') continue;
+    if (f === 'dsEnd.js' || f === 'dsChat.js' || f === 'dsPerfHud.js') continue;
     const lines = src.split(/\r?\n/);
     lines.forEach((l, i) => {
       if (!/^\s*var [A-Z][A-Z0-9_]* = -?[0-9.]/.test(l)) return;

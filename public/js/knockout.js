@@ -18,6 +18,8 @@
    cannot buy a harder shot. */
 
 const socket = io();
+// The ping and FPS readout every game shares (public/js/shared/dsPerfHud.js), timed on this socket.
+if (window.DSPerfHud) window.DSPerfHud.mount({ socket });
 if (window.KnockoutSound) KnockoutSound.attach(socket, () => ({ me, st, flip, watch: WATCH }));   // sounds (knockoutSound.js)
 const $ = (id) => document.getElementById(id);
 const cv = $('board');

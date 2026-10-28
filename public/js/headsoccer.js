@@ -29,6 +29,8 @@
    (public/js/knockout.js), behaviour for behaviour, with hs: event names. */
 
 const socket = io();
+// The ping and FPS readout every game shares (public/js/shared/dsPerfHud.js), timed on this socket.
+if (window.DSPerfHud) window.DSPerfHud.mount({ socket });
 const Sim = window.HSSim, HS = Sim.HS, IN = Sim.IN;
 const $ = (id) => document.getElementById(id);
 const cv = $('pitch');

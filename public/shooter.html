@@ -31,12 +31,6 @@
       <div class="lb-head"><h4>Leaderboard</h4></div>
       <ul id="board" class="board"></ul>
     </div>
-    <!-- The same two readouts the snake game has, and deliberately the same
-         class names: one set of ping-dot colours for the whole product. -->
-    <div id="netwrap">
-      <div id="ping-display"><span id="ping-dot" class="ping-dot ping-green"></span><span id="ping-value">-- ms</span></div>
-      <div id="fps-counter">FPS --</div>
-    </div>
   </div>
 </header>
 
@@ -107,6 +101,7 @@
 <div id="gunsheet" hidden></div>
 
 <script src="/socket.io/socket.io.js"></script>
+<script src="/js/shared/dsPerfHud.js"></script>
 <script src="/js/dsSfx.js"></script>
 <script src="/js/dsSfxGame.js"></script>
 <script src="js/cashoutSound.js"></script>

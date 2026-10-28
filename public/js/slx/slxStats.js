@@ -3,13 +3,11 @@
 //
 // Inert unless slxNet installed the production transport (15.2, finalize pass C20).
 //
-// Ping: the real game round trip at zero extra traffic. Their client sends a ping record after each pong
-// (public/js/sl/slInput.js stepPing); slxNet times each outbound ping to its pong ('pong' rttMs). Shown in the old
-// format and colours: "N ms" and a dot, green under 50, orange under 100, red above (public/js/game.js:2353-2372,
-// public/css/game.css:388-409). FPS: this file's own animation frames counted over 500 ms, "FPS: N"
-// (game.js:2594-2605). Both in one line under their minimap's disc (Owen 2026-10-16): the default here is under the
-// 100 px disc of sl.html's 124 px holder at right 16, bottom 16, and slxHud.js moves it with the minimap's size.
-// Shown while their game shows (S.playing).
+// The readout is the one every game shows (Owen 2026-10-27: "the exact same ping and FPS count in every single
+// game"; public/js/shared/dsPerfHud.js, loaded before the layer by server/sl/slBoot.js): bottom right, its ping timed
+// on its own echo on this socket (slx.echo, slxNet) like every other game's, its FPS from its own frames. Shown while
+// their game shows (S.playing). The diag below keeps its own numbers: their ping record's round trips ('pong' rttMs,
+// slxNet) for pongP95 and this file's frames over 500 ms for fps.
 //
 // sl:diag (server/sl/slSockets.js DIAG_NUMBERS, slRoom onDiag): one report at each socket open (it names how the
 // previous socket ended) and then one every DIAG_EVERY_MS while connected. Fields, each over the time since the last
@@ -33,9 +31,7 @@
   // law C_RATE diag (10000 ms, spec/SERVER-LAWS.md section N): the server keeps one sl:diag per socket per 10 s and
   // drops the rest. Plus one second (CHOSEN) so a late frame or a batched poll never lands a report inside the gap.
   var DIAG_EVERY_MS = 10000 + 1000;
-  var FPS_WINDOW_MS = 500;                       // game.js:2595
-  var PING_GREEN_MS = 50;                        // game.js:2371
-  var PING_ORANGE_MS = 100;                      // game.js:2371
+  var FPS_WINDOW_MS = 500;                       // the diag's fps window
   var NAME_MAX = 24;                             // law L45 nameMax: the server's lastClose cap (slSockets cleanDiag)
   // socket.io's disconnect reasons as one short word each (the server keeps only letters, digits, _ : -).
   var CLOSE_NAMES = {
@@ -48,49 +44,14 @@
     connect_error: 'connect-error'
   };
 
-  var CSS = [
-    '.slx-stats{position:fixed;right:18px;bottom:12px;width:120px;height:14px;z-index:11;display:none;' +
-      'pointer-events:none;align-items:center;justify-content:center;gap:12px;white-space:nowrap;' +
-      'font-family:monospace;font-size:11px;letter-spacing:.5px;color:rgba(255,255,255,.45);line-height:14px;}',
-    '.slx-ping{display:flex;align-items:center;gap:4px;}',
-    '.slx-ping-dot{width:7px;height:7px;border-radius:50%;display:inline-block;flex-shrink:0;}',
-    '.slx-ping-green{background:#22c55e;box-shadow:0 0 4px #22c55e88;}',
-    '.slx-ping-orange{background:#f97316;box-shadow:0 0 4px #f9731688;}',
-    '.slx-ping-red{background:#ef4444;box-shadow:0 0 4px #ef444488;}'
-  ].join('\n');
-
-  function el(tag, cls, text) {
-    var e = doc.createElement(tag);
-    if (cls) e.className = cls;
-    if (text != null) e.textContent = text;
-    return e;
-  }
-
-  var style = el('style', null, CSS);
-  (doc.head || doc.body).appendChild(style);
-  var box = el('div', 'slx-stats');
-  var ping = el('div', 'slx-ping');
-  var dot = el('span', 'slx-ping-dot slx-ping-green');
-  var pingText = el('span', 'slx-ping-value', '-- ms');
-  ping.appendChild(dot);
-  ping.appendChild(pingText);
-  var fpsText = el('div', 'slx-fps', 'FPS: --');
-  box.appendChild(ping);
-  box.appendChild(fpsText);
-  doc.body.appendChild(box);
-
   // ---- the readout
+  var hud = root.DSPerfHud && typeof slx.echo === 'function' ?
+    root.DSPerfHud.mount({ echo: slx.echo, connected: slx.connected, visible: false,
+      zoom: typeof slx.layoutZoom === 'function' ? slx.layoutZoom() : 1 }) : null;
   var fps = 0;
   var fpsFrames = 0;
   var fpsLast = slx.now();
   var visible = false;
-
-  function showPing(rtt) {
-    var ms = Math.round(rtt);
-    pingText.textContent = ms + ' ms';
-    dot.className = 'slx-ping-dot ' + (ms < PING_GREEN_MS ? 'slx-ping-green' : ms < PING_ORANGE_MS ? 'slx-ping-orange' :
-      'slx-ping-red');
-  }
 
   // ---- the diag window
   var win = null;
@@ -189,7 +150,6 @@
 
   slx.on('pong', function (rtt) {
     if (typeof rtt !== 'number' || !(rtt >= 0)) return;
-    showPing(rtt);
     win.rtts.push(Math.round(rtt));
   });
   slx.on('frame', function () {
@@ -206,7 +166,6 @@
       fps = Math.round(fpsFrames * 1000 / (now - fpsLast));
       fpsFrames = 0;
       fpsLast = now;
-      fpsText.textContent = 'FPS: ' + fps;
     }
     var dt = lastFrameNow === null ? 0 : now - lastFrameNow;
     lastFrameNow = now;
@@ -222,7 +181,7 @@
     var on = !!S.playing;
     if (on !== visible) {
       visible = on;
-      box.style.display = on ? 'flex' : 'none';
+      if (hud) hud.show(on);
     }
     if (now - lastDiagAt >= DIAG_EVERY_MS && slx.connected()) report('');
     root.requestAnimationFrame(frame);
@@ -230,10 +189,10 @@
   root.requestAnimationFrame(frame);
 
   slx.stats = {
-    element: box,
-    // For tests and the console.
+    // For tests and the console: the shared readout, the diag's fps, the ping shown.
+    hud: hud,
     fps: function () { return fps; },
-    ping: function () { return pingText.textContent; },
+    ping: function () { var p = hud && hud.ping(); return p == null ? '-- ms' : p + ' ms'; },
     closeName: function () { return closeName(rec); }
   };
 })(typeof window !== 'undefined' ? window : globalThis);

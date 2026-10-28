@@ -21,6 +21,8 @@ import { createScene } from './swimScene.js';
 const S = window.SwimSim;
 const $ = (id) => document.getElementById(id);
 const socket = io();
+// The ping and FPS readout every game shares (public/js/shared/dsPerfHud.js), timed on this socket.
+if (window.DSPerfHud) window.DSPerfHud.mount({ socket });
 const SOUND = window.SwimSound || { play() {}, frame() {}, stop() {} };
 const NAME = S.NAME;
 const R = 1024;                      // ticks of input and state kept for replay

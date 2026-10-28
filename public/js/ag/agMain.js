@@ -684,7 +684,7 @@
     // The box shows while a game or a spectate view does, never on a menu or the end card, and only a live cell may send.
     // The map is white, so the lines get a backing (light). Bottom left it sits just above the Score panel (and the paid
     // balance panel stacked on it), which live in the ghost layout and scale with the HUD (placeChat); on a phone it is
-    // top left under the ping text.
+    // top left.
     var chat = null;
     if (win.DSChat) {
       chat = win.DSChat.mount({
@@ -1187,6 +1187,8 @@
             onSideEvent('disconnect', { reason: typeof reason === 'string' ? reason : '' });
           }
         });
+        // The ping and FPS readout every game shares (public/js/shared/dsPerfHud.js), timed on this socket.
+        if (win.DSPerfHud && net && net.socket) win.DSPerfHud.mount({ socket: net.socket });
       };
       var fontLoad = null;
       try { fontLoad = doc.fonts && typeof doc.fonts.load === 'function' ? doc.fonts.load(FONT_PROBE) : null; } catch (e) { fontLoad = null; }

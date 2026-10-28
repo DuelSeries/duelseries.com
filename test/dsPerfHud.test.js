@@ -80,7 +80,7 @@ function makeNode(tag) {
   return n;
 }
 
-function boot(viewport) {
+function boot(viewport, visualViewport) {
   const head = makeNode('head');
   const body = makeNode('body');
   let meta = null;
@@ -96,7 +96,8 @@ function boot(viewport) {
   const win = {
     document: doc,
     performance: { now: () => clock },
-    requestAnimationFrame: (fn) => { frames.push(fn); return frames.length; }
+    requestAnimationFrame: (fn) => { frames.push(fn); return frames.length; },
+    visualViewport
   };
   win.window = win;
   vm.createContext(win);
@@ -249,15 +250,58 @@ test('FPS: frames in the last second over two halves, written twice a second and
   assert.match(p.fps.textContent, /^FPS (59|60|61)$/);
 });
 
-test('show(false) hides it; a page laid out at 0.7 (slither) scales it back to the same size', () => {
-  const env = boot('minimal-ui, user-scalable=no, initial-scale=0.7, maximum-scale=0.7, width=device-width');
+test('show(false) hides it; a page really laid out at 0.7 (slither on a phone) draws it back up, a computer does not', () => {
+  const VP = 'minimal-ui, user-scalable=no, initial-scale=0.7, maximum-scale=0.7, width=device-width';
+  const env = boot(VP, { scale: 0.7 });
   env.hud.mount({ visible: false });
   const p = parts(env);
   assert.strictEqual(p.box.hidden, true);
   env.hud.show(true);
   assert.strictEqual(p.box.hidden, false);
   assert.strictEqual(p.box.style.transform, 'scale(1.4286)');
-  const plain = boot('width=device-width, initial-scale=1');
+  env.hud.mount({ zoom: 1 });                    // the page knows better (slx.layoutZoom: a frame the lobby drew 1:1)
+  assert.strictEqual(p.box.style.transform, '');
+  const pc = boot(VP, { scale: 1 });             // a computer ignores the viewport line
+  pc.hud.mount();
+  assert.strictEqual(parts(pc).box.style.transform, '');
+  const told = boot(VP, { scale: 1 });
+  told.hud.mount({ zoom: 1 / 0.7 });             // slither's frame the lobby drew at 0.7 on a phone
+  assert.strictEqual(parts(told).box.style.transform, 'scale(1.4286)');
+  const plain = boot('width=device-width, initial-scale=1', { scale: 1 });
   plain.hud.mount();
-  assert.strictEqual(parts(plain).box.style.transform, undefined);
+  assert.strictEqual(parts(plain).box.style.transform, '');
+});
+
+// ---- every game
+
+// Each game's page and the script that makes its socket (Owen 2026-10-27: the exact same counter in every game).
+// slither.io and its battle royale (/sl) load it through server/sl/slBoot.js and mount it in slxStats.js.
+const GAME_PAGES = {
+  'chomp.html': 'js/chomp/chompMain.js',
+  'ag.html': 'js/ag/agMain.js',
+  'paper-arena.html': 'js/paper/mp/paperArenaMain.js',
+  'headsoccer.html': 'js/headsoccer.js',
+  'swim.html': 'js/swim/swimMain.js',
+  'shooter.html': 'js/shooter.js',
+  'tanks.html': 'js/tanks.js',
+  'knockout.html': 'js/knockout.js',
+  'battleship.html': 'js/battleship.js',
+  'game.html': 'js/game.js'
+};
+
+test('every game page loads the shared readout before its game script, mounts it, and draws no counter of its own', () => {
+  const read = (f) => fs.readFileSync(path.join(ROOT, 'public', f), 'utf8');
+  for (const [page, script] of Object.entries(GAME_PAGES)) {
+    const html = read(page);
+    const at = html.indexOf('<script src="/js/shared/dsPerfHud.js"></script>');
+    assert.ok(at > 0, page + ': loads dsPerfHud.js');
+    const own = Math.max(html.indexOf('src="/' + script + '"'), html.indexOf('src="' + script + '"'));
+    assert.ok(own > at, page + ': before ' + script);
+    assert.ok(!/id="(ping-display|ping-dot|ping-value|fps-counter|perf-counter|netwrap)"/.test(html), page + ': a counter of its own');
+    assert.match(read(script), /DSPerfHud\.mount\(\{ socket/, script + ': mounts it on its socket');
+  }
+  const { SLX_TAIL } = require('../server/sl/slBoot');
+  assert.ok(SLX_TAIL.indexOf('/js/shared/dsPerfHud.js') >= 0 && SLX_TAIL.indexOf('/js/shared/dsPerfHud.js') < SLX_TAIL.indexOf('/js/slx/slxStats.js'),
+    '/sl loads it before the layer');
+  assert.match(read('js/slx/slxStats.js'), /DSPerfHud\.mount\(\{ echo: slx\.echo/, 'slxStats mounts it on slx.echo');
 });

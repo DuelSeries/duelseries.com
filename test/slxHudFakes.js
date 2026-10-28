@@ -19,7 +19,7 @@ const path = require('path');
 const vm = require('vm');
 
 const ROOT = path.join(__dirname, '..');
-const SHARED = ['dsEnd.js', 'dsChat.js'];
+const SHARED = ['dsEnd.js', 'dsChat.js', 'dsPerfHud.js'];
 
 function makePage(opts) {
   const o = opts || {};
@@ -223,6 +223,7 @@ function makePage(opts) {
   const subs = {};
   const sockSubs = [];
   const sent = [];
+  const echoes = [];                       // slx.echo's pings (the shared readout's), each its done()
   const lobbyPosts = [];
   let live = o.connected !== undefined ? !!o.connected : true;
   function guard(el, g) {
@@ -241,6 +242,7 @@ function makePage(opts) {
     on(name, fn) { (subs[name] = subs[name] || []).push(fn); return () => {}; },
     fire(name, a, b) { for (const fn of (subs[name] || []).slice()) fn(a, b); },
     send(name, payload) { if (!live) return false; sent.push([name, JSON.parse(JSON.stringify(payload))]); return true; },
+    echo(done) { if (!live) return false; echoes.push(done); return true; },
     onSocket(name, fn) { sockSubs.push([name, fn]); },
     connected() { return live; },
     now() { return clock.now; },
@@ -254,7 +256,7 @@ function makePage(opts) {
   D.slx = slx;
 
   const P = {
-    win, doc, S, D, slx, clock, sent, plays, lobbyPosts, stats, El,
+    win, doc, S, D, slx, clock, sent, echoes, plays, lobbyPosts, stats, El,
     dispatch,
     setConnected(v) { live = !!v; },
     socketEvent(name, data) { for (const [n, fn] of sockSubs) if (n === name) fn(data); },

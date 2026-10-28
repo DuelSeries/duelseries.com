@@ -2391,9 +2391,9 @@ function updateLeaderboard(snap) {
   }
 }
 
-// Ping tracker
-const pingDotEl   = document.getElementById('ping-dot');
-const pingValueEl = document.getElementById('ping-value');
+// Ping for the netcode (snakeCorrection) and the stall recorder. The readout on screen is the one every game shares
+// (public/js/shared/dsPerfHud.js), measured its own way like every other game's.
+if (window.DSPerfHud) window.DSPerfHud.mount({ socket });
 let pingMs = null;
 let pingSentAt = null;
 
@@ -2409,20 +2409,10 @@ socket.on('pong_check', () => {
   // packets were late leaving rather than late arriving.
   if (window.__duelDiagPing) window.__duelDiagPing(pingMs);
   pingSentAt = null;
-  pingValueEl.textContent = pingMs + ' ms';
-  pingDotEl.className = 'ping-dot ' + (pingMs < 50 ? 'ping-green' : pingMs < 100 ? 'ping-orange' : 'ping-red');
 });
 setInterval(sendPing, 2000);
 sendPing();
 
-// FPS / perf counters
-let fpsFrames = 0, fpsLast = performance.now(), fpsDisplay = 0;
-const fpsEl   = document.getElementById('fps-counter');
-/* Frames the DISPLAY offered, counted before the cap — what the monitor can do,
-   as opposed to what we chose to draw out of it. */
-let _rafFrames = 0;
-const perfEl  = document.getElementById('perf-counter');
-if (perfEl) perfEl.style.display = 'none';   // CPU/GPU counter removed
 
 let _lastFrameTime = 0;
 // Main render loop — runs at monitor refresh rate (60/144/240Hz)
@@ -2511,7 +2501,6 @@ function gameLoop(now) {
   // Counted before the cap, so this is what the DISPLAY offers rather than
   // what we choose to draw. The two answer different questions.
   if (window.__duelDiagRaf) window.__duelDiagRaf();
-  _rafFrames++;                 // counted before the cap: this is the display's rate
   // Cheap and first: skip the whole frame before anything allocates.
   if (now < _nextFrameAt) {
     requestAnimationFrame(gameLoop);
@@ -2622,32 +2611,6 @@ function gameLoop(now) {
   // Tell the server our current view radius (area-of-interest culling) so it only
   // sends snakes/food we can actually see — keeps the snapshot small on mobile.
   maybeSendView(now);
-
-  /* FPS, as two numbers when they differ.
-
-     They answer different questions and conflating them is what made 120 look
-     like a fault: the first is what we chose to DRAW, the second is what the
-     display OFFERED. A 233Hz monitor showing "FPS: 120" is the cap working
-     exactly as designed, not a frame rate problem — and there was no way to see
-     that from inside the game, which is why it got reported as one.
-
-     Only shown as a pair when the cap is actually biting, so an ordinary 60Hz
-     machine still just sees one number. */
-  fpsFrames++;
-  if (now - fpsLast >= 500) {
-    const secs = (now - fpsLast) / 1000;
-    fpsDisplay = Math.round(fpsFrames / secs);
-    const offered = Math.round(_rafFrames / secs);
-    fpsFrames = 0; _rafFrames = 0; fpsLast = now;
-    if (fpsEl) {
-      /* ALWAYS both. Showing the pair only when they diverged meant the one
-         moment you wanted to check the display rate — when the numbers happen
-         to agree — was the moment it was hidden. */
-      fpsEl.textContent = `FPS: ${fpsDisplay} · ${offered}Hz`;
-      fpsEl.title = `Drawing ${fpsDisplay} of the ${offered} frames this display `
-        + `offers (cap ${RENDER_HZ || 'off'}). ?hz=240 or ?hz=0 on the game URL changes it.`;
-    }
-  }
 
   requestAnimationFrame(gameLoop);
 }

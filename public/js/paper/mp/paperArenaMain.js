@@ -232,6 +232,8 @@
     var socket = root.io();
     var link = lagMs > 0 ? laggedSocket(socket, lagMs) : socket;
     var net = new P.Net.ArenaNet({ socket: link });
+    // The ping and FPS readout every game shares (public/js/shared/dsPerfHud.js), timed on the real socket.
+    if (root.DSPerfHud) root.DSPerfHud.mount({ socket: socket });
 
     // ---- DOM ----
     var el = {

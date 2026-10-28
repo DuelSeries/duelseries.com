@@ -40,7 +40,8 @@ const SLX_FILES = Object.freeze(['slxNet.js', 'slxPaid.js', 'slxBr.js', 'slxWatc
   'slxCard.js', 'slxChat.js', 'slxStats.js', 'slxHud.js', 'slxSound.js', 'slxHold.js', 'slxTouch.js',
   'slxSkins.js', 'slxCoin.js']);
 const SLX_CSS = 'slx.css';
-const SHARED_UI = Object.freeze(['dsEnd.js', 'dsChat.js']);   // the end screens and the chat every game shares
+// the end screens, the chat and the ping and FPS readout every game shares
+const SHARED_UI = Object.freeze(['dsEnd.js', 'dsChat.js', 'dsPerfHud.js']);
 const EMPTY_UI = 'dsEmptyArena.js';
 const WATCH_UI = 'dsWatchBar.js';
 const CLIP_FILES = Object.freeze(['mp4mux.js', 'clipRec.js']);

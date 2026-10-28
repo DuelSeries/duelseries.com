@@ -17,6 +17,7 @@
 //
 // DSPerfHud.mount({ socket })   socket.io socket (or later via .use); shows the readout and starts measuring
 // DSPerfHud.mount({ echo })     echo(done) sends one ping and calls done() on the answer; false when it cannot send
+//          { zoom: n }          a page drawn at 1/n (slither's 0.7 page passes its own layout zoom, slx.layoutZoom)
 //          .use(sourceOrSocket) a new socket or echo (a page that makes a new socket per match)
 //          .show(on)            hide it while a game shows its own menu (default: shown)
 //          .ping() -> ms|null   the number shown; .fps() -> the number shown; .element
@@ -33,7 +34,7 @@
   var PING_GREEN_MS = 50;            // slither's colours (public/js/game.js ping tracker)
   var PING_ORANGE_MS = 100;
   var FPS_HALF_MS = 500;
-  var Z = 2147480050;                // over every game's canvas and HUD, under the Spectate bar (2147480100)
+  var Z = 950;                       // over the games' canvases and HUDs, under the shared end card (1000) and dialogs
 
   var CSS = [
     '.dsp-hud{position:fixed;right:calc(8px + env(safe-area-inset-right,0px));bottom:calc(4px + env(safe-area-inset-bottom,0px));',
@@ -60,14 +61,21 @@
     return e;
   }
 
-  // A page laid out below 1:1 (slither's sl.html is initial-scale 0.7) would shrink the readout; it is scaled back up
-  // so it is the same size on the screen in every game.
-  function pageScale() {
+  // A page laid out below 1:1 would shrink the readout; it is drawn back up so it is the same size on the screen in
+  // every game. The page says so (zoom), else a viewport line below 1 that the browser really applied (a phone; a
+  // computer and a frame ignore the line).
+  function autoZoom() {
     var m = doc.querySelector && doc.querySelector('meta[name="viewport"]');
     var c = m && m.getAttribute('content');
     var r = c && /initial-scale\s*=\s*([\d.]+)/.exec(c);
-    var s = r ? parseFloat(r[1]) : 1;
-    return s > 0.2 && s < 1 ? s : 1;
+    var vv = root.visualViewport;
+    if (!r || !(parseFloat(r[1]) < 1) || !vv || !(vv.scale > 0.2 && vv.scale < 0.99)) return 1;
+    return 1 / vv.scale;
+  }
+  function setZoom(z) {
+    if (!box) return;
+    var n = typeof z === 'number' && z >= 1 && z < 5 ? z : autoZoom();
+    box.style.transform = n !== 1 ? 'scale(' + n.toFixed(4) + ')' : '';
   }
 
   var box = null, dot = null, msText = null, fpsText = null;
@@ -77,6 +85,7 @@
   function build() {
     if (box) return;
     var style = el('style', null, CSS);
+    style.setAttribute('data-ds', 'perf');
     (doc.head || doc.documentElement).appendChild(style);
     box = el('div', 'dsp-hud');
     box.setAttribute('aria-hidden', 'true');
@@ -88,8 +97,6 @@
     fpsText = el('span', 'dsp-fps', 'FPS --');
     box.appendChild(ping);
     box.appendChild(fpsText);
-    var s = pageScale();
-    if (s !== 1) box.style.transform = 'scale(' + (1 / s).toFixed(4) + ')';
     box.hidden = !wantShown;
     (doc.body || doc.documentElement).appendChild(box);
   }
@@ -233,6 +240,7 @@
       return api;
     }
     build();
+    if (o.zoom !== undefined || !box.style.transform) setZoom(o.zoom);
     if (o.socket || o.echo) use(o.echo ? { echo: o.echo, connected: o.connected } : o.socket);
     if (typeof o.visible === 'boolean') show(o.visible);
     if (!running && typeof root.requestAnimationFrame === 'function') {

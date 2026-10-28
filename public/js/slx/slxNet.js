@@ -19,6 +19,8 @@
 //    file adds with slx.onSocket before Play). Any other namespace goes to the original io untouched.
 // 3. Layer emits on the same socket (slx.send), only sl:hold, sl:vis, sl:chat and sl:diag (SERVER-DESIGN 12.2);
 //    and sl:vis itself, from a visibilitychange listener (15.2), so the server never counts a hidden tab as late.
+//    Plus slx.echo: the ping every game's readout times (public/js/shared/dsPerfHud.js, server/perfEcho.js), 'ds:ping'
+//    with an acknowledgement on the live socket.
 // 4. Resume after a blip (task T16b; Owen Q10 "glide 3 s from the start ... while reconnecting"; SERVER-DESIGN 9.6;
 //    server/sl/slResume.js). The server hands each life a key in sl:x {t: 'seat', k, ms} and a new one at every
 //    resume ({t: 'back', k, ms}); the key stays in this file (never fired to observers). When the life's socket drops
@@ -137,6 +139,17 @@
     if (!has.call(LAYER_EMITS, name) || !live()) return false;
     try {
       sock.emit(name, payload);
+      return true;
+    } catch (e) {
+      slx.errors++;
+      return false;
+    }
+  }
+
+  function echo(done) {
+    if (!live()) return false;
+    try {
+      sock.emit('ds:ping', done);
       return true;
     } catch (e) {
       slx.errors++;
@@ -527,6 +540,7 @@
   slx.on = on;
   slx.fire = fire;
   slx.send = send;
+  slx.echo = echo;
   slx.onSocket = onSocket;
   slx.endLife = endLife;
   slx.connected = live;
