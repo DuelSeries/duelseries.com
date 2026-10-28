@@ -162,13 +162,17 @@ class Spawner {
         /* When the front car gets to this one, if both keep going as they are. */
         const close = Math.max(4, (leadV || S.V0) - v);
         const meet = Math.max(tick + 1, tick + Math.round(((z - leadZ) / close) * S.HZ));
+        /* The room must last until the rear car can arrive too: it may be up to BEHIND_LOSE behind the
+           front one at the same closing speed (Fable review 2026-10-28; a fixed 6 s left a slow rear car
+           meeting a changed car that had driven into the one ahead of it). */
+        const after = Math.max(ROOM_AFTER, Math.round((S.BEHIND_LOSE / close) * S.HZ) + 60);
         /* Its lane change, if it means to make one and the next lane has room for it all the way. */
         let to = this.nextTo[l], ct = -1;
         if (to >= 0) {
           ct = tick + Math.max(S.SIGNAL + 30, Math.round(this.nextF[l] * (meet - tick)));
-          if (!this.roomIn(traffic, to, z, v, hl, tick, ct - S.SIGNAL, Math.max(meet, ct + S.MOVE) + ROOM_AFTER)) { to = -1; ct = -1; }
+          if (!this.roomIn(traffic, to, z, v, hl, tick, ct - S.SIGNAL, Math.max(meet, ct + S.MOVE) + after)) { to = -1; ct = -1; }
         }
-        if (!this.roomIn(traffic, l, z, v, hl, tick, tick, to >= 0 ? ct + S.MOVE : meet + ROOM_AFTER)
+        if (!this.roomIn(traffic, l, z, v, hl, tick, tick, to >= 0 ? ct + S.MOVE : meet + after)
             || this.shuts(traffic, occMask(l, to, ct, tick), z, type, tick)
             || this.shuts(traffic, occMask(l, to, ct, meet), z + v * (meet - tick) * S.DT, type, meet)) {
           this.need[l] += 5 + this.rand() * 9;   // wait a few metres and try again

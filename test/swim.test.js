@@ -365,7 +365,7 @@ test('a lane change: in its own lane before, in the new one after, in both from 
   assert.strictEqual(S.signalAt(rec, ct - S.SIGNAL), -1);
   assert.strictEqual(S.signalAt(rec, ct + S.MOVE - 1), -1);
   assert.strictEqual(S.signalAt(rec, ct + S.MOVE), 0);
-  assert.deepStrictEqual([ct - 61, ct - 60, ct - 1, ct].map(t => S.brakingAt(rec, t)), [false, true, true, false]);
+  assert.deepStrictEqual([ct - 61, ct - 60, ct - 1, ct].map(t => S.brakingAt(rec, t)), [false, false, false, false], 'traffic never slows, so its brake lamps never light');
   // Counted in both lanes from the indicator until it has moved over.
   const behind = (t) => zz(t) - 30;
   assert.strictEqual(tr.aheadIn(1, behind(ct - S.SIGNAL - 1), ct - S.SIGNAL - 1), null);

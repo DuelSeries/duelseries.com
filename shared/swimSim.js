@@ -258,7 +258,9 @@
     if (rec.length < 8 || tick < rec[6] - SIGNAL || tick >= rec[6] + MOVE) return 0;
     return rec[7] > rec[1] ? 1 : -1;
   }
-  function brakingAt(rec, tick) { return rec.length >= 8 && tick >= rec[6] - HZ && tick < rec[6]; }
+  /* Traffic never slows, so its brake lamps never light (Owen: lit when a car slows down; Fable review
+     2026-10-28: a lamp on a car that keeps its speed misleads a player timing a pass). */
+  function brakingAt() { return false; }
   function validRecord(r) {
     return Array.isArray(r) && (r.length === 6 || r.length === 8) && Number.isInteger(r[0]) && r[0] >= 0
       && Number.isInteger(r[1]) && r[1] >= 0 && r[1] < LANES
