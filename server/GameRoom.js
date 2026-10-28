@@ -470,6 +470,21 @@ class GameRoom {
        broadcastSnapshot already asks this exact question, for this exact
        reason. The tick had simply never been told. */
     if (this.audience() === 0) {
+      /* ONLY BOTS LEFT: NO SIMULATION AT ALL. These fixed tiers are a fallback
+         the lobby no longer sends anyone to (see index.js), yet at a sixth of the
+         rate they still rebuilt a 3,600-pellet food grid and ran every bot's AI:
+         the live profile (2026-10-28, nobody playing) put GameRoom.tick at
+         10-33 ms of every second, more than the whole new snake engine, all of
+         it garbage for the collector the real games share. A room with nobody
+         in it, no orphaned snake in its grace window and no live human snake
+         has nothing anyone can see or lose, so it waits; the first player or
+         spectator brings the next tick back at full rate and topUpBots refills
+         within a second. The battle royale room runs its zone off the clock and
+         is left on the old idle rate. */
+      if (!this.updateZone && this.orphans.size === 0 && !this._humanAlive()) {
+        this._idleSkip = 0;
+        return;
+      }
       this._idleSkip = (this._idleSkip || 0) + 1;
       if (this._idleSkip < 10) return;
       this._tickSpan = this._idleSkip;
@@ -828,6 +843,12 @@ class GameRoom {
   /* Everyone attached to this room: players, and anybody watching. Bots are
      not in here and should not be — a room of nothing but bots with nobody
      looking at it is exactly what the idle throttle is for. */
+  // A live snake that a person owns (a paid one may be held here with nobody connected).
+  _humanAlive() {
+    for (const s of this.snakes.values()) if (s.alive && !s.isBot) return true;
+    return false;
+  }
+
   audience() {
     if (this.players.size > 0) return this.players.size;
     const set = this.io && this.io.sockets && this.io.sockets.adapter
