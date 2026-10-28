@@ -49,6 +49,20 @@ follows the window's ratio, clamped to 4:3 .. 2.29:1 (S: `minRatio` .4375, `maxR
 | Goal | ball centre past x +-1044.2 with y between 755.2 and 1259.2 | `Goal.isInGoal` (sprite.x -+ .5 width; sprite.y - .4 height .. sprite.y) |
 | Kick-off spots | players at x +-495, dropped from y 1082.2; ball dropped from (0, 576) drifting (left score - right score) x 5 units/s | `startGame`, `getPlayerStart`, `ball.setStart` |
 
+### Contacts (HS.CONTACT_P2, on since 2026-10-28)
+
+shared/hsSim.js runs the reference's own contact model (its p2 0.7, read from the shipped source): a contact is found
+from the start-of-step positions (a step after the overlap begins) and pushed apart by a soft SPOOK spring (stiffness
+1e5, the ball's materials 1e6, relaxation 4, 10 Gauss-Seidel passes); friction is a soft row clamped at .3 x 36 m/s^2 x
+mass; restitution is the target only on a body pair's first impact; the ball spins (inertia 1.0712) and the players
+keep a hidden spin (L: inertia 358.36, angular damping .1) though their angle is locked; the pitch is the reference's
+five convex pieces; kick() calls update() a second time (vx x .6 once more when no key is held, one more 1E4 down
+force). M: all 52 scenarios of the 2026-10-27 physics check (bounces, rolling, head, bar and net rebounds, landings,
+the shelf corner, the kicker's recoil) are within 0.5 units of the reference step by step; 0 of 154 headline numbers
+are more than 2 percent off (the rigid model had 63). Lockstep: the engine's memory between steps (touch bits, spins)
+rides the wire, and the server rounds its match to the wire at every snapshot, so the page replays the server's
+steps exactly. HS.CONTACT_P2 = false restores the rigid model bit for bit.
+
 **Not symmetric in the reference:** its kick aims at the ball sprite's top-left corner for both players. Ours
 mirrors that corner for the right seat so neither seat kicks differently (a money duel must be fair).
 
@@ -418,6 +432,7 @@ board centre at px 987.5). "score px" = ui--score.png (2.2222, origin -438.9, 17
 
 - **Sound timbres:** their wav files were not analysed; ours are the house synth sounds mapped to the same moments.
 - **Each crowd fan's exact position and look:** ours are drawn independently in their blocks, rows, sizes and palette.
-- **Physics on contact:** bounces, rolling, rebounds and the kicker's recoil differ from theirs (straight-line motion and
-  kicks match). A matching engine prototype and the measurements are in the follow-up notes; not in this change.
+- **Physics on contact:** matched since 2026-10-28 (see Contacts). Long head-to-head pushing still drifts from theirs
+  after a few hundred steps (their float32 maths and screen-width rounding); bit-exact against them is not expected.
+- **Net ripple (BallReflect, level--frame0..6):** not drawn yet; it needs their ripple frames measured first.
 - The per-slice UNKNOWN items are listed in each notes section above.

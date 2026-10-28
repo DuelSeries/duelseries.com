@@ -197,6 +197,8 @@ class HeadSoccerRoom extends KnockoutRoom {
   /* c: the match clock's ms left; g: in golden goal, its minute's ms left (the board counts that down instead). */
   snapshot() {
     const m = this.match;
+    // The match is rounded to the wire's precision first, so the page's replay starts from exactly this state.
+    Sim.snapToWire(m);
     const s = {
       k: m.tick, c: Math.round(m.msLeft), st: this.state,
       b: Sim.packBall(m.ball), p: [Sim.packPlayer(m.p[0]), Sim.packPlayer(m.p[1])],

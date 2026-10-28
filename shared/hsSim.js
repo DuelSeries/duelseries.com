@@ -86,6 +86,10 @@
     // The power shot is not in this reference (no special moves in its source). OFF, kept as one switch.
     POWER_SHOT: false,
     POWER_FREEZE_MS: 900,
+    // Contacts: the reference's own soft-contact engine (its p2: contacts found a step late and pushed apart by a
+    // spring, friction, restitution on a first impact only, a spinning ball) and its kick's second update() call.
+    // M: 52 measured scenarios match it within 0.5 units. false is the rigid push-out model this file had before.
+    CONTACT_P2: true,
   };
 
   var IN = { LEFT: 1, RIGHT: 2 };
@@ -191,9 +195,12 @@
       held: 0,                   // IN bits
       jumps: 0, kicks: 0, powers: 0,   // press counters already acted on
       power: 0, powerArmed: false,     // the power shot's, kept at zero (no power shot)
+      spin: 0,                   // CONTACT_P2: the body's hidden spin (L: its angle is locked, its spin is not), rad/s
+      touch: 0,                  // CONTACT_P2: which shape pairs touched last step (bits, see Contact)
+      xf: 0,                     // CONTACT_P2: this step's extra Player.update forces from a kick (S: kick calls update)
     };
   }
-  function newBall() { return { x: 0, y: HS.DROP_Y, vx: 0, vy: 0, rot: 0, straight: false, powerBy: -1 }; }
+  function newBall() { return { x: 0, y: HS.DROP_Y, vx: 0, vy: 0, rot: 0, straight: false, powerBy: -1, spin: 0, touch: 0 }; }
   function newMatch() {
     return { p: [newPlayer(0), newPlayer(1)], ball: newBall(), score: [0, 0], msLeft: HS.MATCH_MS, goldenMs: 0,
              tick: 0, freezeMs: 0 };
@@ -229,6 +236,9 @@
   function tryKick(p, ball, ev) {
     if (p.kickMs >= 0) return;
     p.kickMs = 0;
+    // S: kick() calls this.update() a second time: not moving -> velocity.x *= .6 once more, and one more 1E4 down
+    // force this step (M: a drifting kicker keeps 313.9 of 523, an airborne one falls 33.3 faster)
+    if (HS.CONTACT_P2) { if (!p.mv) p.vx *= HS.IDLE_KEEP; p.mv = false; p.xf = (p.xf | 0) + 1; }
     var t = kickAim(p, ball), v = kickVelocity(p, t[0], t[1]);
     if (!v) { ev.push({ e: 'swing', s: p.side }); return; }
     ball.vx = v[0]; ball.vy = v[1];
@@ -305,19 +315,9 @@
     return -vn;
   }
 
-  // The whole match, one step. inputs[side]: { held, jumps, kicks, powers } (counts only ever go up). `live` true
-  // runs the clock and counts goals; `enabled` false is the reference's disabled input (default on). Returns the
-  // step's events: kick, swing, jump, head, bounce, post, net, goal { s: who scored }.
-  function step(m, inputs, dt, live, enabled) {
-    if (enabled === undefined) enabled = true;
-    var ev = [], ball = m.ball, i, p;
-    m.tick++;
-    // The reference's order: every player's update and controls, then the physics step.
-    for (i = 0; i < 2; i++) control(m.p[i], inputs ? inputs[i] : null, ball, enabled, ev);
-    if (live) {
-      if (m.msLeft > 0) m.msLeft = Math.max(0, m.msLeft - dt * 1000);
-      else m.goldenMs += dt * 1000;
-    }
+  // The rigid model (HS.CONTACT_P2 false): move, then push every overlap out along its normal in the same step.
+  function rigid(m, ev, dt) {
+    var ball = m.ball, i, p;
     var bd = Math.pow(1 - HS.BALL_DAMP, dt), pd = Math.pow(1 - HS.PLAYER_DAMP, dt);
     ball.vx *= bd; ball.vy *= bd; ball.vy += HS.G * dt;
     ball.x += ball.vx * dt; ball.y += ball.vy * dt;
@@ -359,8 +359,420 @@
         }
       }
     }
-    // M: the reference's ball barely turns (0.47 rad/s rolling at 984): it slides. Drawn the same.
+    // The rigid ball has no spin: drawn turning slowly with its speed.
     ball.rot += ball.vx * dt * 0.00048;
+  }
+
+  // ── physics B: the reference's own contact model (HS.CONTACT_P2) ───────────────────────────────────────────────
+  /* p2 0.7 inside Phaser 2.4.2, written from reading its shipped source (MIT) and checked step by step against the
+     running reference: 52 scenarios (bounces, rolling, head and bar rebounds, landings, the kicker's recoil), every
+     one within 0.5 units (docs/head-soccer-reference.md, "Contacts"). Unlike the rigid model: a contact is found from
+     the START-of-step positions (a step after the overlap begins) and pushed apart by a soft spring (SPOOK: stiffness
+     1e5, the ball's materials 1e6, relaxation 4, 10 Gauss-Seidel passes); friction is a soft equation clamped at
+     mu x |g| x mass; restitution is the target only on a body pair's first impact; the ball spins (inertia 1.0712)
+     and the players keep a hidden spin (L: inertia 358.36) though their angle is locked. Its frame: metres,
+     kilograms, and x and y NEGATED from the design frame (its P2 world is ours turned half a turn).
+
+     LOCKSTEP. A step reads nothing but the match. What the engine remembers between steps rides on the moving bodies
+     and on the wire: `touch` (which shape pairs touched last step: first impacts and Player.ground read it) and
+     `spin`. The broadphase order is sorted afresh every step from one fixed list (the reference keeps its list
+     between steps; the two differ only on an exact tie), and all the scratch is rebuilt every step. */
+  var Contact = (function () {
+    var SM = 0.0225;                                   // metres per design unit: imageScale .45 px per unit, 20 px per metre
+    var CIRCLE = 1, PLANE = 4, CONVEX = 8, ITER = 10;  // p2's shape type numbers (a pair is solved lower type first); L: 10 passes
+    var P_INV_I = 1 / 358.3564484735253, P_ANG_DAMP = 0.1;   // L: a player body's inertia and angularDamping
+    var MAT = { e: 0, k: 1e5, d: 4, skin: 0.005, fr: 0.3 };  // L: setGlobalStiffness(1E5), relaxation 4, friction .3; S: skin
+    var BALL_MAT = {                                   // S: contactMaterial(ball, ...).restitution; L: their stiffness 1e6
+      field: { e: HS.BALL_E_PITCH, k: 1e6, d: 4, skin: 0.005, fr: 0.3 },
+      arena: { e: HS.BALL_E_GOAL, k: 1e6, d: 4, skin: 0.005, fr: 0.3 },
+      player: { e: HS.BALL_E_PLAYER, k: 1e6, d: 4, skin: 0.005, fr: 0.3 },
+    };
+    function matOf(a, b) { var o = a === 'ball' ? b : b === 'ball' ? a : null; return (o && BALL_MAT[o]) || MAT; }
+
+    function dot(a, b) { return a[0] * b[0] + a[1] * b[1]; }
+    function sub(a, b) { return [a[0] - b[0], a[1] - b[1]]; }
+    function add(a, b) { return [a[0] + b[0], a[1] + b[1]]; }
+    function mul(a, s) { return [a[0] * s, a[1] * s]; }
+    function cross(a, b) { return a[0] * b[1] - a[1] * b[0]; }
+    function unit(a) { var l = Math.hypot(a[0], a[1]); return l > 0 ? [a[0] / l, a[1] / l] : [0, 0]; }
+    function cw(a) { return [a[1], -a[0]]; }
+
+    // A convex shape from a design-frame polygon: counter-clockwise in the engine's frame, about its own centroid.
+    function ccw(v) {
+      var a = 0;
+      for (var i = 0; i < v.length; i++) { var p = v[i], q = v[(i + 1) % v.length]; a += p[0] * q[1] - q[0] * p[1]; }
+      return a < 0 ? v.slice().reverse() : v;
+    }
+    function convex(poly, mat, ix, head) {
+      var v = ccw(poly.map(function (p) { return [-p[0] * SM, -p[1] * SM]; })), a = 0, cx = 0, cy = 0, i;
+      for (i = 0; i < v.length; i++) {
+        var p = v[i], q = v[(i + 1) % v.length], cr = p[0] * q[1] - q[0] * p[1];
+        a += cr; cx += (p[0] + q[0]) * cr; cy += (p[1] + q[1]) * cr;
+      }
+      cx /= 3 * a; cy /= 3 * a;
+      return { type: CONVEX, v: v.map(function (p) { return [p[0] - cx, p[1] - cy]; }), off: [cx, cy], mat: mat, ix: ix, head: !!head };
+    }
+    function spos(b, sh) { return sh.off ? [b.pos[0] + sh.off[0], b.pos[1] + sh.off[1]] : b.pos; }
+
+    /* Bodies by slot, in the reference's body-id order: the top edge, the pitch, left bar, left net, right bar, right
+       net, seat 0, seat 1, the ball. NS: shapes per slot; BASE: the shapes in the slots before it. A moving body's
+       `touch` holds one bit per (lower-slot shape, own shape) pair: bit (BASE[lower] + its shape) x NS[own] + own shape. */
+    var NS = [1, 5, 1, 1, 1, 1, 2, 2, 1], BASE = [0, 1, 6, 7, 8, 9, 10, 12, 14];
+    function body(slot, tag) {
+      return { slot: slot, tag: tag, dynamic: false, pos: [0, 0], vel: [0, 0], w: 0, force: [0, 0], mass: 0, invMass: 0, invI: 0,
+               damping: 0, angDamping: 0, shapes: [], vl: [0, 0], wl: 0, box: null, was: 0, now: 0, idx: -1 };
+    }
+    // L: the reference's pitch body is these five convex pieces, in this order and winding (read from its live p2 body):
+    // WORLD's pitch outline cut its way, so contacts at the step faces and chamfers pair up as they do there.
+    var FLOOR_PIECES = [
+      [[-1280, 1181.82], [-1030, 1181.82], [-990, 1221.82], [-990, 1431.82]],
+      [[-1280, 2019.59], [-1280, 1181.82], [-990, 1431.82], [-950, 1471.82]],
+      [[1280, 2019.59], [-1280, 2019.59], [-950, 1471.82], [950, 1471.82]],
+      [[1280, 1181.82], [1280, 2019.59], [950, 1471.82], [990, 1431.82]],
+      [[990, 1431.82], [990, 1221.82], [1030, 1181.82], [1280, 1181.82]],
+    ];
+    var TOP = body(0, 'top'), FLOOR = body(1, 'floor'), BAR_L = body(2, 'bar'), NET_L = body(3, 'net'), BAR_R = body(4, 'bar'), NET_R = body(5, 'net');
+    TOP.shapes.push({ type: PLANE, normal: [0, -1], mat: 'default', ix: 0 });   // the world's top edge, y = 0
+    FLOOR_PIECES.forEach(function (v, i) { FLOOR.shapes.push(convex(v, 'field', i)); });
+    NET_L.shapes.push(convex(WORLD[5].v, 'arena', 0)); NET_R.shapes.push(convex(WORLD[6].v, 'arena', 0));
+    BAR_L.shapes.push(convex(WORLD[7].v, 'arena', 0)); BAR_R.shapes.push(convex(WORLD[8].v, 'arena', 0));
+    var STATICS = [TOP, FLOOR, BAR_L, NET_L, BAR_R, NET_R];
+    var LEGS = convex([[20, 50], [20, 150], [-20, 150], [-20, 50]], 'player', 0), HEAD = convex(HS.HEAD, 'player', 1, true);   // L: its vertex order
+    var BALL = { type: CIRCLE, radius: HS.BALL_R * SM, mat: 'ball', ix: 0 };
+
+    function aabbOf(b) {
+      var lx = Infinity, ux = -Infinity, ly = Infinity, uy = -Infinity;
+      b.shapes.forEach(function (sh) {
+        if (sh.type === PLANE) { lx = -1e7; ux = 1e7; ly = b.pos[1]; uy = 1e7; return; }   // everything above y = 0
+        var o = spos(b, sh), vs = sh.type === CIRCLE ? [[-sh.radius, -sh.radius], [sh.radius, sh.radius]] : sh.v;
+        vs.forEach(function (v) { var x = o[0] + v[0], y = o[1] + v[1]; if (x < lx) lx = x; if (x > ux) ux = x; if (y < ly) ly = y; if (y > uy) uy = y; });
+      });
+      return { lx: lx, ux: ux, ly: ly, uy: uy };
+    }
+    STATICS.forEach(function (b) { b.box = aabbOf(b); });
+
+    // S: its broadphase is sweep-and-prune on x, and the order its pairs come out in is the order they are solved
+    // in: bodies sorted by their box's lowest x (stable, from the slot order), a pair (earlier, later) while the later
+    // starts before the earlier ends, only pairs its collision groups allow.
+    function mayCollide(a, b) {
+      if (!a.dynamic && !b.dynamic) return false;
+      if (a.tag === 'top' || b.tag === 'top' || a.tag === 'ball' || b.tag === 'ball') return true;
+      return a.tag === 'player' && b.tag === 'player' || a.dynamic !== b.dynamic;
+    }
+    function pairsOf(bodies) {
+      var order = [], out = [], i, j;
+      for (i = 0; i < bodies.length; i++) {
+        var e = bodies[i], f = i - 1;
+        order.push(e);
+        while (f >= 0 && order[f].box.lx > e.box.lx) { order[f + 1] = order[f]; f--; }
+        order[f + 1] = e;
+      }
+      for (i = 0; i < order.length; i++) {
+        var A = order[i], a = A.box;
+        for (j = i + 1; j < order.length; j++) {
+          var B = order[j], c = B.box;
+          if (!(c.lx <= a.ux)) break;
+          if (mayCollide(A, B) && a.lx <= c.ux && c.lx <= a.ux && a.ly <= c.uy && c.ly <= a.uy) out.push([A, B]);
+        }
+      }
+      return out;
+    }
+
+    // ── its equations ──
+    function gmult(G, vA, wA, vB, wB) { return G[0] * vA[0] + G[1] * vA[1] + G[2] * wA + G[3] * vB[0] + G[4] * vB[1] + G[5] * wB; }
+    function gW(e) { return gmult(e.G, e.A.vel, e.A.w, e.B.vel, e.B.w); }
+    function gWl(e) { return gmult(e.G, e.A.vl, e.A.wl, e.B.vl, e.B.wl); }
+    function giMf(e) {
+      var A = e.A, B = e.B;
+      return gmult(e.G, [A.force[0] * A.invMass, A.force[1] * A.invMass], 0, [B.force[0] * B.invMass, B.force[1] * B.invMass], 0);
+    }
+    function giMGt(e) {
+      var G = e.G, A = e.A, B = e.B;
+      return G[0] * G[0] * A.invMass + G[1] * G[1] * A.invMass + G[2] * G[2] * A.invI + G[3] * G[3] * B.invMass + G[4] * G[4] * B.invMass + G[5] * G[5] * B.invI;
+    }
+    function addW(e, l) {
+      var G = e.G, A = e.A, B = e.B;
+      A.vl[0] += G[0] * A.invMass * l; A.vl[1] += G[1] * A.invMass * l; A.wl += A.invI * G[2] * l;
+      B.vl[0] += G[3] * B.invMass * l; B.vl[1] += G[4] * B.invMass * l; B.wl += B.invI * G[5] * l;
+    }
+    function spook(e, h) { var k = e.k, d = e.d; e.a = 4 / (h * (1 + 4 * d)); e.b = 4 * d / (1 + 4 * d); e.eps = 4 / (h * h * k * (1 + 4 * d)); }
+    function contactB(e, h) {
+      var G = e.G, n = e.n, q, p;
+      G[0] = -n[0]; G[1] = -n[1]; G[2] = -cross(e.cpA, n); G[3] = n[0]; G[4] = n[1]; G[5] = cross(e.cpB, n);
+      var pen = sub(add(e.B.pos, e.cpB), add(e.A.pos, e.cpA));
+      e.closing = -gW(e);
+      if (e.first && e.rest !== 0) { q = 0; p = 1 / e.b * (1 + e.rest) * gW(e); }   // a first impact aims at the bounce
+      else { q = dot(n, pen) + e.skin; p = gW(e); }                                  // after it, a spring on the overlap
+      return -q * e.a - p * e.b - h * giMf(e);
+    }
+    function frictionB(e, h) {
+      var G = e.G, t = e.t;
+      G[0] = -t[0]; G[1] = -t[1]; G[2] = -cross(e.cpA, t); G[3] = t[0]; G[4] = t[1]; G[5] = cross(e.cpB, t);
+      return -gW(e) * e.b - h * giMf(e);
+    }
+
+    // ── its narrowphase (the contact points follow its maths) ──
+    function touchedBefore(A, B) {
+      var H = A.slot > B.slot ? A : B, L = H === A ? B : A, n = NS[H.slot];
+      return ((H.was >>> (BASE[L.slot] * n)) & ((1 << (NS[L.slot] * n)) - 1)) !== 0;
+    }
+    function newContact(w, A, B, sA, sB) {
+      var k = w.mat, e = { c: true, A: A, B: B, sA: sA, sB: sB, G: [0, 0, 0, 0, 0, 0], cpA: [0, 0], cpB: [0, 0], n: [0, 0],
+        min: 0, max: Infinity, rest: k.e, first: !touchedBefore(A, B), k: k.k, d: k.d, skin: k.skin, a: 0, b: 0, eps: 0, closing: 0 };
+      w.ces.push(e);
+      return e;
+    }
+    function friction(w, A, B, cpA, cpB, t) {
+      w.frs.push({ c: false, A: A, B: B, G: [0, 0, 0, 0, 0, 0], cpA: cpA, cpB: cpB, t: t, min: -w.slip, max: w.slip, k: w.mat.k, d: w.mat.d, a: 0, b: 0, eps: 0 });
+    }
+    function frictionFromAverage(w, n) {   // one friction row for a shape pair's n contacts, at their mean point
+      var last = w.ces[w.ces.length - 1], A = last.A, B = last.B, cpA = [0, 0], cpB = [0, 0], t = [0, 0];
+      for (var i = 0; i < n; i++) {
+        var c = w.ces[w.ces.length - 1 - i];
+        if (c.A === A) { t = add(t, c.n); cpA = add(cpA, c.cpA); cpB = add(cpB, c.cpB); }
+        else { t = sub(t, c.n); cpA = add(cpA, c.cpB); cpB = add(cpB, c.cpA); }
+      }
+      friction(w, A, B, mul(cpA, 1 / n), mul(cpB, 1 / n), cw(unit(t)));
+    }
+    function pointInConvex(p, v, pos) {
+      var n = null;
+      for (var o = 0; o <= v.length; o++) {
+        var P = add(v[o % v.length], pos), Q = add(v[(o + 1) % v.length], pos), r = cross(sub(P, p), sub(Q, p));
+        if (n === null) n = r;
+        if (0 >= r * n) return false;
+        n = r;
+      }
+      return true;
+    }
+    function circleConvex(w, A, sA, B, sB) {
+      var c = spos(A, sA), R = sA.radius, k = spos(B, sB), M = sB.v, found = false, L = Infinity, J = null, Ap = null, N;
+      for (N = 0; N !== M.length + 1; N++) {
+        var O = add(M[N % M.length], k), P = add(M[(N + 1) % M.length], k), x = cw(unit(sub(P, O))), D = add(mul(x, -R), c);
+        if (pointInConvex(D, M, k)) {
+          var Q = Math.abs(dot(sub(O, D), x));
+          if (L > Q) { J = D; L = Q; Ap = add(mul(x, Q), D); found = true; }
+        }
+      }
+      var e;
+      if (found) {
+        e = newContact(w, A, B, sA, sB);
+        e.n = unit(sub(J, c)); e.cpA = sub(add(mul(e.n, R), c), A.pos); e.cpB = sub(add(sub(Ap, k), k), B.pos);
+        friction(w, A, B, e.cpA.slice(), e.cpB.slice(), cw(e.n));
+        return 1;
+      }
+      for (N = 0; N < M.length; N++) {   // a vertex inside the circle
+        var z = add(M[N], k), y = sub(z, c);
+        if (dot(y, y) < R * R) {
+          e = newContact(w, A, B, sA, sB);
+          e.n = unit(y); e.cpA = sub(add(mul(e.n, R), c), A.pos); e.cpB = sub(add(sub(z, k), k), B.pos);
+          friction(w, A, B, e.cpA.slice(), e.cpB.slice(), cw(e.n));
+          return 1;
+        }
+      }
+      return 0;
+    }
+    function projectOnto(v, pos, axis) {
+      var mn = null, mx = null;
+      for (var i = 0; i < v.length; i++) { var h = dot(v[i], axis); if (mx === null || h > mx) mx = h; if (mn === null || mn > h) mn = h; }
+      var o = dot(pos, axis);
+      return [mn + o, mx + o];
+    }
+    function separatingAxis(a, pa, b, pb) {
+      var best = null, bestAxis = null, over = false;
+      for (var u = 0; u !== 2; u++) {
+        var s = u === 0 ? a : b;
+        for (var x = 0; x !== s.v.length; x++) {
+          var r = unit(cw(sub(s.v[(x + 1) % s.v.length], s.v[x]))), p = projectOnto(a.v, pa, r), q = projectOnto(b.v, pb, r), lo = p, hi = q;
+          if (p[0] > q[0]) { hi = p; lo = q; }
+          var gap = hi[0] - lo[1];
+          if (best === null || gap > best) { bestAxis = r; best = gap; over = gap <= 0; }
+        }
+      }
+      return over ? bestAxis : null;
+    }
+    function closestEdge(sh, axis, flip) {
+      var e = flip ? [-axis[0], -axis[1]] : axis, k = -1, m = -1, l = sh.v.length;
+      for (var n = 0; n !== l; n++) {
+        var o = dot(unit(cw(sub(sh.v[(n + 1) % l], sh.v[n % l]))), e);
+        if (k === -1 || o > m) { k = n % l; m = o; }
+      }
+      return k;
+    }
+    function convexConvex(w, bA, sA, bB, sB) {
+      var posA = spos(bA, sA), posB = spos(bB, sB), F = 0, axis = separatingAxis(sA, posA, sB, posB);
+      if (!axis) return 0;
+      if (dot(axis, sub(posB, posA)) > 0) axis = mul(axis, -1);
+      var H = closestEdge(sA, axis, true), I = closestEdge(sB, axis, false);
+      if (H === -1 || I === -1) return 0;
+      for (var J = 0; J < 2; J++) {
+        var K = H, L = I, M = sA, N = sB, O = posA, P = posB, S = bA, T = bB;
+        if (J === 0) { K = I; L = H; M = sB; N = sA; O = posB; P = posA; S = bB; T = bA; }
+        for (var V = L; V < L + 2; V++) {
+          var q = add(N.v[(V + N.v.length) % N.v.length], P), X = 0;
+          for (var Y = K - 1; Y < K + 2; Y++) {
+            var Z = add(M.v[(Y + M.v.length) % M.v.length], O), Z2 = add(M.v[(Y + 1 + M.v.length) % M.v.length], O);
+            if (0 >= dot(unit(cw(sub(Z2, Z))), sub(q, Z))) X++;
+          }
+          if (X >= 3) {
+            var ab = newContact(w, S, T, M, N); F++;
+            var Z0 = add(M.v[K % M.v.length], O), Z1 = add(M.v[(K + 1) % M.v.length], O);
+            ab.n = unit(cw(sub(Z1, Z0)));
+            var C = mul(ab.n, dot(ab.n, sub(q, Z0)));
+            ab.cpA = sub(sub(q, C), S.pos); ab.cpB = sub(q, T.pos);
+          }
+        }
+      }
+      if (F) frictionFromAverage(w, F);
+      return F;
+    }
+    function planeConvex(w, A, sA, B, sB) {
+      var n = sA.normal, q = 0;
+      for (var v = 0; v !== sB.v.length; v++) {
+        var vp = add(sB.v[v], spos(B, sB)), p = sub(vp, spos(A, sA));
+        if (dot(p, n) <= 0) {
+          q++;
+          var e = newContact(w, A, B, sA, sB);
+          e.n = n.slice(); e.cpB = sub(vp, B.pos); e.cpA = sub(sub(vp, mul(e.n, dot(p, e.n))), A.pos);
+        }
+      }
+      if (q) frictionFromAverage(w, q);
+      return q;
+    }
+    function circlePlane(w, A, sA, B, sB) {   // its equation has the plane as body A
+      var x = sub(A.pos, B.pos), n = sB.normal, d = dot(n, x);
+      if (d > sA.radius) return 0;
+      var e = newContact(w, B, A, sB, sA);
+      e.n = n.slice(); e.cpB = sub(add(mul(n, -sA.radius), A.pos), A.pos); e.cpA = sub(sub(A.pos, mul(n, d)), B.pos);
+      friction(w, B, A, e.cpA.slice(), e.cpB.slice(), cw(e.n));
+      return 1;
+    }
+    function shapePair(w, A, sA, B, sB) {
+      var k = w.mat = matOf(sA.mat, sB.mat);
+      w.slip = k.fr * w.g * (!A.dynamic ? B.mass : !B.dynamic ? A.mass : A.mass * B.mass / (A.mass + B.mass));   // S: mu x |g| x mass
+      if (sA.type > sB.type || sA.type === sB.type) { var T = A; A = B; B = T; var U = sA; sA = sB; sB = U; }
+      var t = sA.type | sB.type;
+      if (t === (CIRCLE | CONVEX)) return circleConvex(w, A, sA, B, sB);
+      if (t === CONVEX) return convexConvex(w, A, sA, B, sB);
+      if (t === (PLANE | CONVEX)) return planeConvex(w, A, sA, B, sB);
+      if (t === (CIRCLE | PLANE)) return circlePlane(w, A, sA, B, sB);
+      return 0;
+    }
+
+    function moving(slot, tag, o, shapes, mass, damping, invI, angDamping) {
+      var b = body(slot, tag);
+      b.dynamic = true; b.mass = mass; b.invMass = 1 / mass; b.invI = invI; b.damping = damping; b.angDamping = angDamping;
+      b.pos[0] = -o.x * SM; b.pos[1] = -o.y * SM; b.vel[0] = -o.vx * SM; b.vel[1] = -o.vy * SM;
+      b.w = o.spin || 0; b.was = o.touch | 0; b.shapes = shapes;
+      b.box = aabbOf(b);
+      return b;
+    }
+    function back(b, o) { o.x = -b.pos[0] / SM; o.y = -b.pos[1] / SM; o.vx = -b.vel[0] / SM; o.vy = -b.vel[1] / SM; o.spin = b.w; o.touch = b.now; }
+
+    // One physics step for the ball and both players.
+    function step(m, ev, h) {
+      var ball = m.ball, i, k, n;
+      var bb = moving(8, 'ball', ball, [BALL], 2, HS.BALL_DAMP, 1 / (0.5 * 2 * Math.pow(HS.BALL_R * SM, 2)), HS.BALL_DAMP);
+      var pb = [];
+      for (i = 0; i < 2; i++) {
+        var p = m.p[i], b = moving(6 + i, 'player', p, [LEGS, HEAD], 100, HS.PLAYER_DAMP, P_INV_I, P_ANG_DAMP);
+        b.idx = i;
+        b.force[1] = -HS.PLAYER_G * SM * 100 * (1 + (p.xf | 0));   // S: Player.update: force[1] -= 1E4, once per update() call
+        p.xf = 0;
+        pb.push(b);
+      }
+      var bodies = STATICS.concat(pb, [bb]), gy = -HS.G * SM;
+      for (i = 0; i < bodies.length; i++) { bodies[i].vl = [0, 0]; bodies[i].wl = 0; }
+      // Gravity as a force, damping on the velocities, before the solver sees them.
+      for (i = 6; i < 9; i++) {
+        var d = bodies[i];
+        d.force[1] += gy * d.mass;
+        var ld = Math.pow(1 - d.damping, h);
+        d.vel[0] *= ld; d.vel[1] *= ld; d.w *= Math.pow(1 - d.angDamping, h);
+      }
+      // Narrowphase from the start-of-step positions, pair by pair in the sweep's order.
+      var w = { g: Math.hypot(0, gy), mat: MAT, slip: 0, ces: [], frs: [] }, pairs = pairsOf(bodies), begun = [];
+      for (i = 0; i < pairs.length; i++) {
+        var A = pairs[i][0], B = pairs[i][1];
+        for (var ia = 0; ia < A.shapes.length; ia++) for (var ib = 0; ib < B.shapes.length; ib++) {
+          var sA = A.shapes[ia], sB = B.shapes[ib];
+          if (!shapePair(w, A, sA, B, sB)) continue;
+          var hiA = A.slot > B.slot, H = hiA ? A : B, sH = hiA ? sA : sB, Lo = hiA ? B : A, sL = hiA ? sB : sA;
+          var bit = 1 << ((BASE[Lo.slot] + sL.ix) * NS[H.slot] + sH.ix);
+          H.now |= bit;
+          if (!(H.was & bit)) begun.push([A, B]);   // S: onBeginContact, per shape pair
+        }
+      }
+      // Solve: SPOOK rows, 10 Gauss-Seidel passes, contacts first then friction.
+      var eqs = w.ces.concat(w.frs), Bs = [], invC = [], lam = [];
+      n = eqs.length;
+      for (i = 0; i < n; i++) spook(eqs[i], h);
+      for (i = 0; i < n; i++) { var e = eqs[i]; Bs[i] = e.c ? contactB(e, h) : frictionB(e, h); invC[i] = 1 / (giMGt(e) + e.eps); lam[i] = 0; }
+      for (var it = 0; it < ITER; it++) {
+        for (i = 0; i < n; i++) {
+          var q = eqs[i], o = invC[i] * (Bs[i] - gWl(q) - q.eps * lam[i]), s = lam[i] + o;
+          if (q.min * h > s) o = q.min * h - lam[i]; else if (s > q.max * h) o = q.max * h - lam[i];
+          lam[i] += o; addW(q, o);
+        }
+      }
+      // Then move: the solver's change, the forces, the positions.
+      for (i = 6; i < 9; i++) {
+        var y = bodies[i];
+        y.vel[0] += y.vl[0]; y.vel[1] += y.vl[1]; y.w += y.wl;
+        y.vel[0] += y.force[0] * h * y.invMass; y.vel[1] += y.force[1] * h * y.invMass;
+        y.pos[0] += y.vel[0] * h; y.pos[1] += y.vel[1] * h;
+      }
+      back(bb, ball);
+      for (i = 0; i < 2; i++) back(pb[i], m.p[i]);
+      // S: onBeginContact on a player: the pitch body, or a grounded player, gives the jumps back (Player.ground).
+      for (i = 0; i < begun.length; i++) {
+        for (k = 0; k < 2; k++) {
+          var me = begun[i][k], other = begun[i][1 - k];
+          if (me.tag !== 'player') continue;
+          if (other === FLOOR || (other.tag === 'player' && m.p[other.idx].ground)) { m.p[me.idx].ground = true; m.p[me.idx].jc = 0; }
+        }
+      }
+      // The sounds: a ball's first touch that came in fast enough, once per body it touched.
+      var heard = 0, cf = [false, false], cp = false;
+      for (i = 0; i < w.ces.length; i++) {
+        var c = w.ces[i];
+        for (k = 0; k < 2; k++) {
+          var me2 = k ? c.B : c.A, ot = k ? c.A : c.B;
+          if (me2.tag === 'player' && ot === FLOOR) cf[me2.idx] = true;
+          if (me2.tag === 'player' && ot.tag === 'player') cp = true;
+        }
+        if (!c.first || c.closing / SM <= TOUCH_SPEED) continue;
+        var ob = c.A.tag === 'ball' ? c.B : c.B.tag === 'ball' ? c.A : null;
+        if (!ob || (heard & (1 << ob.slot))) continue;
+        var sh = ob === c.A ? c.sA : c.sB;
+        if (ob === FLOOR) ev.push({ e: 'bounce' });
+        else if (ob.tag === 'bar') ev.push({ e: 'post' });
+        else if (ob.tag === 'net') ev.push({ e: 'net' });
+        else if (ob.tag === 'player' && sh.head) ev.push({ e: 'head', s: ob.idx });
+        else continue;
+        heard |= 1 << ob.slot;
+      }
+      for (i = 0; i < 2; i++) { m.p[i].cf = cf[i]; m.p[i].cp = cp; }   // touching the pitch / each other (kept for the wire)
+    }
+    return { step: step };
+  })();
+
+  // The whole match, one step. inputs[side]: { held, jumps, kicks, powers } (counts only ever go up). `live` true
+  // runs the clock and counts goals; `enabled` false is the reference's disabled input (default on). Returns the
+  // step's events: kick, swing, jump, head, bounce, post, net, goal { s: who scored }.
+  function step(m, inputs, dt, live, enabled) {
+    if (enabled === undefined) enabled = true;
+    var ev = [], ball = m.ball, i;
+    m.tick++;
+    // The reference's order: every player's update and controls, then the physics step.
+    for (i = 0; i < 2; i++) control(m.p[i], inputs ? inputs[i] : null, ball, enabled, ev);
+    if (live) {
+      if (m.msLeft > 0) m.msLeft = Math.max(0, m.msLeft - dt * 1000);
+      else m.goldenMs += dt * 1000;
+    }
+    if (HS.CONTACT_P2) {
+      Contact.step(m, ev, dt);
+      ball.rot += ball.spin * dt;   // the sprite turns with the body (S: Phaser sets rotation from the p2 angle)
+    } else rigid(m, ev, dt);
 
     // A goal: the ball's centre inside a goal's box (S: Goal.isInGoal).
     if (live && ball.y > HS.GOAL_TOP_Y && ball.y < HS.GOAL_BOT_Y) {
@@ -376,7 +788,9 @@
     var flags = (p.ground ? 1 : 0) | (p.left ? 4 : 0) | (p.mv ? 8 : 0) | (p.cf ? 16 : 0) | (p.cp ? 32 : 0);
     // The press counts the server has acted on ride along, so a page replaying its own presses on top of this state
     // (prediction) replays only the ones the server has not seen yet.
-    return [r10(p.x), r10(p.y), r10(p.vx), r10(p.vy), flags, Math.round(p.kickMs), 0, p.jumps, p.kicks, p.powers, p.jc];
+    // touch and spin are the contact engine's memory between steps: a page replaying from this state needs them.
+    return [r10(p.x), r10(p.y), r10(p.vx), r10(p.vy), flags, Math.round(p.kickMs), p.touch | 0, p.jumps, p.kicks, p.powers, p.jc,
+            r1k(p.spin)];
   }
   function unpackPlayer(a, side) {
     var p = newPlayer(side);
@@ -384,14 +798,30 @@
     var f = a[4] | 0;
     p.ground = !!(f & 1); p.left = !!(f & 4); p.mv = !!(f & 8); p.cf = !!(f & 16); p.cp = !!(f & 32);
     p.kickMs = a[5];
+    p.touch = a[6] | 0;
     p.jumps = a[7] | 0; p.kicks = a[8] | 0; p.powers = a[9] | 0; p.jc = a[10] | 0;
+    p.spin = (+a[11] || 0) / 1000;
     return p;
   }
-  function packBall(b) { return [r10(b.x), r10(b.y), r10(b.vx), r10(b.vy), Math.round(b.rot * 100), 0]; }
+  function packBall(b) { return [r10(b.x), r10(b.y), r10(b.vx), r10(b.vy), Math.round(b.rot * 100), b.touch | 0, r1k(b.spin)]; }
   function unpackBall(a) {
     var b = newBall();
     b.x = a[0] / 10; b.y = a[1] / 10; b.vx = a[2] / 10; b.vy = a[3] / 10; b.rot = a[4] / 100;
+    b.touch = a[5] | 0; b.spin = (+a[6] || 0) / 1000;
     return b;
+  }
+  function r1k(v) { return Math.round((v || 0) * 1000); }
+  /* The server rounds its own match exactly as the wire does whenever it sends one (HeadSoccerRoom.snapshot), so the
+     state a page replays from IS the state the server stepped on: the same Sim.step from it gives the server's
+     next states bit for bit, until the other player's presses differ. Everything else a step reads is exact on the
+     wire already (flags, counts, touch bits). */
+  function snapToWire(m) {
+    for (var s = 0; s < 2; s++) {
+      var p = m.p[s], q = unpackPlayer(packPlayer(p), s);
+      p.x = q.x; p.y = q.y; p.vx = q.vx; p.vy = q.vy; p.kickMs = q.kickMs; p.spin = q.spin;
+    }
+    var b = m.ball, c = unpackBall(packBall(b));
+    b.x = c.x; b.y = c.y; b.vx = c.vx; b.vy = c.vy; b.rot = c.rot; b.spin = c.spin;
   }
 
   // The board's clock: the time left as "MMSS", counting down. A second shows until it has fully gone, so the
@@ -404,7 +834,7 @@
   var Sim = { HS: HS, IN: IN, WORLD: WORLD, newMatch: newMatch, newPlayer: newPlayer, newBall: newBall, kickoff: kickoff,
               step: step, standY: standY, kickVelocity: kickVelocity, kickAim: kickAim, clockDigits: clockDigits,
               shapesOf: shapesOf, circlePoly: circlePoly,
-              packPlayer: packPlayer, unpackPlayer: unpackPlayer, packBall: packBall, unpackBall: unpackBall };
+              packPlayer: packPlayer, unpackPlayer: unpackPlayer, packBall: packBall, unpackBall: unpackBall, snapToWire: snapToWire };
   if (typeof module === 'object' && module.exports) module.exports = Sim;
   else root.HSSim = Sim;
 })(typeof self !== 'undefined' ? self : this);

@@ -383,3 +383,124 @@ test('golden goal lasts one minute of play: the board counts it down, and still 
   assert.strictEqual(settled[0].winnerId, null);
   assert.deepStrictEqual(settled[0].seats.map(s => s.refund).sort(), [0.5, 0.5]);
 });
+
+/* ── the contact engine (HS.CONTACT_P2): the reference's numbers, and lockstep ─────────────────────────────────
+   Set up as the measuring harness did (players placed, 30 settle steps, then the scenario); the reference values
+   are Heads Arena Euro Soccer stepped one p2 step at a time (docs/head-soccer-reference.md, "Contacts"). */
+const IDLE = () => [{ held: 0, jumps: 0, kicks: 0, powers: 0 }, { held: 0, jumps: 0, kicks: 0, powers: 0 }];
+function settled(x0, y0, x1, y1, ball) {
+  const m = Sim.newMatch();
+  [[x0, y0], [x1, y1]].forEach(([x, y], i) => Object.assign(m.p[i], { x, y, vx: 0, vy: 0, ground: true, jc: 0, left: i === 1, cf: true }));
+  Object.assign(m.ball, { x: 400, y: HS.PITCH_Y - HS.BALL_R, vx: 0, vy: 0 });
+  for (let i = 0; i < 30; i++) Sim.step(m, IDLE(), HS.STEP, false, true);
+  if (ball) Object.assign(m.ball, ball);
+  return m;
+}
+const near = (v, ref, pct, what) => assert.ok(Math.abs(v - ref) <= Math.abs(ref) * pct / 100, what + ': ' + v + ' vs the reference ' + ref);
+
+test('contact engine: the ball rolls and bounces, and a released run slides, as the reference measured', () => {
+  assert.strictEqual(HS.CONTACT_P2, true, 'on by default');
+  const stand = HS.PITCH_Y - HS.FOOT, shelf = HS.SHELF_Y - HS.FOOT, rest = HS.PITCH_Y - HS.BALL_R;
+  // Rolling: friction takes 8 u/s a step until the ball spins up (the rigid model kept 1350).
+  let m = settled(-1150, shelf, 1150, shelf, { x: -900, y: rest, vx: 1500, vy: 0 });
+  for (let i = 0; i < 60; i++) Sim.step(m, IDLE(), HS.STEP, false, true);
+  near(m.ball.vx, 901.2, 0.5, 'rolling 1500, speed after 60 steps');
+  assert.ok(m.ball.spin > 15, 'and it spins the way it rolls: ' + m.ball.spin);
+  // Bouncing: restitution on a first impact only, from the start-of-step speed (the rigid model lost 24% by peak 6).
+  m = settled(-495, stand, 495, stand, { x: 0, y: 576, vx: 0, vy: 0 });
+  const peaks = [];
+  let prev = m.ball.y, prevVy = m.ball.vy;
+  for (let i = 0; i < 900; i++) {
+    Sim.step(m, IDLE(), HS.STEP, false, true);
+    if (m.ball.y > prev && prevVy < 0) peaks.push(rest - prev);
+    prev = m.ball.y; prevVy = m.ball.vy;
+  }
+  near(peaks[1], 270.6, 0.5, 'bounce peak 2'); near(peaks[5], 32.8, 1, 'bounce peak 6');
+  // A run released: the soft friction row (the players' hidden inertia) slides 40.23 (the rigid model 36.94).
+  m = settled(-800, stand, 800, stand);
+  const R = IDLE(); R[0].held = Sim.IN.RIGHT;
+  for (let i = 0; i < 40; i++) Sim.step(m, R, HS.STEP, false, true);
+  const x40 = m.p[0].x;
+  for (let i = 0; i < 100; i++) Sim.step(m, IDLE(), HS.STEP, false, true);
+  near(m.p[0].x - x40, 40.23, 1, 'stopping distance');
+});
+
+// Presses for both seats, step by step, from a fixed seed (counts only ever go up).
+function script(n, seed) {
+  let s = seed >>> 0;
+  const r = () => (s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296;
+  const c = IDLE(), out = [];
+  for (let i = 0; i < n; i++) {
+    for (const x of c) { if (r() < 0.1) x.held = Math.floor(r() * 3); if (r() < 0.04) x.jumps++; if (r() < 0.08) x.kicks++; }
+    out.push(c.map(x => Object.assign({}, x)));
+  }
+  return out;
+}
+// held is only the last input's echo (every step overwrites it from its input), so it is not compared
+const bodies = (m) => JSON.stringify([m.p[0], m.p[1], m.ball], (k, v) => (k === 'held' ? undefined : v));
+const wireOf = (m) => JSON.stringify([Sim.packPlayer(m.p[0]), Sim.packPlayer(m.p[1]), Sim.packBall(m.ball)]);
+function fromWire(m) {
+  const w = JSON.parse(wireOf(m)), o = Sim.newMatch();
+  o.p = [Sim.unpackPlayer(w[0], 0), Sim.unpackPlayer(w[1], 1)]; o.ball = Sim.unpackBall(w[2]); o.tick = m.tick;
+  return o;
+}
+
+test('contact engine: a match stepped from its own snapshot gives the same states, bit for bit', () => {
+  const inp = script(1800, 7);
+  const a = Sim.newMatch();
+  let i0 = 0, run3 = 0;
+  // play on until the ball has been on something for a few steps, so the snapshot must carry the engine's memory
+  while (i0 < 300 || run3 < 3) { Sim.step(a, inp[i0++], HS.STEP, false, true); run3 = (a.ball.touch & ~1) ? run3 + 1 : 0; }   // not the top edge (restitution 0)
+  assert.ok(i0 < 1200, 'the ball rested on something by step ' + i0);
+  Sim.snapToWire(a);
+  const b = fromWire(a);                 // the page's copy, from the wire
+  assert.strictEqual(bodies(b), bodies(a), 'the snapshot carries the whole state');
+  const other = Sim.newMatch();          // another match stepped in between: nothing is shared between matches
+  let touching = 0;
+  for (let i = i0; i < i0 + 600; i++) {
+    const ea = Sim.step(a, inp[i], HS.STEP, false, true);
+    Sim.step(other, inp[(i * 7) % 1800], HS.STEP, false, true);
+    const eb = Sim.step(b, inp[i], HS.STEP, false, true);
+    assert.deepStrictEqual(eb, ea, 'events, step ' + i);
+    assert.strictEqual(bodies(b), bodies(a), 'state, step ' + i);
+    if (a.ball.touch || a.p[0].touch || a.p[1].touch) touching++;
+  }
+  assert.ok(touching > 200, 'contacts happened: ' + touching);
+  // And the memory is needed: a ball resting on the grass, replayed without its touch bits, takes its rest for a
+  // first impact (restitution .8) and moves; with them it sits as the server's does.
+  const kept = fromWire(settled(-800, HS.PITCH_Y - HS.FOOT, 800, HS.PITCH_Y - HS.FOOT)), lost = fromWire(kept);
+  assert.ok(kept.ball.touch, 'resting on the grass');
+  lost.ball.touch = 0;
+  for (let i = 0; i < 5; i++) { Sim.step(kept, IDLE(), HS.STEP, false, true); Sim.step(lost, IDLE(), HS.STEP, false, true); }
+  assert.notStrictEqual(bodies(lost), bodies(kept), 'without the touch bits the replay goes wrong, so they ride the wire');
+});
+
+test("the page's replay from each snapshot is the server's next states, bit for bit", () => {
+  const room = new HeadSoccerRoom(io);
+  room.addPlayer(sock('A'), 'A', null);
+  room.addPlayer(sock('B'), 'B', null);
+  room.start(0);
+  const t = run(room, 0, HS.COUNTDOWN_MS + 100);
+  assert.strictEqual(room.state, 'playing');
+  room.maybeSnap(true);   // a snapshot of this very tick to start from
+  const inp = script(900, 11);
+  let page = null, based = null, compared = 0;
+  for (let i = 0; i < 900; i++) {
+    if (room.lastSnap && room.lastSnap !== based) {
+      // What the page does with a snapshot (onSnap + loadBase), from the JSON the socket carries.
+      const s = JSON.parse(JSON.stringify(room.lastSnap));
+      page = Sim.newMatch();
+      page.ball = Sim.unpackBall(s.b); page.p = [Sim.unpackPlayer(s.p[0], 0), Sim.unpackPlayer(s.p[1], 1)]; page.tick = s.k;
+      based = room.lastSnap;
+    }
+    for (let k = 0; k < 2; k++) Object.assign(room.inputs[k], inp[i][k]);
+    const enabled = room.state === 'playing';
+    room.stepOnce(t);
+    Sim.step(page, inp[i], HS.STEP, false, enabled);   // the page's stepSim, both seats' presses known
+    assert.strictEqual(page.tick, room.match.tick);
+    assert.strictEqual(wireOf(page), wireOf(room.match), 'tick ' + page.tick);
+    if (room.lastSnap === based) assert.strictEqual(bodies(page), bodies(room.match), 'full precision, tick ' + page.tick);
+    compared++;
+  }
+  assert.strictEqual(compared, 900);
+});
