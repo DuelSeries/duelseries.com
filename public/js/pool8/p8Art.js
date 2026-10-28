@@ -3,10 +3,8 @@
    Everything on the canvas is drawn here, by code: the table, the balls, the
    cue, the aim guide, the power bar, the top bar and the messages. No image,
    font or sound of Miniclip's is used; the LAYOUT and COLOURS follow theirs as
-   measured from the reference (docs/pool8-reference.md: Owen's screenshot of
-   8ballpool.com/game at 2000x1247 and the headless captures), so every position
-   below is in that frame: the game area is DESIGN.w x DESIGN.h units, with the
-   origin at its top left.
+   MEASURED on its guest build (docs/pool8-reference.md), so every position below
+   is in the reference's own canvas: 1154 x 768 native px, origin top left.
 
    The balls are real spheres: each one is shaded pixel by pixel from its own
    orientation (a 3x3 rotation the screen turns as the ball rolls), so a stripe
@@ -17,120 +15,165 @@
   const Sim = root.P8Sim;
   const P8 = Sim.P8;
 
-  // The reference frame (Owen's screenshot, game area x 617..1683, y 268..978 of 2000x1247).
-  const DESIGN = { w: 1066, h: 710 };
+  const DESIGN = { w: 1154, h: 768 };
   const LAYOUT = {
-    bar: { y: 0, h: 110 },
-    field: { x: 129, y: 210, w: 808, h: 419 },     // cushion nose to cushion nose
-    rail: { x: 99, y: 180, w: 869, h: 479 },       // the wooden rail's outside edge
-    ret: { x: 990, y: 296, w: 34, h: 324 },        // the ball-return rail on the right
-    power: { x: 26, y: 214, w: 46, h: 412 },       // the vertical power bar on the left
-    menu: { x: 11, y: 28, w: 56, h: 56 },
-    plate: [{ x: 140, y: 32, w: 238 }, { x: 688, y: 32, w: 238 }],
-    avatar: [{ x: 393, y: 12, s: 82 }, { x: 591, y: 12, s: 82 }],
-    mid: { x: 491, y: 12, s: 84 },
-    spin: { x: 1026, y: 54, r: 33 },
-    msg: { y: 690 },
-    hint: { y: 132 },
+    bar: { y: 0, h: 120 },
+    field: { x: 152, y: 243.5, w: 849.5, h: 424.75 },   // cushion nose to cushion nose (MEASURED)
+    rail: { x: 105, y: 195, w: 943, h: 521 },           // the rail's outside edge (MEASURED)
+    cushion: 16,                                        // the blue cushion strip inside the rail (MEASURED)
+    ret: { x: 1048, y: 288, w: 62, h: 400, ch: 1094.5, bottom: 672, pitch: 25 },   // the chrome ball return (MEASURED)
+    power: { x: 30, y: 214, w: 46, h: 412 },            // phone only: the reference app's power bar on the left
+    fine: { x: 1116, y: 214, w: 32, h: 412 },           // phone only: the fine-aim wheel on the right
+    menu: { x: 10, y: 31, w: 64, h: 61 },
+    star: [{ x: 176, y: 53 }, { x: 978, y: 53 }],
+    name: [{ x: 190, w: 215 }, { x: 745, w: 220 }],
+    slot0: [168, 763], slotStep: 37, slotY: 91, slotR: 15.5,
+    avatar: [{ x: 424, y: 13, s: 92 }, { x: 638, y: 13, s: 92 }],
+    mid: { x: 530, y: 16, w: 94, h: 86 },
+    spin: { x: 1110, y: 60, r: 36 },
+    msg: { x: 789, y: 747 },
+    hint: { y: 150, y2: 268 },
   };
 
-  // Colours read from the reference (docs/pool8-reference.md "Colours").
+  // Colours MEASURED on the reference's frames (docs/pool8-reference.md "Look").
   const C = {
-    bg: '#1a2033', bar: '#2b2a33', barHi: '#383642', barLo: '#17161b', slot: '#17161b', slotRim: '#46454f',
-    feltHi: '#97c6d9', feltMid: '#6090b0', feltLo: '#2d4866', cushion: '#5080b0', cushionHi: '#86b4d8',
-    railLo: '#4e1006', rail: '#7a271d', railHi: '#87392f', railEdge: '#401000', pocket: '#000000', pocketRim: '#200000',
-    diamond: '#f2efe4', text: '#ffffff', hint: '#8e95a8', turn: '#53d63c', ret: '#707080', retLo: '#3d3d4a',
-    msgBg: 'rgba(0,0,0,0.88)', guide: 'rgba(255,255,255,0.92)', avatar: '#4a87d6', avatarHi: '#7fb1ee',
+    bg: '#192336', bgEdge: '#121a29', bar: '#26242d', barHi: '#312f3b', barEdge: '#706f7c', barLow: '#101423',
+    slot: '#151519', slotRim: '#030307', plate: '#1c1b22',
+    feltHi: '#74bacc', feltMid: '#307b9d', feltLo: '#1f6181', feltCorner: '#1a5e80',
+    cushion: '#3183ae', cushionTop: '#287096', cushionHi: '#4dc4e7',
+    railOut: '#520802', railHi: '#933429', railIn: '#690e06', metal: '#4b404e', metalHi: '#b9b4bf',
+    pocket: '#0d0101', pocketRim: '#450000', diamond: '#f2efe9', headLine: 'rgba(100,156,180,0.75)',
+    text: '#ffffff', textDim: '#b7b6c2', hint: '#8e95a8', turn: '#00ff00', turnLate: '#ff9a1a',
+    menuHi: '#24cc1d', menuLo: '#07aa01', guide: '#eeeeee', msgBg: 'rgba(0,0,0,0.9)',
+    avatar: '#0277be', avatarHi: '#4fb3ee', frameOn: '#e9efd9', frameOff: '#3e4a44',
   };
   const BALL = {
     1: '#f4c20d', 2: '#1f4fd1', 3: '#d42a1e', 4: '#5b2a8c', 5: '#f07a12', 6: '#127a3b', 7: '#8a1e1c', 8: '#151515',
   };
   const ballColor = (n) => (n === 0 ? '#f7f5ee' : BALL[n > 8 ? n - 8 : n]);
 
-  /* ── the transform: table units -> design units -> screen ─────────────── */
+  /* ── the transform: table units -> canvas px ───────────────────────────── */
   const F = LAYOUT.field;
-  const k = F.w / P8.L;                                    // design units per table unit
+  const k = F.w / P8.L;                                    // canvas px per table unit (0.8495)
   const tx = (x) => F.x + x * k, ty = (y) => F.y + y * k;
   const fx = (dx) => (dx - F.x) / k, fy = (dy) => (dy - F.y) / k;
+  // Where the i-th potted ball sits in the return rail (from the bottom up).
+  const retPos = (i) => ({ x: LAYOUT.ret.ch, y: LAYOUT.ret.bottom - i * LAYOUT.ret.pitch });
 
-  // The pocket holes as drawn, in design units (Owen's screenshot: about 24 across the corners, 22 at the sides).
-  const POCKET_R = { corner: 24, side: 22 };
-
-  /* ── the table, painted once per size ──────────────────────────────────── */
-  /* look: a free look of shared/pool8Looks.js (its cloth), or null for the reference's blue. */
+  /* ── the table, painted once per size ──────────────────────────────────────
+     look: a free look of shared/pool8Looks.js (its cloth), or null for the reference's blue. */
   function paintTable(g, s, look) {
-    const R = LAYOUT.rail;
-    const K = look && look.cloth ? look.cloth : { hi: C.feltHi, mid: C.feltMid, lo: C.feltLo, cushion: C.cushion, cushionHi: C.cushionHi };
+    const R = LAYOUT.rail, CU = LAYOUT.cushion;
+    const K = look && look.cloth
+      ? { hi: look.cloth.hi, mid: look.cloth.mid, lo: look.cloth.lo, corner: look.cloth.lo, cushion: look.cloth.cushion, cushionTop: look.cloth.cushion, cushionHi: look.cloth.cushionHi }
+      : { hi: C.feltHi, mid: C.feltMid, lo: C.feltLo, corner: C.feltCorner, cushion: C.cushion, cushionTop: C.cushionTop, cushionHi: C.cushionHi };
     g.save();
     g.scale(s, s);
-    g.fillStyle = C.bg;
-    g.fillRect(0, 0, DESIGN.w, DESIGN.h);
-    // A soft light over the room behind the table.
-    const room = g.createRadialGradient(533, 420, 60, 533, 420, 620);
-    room.addColorStop(0, 'rgba(70,90,130,0.35)'); room.addColorStop(1, 'rgba(0,0,0,0)');
+    // The room: navy, a little darker toward the edges.
+    const room = g.createRadialGradient(577, 455, 80, 577, 455, 760);
+    room.addColorStop(0, '#1d2a40'); room.addColorStop(1, C.bgEdge);
     g.fillStyle = room; g.fillRect(0, 0, DESIGN.w, DESIGN.h);
 
-    // The ball-return rail: a channel the potted balls roll down and line up in.
-    const T = LAYOUT.ret;
-    roundRect(g, T.x - 4, T.y - 4, T.w + 8, T.h + 8, (T.w + 8) / 2); g.fillStyle = C.retLo; g.fill();
-    roundRect(g, T.x, T.y, T.w, T.h, T.w / 2); g.fillStyle = C.ret; g.fill();
-    const tg = g.createLinearGradient(T.x, 0, T.x + T.w, 0);
-    tg.addColorStop(0, 'rgba(0,0,0,0.45)'); tg.addColorStop(0.5, 'rgba(255,255,255,0.12)'); tg.addColorStop(1, 'rgba(0,0,0,0.45)');
-    g.fillStyle = tg; g.fill();
-    // The short chute from the table to the channel.
-    g.fillStyle = C.retLo; g.fillRect(R.x + R.w - 6, T.y + T.h - 30, T.x - (R.x + R.w) + 10, 22);
+    // The ball return: a chrome wire track leaving the right rail and running down beside it.
+    paintReturn(g);
 
-    // Table shadow, then the rail.
-    g.fillStyle = 'rgba(0,0,0,0.45)';
-    roundRect(g, R.x - 6, R.y + 4, R.w + 12, R.h + 12, 34); g.fill();
-    roundRect(g, R.x, R.y, R.w, R.h, 30);
-    const rg = g.createLinearGradient(0, R.y, 0, R.y + R.h);
-    rg.addColorStop(0, C.railHi); rg.addColorStop(0.08, C.rail); rg.addColorStop(0.92, C.rail); rg.addColorStop(1, C.railLo);
-    g.fillStyle = rg; g.fill();
-    g.lineWidth = 3; g.strokeStyle = C.railEdge; g.stroke();
-    // The rail's inner edge: a thin dark line where the cushion meets the wood.
-    roundRect(g, F.x - 11, F.y - 11, F.w + 22, F.h + 22, 6);
-    g.fillStyle = C.railEdge; g.fill();
+    // Shadow under the table, then the rail as four cylinders of red.
+    g.fillStyle = 'rgba(0,0,0,0.5)';
+    roundRect(g, R.x - 4, R.y + 6, R.w + 8, R.h + 8, 22); g.fill();
+    const rail = (x, y, w, h, vertical) => {
+      const gr = vertical ? g.createLinearGradient(x, 0, x + w, 0) : g.createLinearGradient(0, y, 0, y + h);
+      const far = vertical ? x > 500 : y > 400;
+      gr.addColorStop(far ? 1 : 0, C.railOut); gr.addColorStop(0.45, C.railHi); gr.addColorStop(far ? 0 : 1, C.railIn);
+      g.fillStyle = gr; g.fillRect(x, y, w, h);
+    };
+    const inX = F.x - CU, inY = F.y - CU, inW = F.w + 2 * CU, inH = F.h + 2 * CU;
+    rail(R.x, R.y, R.w, inY - R.y, false);
+    rail(R.x, inY + inH, R.w, R.y + R.h - inY - inH, false);
+    rail(R.x, R.y, inX - R.x, R.h, true);
+    rail(inX + inW, R.y, R.x + R.w - inX - inW, R.h, true);
 
-    // The felt: lit from above, brightest in the middle.
-    const fg = g.createRadialGradient(F.x + F.w / 2, F.y + F.h / 2, 30, F.x + F.w / 2, F.y + F.h / 2, F.w * 0.62);
-    fg.addColorStop(0, K.hi); fg.addColorStop(0.55, K.mid); fg.addColorStop(1, K.lo);
-    g.fillStyle = fg;
-    g.fillRect(F.x - 12, F.y - 12, F.w + 24, F.h + 24);
-
-    // The cushions: the blue noses along each rail, with the pocket mouths cut out of them.
-    g.save();
-    g.beginPath(); g.rect(F.x - 12, F.y - 12, F.w + 24, F.h + 24); g.clip();
-    for (const sg of Sim.SEGS) {
+    // Metal plates round the corner pockets.
+    for (const [cx, cy] of [[R.x, R.y], [R.x + R.w, R.y], [R.x, R.y + R.h], [R.x + R.w, R.y + R.h]]) {
+      const sx = cx < 500 ? 1 : -1, sy = cy < 400 ? 1 : -1;
       g.beginPath();
-      g.moveTo(tx(sg.ax), ty(sg.ay)); g.lineTo(tx(sg.bx), ty(sg.by));
-      g.lineWidth = 3; g.strokeStyle = K.cushionHi; g.stroke();
+      g.moveTo(cx, cy + sy * 70); g.lineTo(cx, cy + sy * 16); g.arcTo(cx, cy, cx + sx * 16, cy, 16);
+      g.lineTo(cx + sx * 70, cy); g.lineTo(cx + sx * 70, cy + sy * 26); g.quadraticCurveTo(cx + sx * 34, cy + sy * 30, cx + sx * 26, cy + sy * 70);
+      g.closePath();
+      const mg = g.createLinearGradient(cx, cy, cx + sx * 70, cy + sy * 70);
+      mg.addColorStop(0, C.metalHi); mg.addColorStop(0.5, '#7d7684'); mg.addColorStop(1, C.metal);
+      g.fillStyle = mg; g.fill();
+    }
+
+    // The felt: lit from above, brightest a little left of the middle.
+    const fg = g.createRadialGradient(580, 400, 20, 580, 420, 560);
+    fg.addColorStop(0, K.hi); fg.addColorStop(0.45, K.mid); fg.addColorStop(0.85, K.lo); fg.addColorStop(1, K.corner);
+    g.fillStyle = fg;
+    g.fillRect(inX, inY, inW, inH);
+
+    // The cushions: blue bevels along each rail, cut away at the pocket mouths (the rail segments of pool8Sim).
+    g.save();
+    g.beginPath(); g.rect(inX, inY, inW, inH); g.clip();
+    const S = Sim.SEGS;
+    const cushions = [
+      { a: [tx(S[0].ax), F.y], b: [tx(S[0].bx), F.y], n: [0, -1], top: true },
+      { a: [tx(S[1].ax), F.y], b: [tx(S[1].bx), F.y], n: [0, -1], top: true },
+      { a: [tx(S[2].ax), F.y + F.h], b: [tx(S[2].bx), F.y + F.h], n: [0, 1] },
+      { a: [tx(S[3].ax), F.y + F.h], b: [tx(S[3].bx), F.y + F.h], n: [0, 1] },
+      { a: [F.x, ty(S[4].ay)], b: [F.x, ty(S[4].by)], n: [-1, 0] },
+      { a: [F.x + F.w, ty(S[5].ay)], b: [F.x + F.w, ty(S[5].by)], n: [1, 0] },
+    ];
+    for (const c of cushions) {
+      const [ax, ay] = c.a, [bx, by] = c.b, [nx, ny] = c.n;
+      const ux = Math.sign(bx - ax), uy = Math.sign(by - ay);
+      g.beginPath();
+      g.moveTo(ax, ay); g.lineTo(bx, by);
+      g.lineTo(bx + nx * CU + ux * CU * 0.9, by + ny * CU + uy * CU * 0.9);
+      g.lineTo(ax + nx * CU - ux * CU * 0.9, ay + ny * CU - uy * CU * 0.9);
+      g.closePath();
+      g.fillStyle = c.top ? K.cushionTop : K.cushion; g.fill();
+      g.strokeStyle = K.cushionHi; g.lineWidth = 2.2;
+      g.beginPath(); g.moveTo(ax, ay + ny * 0.8); g.lineTo(bx, by + ny * 0.8); g.stroke();
     }
     g.restore();
-    const lip = (x, y, w, h) => { g.fillStyle = K.cushion; g.fillRect(x, y, w, h); };
-    lip(F.x, F.y - 9, F.w, 9); lip(F.x, F.y + F.h, F.w, 9); lip(F.x - 9, F.y, 9, F.h); lip(F.x + F.w, F.y, 9, F.h);
-    // The baulk line the break is taken from behind.
-    g.strokeStyle = 'rgba(255,255,255,0.22)'; g.lineWidth = 1.5;
-    line(g, tx(P8.HEAD_X * P8.L), F.y, tx(P8.HEAD_X * P8.L), F.y + F.h);
-    // Pockets: black holes with a dark rim, over the cushion ends.
+
+    // Pockets: the holes, where the reference has them.
     for (const p of Sim.POCKETS) {
-      const px = tx(p.x), py = ty(p.y), pr = POCKET_R[p.kind];
-      g.beginPath(); g.arc(px, py, pr + 3, 0, Math.PI * 2); g.fillStyle = C.railLo; g.fill();
-      g.beginPath(); g.arc(px, py, pr, 0, Math.PI * 2);
-      const pg = g.createRadialGradient(px, py, pr * 0.2, px, py, pr);
-      pg.addColorStop(0, '#000'); pg.addColorStop(0.8, '#050000'); pg.addColorStop(1, C.pocketRim);
-      g.fillStyle = pg; g.fill();
+      const px = tx(p.x), py = ty(p.y), pr = p.r * k;
+      const pg = g.createRadialGradient(px, py, pr * 0.25, px, py, pr);
+      pg.addColorStop(0, C.pocket); pg.addColorStop(0.82, '#120202'); pg.addColorStop(1, C.pocketRim);
+      g.beginPath(); g.arc(px, py, pr, 0, Math.PI * 2); g.fillStyle = pg; g.fill();
     }
-    // Diamonds: three between each pair of pockets.
+    // The head string the break is placed behind.
+    g.strokeStyle = C.headLine; g.lineWidth = 1.2;
+    line(g, tx(P8.HEAD_X * P8.L), F.y, tx(P8.HEAD_X * P8.L), F.y + F.h);
+    // Diamonds: six on each long rail, three on each short one, 34 px outside the nose.
     g.fillStyle = C.diamond;
-    for (let i = 1; i < 8; i++) {
-      if (i === 4) continue;
-      const x = F.x + F.w * i / 8;
-      dot(g, x, R.y + (F.y - 16 - R.y) / 2, 2.6); dot(g, x, R.y + R.h - (F.y - 16 - R.y) / 2, 2.6);
+    for (const kk of [1, 2, 3, 5, 6, 7]) {
+      const x = F.x + F.w * kk / 8;
+      dot(g, x, F.y - 34, 2.2); dot(g, x, F.y + F.h + 34, 2.2);
     }
-    for (let i = 1; i < 4; i++) {
-      const y = F.y + F.h * i / 4;
-      dot(g, R.x + (F.x - 16 - R.x) / 2, y, 2.6); dot(g, R.x + R.w - (F.x - 16 - R.x) / 2, y, 2.6);
+    for (const kk of [1, 2, 3]) {
+      const y = F.y + F.h * kk / 4;
+      dot(g, F.x - 34, y, 2.2); dot(g, F.x + F.w + 34, y, 2.2);
+    }
+    g.restore();
+  }
+
+  // Four chrome wires in two loops; the balls run in the channel between the inner pair.
+  function paintReturn(g) {
+    const xs = [1108, 1099, 1089, 1080], tops = [290, 299, 309, 318], bottom = 688;
+    g.save();
+    g.lineCap = 'round';
+    for (const pass of [{ w: 3.2, c: 'rgba(0,0,0,0.55)', dy: 2 }, { w: 2, c: '#c9ccd4', dy: 0 }]) {
+      g.strokeStyle = pass.c; g.lineWidth = pass.w;
+      for (const [o, i] of [[0, 3], [1, 2]]) {
+        const xo = xs[o], xi = xs[i], to = tops[o] + pass.dy, ti = tops[i] + pass.dy, r = (xo - xi) / 2, b = bottom + pass.dy - (o ? 6 : 0);
+        g.beginPath();
+        g.moveTo(1046, to); g.lineTo(xo - 14, to); g.quadraticCurveTo(xo, to, xo, to + 14);
+        g.lineTo(xo, b - r); g.arc(xo - r, b - r, r, 0, Math.PI, false);
+        g.lineTo(xi, ti + 8); g.quadraticCurveTo(xi, ti, xi - 8, ti); g.lineTo(1046, ti);
+        g.stroke();
+      }
     }
     g.restore();
   }
@@ -146,14 +189,14 @@
   const DISC = Math.cos(0.43);
   function glyph(n) {
     if (glyphs[n]) return glyphs[n];
-    const S = 48, c = mk(S, S), g = c.getContext('2d');
-    g.fillStyle = '#fff'; g.fillRect(0, 0, S, S);
+    const SZ = 48, c = mk(SZ, SZ), g = c.getContext('2d');
+    g.fillStyle = '#fff'; g.fillRect(0, 0, SZ, SZ);
     g.fillStyle = '#111';
     g.font = '800 ' + (n > 9 ? 25 : 29) + 'px Archivo, Arial, sans-serif';
     g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.fillText(String(n), S / 2, S / 2 + 2);
-    if (n === 6 || n === 9) g.fillRect(S / 2 - 7, S / 2 + 14, 14, 2.5);
-    glyphs[n] = { S, d: g.getImageData(0, 0, S, S).data };
+    g.fillText(String(n), SZ / 2, SZ / 2 + 2);
+    if (n === 6 || n === 9) g.fillRect(SZ / 2 - 7, SZ / 2 + 14, 14, 2.5);
+    glyphs[n] = { S: SZ, d: g.getImageData(0, 0, SZ, SZ).data };
     return glyphs[n];
   }
   const rgb = (hex) => [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)];
@@ -167,35 +210,31 @@
     if (d < 1e-4) return;
     const ang = d / P8.R, ax = -dy / d, ay = dx / d;     // axis (z up toward the viewer) x move
     const c = Math.cos(ang), s = Math.sin(ang), t = 1 - c;
-    // Rotation about (ax, ay, 0).
     const r = [t * ax * ax + c, t * ax * ay, s * ay, t * ax * ay, t * ay * ay + c, -s * ax, -s * ay, s * ax, c];
     b.m = mul(r, b.m);
     b.dirty = true;
   }
   function paintBall(b, px) {
-    const S = Math.max(8, Math.ceil(px * 2) + 2);
-    if (!b.c || b.c.width !== S) { b.c = mk(S, S); b.dirty = true; }
+    const SZ = Math.max(8, Math.ceil(px * 2) + 2);
+    if (!b.c || b.c.width !== SZ) { b.c = mk(SZ, SZ); b.dirty = true; }
     if (!b.dirty && b.px === px) return b.c;
     b.dirty = false; b.px = px;
     const g = b.c.getContext('2d');
-    const img = g.createImageData(S, S), out = img.data;
+    const img = g.createImageData(SZ, SZ), out = img.data;
     const m = b.m, n = b.n, col = b.col, stripe = n > 8, gl = n > 0 ? glyph(n) : null;
-    const r = S / 2 - 1, cx = S / 2, cy = S / 2;
-    for (let y = 0; y < S; y++) {
-      for (let x = 0; x < S; x++) {
+    const r = SZ / 2 - 1, cx = SZ / 2, cy = SZ / 2;
+    for (let y = 0; y < SZ; y++) {
+      for (let x = 0; x < SZ; x++) {
         const u = (x + 0.5 - cx) / r, v = (y + 0.5 - cy) / r, q = u * u + v * v;
         if (q > 1) continue;
         const w = Math.sqrt(1 - q);
-        // Into the ball's frame: b = M^T n.
         const bx = m[0] * u + m[3] * v + m[6] * w;
         const by = m[1] * u + m[4] * v + m[7] * w;
         const bz = m[2] * u + m[5] * v + m[8] * w;
         let R0, G0, B0;
-        if (n === 0) { R0 = col[0]; G0 = col[1]; B0 = col[2]; }
-        else if (stripe && Math.abs(by) > 0.52) { R0 = 246; G0 = 243; B0 = 234; }
+        if (stripe && Math.abs(by) > 0.52) { R0 = 246; G0 = 243; B0 = 234; }
         else { R0 = col[0]; G0 = col[1]; B0 = col[2]; }
         if (gl && Math.abs(bz) > DISC) {
-          // The number disc, flat on the sphere: its own (x, y) scaled to the glyph.
           const sgn = bz > 0 ? 1 : -1;
           const gx = (bx * sgn / Math.sin(0.43) * 0.5 + 0.5) * gl.S, gy = (by / Math.sin(0.43) * 0.5 + 0.5) * gl.S;
           const gi = ((Math.min(gl.S - 1, Math.max(0, gy | 0))) * gl.S + Math.min(gl.S - 1, Math.max(0, gx | 0))) * 4;
@@ -205,11 +244,10 @@
         const spec = Math.pow(Math.max(0, u * HALF[0] + v * HALF[1] + w * HALF[2]), 70) * 235;
         const shade = 0.42 + 0.68 * dif;
         const edge = q > 0.86 ? 1 - (q - 0.86) * 1.6 : 1;
-        const i = (y * S + x) * 4;
+        const i = (y * SZ + x) * 4;
         out[i] = Math.min(255, R0 * shade * edge + spec);
         out[i + 1] = Math.min(255, G0 * shade * edge + spec);
         out[i + 2] = Math.min(255, B0 * shade * edge + spec);
-        // Antialiased edge.
         out[i + 3] = q > 0.94 ? Math.max(0, Math.min(255, (1 - q) / 0.06 * 255)) : 255;
       }
     }
@@ -227,69 +265,72 @@
   function drawShadow(g, x, y, s) {
     const pr = P8.R * k * s;
     g.beginPath();
-    g.ellipse(x * s + pr * 0.28, y * s + pr * 0.32, pr * 1.02, pr * 0.9, 0, 0, Math.PI * 2);
-    g.fillStyle = 'rgba(0,0,0,0.32)';
+    g.ellipse(x * s + pr * 0.3, y * s + pr * 0.35, pr * 1.02, pr * 0.9, 0, 0, Math.PI * 2);
+    g.fillStyle = 'rgba(0,0,0,0.3)';
     g.fill();
   }
 
   /* ── the cue, the guide, the power bar ─────────────────────────────────── */
-  // The cue stick behind the cue ball, pointing along `a`, pulled back `pull` design units. cue: a free look's colours.
-  const CUE = { shaft: '#d8b27a', butt: '#5a2a14', joint: '#1b1b1b' };
+  /* The cue stick behind the cue ball along `a`, its tip `pull` px past the rest gap (the reference rests the tip
+     26 px from the ball's centre and draws it back to 161 at full pull, MEASURED). cue: a free look's colours. */
+  const CUE = { shaft: '#e2c08a', butt: '#6b3a1c', joint: '#1b1b1b' };
   function drawCue(g, cx, cy, a, pull, s, cue) {
     const Q = cue || CUE;
-    const R = P8.R * k;
-    const len = 560, ux = Math.cos(a), uy = Math.sin(a);
-    const x0 = cx - ux * (R + 4 + pull), y0 = cy - uy * (R + 4 + pull);
+    const len = 760, ux = Math.cos(a), uy = Math.sin(a);
+    const x0 = cx - ux * (26 + pull), y0 = cy - uy * (26 + pull);
     const x1 = x0 - ux * len, y1 = y0 - uy * len;
     g.save(); g.scale(s, s);
-    g.lineCap = 'round';
-    // Shadow.
-    g.strokeStyle = 'rgba(0,0,0,0.35)'; g.lineWidth = 9;
-    line(g, x0 + 6, y0 + 9, x1 + 6, y1 + 9);
+    g.lineCap = 'butt';
+    g.strokeStyle = 'rgba(0,0,0,0.18)'; g.lineWidth = 6;
+    line(g, x0 + 3, y0 + 5, x1 + 3, y1 + 5);
     const seg = (fa, fb, w0, col) => {
       g.strokeStyle = col; g.lineWidth = w0;
       line(g, x0 - ux * len * fa, y0 - uy * len * fa, x0 - ux * len * fb, y0 - uy * len * fb);
     };
-    seg(0, 0.012, 5, '#e9eef2');          // tip
-    seg(0.012, 0.03, 5.4, '#f4f1e6');     // ferrule
-    seg(0.03, 0.62, 6.2, Q.shaft);        // shaft
-    seg(0.62, 0.66, 7.4, Q.joint);        // joint
-    seg(0.66, 1, 9, Q.butt);              // butt
-    g.strokeStyle = 'rgba(255,255,255,0.28)'; g.lineWidth = 1.6;
-    line(g, x0 - ux * len * 0.03 - uy * 1.5, y0 - uy * len * 0.03 + ux * 1.5, x1 - uy * 2.2, y1 + ux * 2.2);
+    seg(0, 0.005, 5.6, '#3d78c9');        // tip
+    seg(0.005, 0.02, 5.8, '#f4f1e6');     // ferrule
+    seg(0.02, 0.6, 6, Q.shaft);           // shaft
+    seg(0.6, 0.63, 7, Q.joint);           // joint
+    seg(0.63, 1, 8, Q.butt);              // butt
+    g.strokeStyle = 'rgba(255,255,255,0.3)'; g.lineWidth = 1.4;
+    line(g, x0 - ux * len * 0.02 - uy * 1.4, y0 - uy * len * 0.02 + ux * 1.4, x1 - uy * 2, y1 + ux * 2);
     g.restore();
   }
 
-  /* The guide: a line from the cue ball to the ghost circle; from a ball hit, the object ball's line and the cue
-     ball's line. Lengths are the reference's (docs/pool8-reference.md "Aim guide"). */
-  const GUIDE = { obj: 3.2, cue: 1.6, width: 2 };   // in ball diameters
+  /* The guide (MEASURED on the reference): a #eeeeee line 3 px wide with a dark edge from the cue ball to the ghost
+     ring (one ball across) at the first ball or cushion it would touch, and from a ball hit the object ball's line,
+     1.52 ball diameters long. A first ball the shooter may not hit gets a red no-entry ring instead. */
+  const GUIDE = { obj: 1.52, width: 3 };
   function drawGuide(g, cx, cy, gd, s, warn) {
     g.save(); g.scale(s, s);
     const R = P8.R * k, gx = tx(gd.gx), gy = ty(gd.gy);
-    g.strokeStyle = warn ? 'rgba(255,90,80,0.95)' : C.guide; g.lineWidth = GUIDE.width;
     const dx = gx - cx, dy = gy - cy, dl = Math.hypot(dx, dy) || 1;
-    line(g, cx + dx / dl * R, cy + dy / dl * R, gx - dx / dl * R, gy - dy / dl * R);
-    g.beginPath(); g.arc(gx, gy, R, 0, Math.PI * 2); g.stroke();
+    const stroke = (fn, w, col) => { g.strokeStyle = col; g.lineWidth = w; fn(); };
+    const main = () => line(g, cx + dx / dl * R, cy + dy / dl * R, gx - dx / dl * R, gy - dy / dl * R);
+    const ring = () => { g.beginPath(); g.arc(gx, gy, R - 1.5, 0, Math.PI * 2); g.stroke(); };
+    stroke(main, GUIDE.width + 2, 'rgba(0,0,0,0.75)'); stroke(main, GUIDE.width, C.guide);
     if (warn) {
-      // A ball the shooter may not hit first: the circle is crossed out.
-      line(g, gx - R * 0.7, gy - R * 0.7, gx + R * 0.7, gy + R * 0.7);
-    } else if (gd.kind === 'ball') {
-      const D = 2 * R;
-      const ox = tx(gd.gx) + gd.ox * (R * 2), oy = ty(gd.gy) + gd.oy * (R * 2);
-      line(g, ox, oy, ox + gd.ox * D * GUIDE.obj, oy + gd.oy * D * GUIDE.obj);
-      if (gd.tx || gd.ty) line(g, gx, gy, gx + gd.tx * D * GUIDE.cue, gy + gd.ty * D * GUIDE.cue);
+      stroke(ring, 5, 'rgba(0,0,0,0.6)'); stroke(ring, 3, '#e8262b');
+      g.strokeStyle = '#e8262b'; g.lineWidth = 3;
+      line(g, gx - R * 0.6, gy + R * 0.6, gx + R * 0.6, gy - R * 0.6);
+    } else {
+      stroke(ring, GUIDE.width + 2, 'rgba(0,0,0,0.75)'); stroke(ring, GUIDE.width, C.guide);
+      if (gd.kind === 'ball') {
+        const ox = tx(gd.gx) + gd.ox * 2 * R, oy = ty(gd.gy) + gd.oy * 2 * R, Lb = GUIDE.obj * 2 * R;
+        const obj = () => line(g, ox, oy, ox + gd.ox * Lb, oy + gd.oy * Lb);
+        stroke(obj, GUIDE.width + 2, 'rgba(0,0,0,0.75)'); stroke(obj, GUIDE.width, C.guide);
+      }
     }
     g.restore();
   }
 
-  // The vertical power bar: a channel with the cue inside it, pulled down as the power grows.
+  // Phone only: the vertical power bar (the reference app's), the cue inside it pulled down as the power grows.
   function drawPower(g, p, s, active) {
     const P = LAYOUT.power;
     g.save(); g.scale(s, s);
     roundRect(g, P.x, P.y, P.w, P.h, P.w / 2);
-    g.fillStyle = 'rgba(10,12,20,0.85)'; g.fill();
+    g.fillStyle = 'rgba(8,10,18,0.85)'; g.fill();
     g.lineWidth = 2; g.strokeStyle = active ? 'rgba(255,255,255,0.55)' : 'rgba(255,255,255,0.18)'; g.stroke();
-    // The fill: green at the top through yellow to red at full power.
     const ih = (P.h - 12) * p;
     if (p > 0) {
       const gr = g.createLinearGradient(0, P.y + 6, 0, P.y + P.h - 6);
@@ -298,17 +339,15 @@
       g.fillStyle = gr; g.fillRect(P.x + 6, P.y + 6, P.w - 12, ih);
       g.restore();
     }
-    // The cue inside the bar, its tip at the power line.
     const cx = P.x + P.w / 2, top = P.y + 10 + ih;
     g.lineCap = 'round';
-    g.strokeStyle = '#d8b27a'; g.lineWidth = 6; line(g, cx, top, cx, Math.min(P.y + P.h - 8, top + P.h * 0.7));
+    g.strokeStyle = CUE.shaft; g.lineWidth = 6; line(g, cx, top, cx, Math.min(P.y + P.h - 8, top + P.h * 0.7));
     g.strokeStyle = '#f4f1e6'; g.lineWidth = 6; line(g, cx, top, cx, top + 6);
     g.restore();
   }
-
-  /* The fine-aim wheel on a touch screen, at the right edge: ridges that roll as the aim turns. */
+  // Phone only: the fine-aim wheel at the right edge, its ridges rolling as the aim turns.
   function drawFine(g, a, s) {
-    const x = 1030, y = 214, w = 30, h = 412;
+    const Fn = LAYOUT.fine, x = Fn.x, y = Fn.y, w = Fn.w, h = Fn.h;
     g.save(); g.scale(s, s);
     roundRect(g, x, y, w, h, 10);
     const bg = g.createLinearGradient(x, 0, x + w, 0);
@@ -325,84 +364,103 @@
   }
 
   /* ── the top bar ───────────────────────────────────────────────────────────
-     hud: { names[2], initials[2], active (0|1|-1), timeFrac (1..0), groups[2], potted[2] (numbers),
-            spin {x, y}, mid (the 8 or the group icon) } */
+     hud: { names[2], initials[2], active (0|1|-1), timeFrac (1..0), groups[2], potted (numbers off the table),
+            spin {x, y}, late (the clock bubble) } */
   function drawBar(g, hud, s) {
     g.save(); g.scale(s, s);
     const B = LAYOUT.bar;
     const bg = g.createLinearGradient(0, B.y, 0, B.y + B.h);
     bg.addColorStop(0, C.barHi); bg.addColorStop(1, C.bar);
     g.fillStyle = bg; g.fillRect(0, B.y, DESIGN.w, B.h);
-    g.fillStyle = 'rgba(0,0,0,0.35)'; g.fillRect(0, B.y + B.h - 2, DESIGN.w, 2);
+    g.fillStyle = C.barEdge; g.fillRect(0, B.h - 1, DESIGN.w, 1);
+    g.fillStyle = C.barLow; g.fillRect(0, B.h, DESIGN.w, 2);
 
     // The menu button.
     const M = LAYOUT.menu;
-    roundRect(g, M.x, M.y, M.w, M.h, 11);
+    roundRect(g, M.x, M.y, M.w, M.h, 10);
     const mg = g.createLinearGradient(0, M.y, 0, M.y + M.h);
-    mg.addColorStop(0, '#79e05a'); mg.addColorStop(1, '#2e9b2a');
-    g.fillStyle = mg; g.fill(); g.lineWidth = 2.5; g.strokeStyle = '#1d5e1a'; g.stroke();
+    mg.addColorStop(0, C.menuHi); mg.addColorStop(1, C.menuLo);
+    g.fillStyle = mg; g.fill(); g.lineWidth = 2.5; g.strokeStyle = '#05540a'; g.stroke();
     g.fillStyle = '#fff';
-    for (let i = 0; i < 3; i++) roundRect(g, M.x + 13, M.y + 15 + i * 10, M.w - 26, 5, 2.5), g.fill();
+    for (let i = 0; i < 3; i++) { roundRect(g, M.x + 15, M.y + 15 + i * 12, M.w - 30, 6, 3); g.fill(); }
 
     for (let side = 0; side < 2; side++) {
-      const P = LAYOUT.plate[side], A = LAYOUT.avatar[side];
+      const A = LAYOUT.avatar[side], N = LAYOUT.name[side], ST = LAYOUT.star[side];
       const active = hud.active === side;
-      // The name.
-      g.font = '800 19px Archivo, Arial, sans-serif';
-      g.textBaseline = 'middle';
-      g.textAlign = side === 0 ? 'right' : 'left';
-      g.fillStyle = active ? '#ffffff' : '#c9c9d2';
-      const nx = side === 0 ? P.x + P.w : P.x;
-      g.fillText(fitText(g, hud.names[side] || '', P.w - 8), nx, P.y + 18);
-      // Seven slots under it: the group's balls as they go down.
+      // The name on its dark plate, the level star at its outer end.
+      roundRect(g, N.x - 6, 42, N.w + 12, 30, 5); g.fillStyle = C.plate; g.fill();
+      g.font = '700 21px Archivo, Arial, sans-serif';
+      g.textBaseline = 'middle'; g.textAlign = side === 0 ? 'left' : 'right';
+      g.fillStyle = active ? C.text : C.textDim;
+      g.fillText(fitText(g, hud.names[side] || '', N.w - 10), side === 0 ? N.x + 8 : N.x + N.w - 8, 58);
+      star(g, ST.x, ST.y, 18);
+      // Seven slots: the group's balls once groups are set, a potted one dark again.
       const grp = hud.groups[side];
-      const pot = hud.potted[side] || [];
       for (let i = 0; i < 7; i++) {
-        const sx = side === 0 ? P.x + P.w - 16 - i * 34 : P.x + 16 + i * 34, sy = P.y + 52;
-        g.beginPath(); g.arc(sx, sy, 14.5, 0, Math.PI * 2); g.fillStyle = C.slot; g.fill();
+        const sx = LAYOUT.slot0[side] + i * LAYOUT.slotStep, sy = LAYOUT.slotY;
+        g.beginPath(); g.arc(sx, sy, LAYOUT.slotR, 0, Math.PI * 2); g.fillStyle = C.slot; g.fill();
         g.lineWidth = 1.5; g.strokeStyle = C.slotRim; g.stroke();
         if (grp) {
-          const n = grp === 'solids' ? 7 - i : 15 - i;
-          const shown = side === 0 ? n : (grp === 'solids' ? i + 1 : i + 9);
-          if (!pot.includes(shown)) iconBall(g, shown, sx, sy, 12.5);
+          const n = grp === 'solids' ? i + 1 : i + 9;
+          if (!(hud.potted || []).includes(n)) iconBall(g, n, sx, sy, LAYOUT.slotR - 2);
         }
       }
-      // The avatar: a blue tile with the player's initial; green frame and the shot clock ring on whoever is up.
+      // The avatar: a pale frame on whoever is up, the shot clock draining round it.
       roundRect(g, A.x, A.y, A.s, A.s, 12);
-      g.fillStyle = active ? C.turn : '#4b4a57'; g.fill();
-      roundRect(g, A.x + 5, A.y + 5, A.s - 10, A.s - 10, 9);
+      g.fillStyle = active ? C.frameOn : C.frameOff; g.fill();
+      roundRect(g, A.x + 7, A.y + 7, A.s - 14, A.s - 14, 8);
       const ag = g.createLinearGradient(0, A.y, 0, A.y + A.s);
       ag.addColorStop(0, C.avatarHi); ag.addColorStop(1, C.avatar);
       g.fillStyle = ag; g.fill();
       g.fillStyle = 'rgba(255,255,255,0.95)';
-      g.font = '900 42px Archivo, Arial, sans-serif';
-      g.textAlign = 'center';
-      g.fillText((hud.initials[side] || '?').toUpperCase(), A.x + A.s / 2, A.y + A.s / 2 + 2);
+      g.font = '900 46px Archivo, Arial, sans-serif'; g.textAlign = 'center';
+      g.fillText((hud.initials[side] || '?').toUpperCase(), A.x + A.s / 2, A.y + A.s / 2 + 3);
       if (active && hud.timeFrac >= 0) {
-        // The clock: the frame drains around the tile, green to red as it runs out.
         const f = Math.max(0, Math.min(1, hud.timeFrac));
-        g.lineWidth = 6;
-        g.strokeStyle = f > 0.5 ? C.turn : f > 0.2 ? '#f1d33a' : '#ec3b2b';
-        g.beginPath();
-        perimeter(g, A.x + 2.5, A.y + 2.5, A.s - 5, A.s - 5, 10, f);
-        g.stroke();
+        g.lineWidth = 5;
+        g.strokeStyle = f > 0.28 ? C.turn : C.turnLate;
+        g.beginPath(); perimeter(g, A.x + 2.5, A.y + 2.5, A.s - 5, A.s - 5, f); g.stroke();
+        if (hud.late) {
+          // "Clock is ticking." under the avatar, the reference's bubble.
+          g.font = '700 16px Archivo, Arial, sans-serif';
+          const t = 'Clock is ticking.', w = g.measureText(t).width + 22, bx = A.x + A.s / 2 - w / 2;
+          roundRect(g, bx, 124, w, 30, 8); g.fillStyle = '#ffffff'; g.fill();
+          g.beginPath(); g.moveTo(A.x + A.s / 2 - 7, 125); g.lineTo(A.x + A.s / 2, 116); g.lineTo(A.x + A.s / 2 + 7, 125); g.fill();
+          g.fillStyle = '#26242d'; g.textAlign = 'center'; g.fillText(t, A.x + A.s / 2, 140);
+        }
       }
     }
-    // The middle: an 8 ball in a dark tile.
+    // The middle tile: three balls (ours), the game's icon.
     const D = LAYOUT.mid;
-    roundRect(g, D.x, D.y, D.s, D.s, 12); g.fillStyle = C.barLo; g.fill();
-    g.lineWidth = 2; g.strokeStyle = C.slotRim; g.stroke();
-    iconBall(g, 8, D.x + D.s / 2, D.y + D.s / 2, 25);
+    roundRect(g, D.x, D.y, D.w, D.h, 12); g.fillStyle = '#16151b'; g.fill();
+    g.lineWidth = 1.5; g.strokeStyle = '#3c3a45'; g.stroke();
+    iconBall(g, 11, D.x + 34, D.y + 52, 17);
+    iconBall(g, 5, D.x + 46, D.y + 32, 17);
+    iconBall(g, 3, D.x + 62, D.y + 50, 17);
 
-    // The spin button: the cue ball with the red dot where the tip will strike.
-    const S = LAYOUT.spin;
-    iconBall(g, 0, S.x, S.y, S.r);
-    g.beginPath(); g.arc(S.x + hud.spin.x * S.r * 0.62, S.y - hud.spin.y * S.r * 0.62, 6, 0, Math.PI * 2);
-    g.fillStyle = '#e8262b'; g.fill();
+    // The spin button: the cue ball, a red ring where the tip will strike.
+    const SP = LAYOUT.spin;
+    iconBall(g, 0, SP.x, SP.y, SP.r);
+    g.beginPath(); g.arc(SP.x, SP.y, SP.r, 0, Math.PI * 2); g.lineWidth = 2; g.strokeStyle = '#989994'; g.stroke();
+    g.beginPath(); g.arc(SP.x + hud.spin.x * SP.r * 0.6, SP.y - hud.spin.y * SP.r * 0.6, 6, 0, Math.PI * 2);
+    g.lineWidth = 2.5; g.strokeStyle = '#e8262b'; g.stroke();
     g.restore();
   }
 
-  // A flat lit ball for the bar (slots, the 8, the spin button).
+  function star(g, x, y, r) {
+    g.beginPath();
+    for (let i = 0; i < 10; i++) {
+      const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * 0.48 : r;
+      g.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
+    }
+    g.closePath();
+    const sg = g.createLinearGradient(0, y - r, 0, y + r);
+    sg.addColorStop(0, '#f6dd84'); sg.addColorStop(1, '#b8893a');
+    g.fillStyle = sg; g.fill();
+    g.lineWidth = 1.2; g.strokeStyle = '#6b4c17'; g.stroke();
+  }
+
+  // A flat lit ball for the bar (slots, the middle tile, the spin button).
   function iconBall(g, n, x, y, r) {
     const col = ballColor(n);
     g.save();
@@ -420,59 +478,69 @@
     g.restore();
   }
 
-  // The message box at the foot of the table ("You are breaking, good luck!").
+  // The black pill low on the screen ("You are breaking, good luck!").
   function drawMsg(g, text, s, alpha) {
     if (!text) return;
     g.save(); g.scale(s, s);
     g.globalAlpha = alpha === undefined ? 1 : alpha;
-    g.font = '800 19px Archivo, Arial, sans-serif';
-    const w = g.measureText(text).width + 34;
-    const x = DESIGN.w / 2 - w / 2 + 160, y = LAYOUT.msg.y - 18;
-    roundRect(g, x, y, w, 36, 6); g.fillStyle = C.msgBg; g.fill();
+    g.font = '700 21px Archivo, Arial, sans-serif';
+    const w = g.measureText(text).width + 36, x = Math.min(DESIGN.w - w - 30, LAYOUT.msg.x - w / 2), y = LAYOUT.msg.y - 17;
+    roundRect(g, x, y, w, 34, 7); g.fillStyle = C.msgBg; g.fill();
     g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.fillText(text, x + w / 2, y + 19);
+    g.fillText(text, x + w / 2, y + 18);
     g.restore();
   }
-  // The grey hint under the bar ("Drag to aim", "Pull the power bar down and let go").
-  function drawHint(g, text, s) {
-    if (!text) return;
+  // The tutorial lines: grey over the table, then faint on the felt.
+  function drawHint(g, text, s, text2) {
     g.save(); g.scale(s, s);
-    g.font = '800 26px Archivo, Arial, sans-serif';
-    g.fillStyle = C.hint; g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.fillText(text, F.x + F.w / 2, LAYOUT.hint.y);
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    if (text) { g.font = '800 30px Archivo, Arial, sans-serif'; g.fillStyle = C.hint; g.fillText(text, F.x + F.w / 2, LAYOUT.hint.y); }
+    if (text2) { g.font = '700 22px Archivo, Arial, sans-serif'; g.fillStyle = 'rgba(255,255,255,0.42)'; g.fillText(text2, F.x + F.w / 2, LAYOUT.hint.y2); }
+    g.restore();
+  }
+  // "You are Stripes!": big grey letters with depth across the middle of the table.
+  function drawBanner(g, text, s, alpha) {
+    g.save(); g.scale(s, s);
+    g.globalAlpha = alpha;
+    g.font = '900 64px Archivo, Arial, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    const x = F.x + F.w / 2, y = F.y + F.h / 2;
+    g.fillStyle = 'rgba(0,0,0,0.55)'; for (let d = 6; d > 0; d--) g.fillText(text, x + d * 0.6, y + d);
+    const gr = g.createLinearGradient(0, y - 30, 0, y + 30);
+    gr.addColorStop(0, '#f2f2f2'); gr.addColorStop(1, '#a9a9ad');
+    g.fillStyle = gr; g.fillText(text, x, y);
     g.restore();
   }
 
-  /* The opening: the two player cards and VS, over a warm burst (ours: no figures, no title art). */
+  /* The opening: the two player cards and VS over a warm burst (ours: no figures, no title art). */
   function drawVS(g, names, initials, title, f, s) {
     g.save(); g.scale(s, s);
-    const t = Math.min(1, f * 3);
-    const bg = g.createRadialGradient(533, 360, 30, 533, 360, 640);
+    const t = Math.min(1, f * 3), cx = DESIGN.w / 2;
+    const bg = g.createRadialGradient(cx, 400, 30, cx, 400, 700);
     bg.addColorStop(0, '#f7b955'); bg.addColorStop(0.45, '#c46a1c'); bg.addColorStop(1, '#4a1d06');
     g.fillStyle = bg; g.fillRect(0, 0, DESIGN.w, DESIGN.h);
-    g.save(); g.translate(533, 380); g.globalAlpha = 0.18; g.fillStyle = '#fff3c4';
-    for (let i = 0; i < 18; i++) { g.rotate(Math.PI / 9); g.beginPath(); g.moveTo(0, 0); g.lineTo(700, -60); g.lineTo(700, 60); g.fill(); }
+    g.save(); g.translate(cx, 420); g.globalAlpha = 0.18; g.fillStyle = '#fff3c4';
+    for (let i = 0; i < 18; i++) { g.rotate(Math.PI / 9); g.beginPath(); g.moveTo(0, 0); g.lineTo(760, -64); g.lineTo(760, 64); g.fill(); }
     g.restore();
-    g.font = '900 64px Archivo, Arial, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.lineWidth = 8; g.strokeStyle = '#1d4a12'; g.strokeText(title, 533, 72);
-    g.fillStyle = '#a6f06b'; g.fillText(title, 533, 72);
+    g.font = '900 70px Archivo, Arial, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.lineWidth = 9; g.strokeStyle = '#1d4a12'; g.strokeText(title, cx, 80);
+    g.fillStyle = '#a6f06b'; g.fillText(title, cx, 80);
     for (let side = 0; side < 2; side++) {
-      const x = side === 0 ? 237 - (1 - t) * 300 : 629 + (1 - t) * 300, y = 250, w = 200, h = 240;
+      const w = 216, h = 260, x = side === 0 ? cx - 330 - (1 - t) * 320 : cx + 114 + (1 - t) * 320, y = 270;
       roundRect(g, x, y, w, h, 14); g.fillStyle = '#5f6170'; g.fill(); g.lineWidth = 4; g.strokeStyle = '#2d2e38'; g.stroke();
-      roundRect(g, x + 16, y + 16, w - 32, h - 76, 10);
+      roundRect(g, x + 16, y + 16, w - 32, h - 80, 10);
       const ag = g.createLinearGradient(0, y, 0, y + h);
       ag.addColorStop(0, C.avatarHi); ag.addColorStop(1, C.avatar);
       g.fillStyle = ag; g.fill();
-      g.fillStyle = '#fff'; g.font = '900 96px Archivo, Arial, sans-serif';
-      g.fillText((initials[side] || '?').toUpperCase(), x + w / 2, y + 16 + (h - 76) / 2 + 4);
-      roundRect(g, x + 12, y + h - 50, w - 24, 36, 8); g.fillStyle = '#22232b'; g.fill();
-      g.fillStyle = '#fff'; g.font = '800 17px Archivo, Arial, sans-serif';
-      g.fillText(fitText(g, names[side] || '', w - 36), x + w / 2, y + h - 31);
+      g.fillStyle = '#fff'; g.font = '900 104px Archivo, Arial, sans-serif';
+      g.fillText((initials[side] || '?').toUpperCase(), x + w / 2, y + 16 + (h - 80) / 2 + 4);
+      roundRect(g, x + 12, y + h - 54, w - 24, 38, 8); g.fillStyle = '#22232b'; g.fill();
+      g.fillStyle = '#fff'; g.font = '800 18px Archivo, Arial, sans-serif';
+      g.fillText(fitText(g, names[side] || '', w - 36), x + w / 2, y + h - 34);
     }
     g.globalAlpha = t;
-    g.font = '900 80px Archivo, Arial, sans-serif';
-    g.lineWidth = 9; g.strokeStyle = '#173c0e'; g.strokeText('VS', 533, 372);
-    g.fillStyle = '#9be35c'; g.fillText('VS', 533, 372);
+    g.font = '900 88px Archivo, Arial, sans-serif';
+    g.lineWidth = 10; g.strokeStyle = '#173c0e'; g.strokeText('VS', cx, 400);
+    g.fillStyle = '#9be35c'; g.fillText('VS', cx, 400);
     g.restore();
   }
 
@@ -480,37 +548,38 @@
   function drawSpinPicker(g, spin, s) {
     g.save(); g.scale(s, s);
     g.fillStyle = 'rgba(0,0,0,0.55)'; g.fillRect(0, 0, DESIGN.w, DESIGN.h);
-    const cx = 533, cy = 400, r = 150;
+    const cx = DESIGN.w / 2, cy = 430, r = 160;
     iconBall(g, 0, cx, cy, r);
     g.strokeStyle = 'rgba(0,0,0,0.25)'; g.lineWidth = 2;
     line(g, cx - r, cy, cx + r, cy); line(g, cx, cy - r, cx, cy + r);
     g.beginPath(); g.arc(cx, cy, r * 0.62, 0, Math.PI * 2); g.stroke();
-    g.beginPath(); g.arc(cx + spin.x * r * 0.62, cy - spin.y * r * 0.62, 18, 0, Math.PI * 2);
+    g.beginPath(); g.arc(cx + spin.x * r * 0.62, cy - spin.y * r * 0.62, 19, 0, Math.PI * 2);
     g.fillStyle = '#e8262b'; g.fill(); g.lineWidth = 3; g.strokeStyle = '#fff'; g.stroke();
-    g.fillStyle = '#fff'; g.font = '800 22px Archivo, Arial, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillStyle = '#fff'; g.font = '800 23px Archivo, Arial, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
     g.fillText('Set the spin, then tap outside the ball', cx, cy + r + 44);
     g.restore();
     return { cx, cy, r: r * 0.62, R: r };
   }
 
-  // The pocket called for the 8: a ring and an arrow into it.
+  // The pocket called for the 8: a pulsing ring round it.
   function drawCall(g, k0, s, pulse) {
     const p = Sim.POCKETS[k0];
     if (!p) return;
     g.save(); g.scale(s, s);
-    const x = tx(p.x), y = ty(p.y), r = p.r * k * 1.25 + 4 + pulse * 3;
+    const x = tx(p.x), y = ty(p.y), r = p.r * k + 5 + pulse * 3;
     g.lineWidth = 4; g.strokeStyle = '#f7e03c';
     g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.stroke();
     g.restore();
   }
 
-  // The hand on a cue ball that may be moved (ball in hand).
+  // A cue ball that may be moved (ball in hand): a dashed ring, red with a bar where it may not go.
   function drawInHand(g, x, y, s, ok) {
     g.save(); g.scale(s, s);
     const R = P8.R * k;
     g.beginPath(); g.arc(x, y, R + 6, 0, Math.PI * 2);
-    g.lineWidth = 2.5; g.strokeStyle = ok ? 'rgba(255,255,255,0.9)' : 'rgba(255,80,70,0.95)';
+    g.lineWidth = 2.5; g.strokeStyle = ok ? 'rgba(255,255,255,0.9)' : 'rgba(232,38,43,0.95)';
     g.setLineDash([5, 4]); g.stroke(); g.setLineDash([]);
+    if (!ok) { g.strokeStyle = '#e8262b'; g.lineWidth = 3; line(g, x - R * 0.7, y + R * 0.7, x + R * 0.7, y - R * 0.7); }
     g.restore();
   }
 
@@ -529,18 +598,16 @@
     g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
     g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
   }
-  // The first `f` of a rounded rectangle's outline, clockwise from the top middle.
-  function perimeter(g, x, y, w, h, r, f) {
-    const pts = [];
-    const N = 120;
+  // The first `f` of a rectangle's outline, clockwise from the top middle.
+  function perimeter(g, x, y, w, h, f) {
+    const N = 120, P = 2 * (w + h);
     for (let i = 0; i <= N * f; i++) {
-      const t = i / N, P = 2 * (w + h);
-      let d = (t * P + w / 2) % P, px, py;
+      const d = (i / N * P + w / 2) % P;
+      let px, py;
       if (d < w) { px = x + d; py = y; } else if (d < w + h) { px = x + w; py = y + d - w; }
       else if (d < 2 * w + h) { px = x + w - (d - w - h); py = y + h; } else { px = x; py = y + h - (d - 2 * w - h); }
-      pts.push(px, py);
+      if (i === 0) g.moveTo(px, py); else g.lineTo(px, py);
     }
-    for (let i = 0; i < pts.length; i += 2) (i ? g.lineTo : g.moveTo).call(g, pts[i], pts[i + 1]);
   }
   function fitText(g, t, w) {
     let s = String(t);
@@ -549,7 +616,7 @@
     return s + '…';
   }
 
-  root.P8Art = { DESIGN, LAYOUT, C, k, tx, ty, fx, fy, paintTable, makeBall, roll, drawBall, drawShadow, drawCue,
-                 drawGuide, drawPower, drawFine, drawBar, drawMsg, drawHint, drawVS, drawSpinPicker, drawCall, drawInHand,
-                 iconBall, GUIDE, ballColor };
+  root.P8Art = { DESIGN, LAYOUT, C, k, tx, ty, fx, fy, retPos, paintTable, makeBall, roll, drawBall, drawShadow, drawCue,
+                 drawGuide, drawPower, drawFine, drawBar, drawMsg, drawHint, drawBanner, drawVS, drawSpinPicker,
+                 drawCall, drawInHand, iconBall, GUIDE, ballColor };
 })(typeof self !== 'undefined' ? self : this);

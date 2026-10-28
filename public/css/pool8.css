@@ -95,3 +95,7 @@ html, body {
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
 }
+
+/* The chat's phone row is as wide as its open box even while closed, and it sat over the power bar on a landscape
+   phone (taking the pull). Closed, it is only as wide as its button. */
+.dsc-phone:not(.dsc-open) .dsc-row { width: auto; }

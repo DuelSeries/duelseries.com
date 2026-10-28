@@ -240,6 +240,7 @@ function startMatch(m) {
   aimAtRack();
   if (rules.turn === mySeat && rules.inHand === 'kitchen') say('You are breaking, good luck!', 4000);
   else if (mySeat >= 0) say((match.names[rules.turn] || 'Opponent') + ' is breaking', 4000);
+  myShots = 0; groupBanner = { text: '', at: -1e9 };
   $('wait').hidden = true;
   chatShow(true);
 }
@@ -251,7 +252,14 @@ function aimAtRack() {
   if (best) aim.a = Math.atan2(best.y - c.y, best.x - c.x);
 }
 
-function say(text, ms) { banner = { text, until: performance.now() + (ms || 3000) }; }
+/* The black pill at the foot: one line at a time, a second one queued behind it ("<name> potted the cue ball", then
+   "You have the ball in hand"). */
+let sayNext = null;
+function say(text, ms, then) {
+  banner = { text, until: performance.now() + (ms || 3000) };
+  sayNext = then || null;
+}
+let groupBanner = { text: '', at: -1e9 };
 
 socket.on('p8:turn', (m) => {
   if (!match || !m) return;
@@ -281,14 +289,21 @@ function applyTurn(m) {
   opp = null;
   aim.p = 0; aim.call = null; aim.called = false; aim.spin.x = 0; aim.spin.y = 0;
   const mine = rules.turn === mySeat;
+  const nameOf = (s) => (s === mySeat ? 'You' : match.names[s] || 'Opponent');
   if (m.msg) {
-    const who = match.names[1 - rules.turn] || 'Opponent';
-    say(mySeat < 0 ? who + ' fouled: ' + m.msg.toLowerCase()
-      : mine ? m.msg + '. You have the ball in hand' : m.msg + '. ' + (match.names[rules.turn] || 'Opponent') + ' has the ball in hand', 3600);
+    // The side that just played fouled: what they did, then who has the ball in hand.
+    const by = 1 - rules.turn, you = by === mySeat;
+    const what = m.msg === 'Time ran out' ? (you ? 'You ran out of time' : nameOf(by) + ' ran out of time')
+      : m.msg === 'The cue ball was potted' ? nameOf(by) + ' potted the cue ball'
+      : m.msg === 'No ball was hit' ? nameOf(by) + (you ? ' did not hit a ball' : ' did not hit a ball')
+      : m.msg === 'The wrong ball was hit first' ? nameOf(by) + ' hit the wrong ball first'
+      : m.msg === 'No ball hit a cushion' ? 'No ball hit a cushion' : m.msg;
+    say(what, 1900, { text: mine ? 'You have the ball in hand' : nameOf(rules.turn) + ' has the ball in hand', ms: 2400 });
   } else if (mySeat >= 0) {
-    say(mine ? 'Your turn' : (match.names[rules.turn] || 'Opponent') + '’s turn', 1800);
+    say(mine ? 'It\u2019s your turn.' : nameOf(rules.turn) + '\u2019s turn', 1800);
   }
   if (mine && rules.onEight[mySeat]) say('Pick a pocket for the 8 ball', 3000);
+  else if (mine && rules.inHand === 'table' && !m.msg) say('Drag to place the white ball.', 2600);
   if (SND && mine) SND.play('turn', 1);
 }
 
@@ -318,7 +333,12 @@ socket.on('p8:shot', (m) => {
 function finishTape(now) {
   const m = tape.m;
   tape.done = true;
+  const hadGroups = !!rules.groups[0];
   rules.groups = Array.isArray(m.groups) ? m.groups.slice(0, 2) : rules.groups;
+  if (!hadGroups && rules.groups[0]) {
+    const g = (s) => (rules.groups[s] === 'solids' ? 'Solids' : 'Stripes');
+    groupBanner = { text: mySeat >= 0 ? 'You are ' + g(mySeat) + '!' : (match.names[m.shooter] || 'Player') + ' is ' + g(m.shooter), at: now };
+  }
   setBalls(m.balls);
   if (m.pots && m.pots.length && !m.foul && mySeat >= 0 && m.groups && m.groups[m.shooter] && !rules._said) { /* nothing more to say */ }
   if (m.over) {
@@ -338,7 +358,10 @@ function finishTape(now) {
    tap the pocket you are calling. */
 const L = Art.LAYOUT;
 const COARSE = (() => { try { return matchMedia('(pointer: coarse)').matches; } catch (_) { return false; } })();
-const PULL_FULL = 230;        // design units of drag back for full power with the mouse
+const PULL_FULL = 500;        // px of drag back for full power with the mouse (the reference's longest measured pull)
+/* How far the cue tip sits back from its rest for a power (MEASURED: 26 px from the ball's centre at rest, 61, 97, 126,
+   135 and 161 px for pulls of 96 to 500 px; this curve fits within 15 px). */
+const pullOf = (p) => 135 * Math.pow(Math.max(0, Math.min(1, p)), 0.6);
 function inRect(p, r, pad) { pad = pad || 0; return p.x >= r.x - pad && p.x <= r.x + r.w + pad && p.y >= r.y - pad && p.y <= r.y + r.h + pad; }
 function cueDesign() { const c = cueBall(); return { x: Art.tx(c.x), y: Art.ty(c.y) }; }
 function pocketAt(p) {
@@ -374,7 +397,7 @@ cv.addEventListener('pointerdown', (e) => {
   if (Math.hypot(p.x - L.menu.x - L.menu.w / 2, p.y - L.menu.y - L.menu.h / 2) < L.menu.w * 0.7) { pauseMenu(); return; }
   if (!myTurn()) return;
   if (Math.hypot(p.x - L.spin.x, p.y - L.spin.y) < L.spin.r * 1.3) { spinOpen = true; return; }
-  if (inRect(p, L.power, 14)) {
+  if (touch && inRect(p, L.power, 14)) {
     drag = { kind: 'bar', id: e.pointerId };
     aim.p = Math.max(0, Math.min(1, (p.y - L.power.y - 10) / (L.power.h - 20)));
     cv.setPointerCapture(e.pointerId);
@@ -392,7 +415,7 @@ cv.addEventListener('pointerdown', (e) => {
     if (k >= 0) { aim.call = k; aim.called = true; if (SND) SND.play('tick', 1); return; }
   }
   if (touch) {
-    if (p.x > L.ret.x + L.ret.w + 2) { drag = { kind: 'fine', id: e.pointerId, y: p.y }; cv.setPointerCapture(e.pointerId); return; }
+    if (inRect(p, L.fine, 12)) { drag = { kind: 'fine', id: e.pointerId, y: p.y }; cv.setPointerCapture(e.pointerId); return; }
     drag = { kind: 'turn', id: e.pointerId, at: performance.now(), x0: p.x, y0: p.y, last: Math.atan2(p.y - c.y, p.x - c.x), moved: 0 };
     cv.setPointerCapture(e.pointerId);
     return;
@@ -408,10 +431,7 @@ cv.addEventListener('pointermove', (e) => {
   if (drag && drag.id !== e.pointerId) return;
   if (drag && drag.kind === 'spin') { setSpin(p, picker); return; }
   if (!myTurn()) { drag = null; return; }
-  if (!drag) {
-    if (e.pointerType === 'mouse' && !spinOpen) aimToward(p);
-    return;
-  }
+  if (!drag) return;
   if (drag.kind === 'bar') {
     aim.p = Math.max(0, Math.min(1, (p.y - L.power.y - 10) / (L.power.h - 20)));
   } else if (drag.kind === 'pull') {
@@ -490,6 +510,7 @@ function shoot() {
   if (rules.inHand) { msg.x = c.x; msg.y = c.y; }
   if (rules.onEight[mySeat]) msg.call = aim.call === null ? autoCall() : aim.call;
   socket.emit('p8:shot', msg);
+  myShots++;
   // Played as soon as the server's tape arrives; until then the cue stays drawn back.
 }
 
@@ -576,11 +597,11 @@ function draw(now) {
   if (!match) { drawIdle(s); return; }
 
   // Potted balls in the return rail, bottom first.
-  const T = L.ret, R = Sim.P8.R * Art.k;
   for (let i = 0; i < returned.length; i++) {
     const b = view[returned[i]];
     if (b.potAt > 0 && now - b.potAt < 260) continue;
-    Art.drawBall(ctx, b.art, T.x + T.w / 2, T.y + T.h - R - 3 - i * (2 * R + 1), s);
+    const at = Art.retPos(i);
+    Art.drawBall(ctx, b.art, at.x, at.y, s);
   }
 
   // Shadows, then balls.
@@ -611,8 +632,8 @@ function draw(now) {
       const gd = Sim.aimGuide(view, c.x, c.y, a);
       const warn = gd.kind === 'ball' && !legalFirst(gd.n, rules.turn);
       if (mine || opp) Art.drawGuide(ctx, cd.x, cd.y, gd, s, warn);
-      const pull = mine ? aim.p * 70 : (opp ? opp.p * 70 : 0);
-      if (!(mine && aim.placing)) Art.drawCue(ctx, cd.x, cd.y, a, 6 + pull, s, seatCue[rules.turn]);
+      const pull = pullOf(mine ? aim.p : opp ? opp.p : 0);
+      if (!(mine && aim.placing)) Art.drawCue(ctx, cd.x, cd.y, a, pull, s, seatCue[rules.turn]);
     }
     if (mine && rules.inHand) Art.drawInHand(ctx, cd.x, cd.y, s, Sim.placeOk(view, c.x, c.y, rules.inHand === 'kitchen'));
     if (rules.onEight[rules.turn] && mine && aim.call !== null) Art.drawCall(ctx, aim.call, s, (Math.sin(now / 160) + 1) / 2);
@@ -624,14 +645,14 @@ function draw(now) {
       const k0 = Math.min(1, t / 160);
       const start = cueStart || { x: cd.x, y: cd.y };
       ctx.globalAlpha = 1 - Math.max(0, (t - 160) / 100);
-      Art.drawCue(ctx, start.x, start.y, tape.a, 6 + tape.p * 70 * (1 - k0) - k0 * 8, s, seatCue[tape.shooter]);
+      Art.drawCue(ctx, start.x, start.y, tape.a, pullOf(tape.p) * (1 - k0) - k0 * 14, s, seatCue[tape.shooter]);
       ctx.globalAlpha = 1;
     }
   } else cueStart = { x: cd.x, y: cd.y };
 
   if (COARSE) Art.drawFine(ctx, mine ? aim.a : 0, s);
   // The power bar (mine while it is my turn, theirs as they pull).
-  Art.drawPower(ctx, mine ? aim.p : opp && phase === 'aiming' ? opp.p : 0, s, mine);
+  if (COARSE) Art.drawPower(ctx, mine ? aim.p : opp && phase === 'aiming' ? opp.p : 0, s, mine);
 
   // The top bar.
   const active = phase === 'aiming' && !tape ? rules.turn : -1;
@@ -640,15 +661,18 @@ function draw(now) {
   Art.drawBar(ctx, {
     names: match.names, initials: match.initials, active,
     timeFrac: active >= 0 ? (turnEndsAt - now) / shotMs : -1,
-    groups: rules.groups, potted, spin: aim.spin,
+    groups: rules.groups, potted: potted[0], spin: aim.spin,
+    late: active >= 0 && turnEndsAt - now < 7000 && turnEndsAt - now > 0,
   }, s);
+  if (groupBanner.text && now - groupBanner.at < 2200) Art.drawBanner(ctx, groupBanner.text, s, Math.min(1, (2200 - (now - groupBanner.at)) / 400));
 
   // Words: the hint under the bar on my turn, the message box at the foot.
-  if (mine && !spinOpen) {
-    const touch = COARSE;
-    Art.drawHint(ctx, rules.inHand && !rules.broken ? (touch ? 'Drag the cue ball, then pull the power bar' : 'Drag the cue ball, then drag back and release')
-      : touch ? 'Pull the power bar down and let go' : 'Press, drag the mouse back and release', s);
+  // The reference's first-turn tutorial lines (until the first shot you take in a match).
+  if (mine && !spinOpen && myShots === 0) {
+    if (COARSE) Art.drawHint(ctx, 'To apply power to the cue', s, 'Pull the power bar down and let go');
+    else Art.drawHint(ctx, 'To apply power to the cue', s, 'Press button, drag mouse, and release');
   }
+  if (banner.text && now >= banner.until && sayNext) { const n = sayNext; say(n.text, n.ms); }
   if (banner.text && now < banner.until) Art.drawMsg(ctx, banner.text, s, Math.min(1, (banner.until - now) / 300));
 
   if (spinOpen) picker = Art.drawSpinPicker(ctx, aim.spin, s);
@@ -658,6 +682,7 @@ function draw(now) {
   }
 }
 let cueStart = null;
+let myShots = 0;              // shots I have taken this match (the tutorial lines show until the first)
 
 /* May the shooter hit this ball first? (red guide circle when not) */
 function legalFirst(n, side) {
@@ -670,7 +695,7 @@ function legalFirst(n, side) {
 
 // Before a match: the empty table.
 function drawIdle(s) {
-  Art.drawPower(ctx, 0, s, false);
+  if (COARSE) Art.drawPower(ctx, 0, s, false);
 }
 
 /* The menu button: an online match cannot stop, so it offers the way out (the same leave as the lobby's). */
