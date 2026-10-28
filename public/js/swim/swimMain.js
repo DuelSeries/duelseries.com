@@ -122,7 +122,7 @@ function controls() {
 let race = null;
 /* race = { id, side (mine, or null watching), names, vsBot, stake, pot, goAt, state,
             traffic, me, inputs, hist, sentTo, rows: [row side 0, row side 1], disp: [{z,x,v,vx}],
-            crashed, near: Map, closes, topV, startedAt, follow } */
+            slowing: [side 0, side 1], crashed, closes, topV, startedAt, follow } */
 function newRace(m, side) {
   const traffic = new S.Traffic();
   for (const rec of m.cars || []) traffic.add(rec);
@@ -132,8 +132,8 @@ function newRace(m, side) {
     goAt: Number(m.goAt) || 0, state: 'countdown', traffic,
     me: side === null ? null : S.newCar(side),
     inputs: new Int16Array(R), hist: new Array(R).fill(null), sentTo: -1, lastSend: 0,
-    rows: [null, null], disp: [null, null], seen: [0, 0],
-    crashed: false, near: new Map(), closes: 0, topV: 0, startedAt: 0, follow: 0, countShown: -1,
+    rows: [null, null], disp: [null, null], seen: [0, 0], slowing: [false, false],
+    crashed: false, closes: 0, topV: 0, startedAt: 0, follow: 0, countShown: -1,
     corrections: 0, scrapeWas: 0,
   };
   if (r.me) r.hist[0] = S.copyCar(r.me);
@@ -147,12 +147,17 @@ function rowCar(row) {
   return { tick: row[1], z: row[2], x: row[3], v: row[4], vx: row[5], alive: !!row[6],
            crashTick: row[6] ? -1 : row[1], hit: -1, wall: row[7] || 0 };
 }
+const SLOWING = 5;                   // m/s lost per second that lights a remote car's brake lights
 function takeRow(r, row) {
   if (!Array.isArray(row) || row.length < 8) return;
   const side = row[0];
   if (side !== 0 && side !== 1) return;
   const prev = r.rows[side];
   if (prev && prev[1] > row[1]) return;            // an older snapshot arriving late
+  /* Brake lights for a car we only hear about: lit while it loses more than SLOWING m/s a second
+     between two rows. That is the brake pedal (22) or the barrier, not easing off the gas (3.2) or a
+     boost bleeding off (4), so it lights when ours would. */
+  if (prev && row[1] > prev[1]) r.slowing[side] = (prev[4] - row[4]) / ((row[1] - prev[1]) * S.DT) > SLOWING;
   r.rows[side] = row;
   if (side === r.side) reconcile(r, row);
 }
@@ -202,7 +207,7 @@ function drive(r) {
     const alive = c.alive;
     S.step(c, code, r.traffic);
     r.hist[c.tick % R] = S.copyCar(c);
-    if (alive && c.alive) nearMiss(r, c);
+    if (alive && c.alive && c.close >= 0) closePass(r);
     if (alive && !c.alive) crashed(r);
     if (c.wall !== 0 && steer * c.wall > 0) SOUND.play('sw.scrape', { vol: 0.8 });
   }
@@ -220,32 +225,9 @@ function drive(r) {
   }
 }
 
-/* A CLOSE PASS: a car that went by within half a metre, said once per car. */
-const CLOSE_M = 0.55;
-function nearMiss(r, c) {
-  for (let l = 0; l < S.LANES; l++) {
-    const dx = Math.abs(c.x - S.laneX(l));
-    if (dx > S.CAR.HW + 1.25 + CLOSE_M) continue;
-    for (const rec of r.traffic.lanes[l]) {
-      const t = S.TYPES[rec[2]];
-      const dz = S.zAt(rec, c.tick) - c.z;
-      if (dz > S.CAR.HL + t.hl + 2) break;
-      if (dz < -(S.CAR.HL + t.hl + 2)) continue;
-      const gap = dx - (S.CAR.HW + t.hw);
-      const id = rec[0];
-      if (Math.abs(dz) < S.CAR.HL + t.hl) {
-        const was = r.near.get(id);
-        r.near.set(id, was === undefined ? gap : Math.min(was, gap));
-      } else if (dz < 0 && r.near.has(id)) {
-        const g = r.near.get(id);
-        r.near.delete(id);
-        r.near.set(-id, 0);                         // never twice for the same car
-        if (g < CLOSE_M && g >= 0) closePass(r);
-      }
-    }
-  }
-  if (r.near.size > 64) r.near.clear();
-}
+/* A CLOSE PASS: the step itself saw a car go by with under S.CLOSE_M to spare and gave the boost
+   (car.close, shared/swimSim.js), so the server agrees it happened. Said on the predicted tick; a
+   correction replays without saying it again. */
 let closeTimer = 0;
 function closePass(r) {
   r.closes++;
@@ -280,7 +262,8 @@ function frame(now) {
   fpsWin.push(dt); if (fpsWin.length > 90) fpsWin.shift();
   slewClock();
   const r = race;
-  let follow = null, other = null, followSide = 0, steer = 0, tickF = 0;
+  /* steer stays null unless it is our own wheel: the scene then reads a car's indicators from its sideways speed. */
+  let follow = null, other = null, followSide = 0, steer = null, tickF = 0;
   if (r && (r.state === 'countdown' || r.state === 'racing' || r.state === 'over')) {
     tickF = tickNow();
     if (r.state === 'countdown') countdown(r, tickF);
@@ -290,9 +273,10 @@ function frame(now) {
       // Between the last two predicted ticks, for a smooth picture at any refresh rate.
       const a = r.me, p = r.hist[(a.tick - 1 + R) % R];
       const alpha = Math.max(0, Math.min(1, tickF - (a.tick - 1)));
+      const brake = r.state === 'racing' && (r.pedal || 0) < 0;
       follow = p && p.tick === a.tick - 1 && a.alive
-        ? { z: p.z + (a.z - p.z) * alpha, x: p.x + (a.x - p.x) * alpha, v: a.v, vx: a.vx, alive: a.alive }
-        : { z: a.z, x: a.x, v: a.v, vx: a.vx, alive: a.alive };
+        ? { z: p.z + (a.z - p.z) * alpha, x: p.x + (a.x - p.x) * alpha, v: a.v, vx: a.vx, alive: a.alive, brake }
+        : { z: a.z, x: a.x, v: a.v, vx: a.vx, alive: a.alive, brake };
       followSide = r.side;
       other = remote(r, 1 - r.side, a.tick - 1 + alpha, dt);
       steer = r.steer || 0;
@@ -338,7 +322,7 @@ function remote(r, side, at, dt) {
     d.z += row[4] * dt * (row[6] ? 1 : 0); d.x += row[5] * dt * (row[6] ? 1 : 0);
     d.z += (tz - d.z) * 0.22; d.x += (tx - d.x) * 0.22;
   }
-  return { z: d.z, x: d.x, v: row[4], vx: row[5], alive: !!row[6] };
+  return { z: d.z, x: d.x, v: row[4], vx: row[5], alive: !!row[6], brake: !!row[6] && r.slowing[side] };
 }
 
 /* ── the HUD ───────────────────────────────────────────────────────────── */
@@ -498,7 +482,7 @@ socket.on('sw:rejoined', (m) => {
   race = newRace(m, m.side);
   race.state = m.state === 'racing' ? 'racing' : 'countdown';
   race.startedAt = was.startedAt; race.countShown = was.countShown;
-  race.closes = was.closes; race.topV = was.topV; race.near = was.near;
+  race.closes = was.closes; race.topV = was.topV;
   const row = (m.p || []).find(q => Array.isArray(q) && q[0] === m.side);
   if (was.crashed && row && row[6] && scene) scene.reset();   // a crash only this screen predicted
   else race.crashed = was.crashed;

@@ -25,9 +25,13 @@ import * as THREE from 'three';
 
 const DEG = Math.PI / 180;
 const BLOCK = 48;                // the static pattern repeats every 48 m
-const AHEAD = 345;               // nothing is drawn past this (the fog has it all by 340)
+/* How far ahead the road is seen, set by the server's horizon (server/swim/swimTraffic.js H_AHEAD
+   520): a traffic car is born 60 m past where the fog is solid and drifts into sight, never pops
+   in, and is in clear view (under 70% fog, about 370 m) for over 4 s before a car flat out meets it
+   in the slowest lane (Owen 2026-10-28: 350 km/h). */
+const AHEAD = 465;               // nothing is drawn past this (the fog has it all by 460)
 const BEHIND = 16;               // nor further back than this (the camera is 6.5 m back)
-const FOG_NEAR = 120, FOG_FAR = 340;
+const FOG_NEAR = 160, FOG_FAR = 460;
 const TRAFFIC_CAP = 72;          // per vehicle type on screen at once
 const SHADOW_CAP = 200;
 const SCATTER_CAP = 200;
@@ -672,6 +676,54 @@ export function createScene(canvasEl, opts = {}) {
   keep(pg.paint); keep(pg.det);
   const detSolid = keep(litMaterial({}));
   const detGhost = keep(litMaterial({ transparent: true, opacity: 0.45 }));
+
+  /* Indicators and brake lamps (Owen 2026-10-28): unlit boxes over the car's
+     own lamps, each with a soft halo facing back at the camera, built once
+     and only shown or hidden each frame (poseCar). Indicators sit under the
+     tail lights, on the nose corners and on the backs of the mirrors; the
+     brake lamps cover the tail lights and the light bar, a hotter red than
+     the tail lights' own. */
+  const lampGlow = keep(blobTexture([[0, 'rgba(255,255,255,1)'], [0.25, 'rgba(255,255,255,0.8)'], [0.55, 'rgba(255,255,255,0.3)'], [1, 'rgba(255,255,255,0)']]));
+  const haloMat = (hex, a) => keep(new THREE.MeshBasicMaterial({ color: hex, map: lampGlow, transparent: true, opacity: a, depthWrite: false,
+    blending: THREE.AdditiveBlending, toneMapped: false, side: THREE.DoubleSide }));
+  const amberLamp = keep(new THREE.MeshBasicMaterial({ color: 0xffa31a, toneMapped: false }));
+  const brakeLamp = keep(new THREE.MeshBasicMaterial({ color: 0xff7a5e, toneMapped: false }));
+  const amberHalo = haloMat(0xff9a1c, 0.9), brakeHalo = haloMat(0xff2a14, 1);
+  function haloGeo(list) {               // [cx, cy, cz, w, h]: quads square to z, facing back
+    const p = [], uv = [];
+    for (const [cx, cy, cz, w, h] of list) {
+      const x0 = cx - w / 2, x1 = cx + w / 2, y0 = cy - h / 2, y1 = cy + h / 2;
+      p.push(x0, y0, cz, x1, y0, cz, x1, y1, cz, x0, y0, cz, x1, y1, cz, x0, y1, cz);
+      uv.push(0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(p, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    return keep(g);
+  }
+  const indGeo = [-1, 1].map((s) => {
+    const m = new Mesher();
+    m.box(s * 0.72, 0.585, 2.13, 0.20, 0.06, 0.08, 0);       // rear, under the tail light
+    m.box(s * 0.83, 0.56, -1.62, 0.08, 0.07, 0.22, 0);       // nose corner
+    m.box(s * 0.95, 0.88, -0.465, 0.08, 0.05, 0.03, 0);      // back of the mirror
+    return { lamp: keep(m.build()), halo: haloGeo([[s * 0.72, 0.585, 2.21, 0.8, 0.5], [s * 0.95, 0.88, -0.43, 0.4, 0.28]]) };
+  });
+  const brakeGeo = (() => {
+    const m = new Mesher();
+    for (const s of [-1, 1]) m.box(s * 0.56, 0.70, 2.135, 0.54, 0.125, 0.09, 0);
+    m.box(0, 0.70, 2.14, 0.64, 0.05, 0.07, 0);
+    return { lamp: keep(m.build()), halo: haloGeo([[-0.56, 0.70, 2.24, 1.6, 0.8], [0.56, 0.70, 2.24, 1.6, 0.8]]) };
+  })();
+  function lampSet(geo, lampMat, halo) {
+    const g = new THREE.Group(), a = new THREE.Mesh(geo.lamp, lampMat), b = new THREE.Mesh(geo.halo, halo);
+    a.frustumCulled = b.frustumCulled = false;
+    b.renderOrder = 4;                   // after the ghost body, so a ghost's lamps still glow
+    g.add(a, b);
+    g.visible = false;
+    return g;
+  }
+  const BLINK_HZ = 1.5, BLINK_HOLD = 0.4;   // flashes a second; how long it keeps going after the wheel is let go
+
   const cars = [0, 1].map((side) => {
     const solid = keep(litMaterial({ color: SIDE_PAINT[side], emissive: new THREE.Color(SIDE_PAINT[side]).multiplyScalar(0.12) }));
     const ghost = keep(litMaterial({ color: SIDE_PAINT[side], emissive: new THREE.Color(SIDE_PAINT[side]).multiplyScalar(0.2), transparent: true, opacity: 0.45 }));
@@ -680,9 +732,13 @@ export function createScene(canvasEl, opts = {}) {
     const paint = new THREE.Mesh(pg.paint, solid), det = new THREE.Mesh(pg.det, detSolid);
     paint.frustumCulled = det.frustumCulled = false;
     group.add(paint, det);
+    const ind = [lampSet(indGeo[0], amberLamp, amberHalo), lampSet(indGeo[1], amberLamp, amberHalo)];
+    const brake = lampSet(brakeGeo, brakeLamp, brakeHalo);
+    group.add(ind[0], ind[1], brake);
     group.visible = false;
     scene.add(group);
-    return { side, group, paint, det, solid, ghost, roll: 0, pitch: 0, acc: 0, lastV: -1, lastVx: 0 };
+    return { side, group, paint, det, solid, ghost, ind, brake, roll: 0, pitch: 0, acc: 0, lastV: -1, lastVx: 0,
+             blinkSide: 0, blinkT: 0, blinkHold: 0 };
   });
 
   /* speed lines: thin streaks round the edge of the view, riding with the camera */
@@ -750,8 +806,9 @@ export function createScene(canvasEl, opts = {}) {
     camera.updateProjectionMatrix();
   }
 
-  /* Pull a car's paint/details over to solid or ghost and set its pose. */
-  function poseCar(car, st, z0, ghost, steer, dt) {
+  /* Pull a car's paint/details over to solid or ghost and set its pose. `wheel` is the driver's own
+     steering when this screen has it (our car), else null: its indicators then go by sideways speed. */
+  function poseCar(car, st, z0, ghost, steer, dt, wheel) {
     const g = car.group;
     if (!st) { g.visible = false; return; }
     g.visible = true;
@@ -779,6 +836,22 @@ export function createScene(canvasEl, opts = {}) {
       g.rotation.x = 0.13 * Math.exp(-t * 5) * Math.sin(t * 26);
       g.rotation.z = 0.08 * crashDir * Math.exp(-t * 4);
     }
+    /* Indicators flash while it steers (held a moment, so a quick tap still flashes once); the brake
+       lamps are lit while it brakes. Nothing on a crashed car. */
+    const alive = st.alive !== false;
+    const sig = !alive ? 0 : wheel != null ? (wheel > 0.15 ? 1 : wheel < -0.15 ? -1 : 0) : (vx > 1.5 ? 1 : vx < -1.5 ? -1 : 0);
+    if (sig !== 0) {
+      if (sig !== car.blinkSide) { car.blinkSide = sig; car.blinkT = 0; }
+      car.blinkHold = BLINK_HOLD;
+    } else if (car.blinkSide !== 0) {
+      car.blinkHold -= dt;
+      if (car.blinkHold <= 0 || !alive) car.blinkSide = 0;
+    }
+    car.blinkT += dt;
+    const lit = car.blinkSide !== 0 && (car.blinkT * BLINK_HZ) % 1 < 0.5;
+    car.ind[0].visible = lit && car.blinkSide < 0;
+    car.ind[1].visible = lit && car.blinkSide > 0;
+    car.brake.visible = alive && !!st.brake;
   }
 
   /* Send only the used front of an instance buffer, through one range object
@@ -805,12 +878,12 @@ export function createScene(canvasEl, opts = {}) {
     let ix = 0, iz = 2.0, best = 1e9;
     if (traffic && traffic.lanes) {
       for (let l = 0; l < S.LANES; l++) {
-        const list = traffic.lanes[l], lx = S.laneX(l);
+        const list = traffic.lanes[l];
         for (let i = 0; i < list.length; i++) {
           const dz = S.zAt(list[i], tick) - fol.z;
           if (dz > 14) break;
           if (dz < -14) continue;
-          const dx = lx - fol.x, d = dx * dx + dz * dz;
+          const dx = S.xAt(list[i], tick) - fol.x, d = dx * dx + dz * dz;
           if (d < best) { best = d; ix = clamp(dx * 0.5, -0.9, 0.9); iz = clamp(dz, -2.1, 2.1); }
         }
       }
@@ -872,12 +945,13 @@ export function createScene(canvasEl, opts = {}) {
     let side = 0, best = 1e9;
     if (!traffic || !traffic.lanes) return 0;
     for (let l = 0; l < S.LANES; l++) {
-      const list = traffic.lanes[l], dx = S.laneX(l) - fol.x;
-      if (Math.abs(dx) < 0.6 || Math.abs(dx) > 4.5) continue;
+      const list = traffic.lanes[l];
       for (let i = 0; i < list.length; i++) {
         const dz = S.zAt(list[i], tick) - fol.z;
         if (dz > 10) break;
         if (dz < -14) continue;
+        const dx = S.xAt(list[i], tick) - fol.x;
+        if (Math.abs(dx) < 0.6 || Math.abs(dx) > 4.5) continue;
         const d = Math.abs(dz) + Math.abs(dx);
         if (d < best) { best = d; side = dx > 0 ? 1 : -1; }
       }
@@ -947,7 +1021,7 @@ export function createScene(canvasEl, opts = {}) {
     let ns = 0;
     if (traffic && traffic.lanes) {
       for (let l = 0; l < S.LANES; l++) {
-        const list = traffic.lanes[l], lx = S.laneX(l);
+        const list = traffic.lanes[l];
         for (let i = 0; i < list.length; i++) {
           const r = list[i], dz = S.zAt(r, tick) - z0;
           if (dz < -BEHIND) continue;
@@ -955,7 +1029,7 @@ export function createScene(canvasEl, opts = {}) {
           const t = r[2], n = tcount[t];
           if (n >= TRAFFIC_CAP) continue;
           tcount[t] = n + 1;
-          const tm = tmesh[t], o = n * 16;
+          const tm = tmesh[t], o = n * 16, lx = S.xAt(r, tick);
           tm.mat[o + 12] = lx; tm.mat[o + 14] = -dz;
           const pc = paintLin[((r[5] % 10) + 10) % 10];
           tm.col[n * 3] = pc.r; tm.col[n * 3 + 1] = pc.g; tm.col[n * 3 + 2] = pc.b;
@@ -986,8 +1060,9 @@ export function createScene(canvasEl, opts = {}) {
     }
     if (crashPending) { crashPending = false; startCrash(fol, traffic, tick, side); }
     const carF = cars[side], carO = cars[1 - side];
-    poseCar(carF, fol, z0, false, clamp(+f.steer || 0, -1, 1), dt);
-    poseCar(carO, oth, z0, true, null, dt);
+    const wheel = f.steer == null ? null : clamp(+f.steer || 0, -1, 1);
+    poseCar(carF, fol, z0, false, wheel === null ? 0 : wheel, dt, wheel);
+    poseCar(carO, oth, z0, true, null, dt, null);
     ns = carShadow(carF, ns); ns = carShadow(carO, ns);
     shadows.count = ns; shadows.visible = ns > 0;
     if (ns) upload(shadows.instanceMatrix, ns * 16);
@@ -1066,11 +1141,14 @@ export function createScene(canvasEl, opts = {}) {
   resize();
   // compile every program now (solid and ghost), not on the first frames of the race
   for (const im of [parts, streaks, shadows, rocks, buttes, trees, gantries, ...tmesh.flatMap((t) => [t.paint, t.det])]) im.visible = true;
-  for (const c of cars) c.group.visible = true;
+  for (const c of cars) { c.group.visible = true; c.ind[0].visible = c.ind[1].visible = c.brake.visible = true; }
   renderer.compile(scene, camera);
   for (const c of cars) { c.paint.material = c.ghost; c.det.material = detGhost; }
   renderer.compile(scene, camera);
-  for (const c of cars) { c.paint.material = c.solid; c.det.material = detSolid; c.group.visible = false; }
+  for (const c of cars) {
+    c.paint.material = c.solid; c.det.material = detSolid; c.group.visible = false;
+    c.ind[0].visible = c.ind[1].visible = c.brake.visible = false;
+  }
   for (const im of [parts, streaks, shadows, ...tmesh.flatMap((t) => [t.paint, t.det])]) im.visible = false;
 
   return {
@@ -1081,7 +1159,7 @@ export function createScene(canvasEl, opts = {}) {
     reset() {
       clearCrash();
       K.nmT = 0; nmPending = null; snap = true;
-      for (const c of cars) { c.lastV = -1; c.roll = c.pitch = c.acc = 0; }
+      for (const c of cars) { c.lastV = -1; c.roll = c.pitch = c.acc = 0; c.blinkSide = 0; c.blinkHold = 0; }
     },
     info() {
       const r = renderer.info;

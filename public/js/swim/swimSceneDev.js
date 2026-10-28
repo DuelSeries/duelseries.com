@@ -94,7 +94,7 @@ function doCrash() { if (crashed) return; crashed = true; me.alive = false; scen
 const RING = 4096, deltas = new Float32Array(RING), cpu = new Float32Array(RING);
 let nd = 0, frames = 0, measureFrom = -1, t0 = performance.now(), lastNow = t0;
 const px = new Uint8Array(4);
-const view = { follow: { z: 0, x: 0, v: 0, vx: 0, alive: true }, other: { z: 0, x: 0, v: 0, vx: 0, alive: true } };
+const view = { follow: { z: 0, x: 0, v: 0, vx: 0, alive: true, brake: false }, other: { z: 0, x: 0, v: 0, vx: 0, alive: true, brake: false } };
 window.__swimPerf = { done: false };
 function stats() {
   const n = Math.min(nd, RING), a = Array.from(deltas.subarray(0, n)).sort((x, y) => x - y), b = Array.from(cpu.subarray(0, n)).sort((x, y) => x - y);
@@ -119,6 +119,8 @@ function loop(now) {
   const F = view.follow, O = view.other;
   F.z = a.z; F.x = a.x; F.v = a.alive ? a.v : 0; F.vx = a.vx; F.alive = a.alive;
   O.z = b.z; O.x = b.x; O.v = b.alive ? b.v : 0; O.vx = b.vx; O.alive = b.alive;
+  // brake lamps while a fake driver's speed curve is falling, so the perf numbers include them
+  F.brake = Math.cos(raceT * 0.21 + a.phase) < 0; O.brake = Math.cos(raceT * 0.21 + b.phase) < 0;
   scene.frame({ follow: F, other: O, followSide, traffic, tick, dt, steer: a.steer });
   if (SYNC) gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
   const c1 = performance.now();
