@@ -19,7 +19,10 @@
 
 const S = require('../../shared/swimSim');
 
-const H_AHEAD = 400;          // metres past the front car that the road is filled to
+/* Metres past the front car that the road is filled to: a car is born there,
+   out in the fog (swimScene.js FOG_FAR is 60 m short of it), and is in sight
+   for about 4 s before a car flat out reaches it in the slowest lane. */
+const H_AHEAD = 520;
 const START_CLEAR = 130;      // nothing within this of the start line
 const G0 = 95, GMIN = 17, TG = 75;
 const WIN = 7.5;              // the clear length a car needs to slip between two

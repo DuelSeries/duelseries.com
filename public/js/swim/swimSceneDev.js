@@ -19,7 +19,7 @@ const gl = scene.renderer.getContext();
 const dbg = gl.getExtension('WEBGL_debug_renderer_info');
 const GPU = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : 'n/a';
 
-/* ── made-up traffic, filled lane by lane to 400 m past the leader, the gap
+/* ── made-up traffic, filled lane by lane to 520 m past the leader, the gap
    shrinking from ~95 m towards 17 m with race time like the server's ── */
 const rand = S.rng(num('seed', 7));
 let traffic = new S.Traffic(), nextId = 1, last = [null, null, null, null], need = [0, 0, 0, 0];
@@ -39,7 +39,7 @@ function fill(tick, leadZ, raceT) {
       const back = lst ? S.zAt(lst, tk) + S.TYPES[lst[2]].L / 2 : leadZ - 60;
       const type = pickType(l, raceT);
       const z = back + need[l] + S.TYPES[type].L / 2;
-      if (z > leadZ + 400) break;
+      if (z > leadZ + 520) break;
       const rec = [nextId++, l, type, Math.round(z * 100) / 100, tk, Math.floor(rand() * 10)];
       traffic.add(rec); last[l] = rec;
       need[l] = laneGap(raceT) * (0.55 + rand() * 0.9);
@@ -68,7 +68,7 @@ function drive(c, t, tick, dt) {
   }
   const want = clamp((S.laneX(c.lane) - c.x) * 0.9 - c.vx * 0.18, -1, 1);
   c.steer = want;
-  const tv = want * S.VX_MAX, dv = 46 * dt;
+  const tv = want * S.vxMax(c.v), dv = S.vxAcc(c.v) * dt;
   c.vx = c.vx < tv ? Math.min(tv, c.vx + dv) : Math.max(tv, c.vx - dv);
   c.x = clamp(c.x + c.vx * dt, -S.WALL, S.WALL);
   c.z += c.v * dt;

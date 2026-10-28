@@ -97,7 +97,7 @@ class SwimBot {
       for (let k = here; k !== l + dir; k += dir) {
         if (k === here) continue;
         /* Until the car is all the way out the far side of that lane, not just at its middle. */
-        const cross = (Math.abs(S.laneX(k) - car.x) + (k === l ? 0 : 1.8)) / S.VX_MAX + 0.2;
+        const cross = (Math.abs(S.laneX(k) - car.x) + (k === l ? 0 : 1.8)) / S.vxMax(car.v) + 0.2;
         if (tt[k] < 0 || tt[k] < cross + 0.45) return false;
       }
       return true;
@@ -134,10 +134,11 @@ class SwimBot {
       this.look(car, traffic, tick, opp);
       this.nextLook = tick + this.react;
     }
-    /* Steer to the lane's middle with a speed that can still stop on it. */
+    /* Steer to the lane's middle with a speed that can still stop on it (the wheel is heavier the faster it goes). */
     const e = S.laneX(this.lane) + this.offset - car.x;
-    const want = Math.sign(e) * Math.min(S.VX_MAX, Math.sqrt(2 * 40 * Math.abs(e)));
-    const steer = clamp((want - car.vx * 0.25) / S.VX_MAX, -1, 1);
+    const reach = S.vxMax(car.v);
+    const want = Math.sign(e) * Math.min(reach, Math.sqrt(2 * 0.85 * S.vxAcc(car.v) * Math.abs(e)));
+    const steer = clamp((want - car.vx * 0.25) / reach, -1, 1);
     return S.packInput(Math.abs(e) < 0.04 && Math.abs(car.vx) < 0.3 ? 0 : steer, this.pedal);
   }
 }

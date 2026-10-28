@@ -13,7 +13,8 @@
 
    THE TRAFFIC IS A LIST OF RECORDS, NOT A STREAM OF POSITIONS. A traffic car
    never changes lane or speed: it is born at z0 on tick t0 in a lane, and its
-   position on any tick is z0 + laneSpeed * (tick - t0) * DT. So the server
+   position on any tick is z0 + laneSpeed * (tick - t0) * DT (zAt), across the
+   road at its lane's middle (xAt). So the server
    sends each car once (when it appears on the horizon, server/swim/
    swimTraffic.js) and every screen works out where it is from then on, for
    free and in perfect agreement.
@@ -37,7 +38,7 @@
   const NAME = 'Swim';
   /* Bumped whenever the step or the traffic rules change: a page left open across a deploy runs the old
      step and would disagree with the server on every tick, so the server turns it away (sw:queue). */
-  const VERSION = 1;
+  const VERSION = 2;
 
   const HZ = 60;
   const DT = 1 / HZ;
@@ -53,7 +54,7 @@
   const LANE_W = 3.6;
   const ROAD_HALF = LANES * LANE_W / 2;                  // 7.2
   const laneX = (l) => (l - (LANES - 1) / 2) * LANE_W;   // -5.4, -1.8, 1.8, 5.4
-  const LANE_V = [23, 20.5, 18, 15.5];                   // m/s, left to right
+  const LANE_V = [27, 24, 21, 18];                       // m/s, left to right
 
   /* The players' car. Its hitbox is a touch smaller than the body drawn, so a
      pass that LOOKS clean is clean. Between two ordinary cars side by side
@@ -75,18 +76,41 @@
 
   /* ── speed ────────────────────────────────────────────────────────────────
      The road gets faster for as long as the match lasts: a cruise speed that
-     starts at 108 km/h and climbs towards 266, half way there after 80 s. W
-     pushes up to 28% over it, S brakes all the way down to 43 km/h at any
-     stage, and with neither the car settles back to it. Braking is the way out of a
-     box: slow enough to drop in behind a car alongside and pull out behind it.
-     It costs ground, which is the whole game against the 200 m rule; and sit
-     slower than a lane's traffic for long and it comes up behind you, and
-     touching it from behind counts the same. */
-  const V0 = 30, V1 = 74, T_HALF = 80;
-  const TOP_K = 1.28, FLOOR_MIN = 12;
-  const GAS = 9.5, BRAKE = 20, EASE = 3.2, SCRAPE = 9;
-  const VX_MAX = 8.6;                 // sideways m/s at full lock: a lane in about half a second
-  const VX_ACC = 46;                  // how fast the sideways speed answers the wheel
+     starts at 130 km/h and climbs towards 302, half way there after 70 s. W
+     pushes up to 16% over it (about 350 km/h late on, Owen 2026-10-28), S
+     brakes all the way down to 54 km/h at any stage, and with neither the car
+     settles back to it. Braking is the way out of a box: slow enough to drop
+     in behind a car alongside and pull out behind it. It costs ground, which
+     is the whole game against the 200 m rule; and sit slower than a lane's
+     traffic for long and it comes up behind you, and touching it from behind
+     counts the same. */
+  const V0 = 36, V1 = 84, T_HALF = 70;
+  const TOP_K = 1.16, FLOOR_MIN = 15;
+  const GAS = 11, BRAKE = 22, EASE = 3.2, SCRAPE = 9;
+
+  /* THE WHEEL GETS HEAVIER WITH SPEED (Owen 2026-10-28). Sideways speed at
+     full lock is 11.5 - 0.075 v, held between 4.5 and 10.5 m/s: about 8.8 at
+     the start (a lane in half a second), 5.2 at the late cruise, 4.5 flat
+     out. How fast it answers the wheel scales with it, so full lock is always
+     reached in about 0.19 s. Only * - and comparisons, so every engine agrees. */
+  const VX_0 = 11.5, VX_K = 0.075, VX_LO = 4.5, VX_HI = 10.5;
+  const VX_RISE = 46 / 8.6;           // sideways acceleration per m/s of sideways top speed
+  function vxMax(v) {
+    const m = VX_0 - VX_K * v;
+    return m < VX_LO ? VX_LO : m > VX_HI ? VX_HI : m;
+  }
+  function vxAcc(v) { return vxMax(v) * VX_RISE; }
+
+  /* A CLOSE PASS PAYS (Owen 2026-10-28). A traffic car that goes by with less
+     than CLOSE_M of daylight between the two, measured side to side on the
+     tick its front slips behind our rear, adds up to BOOST_MAX m/s at once:
+     all of it for a pass with no daylight at all, nothing at CLOSE_M. Touching
+     is still a crash. The boost can carry the car past its top speed, never
+     more than BOOST_MAX over it, and above the top it bleeds off at OVER_EASE
+     m/s every second, gas or not: a surge, not a new top speed. The step works
+     it out from the car and the traffic alone, so the server, the bot and
+     every screen agree on it without anything new on the wire. */
+  const CLOSE_M = 0.6, BOOST_MAX = 14, OVER_EASE = 4;
 
   function cruise(tick) {
     const t = (tick > 0 ? tick : 0) * DT;
@@ -114,34 +138,41 @@
 
   /* ── a player's car ──────────────────────────────────────────────────────
      `tick` is the tick this state is AT: step() applies that tick's input and
-     moves it to tick + 1. Side 0 starts in lane 1, side 1 in lane 2. */
+     moves it to tick + 1. Side 0 starts in lane 1, side 1 in lane 2. `close`
+     is what the last step saw (the clearance of a close pass on it, else -1)
+     and is never read back, so a car rebuilt from the server's row (tick, z,
+     x, v, vx, alive, wall) steps exactly as the one it came from. */
   function newCar(side) {
     return { tick: 0, z: 0, x: side === 1 ? laneX(2) : laneX(1), v: V0, vx: 0,
-             alive: true, crashTick: -1, hit: -1, wall: 0 };
+             alive: true, crashTick: -1, hit: -1, wall: 0, close: -1 };
   }
   function copyCar(c, out) {
     const o = out || {};
     o.tick = c.tick; o.z = c.z; o.x = c.x; o.v = c.v; o.vx = c.vx;
     o.alive = c.alive; o.crashTick = c.crashTick; o.hit = c.hit; o.wall = c.wall;
+    o.close = c.close === undefined ? -1 : c.close;
     return o;
   }
 
   function step(car, code, traffic) {
     const n = car.tick;
+    car.close = -1;
     if (!car.alive) { car.tick = n + 1; return car; }
     const steer = steerOf(code), pedal = pedalOf(code);
     const hi = topSpeed(n), lo = floorSpeed(n), mid = cruise(n);
 
     let v = car.v;
-    if (pedal > 0) { v += GAS * DT; if (v > hi) v = hi; }
-    else if (pedal < 0) { v -= BRAKE * DT; if (v < lo) v = lo; }
+    if (pedal < 0) { v -= BRAKE * DT; if (v < lo) v = lo; }
+    else if (v > hi) { v -= OVER_EASE * DT; if (v < hi) v = hi; }   // a boost bleeding off
+    else if (pedal > 0) { v += GAS * DT; if (v > hi) v = hi; }
     else if (v < mid) { v += EASE * DT; if (v > mid) v = mid; }
     else if (v > mid) { v -= EASE * DT; if (v < mid) v = mid; }
     if (v < lo) v = lo;
 
-    const want = steer * VX_MAX;
+    const reach = vxMax(v);
+    const want = steer * reach;
     let vx = car.vx;
-    const dv = VX_ACC * DT;
+    const dv = reach * VX_RISE * DT;
     if (vx < want) { vx += dv; if (vx > want) vx = want; }
     else if (vx > want) { vx -= dv; if (vx < want) vx = want; }
     let x = car.x + vx * DT;
@@ -152,12 +183,22 @@
     else if (x < -WALL) { x = -WALL; if (vx < 0) vx = 0; wall = -1; }
     if (wall !== 0 && steer * wall > 0) { v -= SCRAPE * DT; if (v < lo) v = lo; }
 
-    car.z += v * DT;
+    const z0 = car.z;
+    car.z = z0 + v * DT;
     car.x = x; car.v = v; car.vx = vx; car.wall = wall;
     car.tick = n + 1;
     if (traffic) {
       const hit = traffic.hitAt(car.x, car.z, car.tick);
       if (hit >= 0) { car.alive = false; car.crashTick = car.tick; car.hit = hit; }
+      else {
+        const gap = traffic.closeAt(car.x, z0, car.z, n);
+        if (gap >= 0) {
+          let b = v + BOOST_MAX * (1 - gap / CLOSE_M);
+          if (b > hi + BOOST_MAX) b = hi + BOOST_MAX;
+          if (b > v) car.v = b;
+          car.close = gap;
+        }
+      }
     }
     return car;
   }
@@ -167,6 +208,10 @@
      moves at the lane's speed and they were added front-most last, so each
      lane's list stays sorted by z from the back of the queue to the front. */
   function zAt(rec, tick) { return rec[3] + LANE_V[rec[1]] * ((tick - rec[4]) * DT); }
+  /* Where a traffic car is across the road on a tick: its lane's middle, for
+     now. Everything that needs a traffic car's x asks this, so a car that
+     changes lane later only has to be taught here (the tick is for then). */
+  function xAt(rec, tick) { return laneX(rec[1]); }
   function validRecord(r) {
     return Array.isArray(r) && r.length >= 6 && Number.isInteger(r[0]) && r[0] >= 0
       && Number.isInteger(r[1]) && r[1] >= 0 && r[1] < LANES
@@ -205,18 +250,38 @@
     /* The id of the traffic car a player's car at (x, z) touches on this tick, or -1. */
     hitAt(x, z, tick) {
       for (let l = 0; l < LANES; l++) {
-        const dx = Math.abs(x - laneX(l));
-        if (dx >= CAR.HW + 1.25) continue;            // no traffic car is that wide
         const list = this.lanes[l];
         for (let i = 0; i < list.length; i++) {
           const r = list[i], t = TYPES[r[2]];
           const dz = zAt(r, tick) - z;
           if (dz > CAR.HL + MAX_HL) break;            // sorted: everything after is further ahead
           if (dz <= -(CAR.HL + t.hl) || dz >= CAR.HL + t.hl) continue;
-          if (dx < CAR.HW + t.hw) return r[0];
+          if (Math.abs(x - xAt(r, tick)) < CAR.HW + t.hw) return r[0];
         }
       }
       return -1;
+    }
+    /* A close pass between ticks n and n + 1, for a car whose centre went from
+       z0 to z1 and is at x on n + 1. Of the traffic cars whose front was at or
+       ahead of our rear on n and is behind it on n + 1, the smallest side to
+       side clearance on n + 1, when it is under CLOSE_M; else -1. Below 0 is a
+       touch, never a pass (hitAt has already called it a crash). */
+    closeAt(x, z0, z1, n) {
+      const rear0 = z0 - CAR.HL, rear1 = z1 - CAR.HL;
+      let best = -1;
+      for (let l = 0; l < LANES; l++) {
+        const list = this.lanes[l];
+        for (let i = 0; i < list.length; i++) {
+          const r = list[i];
+          const c1 = zAt(r, n + 1);
+          if (c1 >= rear1) break;                     // sorted: neither this nor any after is behind us yet
+          const t = TYPES[r[2]];
+          if (c1 + t.hl >= rear1 || zAt(r, n) + t.hl < rear0) continue;
+          const gap = Math.abs(x - xAt(r, n + 1)) - (CAR.HW + t.hw);
+          if (gap >= 0 && gap < CLOSE_M && (best < 0 || gap < best)) best = gap;
+        }
+      }
+      return best;
     }
     /* Each lane's nearest car ahead of z (its back), for the bot and the HUD. */
     aheadIn(lane, z, tick) {
@@ -248,9 +313,9 @@
   return {
     NAME, VERSION, HZ, DT, TICK_MS, COUNTDOWN_MS, BEHIND_LOSE,
     LANES, LANE_W, ROAD_HALF, LANE_V, laneX, CAR, WALL, TYPES, MAX_HL,
-    V0, V1, T_HALF, TOP_K, FLOOR_MIN, VX_MAX,
-    cruise, topSpeed, floorSpeed,
+    V0, V1, T_HALF, TOP_K, FLOOR_MIN, GAS, BRAKE, VX_LO, VX_HI, CLOSE_M, BOOST_MAX, OVER_EASE,
+    cruise, topSpeed, floorSpeed, vxMax, vxAcc,
     STEER_Q, INPUT_MAX, packInput, steerOf, pedalOf, NEUTRAL, validInput,
-    newCar, copyCar, step, zAt, validRecord, Traffic, rng, kmh,
+    newCar, copyCar, step, zAt, xAt, validRecord, Traffic, rng, kmh,
   };
 });
