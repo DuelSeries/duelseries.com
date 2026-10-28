@@ -3466,11 +3466,6 @@ const GAMES=[
     $0.50 and $1 rungs stake through the wallet widget (AH_PAID_ON in server/index.js, the owner's ah:paid:off on top). Ours, with no reference game (docs/airhockey-design.md). */
  {id:'airhockey',name:'Air Hockey',c:['#141c2c','#4ea6f0'],type:'m',duel:1,built:1,paid:1,isNew:1,
   d:'One puck, two mallets, and a goal at each end. First to seven.'},
- /* Crossy Road (server/crossy, page /crossy): built, a duel on Knockout's queue and money. Both players hop the
-    same seeded map at once; the first one hit, drowned or taken by the eagle loses. Its paid door is PAID_ON in
-    server/crossy/crossyWire.js, the owner's cr:paid:off on top. */
- {id:'crossy',name:'Crossy Road',c:['#16201a','#82ce54'],type:'m',duel:1,built:1,paid:1,isNew:1,
-  d:'Hop the same roads, rivers and rails as your rival. The first one hit loses.'},
  /* Built, and free while it is new: no ladder, no lobby list, its own page,
     and none of the money path involved in it. `solo` is what says so. */
  {id:'omgshooter',name:'Awesome Tanks',c:['#1d2016','#a8bd63'],type:'p',built:1,solo:1,
@@ -3515,6 +3510,12 @@ const GAMES=[
     (that id is Awesome Tanks). */
  {id:'omgshoot2',name:'OMG Shooter',c:['#1d2016','#e8a040'],type:'p',soon:1,
   d:'Little guys, big guns, and everybody shooting everybody.'},
+ /* Crossy Road (server/crossy, page /crossy): built, a duel on Knockout's queue and money. Both players hop the
+    same seeded map at once; the first one hit, drowned or taken by the eagle loses. Its paid door is PAID_ON in
+    server/crossy/crossyWire.js, the owner's cr:paid:off on top.
+    It keeps the spot its coming-soon card had (Owen 2026-10-28), with the NEW tag. */
+ {id:'crossy',name:'Crossy Road',c:['#16201a','#82ce54'],type:'m',duel:1,built:1,paid:1,isNew:1,
+  d:'Hop the same roads, rivers and rails as your rival. The first one hit loses.'},
 ];
 /* Locked games (shared/lockedGames.js, the list the server reads too: today
    Awesome Tanks and Bowmasters). Their entries above stay as they are; for this
@@ -4088,7 +4089,7 @@ const skin=()=>LOOKS.find(s=>s.id===skinId)||null;
    duel.ag.skin, which /ag sends in its handshake (public/js/ag/agMain.js) and
    the server checks against the same list (server/ag/agRoom.js skinOf).
    Every other game keeps dealing its own look, as it does today. */
-const hasLook=g=>!!(g&&(g.look||(window.V2Shop&&V2Shop.game(g.id))||(g.id==='pool8'&&P8_LOOKS.length)));
+const hasLook=g=>!!(g&&(g.look||(window.V2Shop&&V2Shop.game(g.id))||(g.id==='crossy'&&CR_LOOKS.length)||(g.id==='pool8'&&P8_LOOKS.length)));
 const AGS=window.DS_AG_SKINS;
 const AG_LOOKS=(AGS?AGS.SKINS:[]).map(s=>({id:'ag:'+s.id,game:'agar',ag:s,name:s.name,col:AGS.hex(s)}));
 let agSkinId='';
