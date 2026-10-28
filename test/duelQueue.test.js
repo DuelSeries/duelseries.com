@@ -47,7 +47,7 @@ function lobbies() {
 }
 const humans = (room) => [...room.players.keys()].filter(id => !String(id).startsWith('bot_'));
 
-/* The bug was two people 35 s apart under a minute's wait; with the wait now 20 s (shared/duelWait.js) the same
+/* The bug was two people 35 s apart under a minute's wait; with the wait now 10 s (shared/duelWait.js) the same
    case is the second person arriving with a few seconds of the first one's countdown left. */
 test('the reported bug: two people inside one countdown meet each other, not a bot each', () => {
   const apart = duelQueue.FREE_WAIT_MS - 3000;
@@ -298,8 +298,8 @@ test('the real server: two clients meet, the board counts the one waiting, and a
         const gotQueued = first(A, queued);
         A.emit(q, { name: 'Alice', wallet: 'WalletAlice' });
         const qa = await gotQueued;
-        assert.equal(qa.waitMs, 20000, game + ': the 20 s the screen counts down');
-        assert.equal(qa.botAfterMs, 20000);
+        assert.equal(qa.waitMs, 10000, game + ': the 10 s the screen counts down');
+        assert.equal(qa.botAfterMs, 10000);
         assert.match(qa.resumeKey, /^[0-9a-f]{32}$/);
         const row = (await live()).extras.find(e => e.id === game + ':free');
         assert.equal(row.waiting, 1, game + ': Open lobbies counts the person waiting');
