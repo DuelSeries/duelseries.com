@@ -2,6 +2,17 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-10-28-rooftop-snipers",
+      "date": "2026-10-28",
+      "tag": "new",
+      "title": "New game: Rooftop Snipers",
+      "body": "Two snipers on one wobbly roof. Hold to raise your gun, let go to fire, and jump to keep your balance. Knock the other player off the roof five times to win.\n\nEvery round after the first brings a twist, like slippery rain, rocket launchers or super jumps. On a computer it is W to jump and E to shoot; on a phone, two big buttons.",
+      "image": {
+        "src": "/updates/rooftop-snipers.webp",
+        "alt": "Two snipers aiming at each other on a red brick rooftop above a city skyline"
+      }
+    },
+    {
       "id": "2026-10-28-air-hockey",
       "date": "2026-10-28",
       "tag": "new",

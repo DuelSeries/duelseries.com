@@ -282,6 +282,7 @@ const GAME_PAGES = {
   'paper-arena.html': 'js/paper/mp/paperArenaMain.js',
   'headsoccer.html': 'js/headsoccer.js',
   'airhockey.html': 'js/airhockey.js',
+  'rooftop.html': 'js/rooftop.js',
   'swim.html': 'js/swim/swimMain.js',
   'shooter.html': 'js/shooter.js',
   'tanks.html': 'js/tanks.js',

@@ -27,6 +27,8 @@
       blurb: 'Hide your fleet, then find theirs first. Free 1v1 in your browser.' }),
     Object.freeze({ slug: 'airhockey', game: 'airhockey', name: 'Air Hockey', accent: '#2ff3ff', image: '/og/airhockey-card.jpg',
       blurb: 'One puck, two mallets, first to seven on a neon rink. Free 1v1 in your browser.' }),
+    Object.freeze({ slug: 'rooftop', game: 'rooftop', name: 'Rooftop Duel', accent: '#e08a7a', image: '/og/rooftop-card.jpg',
+      blurb: 'Two snipers on one wobbly roof. Knock the other one off first. Free 1v1 in your browser.' }),
   ]);
   var HOME = Object.freeze({
     title: 'DuelSeries: free multiplayer browser games',

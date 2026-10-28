@@ -43,7 +43,8 @@ function lobbyGames() {
     /* Head Soccer's Shop heads are coming (Owen 2026-10-27: "add heads later"), and 8 Ball Pool's cues with them; until they are, neither is held to this. */
     .filter(id => id !== 'headsoccer' && id !== 'pool8')
     /* Air Hockey's mallets come later too (built 2026-10-27 with no Shop look yet). */
-    .filter(id => id !== 'airhockey');
+    .filter(id => id !== 'airhockey')
+    .filter(id => id !== 'rooftop');   // Rooftop Snipers: its looks are free ones in Customize (shared/rtLooks.js)
 }
 
 test('every game in the lobby that has been built has its own skins in the Shop', () => {

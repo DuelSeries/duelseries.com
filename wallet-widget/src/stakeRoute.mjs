@@ -19,7 +19,7 @@
 export const SERVER_URLS = { na: '', eu: 'https://eu.duelseries.com' };
 
 // Games whose page talks to the server it was served from, whatever the lobby's region.
-export const ORIGIN_GAMES = Object.freeze({ paper: true, knockout: true, battleship: true, agar: true, chomp: true, swim: true, headsoccer: true, pool8: true });
+export const ORIGIN_GAMES = Object.freeze({ paper: true, knockout: true, battleship: true, agar: true, chomp: true, swim: true, headsoccer: true, pool8: true, rooftop: true });
 
 function knownRegion(r) {
   return typeof r === 'string' && Object.prototype.hasOwnProperty.call(SERVER_URLS, r) ? r : 'na';

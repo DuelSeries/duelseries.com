@@ -40,6 +40,7 @@ const GAMES = Object.freeze({
   headsoccer: 'Head Soccer',
   pool8: '8 Ball Pool',
   airhockey: 'Air Hockey',
+  rooftop: 'Rooftop Snipers',
 });
 
 function dollars(n) {

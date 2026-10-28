@@ -141,7 +141,7 @@ test('state v2, maintenance and the paid Knockout door across a restart, bots:se
   for (const k of ['region', 'uptimeSec', 'now', 'auth', 'open', 'maintenance', 'drain', 'escrow', 'bots', 'games',
     'battleRoyale', 'earnings', 'smooth', 'audit', 'rooms']) assert.ok(k in s, k);
   assert.deepStrictEqual(s.auth, { via: 'signature', device: null, exp: null });
-  assert.deepStrictEqual(s.games.map((g) => g.id), ['slither', 'paper', 'agar', 'chomp', 'knockout', 'battleship', 'swim', 'headsoccer', 'pool8', 'airhockey']);
+  assert.deepStrictEqual(s.games.map((g) => g.id), ['slither', 'paper', 'agar', 'chomp', 'knockout', 'battleship', 'swim', 'headsoccer', 'pool8', 'airhockey', 'rooftop']);
   for (const g of s.games) {
     assert.deepStrictEqual(g.rungs.map((x) => x.rung), [0, 0.5, 1], g.id);
     for (const row of g.rungs) {

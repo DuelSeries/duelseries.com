@@ -3487,8 +3487,11 @@ const GAMES=[
     Working titles: these four are the trademarks of their actual publishers,
     and Pac-Man in particular is enforced hard. Fine as an internal reminder,
     worth renaming before any of them ships on a public lobby. */
- {id:'rooftop',name:'Rooftop Snipers',c:['#20181c','#e08a7a'],type:'m',soon:1,duel:1,
-  d:'Two rooftops, one shot at a time, and the loser is whoever falls off first.'},
+ /* Rooftop Snipers (server/RooftopLobby.js, page /rooftop), a duel on Knockout's queue like Head Soccer: Free seats you
+    against a labelled bot after the countdown. paid:1: $0.50 and $1 stake through the wallet widget once RT_PAID_ON
+    is on in server/index.js (the owner's rt:paid:off on top). Built 2026-10-28 (Owen's overnight four); its card keeps the spot its Soon card had, with the NEW tag. */
+ {id:'rooftop',name:'Rooftop Snipers',c:['#20181c','#e08a7a'],type:'m',duel:1,built:1,paid:1,isNew:1,
+  d:'Two snipers, one wobbly roof. Knock the other one off five times to win.'},
  /* Built. One arena that everybody drops into, so it is neither a rung on
     the buy-in ladder nor an opponent to be matched with — which is what the
     solo flag means here: no ladder, no lobby list, its own page. Free while it

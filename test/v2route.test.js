@@ -1523,11 +1523,10 @@ test('a duel shows the same screen as every other game, on the one shared ladder
      shut. */
   const html = v2();
 
-  for (const id of ['rooftop']) {
-    const m = html.match(new RegExp("\\{id:'" + id + "'[^\\n]*"));
-    assert.ok(m, id + ' is in the game list');
-    assert.ok(/duel:1/.test(m[0]), id + ' is a duel');
-    assert.ok(/soon:1/.test(m[0]), id + ' is still unbuilt, and still says so');
+  /* Rooftop Snipers is built (server/RooftopLobby.js) and in the lobby since 2026-10-28, in the spot its Soon card had. */
+  {
+    const m = html.match(/\{id:'rooftop'[^\n]*/);
+    assert.ok(m && /duel:1/.test(m[0]) && /built:1/.test(m[0]) && /isNew:1/.test(m[0]) && !/soon:1/.test(m[0]), 'rooftop is a built duel, marked new');
   }
   /* Swim is built (a duel with a buy-in, server/swim) and in the lobby since 2026-10-27. */
   const swim = html.match(new RegExp("\\{id:'swim'[^\\n]*"))[0];
@@ -2201,8 +2200,8 @@ test('every playable game is listed before any locked or unreleased one', () => 
     html.slice(a, b + 1) + '\nreturn GAMES.map(g=>g.id);')({ DS_LOCKED: lock }, lock);
 
   assert.deepStrictEqual(run(LOCK), [
-    'chomp', 'snake', 'agar', 'paper', 'headsoccer', 'swim', 'pool8', 'airhockey', 'knockout', 'battleship',
-    'omgshooter', 'tanks', 'rooftop', 'stumble',
+    'chomp', 'snake', 'agar', 'paper', 'headsoccer', 'swim', 'pool8', 'airhockey', 'knockout', 'battleship', 'rooftop',
+    'omgshooter', 'tanks', 'stumble',
     'omgshoot2', 'crossy',
   ], 'playable in their own order, then locked and unreleased in theirs');
 
