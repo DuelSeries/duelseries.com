@@ -2952,7 +2952,7 @@ let p8PaidOpen = !p8PaidSwitch.closedAtBoot().closed;
 if (!p8PaidOpen) console.warn("[P8] paid door CLOSED at boot: the owner's hs:paid:off outlived the restart");
 /* Paid Air Hockey: AH_PAID_ON is the build switch (paid rungs exist at all), hs:paid:off the owner's door on top
    of it, saved like the other two. */
-const AH_PAID_ON = false;
+const AH_PAID_ON = true;
 const ahPaidSwitch = createPaidSwitchStore({
   file: process.env.AH_PAID_SWITCH_PATH || path.join(path.dirname(agJournal.file), 'ah-paid-switch.json'),
   tag: '[AH]', what: 'paid Air Hockey',

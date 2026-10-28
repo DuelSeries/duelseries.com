@@ -36,12 +36,13 @@ test('snake follows the region, which is written for its page from the same answ
 // The pages really do connect the way the table above says (a page change must update it).
 test('the origin games\' pages connect to their own origin; snake to the region', async () => {
   const { ORIGIN_GAMES, SERVER_URLS } = await load();
-  assert.deepStrictEqual(Object.keys(ORIGIN_GAMES).sort(), ['agar', 'battleship', 'chomp', 'crossy', 'headsoccer', 'knockout', 'paper', 'pool8', 'rooftop', 'swim']);
+  assert.deepStrictEqual(Object.keys(ORIGIN_GAMES).sort(), ['agar', 'airhockey', 'battleship', 'chomp', 'crossy', 'headsoccer', 'knockout', 'paper', 'pool8', 'rooftop', 'swim']);
   assert.match(read('public/js/rooftop.js'), /const socket = io\(\);/);
   assert.match(read('public/js/swim/swimMain.js'), /const socket = io\(\);/);
   assert.match(read('public/js/paper/mp/paperArenaMain.js'), /var socket = root\.io\(\);/);
   assert.match(read('public/js/knockout.js'), /const socket = io\(\);/);
   assert.match(read('public/js/headsoccer.js'), /const socket = io\(\);/);
+  assert.match(read('public/js/airhockey.js'), /const socket = io\(\);/);
   assert.match(read('public/js/battleship.js'), /const socket = io\(\);/);
   assert.match(read('public/js/game.js'), /io\(SERVER_URLS\[selectedRegion\] \|\| ''\)/);
   assert.ok(read('public/js/game.js').includes("eu: '" + SERVER_URLS.eu + "'"), 'game.js uses the same EU server');

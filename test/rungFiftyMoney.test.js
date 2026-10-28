@@ -73,6 +73,7 @@ const until = async (fn, ms = 6000) => {
 let port, ledgerDb, REVENUE;
 let hsLobby = null;    // the real index.js's Head Soccer lobby, caught when it starts (the sudden-death proofs drive its room)
 let rtLobby = null;    // the same for Rooftop Snipers (its fifth-fall and time-up proofs drive its room)
+let ahLobby = null;    // the same for Air Hockey (its seventh-goal and sudden-death proofs drive its room)
 let landed = 0.5;
 let payer = 'Payer0';
 let sigN = 0;
@@ -98,6 +99,9 @@ test.before(async () => {
   const { RooftopLobby } = require(path.join(ROOT, 'server', 'RooftopLobby.js'));
   const rtStart = RooftopLobby.prototype.start;
   RooftopLobby.prototype.start = function () { rtLobby = this; return rtStart.apply(this, arguments); };
+  const { AirHockeyLobby } = require(path.join(ROOT, 'server', 'AirHockeyLobby.js'));
+  const ahStart = AirHockeyLobby.prototype.start;
+  AirHockeyLobby.prototype.start = function () { ahLobby = this; return ahStart.apply(this, arguments); };
   try {
     ({ ledgerDb } = require(path.join(ROOT, 'scripts', 'dev-local.js')));
   } finally {
@@ -219,7 +223,7 @@ async function duel(game, pre) {
   b.s.emit(game + ':queue', { name: 'b', stake: 0.5000000005, entryToken: tokB });
   /* With A already waiting, B is matched on the spot and is never sent a queued of its own: being matched with A IS
      the proof it went in at the rung itself, not the number it sent. */
-  const started = game === 'ko' ? 'ko:start' : game === 'hs' ? 'hs:start' : game === 'rt' ? 'rt:start' : 'bs:state';
+  const started = game === 'ko' ? 'ko:start' : game === 'hs' ? 'hs:start' : game === 'rt' ? 'rt:start' : game === 'ah' ? 'ah:start' : 'bs:state';
   assert.ok(await until(() => a.has(started) && b.has(started), 8000), 'matched: ' + JSON.stringify(b.got.map((g) => g[0])));
   const st = b.has(started)[1];
   if (st && st.stake !== undefined) assert.strictEqual(st.stake, 0.5, 'a table at the rung itself');
@@ -371,6 +375,64 @@ test('Rooftop Snipers at $0.50: the fifth fall pays its side 900000 and the hous
 
 test('Rooftop Snipers at $0.50: level when the ten minutes run out is a draw, each seat refunded 500000', async () => {
   await rtEnding('RtTime', 'time');
+});
+
+test('Air Hockey at $0.50: the same split through its own lobby (the Knockout queue and room underneath)', async () => {
+  await duel('ah', 'Ah');
+});
+
+/* Air Hockey at $0.50 on the real server: the seventh goal pays its scorer like any win, and a match still level after
+   the minute of sudden death is a draw, each seat refunded its whole stake (docs/airhockey-design.md). */
+async function ahMoney(pre, ending) {
+  const A = wallet(pre + 'A'), B = wallet(pre + 'B');
+  const revBefore = sentTo(REVENUE).length;
+  const tokA = await stake(0.5, A);
+  const tokB = await stake(0.5, B);
+  const a = await connect(), b = await connect();
+  await new Promise((r) => setTimeout(r, 1100));   // the queue's own rate limit
+  a.s.emit('ah:queue', { name: 'a', stake: 0.5, entryToken: tokA });
+  assert.ok(await until(() => a.has('ah:queued')));
+  b.s.emit('ah:queue', { name: 'b', stake: 0.5, entryToken: tokB });
+  assert.ok(await until(() => a.has('ah:start') && b.has('ah:start'), 8000), 'matched');
+  assert.ok(ahLobby, 'the lobby was caught at boot');
+  const room = [...ahLobby.rooms.values()].find((r) => r.players.has(a.s.id));
+  assert.ok(room, 'their room');
+  assert.strictEqual(room.pot(), 1, 'a 1.00 pot from two server-recorded 0.50 stakes');
+  const { AH } = require(path.join(ROOT, 'shared', 'ahSim.js'));
+  assert.ok(await until(() => room.state === 'playing', 6000), 'served');
+  const sideA = room.players.get(a.s.id).side;
+  if (ending === 'goal') {
+    // A on six; the puck heading into the goal A scores in, both mallets out of its way.
+    room.score[sideA] = AH.TO_WIN - 1;
+    room.inputs = [{ x: 60, y: AH.H - 60 }, { x: 540, y: 60 }];
+    room.match.m[0].x = 60; room.match.m[0].y = AH.H - 60; room.match.m[1].x = 540; room.match.m[1].y = 60;
+    const p = room.match.puck;
+    p.live = true; p.x = AH.W / 2; p.y = sideA === 0 ? 40 : AH.H - 40; p.vx = 0; p.vy = sideA === 0 ? -1500 : 1500;
+    await until(() => sentTo(A).length && sentTo(REVENUE).length > revBefore, 8000);
+    assert.deepStrictEqual(sentTo(A), [900000], 'the seventh goal pays its scorer 90 percent of the 1.00 pot');
+    assert.deepStrictEqual(sentTo(REVENUE).slice(revBefore), [100000], 'the house keeps 10 percent');
+    assert.deepStrictEqual(sentTo(B), [], 'the other seat is paid nothing');
+  } else {
+    // Level in sudden death with a moment left and nothing moving: the buzzer makes it a draw.
+    room.score[0] = 2; room.score[1] = 2;
+    room.msLeft = 0; room.sudden = true; room.suddenMs = AH.SUDDEN_MS - 50;
+    room.match.puck.live = false;
+    await until(() => sentTo(A).length && sentTo(B).length, 8000);
+    await new Promise((r) => setTimeout(r, 300));
+    assert.deepStrictEqual(sentTo(A), [500000], 'a draw hands A its whole stake back');
+    assert.deepStrictEqual(sentTo(B), [500000], 'and B its own');
+    assert.deepStrictEqual(sentTo(REVENUE).slice(revBefore), [], 'no rake on a draw');
+  }
+  assert.strictEqual(depositsBy([A, B]), 1000000);
+  for (const s of [a, b]) s.s.close();
+}
+
+test('Air Hockey at $0.50: the seventh goal pays its scorer 900000 and the house 100000', async () => {
+  await ahMoney('AhSeven', 'goal');
+});
+
+test('Air Hockey at $0.50: still level after the sudden-death minute is a draw, each seat refunded 500000', async () => {
+  await ahMoney('AhDraw', 'draw');
 });
 
 test('every payout this run is accounted for: nothing paid that did not land', () => {
