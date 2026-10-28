@@ -25,6 +25,8 @@
       blurb: 'Two pieces each on a shrinking disc. Aim, commit, and see whose read was right. Free 1v1 in your browser.' }),
     Object.freeze({ slug: 'battleship', game: 'battleship', name: 'Battleship', accent: '#7b93c4', image: '/og/battleship-card.jpg',
       blurb: 'Hide your fleet, then find theirs first. Free 1v1 in your browser.' }),
+    Object.freeze({ slug: 'airhockey', game: 'airhockey', name: 'Air Hockey', accent: '#2ff3ff', image: '/og/airhockey-card.jpg',
+      blurb: 'One puck, two mallets, first to seven on a neon rink. Free 1v1 in your browser.' }),
   ]);
   var HOME = Object.freeze({
     title: 'DuelSeries: free multiplayer browser games',
