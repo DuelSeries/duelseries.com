@@ -377,7 +377,9 @@ const typingIn = (e) => {
   return !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
 };
 window.addEventListener('keydown', (e) => {
-  if (e.code === 'Escape' && canPlay()) { pauseMenu(); return; }
+  // An Escape that just closed DSDialog arrives here marked defaultPrevented: without this check the closed
+  // "Leave the match?" opened again at once and Esc could never dismiss it (site sweep 2026-10-28).
+  if (e.code === 'Escape' && canPlay() && !e.defaultPrevented) { pauseMenu(); return; }
   const a = KEYS[e.code];
   if (!a || typingIn(e) || !canPlay()) return;
   e.preventDefault();

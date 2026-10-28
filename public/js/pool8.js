@@ -495,7 +495,9 @@ cv.addEventListener('wheel', (e) => {
 window.addEventListener('keydown', (e) => {
   if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
   // Escape asks "Leave the match?", as in Rooftop Snipers and Air Hockey (site sweep 2026-10-28).
-  if (e.code === 'Escape' && match && !overShown) { pauseMenu(); return; }
+  // An Escape that just closed DSDialog arrives here marked defaultPrevented: without this check the closed
+  // "Leave the match?" opened again at once and Esc could never dismiss it (site sweep 2026-10-28).
+  if (e.code === 'Escape' && match && !overShown && !e.defaultPrevented) { pauseMenu(); return; }
   if (!myTurn()) return;
   if (e.code === 'ArrowLeft' || e.code === 'ArrowUp') { aim.a -= e.shiftKey ? 0.0175 : 0.0026; aimDirty = true; e.preventDefault(); }
   if (e.code === 'ArrowRight' || e.code === 'ArrowDown') { aim.a += e.shiftKey ? 0.0175 : 0.0026; aimDirty = true; e.preventDefault(); }

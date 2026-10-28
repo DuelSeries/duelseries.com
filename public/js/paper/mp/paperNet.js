@@ -265,7 +265,10 @@
   // skin: { shop, skinPass } read again by the page (a pass the lobby refreshed meanwhile), or null for none; left
   // out, the join's own are asked again.
   ArenaNet.prototype.respawn = function (entryToken, skin) {
+    // The name again: the server seats a respawn through the same enter() as a join, and without it "Play again"
+    // renamed you to "Player" (site sweep 2026-10-28).
     var msg = {};
+    if (this.name) msg.name = this.name;
     if (entryToken != null) msg.entryToken = entryToken;
     if (skin !== undefined) {
       var fresh = skin && typeof skin.shop === 'string' && typeof skin.skinPass === 'string';

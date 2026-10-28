@@ -271,18 +271,18 @@ test('the page asks with shop and skinPass in its join and respawn, and nothing 
   net.join({ name: 'Ann', stake: 0, entryToken: 'T', shop: 'camo', skinPass: 'P.ASS' });
   assert.deepStrictEqual(s.sent[0], ['pp:join', { name: 'Ann', stake: 0, entryToken: 'T', shop: 'camo', skinPass: 'P.ASS' }]);
   net.respawn('T2');
-  assert.deepStrictEqual(s.sent[1], ['pp:respawn', { entryToken: 'T2', shop: 'camo', skinPass: 'P.ASS' }]);
+  assert.deepStrictEqual(s.sent[1], ['pp:respawn', { name: 'Ann', entryToken: 'T2', shop: 'camo', skinPass: 'P.ASS' }]);
   net.respawn('T3', { shop: 'mint', skinPass: 'NEW.PASS' });   // the page read the lobby's keys again
-  assert.deepStrictEqual(s.sent[2], ['pp:respawn', { entryToken: 'T3', shop: 'mint', skinPass: 'NEW.PASS' }]);
+  assert.deepStrictEqual(s.sent[2], ['pp:respawn', { name: 'Ann', entryToken: 'T3', shop: 'mint', skinPass: 'NEW.PASS' }]);
   net.respawn('T4', null);                                      // the lobby has no choice any more
-  assert.deepStrictEqual(s.sent[3], ['pp:respawn', { entryToken: 'T4' }]);
+  assert.deepStrictEqual(s.sent[3], ['pp:respawn', { name: 'Ann', entryToken: 'T4' }]);
   // a half pair is no pair
   const s2 = socketDouble();
   const n2 = new Net.ArenaNet({ socket: s2, onError: (w, e) => { throw e; } });
   n2.join({ name: 'B', stake: 0, shop: 'camo' });
   assert.deepStrictEqual(s2.sent[0], ['pp:join', { name: 'B', stake: 0 }]);
   n2.respawn();
-  assert.deepStrictEqual(s2.sent[1], ['pp:respawn', {}]);
+  assert.deepStrictEqual(s2.sent[1], ['pp:respawn', { name: 'B' }]);   // the name rides along (site sweep 2026-10-28)
 });
 
 test('the page builds a bought skin from the shop\'s look: colours, side colour and a world-sized pattern', async () => {

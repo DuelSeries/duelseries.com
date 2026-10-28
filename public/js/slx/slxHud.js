@@ -33,6 +33,12 @@
   var D = root.DuelSlither;
   if (!D || !D.slx || !D.slx.active) return;
   var slx = D.slx;
+  // Spectating, the length box describes the followed snake, so the own row carries its name, not the watcher's
+  // (site sweep 2026-10-28: "you" sat on someone else's rank and length).
+  function watchedName() {
+    var w = slx.watch && typeof slx.watch.state === 'function' ? slx.watch.state() : null;
+    return w && w.on && w.name ? String(w.name) : '';
+  }
   var doc = root.document;
   var S = D.S;
   var E = root.DSEnd;
@@ -165,7 +171,7 @@
     // The own row: theirs when their board lists it (place = row), else their length box's while playing.
     var box = at < 0 && S.playing ? ownBox() : null;
     me = at >= 0 ? { rank: at + 1, name: out[at].name, value: out[at].value }
-      : box ? { rank: box.rank, name: nick(), value: box.value } : null;
+      : box ? { rank: box.rank, name: watchedName() || nick(), value: box.value } : null;
     push();
   }
 
