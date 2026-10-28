@@ -584,6 +584,7 @@ function frame() {
 
 function update(now, dt) {
   drawable = false;
+  if (!match && WATCH) { art.tick(dt / 1000, EMPTY_CAM, VIEW.bw, VIEW.bh); return; }   // the empty roof's clouds
   if (!match || !haveBase) return;
   if (WATCH) interpolate(now, dt);
   else if (mySeat >= 0 && LIVE_PHASES[phase]) predict(now, dt);
@@ -605,6 +606,7 @@ function update(now, dt) {
 function draw(now) {
   const V = VIEW;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
+  if (!match && WATCH) { emptyRoof(now); return; }
   if (!match || !drawable) {
     ctx.fillStyle = '#6dd9e8';
     ctx.fillRect(0, 0, cv.width, cv.height);
@@ -634,9 +636,30 @@ function draw(now) {
     readyMs: ready ? Math.max(0, readyLeft.ms - (now - readyLeft.at)) : 0,
     buttons: (touchUI || ready) && canPlay() ? B : null, touch: touchUI,   // S: on a computer only while readying up
     pressed: { J: fingerOn('J'), S: fingerOn('S') || shootDown }, mySeat, watch: WATCH,
-    names: match.names,
+    names: match.names, tags: [tagAt(0), tagAt(1)],
   };
   art.hud(g, hud);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(baseCv, 0, 0, cv.width, cv.height);
+}
+/* Where a seat's name goes on screen: over the top of its head, kept upright whatever the body's tilt (the body's
+   middle is 44 above its feet pin and it stands 72 either side of that; rtArt drawBody). */
+function tagAt(i) {
+  const p = rp[i], z = cam.z || 1;
+  const mx = p.x + 44 * Math.sin(p.a), my = p.y - 44 * Math.cos(p.a);
+  return { x: (mx - cam.x) / z + VIEW.bw / 2, y: (my - cam.y) / z + VIEW.bh / 2 - 72 / z, name: match.names[i] };
+}
+/* Spectate with nobody to follow: the empty roof (the normal map, no snipers) behind the Spectate bar's "Nobody is
+   playing yet", as Head Soccer shows its empty pitch, instead of a blank sky. */
+const EMPTY_CAM = { x: 0, y: -150, z: 1 };
+const EMPTY_MODS = [0, 0, 0, 0, 0];
+let emptyClouds = false;
+function emptyRoof(now) {
+  if (!emptyClouds) { art.newRound(); emptyClouds = true; }
+  art.world(g, {
+    now, cam: EMPTY_CAM, bw: VIEW.bw, bh: VIEW.bh, mods: EMPTY_MODS, round: 1, chars: [0, 1], players: [],
+    tracers: [], sparks: [], ts: 1, rockets: [], objs: [], lift: -180, doors: false,
+  });
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(baseCv, 0, 0, cv.width, cv.height);
 }
@@ -686,6 +709,8 @@ function startMatch(m) {
   for (const o of off) { o.x = 0; o.y = 0; o.a = 0; }
   haveBase = false; baseFresh = false; wbuf.length = 0; baseK = 0; lastSnap = null;
   shownRound = 0; firstRoundOfMatch = true; goAt = m.state === 'countdown' ? -1e9 : performance.now() - 5000; endAt = -1e9;
+  timeUpAt = -1e9;   // a timed-out match's "Time up" never carries into the next one
+  emptyClouds = false;
   if (m.snap) onSnap(m.snap);
   // Each seat's free look from the server (players[].look, shared/rtLooks.js); a seat without one stays random.
   const looks = [null, null];

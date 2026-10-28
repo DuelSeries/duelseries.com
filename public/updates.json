@@ -2,6 +2,17 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-10-28-rooftop-names",
+      "date": "2026-10-28",
+      "tag": "fix",
+      "title": "Rooftop Snipers: names over the players",
+      "body": "In Rooftop Snipers you can now see each player's name in small letters over their head, so you always know who is who.\n\nThe end of a match is cleaner too: the point text goes away when the winner is shown, so the two never sit on top of each other. And if you spectate when nobody is playing, you now see the roof waiting for players instead of an empty sky.",
+      "image": {
+        "src": "/updates/rooftop-names.webp",
+        "alt": "Rooftop Snipers with each player's name over their head"
+      }
+    },
+    {
       "id": "2026-10-28-sample-wins",
       "date": "2026-10-28",
       "tag": "heads-up",

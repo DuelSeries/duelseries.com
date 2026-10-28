@@ -698,6 +698,8 @@
       if (since >= 0.5) ly = -90 + 200 * ease((since - 0.5) / 0.2);
       if (h.pointAt > 0 && now >= h.pointAt) ly = 110 - 200 * ease((now - h.pointAt) / 1000 / 0.2);
       if (ly > -60) F.center(g, h.label, mid, ly, 30, { outline: 4, shadow: [1, 1, '#000'], color: '#ffffff' });
+      // each seat's name above its sniper (ours: the reference's players are only Red and Blue)
+      if (h.tags) nameTags(g, h, ly > -60 ? ly : null);
       // the pause button (T: TopBar/PauseButton, "||" size 70)
       if (h.pause) F.center(g, '||', 36, 45, 70, { outline: 4, color: '#ffffff', bold: true });
       // "Play up to 5" on the first round, "Match Point" when somebody is one away (T: BottomMessage)
@@ -713,8 +715,11 @@
         const x = rSince < 2 ? mid : mid + 2149 * quint((rSince - 2) / 0.5);
         F.center(g, 'Match Point', x, y, 45, { outline: 6, color: '#1dd13c', shadow: [0, 2, '#000'] });
       }
-      // "Point Blue" / "Point Red", wobbling side to side (T: PointText, size 60, sine 0.35 s each way)
-      if (h.pointAt > 0 && now >= h.pointAt) {
+      // "Point Blue" / "Point Red", wobbling side to side (T: PointText, size 60, sine 0.35 s each way). One big line at
+      // a time: the reference's game-over menu takes the screen from the point, so "Red Wins!" (or "Time up")
+      // replaces it rather than stacking on it (site sweep 2026-10-28).
+      const ended = (h.endAt > 0 && now >= h.endAt && h.winner >= 0) || (h.timeUpAt > 0 && now >= h.timeUpAt);
+      if (h.pointAt > 0 && now >= h.pointAt && !ended) {
         const t = (now - h.pointAt) / 1000, u = (t % 0.7) / 0.35;
         const dx = u <= 1 ? -20 + 40 * sine(u) : 20 - 40 * sine(u - 1);
         const blue = h.pointSide === 1;
@@ -729,6 +734,24 @@
       if (h.ready) readyUp(g, h);
       if (h.buttons) buttons(g, h);
       if (h.sound) soundIcon(g, h);      // over the ready-up veil: it is the first thing somebody may want to press
+    }
+    /* The names: small, upright, in the seat's colour, just over each head (tags[s] is the head's top on screen).
+       Kept below the score, inside the screen's sides, and over the round's label when that is down and in the way. */
+    const TAG_SIZE = 20, SCORE_LOW = 74;
+    function nameTags(g, h, labelY) {
+      const lm = labelY === null ? null : F.measure(h.label, 30);
+      for (let s = 0; s < 2; s++) {
+        const t = h.tags[s];
+        if (!t || !t.name) continue;
+        const m = F.measure(t.name, TAG_SIZE), half = m.h / 2 + 3;
+        const x = Math.max(m.w / 2 + 8, Math.min(h.bw - m.w / 2 - 8, t.x));
+        let y = t.y - 5 - half;
+        if (lm && Math.abs(x - h.bw / 2) < (m.w + lm.w) / 2 + 6 && Math.abs(y - labelY) < half + lm.h / 2 + 5) {
+          y = labelY - lm.h / 2 - 5 - half;
+        }
+        y = Math.max(y, SCORE_LOW + half);
+        F.center(g, t.name, x, y, TAG_SIZE, { outline: 3, color: s === 1 ? '#5b8dff' : '#ff5252' });
+      }
     }
     /* The sound button, top right (ours: the reference keeps its sound switch in a menu): a speaker in white squares
        with the lettering's black outline, its two waves while sound is on, a red cross while it is off. In squares of
