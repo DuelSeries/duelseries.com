@@ -44,14 +44,16 @@ multiplayer, opponents seeing different traffic.
 
 ## The choices (what Swim does, and why)
 
-- **Road:** 4 lanes one-way, 3.6 m each, left lane fastest (23 m/s) to right lane slowest (15.5 m/s);
+- **Road:** 4 lanes one-way, 3.6 m each, left lane fastest (27 m/s) to right lane slowest (18 m/s);
   trucks and buses only in the two right lanes. One-way keeps the rule "touch anything and you lose"
   readable; two-way is a later mode if wanted.
-- **Speed:** a cruise speed that climbs from 108 km/h towards 266 (half way after 80 s); W pushes 28% over
-  it, S brakes all the way to 43 km/h (below every lane, so a boxed-in car can always drop back and pull
-  out), no pedal settles back to cruise. Braking costs ground, which is the tension against the 200 m rule.
-- **Steering:** free analog, 8.6 m/s sideways at full lock (a lane in about half a second), keys send full
-  lock, a phone thumb sends anything between.
+- **Speed (Owen 2026-10-28: about 350 km/h):** a cruise speed that climbs from 130 km/h towards 302 (half
+  way after 70 s); W pushes 16% over it (flat out heads for 351 km/h), S brakes all the way to 54 km/h
+  (below every lane, so a boxed-in car can always drop back and pull out), no pedal settles back to
+  cruise. Braking costs ground, which is the tension against the 200 m rule.
+- **Steering:** free analog; the faster the car, the gentler the wheel: 11.5 - 0.075 v m/s sideways at full
+  lock, held between 4.5 and 10.5 (8.8 at the start, a lane in about half a second; 4.5 flat out, nearer a
+  second), always reached in about 0.19 s. Keys send full lock, a phone thumb sends anything between.
 - **Traffic:** seeded and server-authoritative; each car is a record sent once and computed everywhere, so
   both players and every watcher see exactly the same road. Gaps shrink from ~95 m to ~17 m per lane (half
   way after 75 s) and trucks get more common. Before placing a car, the spawner checks the other three lanes
@@ -62,9 +64,13 @@ multiplayer, opponents seeing different traffic.
 - **Players pass through each other** (the other car is drawn as a ghost): no ramming, no dispute over
   who hit whom, and the only contact rule is traffic.
 - **Camera:** chase cam about 2.6 m up, 6.5 m behind, FOV widening with speed, shake rising with speed,
-  speed streaks; fog hides the horizon where new cars appear (~400 m past the leader).
-- **Near miss:** passing a car with under 0.55 m to spare says "Close" with a whoosh and a gold edge
-  flash, counted on the result card. No score: winning is surviving.
+  speed streaks; new cars appear 520 m past the leader, 60 m inside solid fog (fog 160 to 460 m), so a
+  blocker is in clear view for over 4 s even flat out. Indicators flash while a car steers, brake lamps
+  glow while it brakes.
+- **Close pass (Owen 2026-10-28: a real reward):** a car passed with under 0.6 m to spare (measured on the
+  tick its front goes behind your rear) gives up to +14 m/s at once, more the closer, and says "Close"
+  with a whoosh and a gold edge flash, counted on the result card. It is worked out inside the shared step,
+  so the server agrees; it can lift you up to 14 m/s past your top speed and bleeds off at 4 m/s a second.
 - **Gap HUD:** a rope at the top from 200 m behind (you lose) to 200 m ahead (they lose), filling toward
   whoever is in front, with a "Catch up: N m left" warning past 140 m behind. No game in the survey shows
   this; it is the rule that makes Swim a duel.
@@ -72,4 +78,5 @@ multiplayer, opponents seeing different traffic.
   Tilt was not built (open question for Owen).
 - **Bot (free tables only):** reads each lane's time-to-collision with an error that grows with speed and
   only looks again after its reaction time (150 to 230 ms), changes lane only when the way is clear,
-  brakes when boxed. Bot against bot: median race about 85 s, p90 about 4 minutes.
+  brakes when boxed. Bot against bot: median race about 94 s, p90 about 4 minutes. It keeps to lane
+  middles, so it never earns a close-pass boost.
