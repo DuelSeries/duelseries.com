@@ -41,6 +41,8 @@ function fill(tick, leadZ, raceT) {
       const z = back + need[l] + S.TYPES[type].L / 2;
       if (z > leadZ + 520) break;
       const rec = [nextId++, l, type, Math.round(z * 100) / 100, tk, Math.floor(rand() * 10)];
+      // some change lane (no room check: this road is only for looking at), so the lamps are in the numbers
+      if (rand() < 0.15) rec.push(tk + 200 + Math.floor(rand() * 500), l === 0 ? 1 : l === S.LANES - 1 ? l - 1 : l + (rand() < 0.5 ? -1 : 1));
       traffic.add(rec); last[l] = rec;
       need[l] = laneGap(raceT) * (0.55 + rand() * 0.9);
     }

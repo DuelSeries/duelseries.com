@@ -741,6 +741,45 @@ export function createScene(canvasEl, opts = {}) {
              blinkSide: 0, blinkT: 0, blinkHold: 0 };
   });
 
+  /* Traffic lamps (Owen 2026-10-28): a car about to change lane flashes its
+     indicator (front and back corners, the back one with a halo) from 2.5 s
+     before until it has moved over, and lights its brake lamps for the last
+     second before it pulls out (SwimSim.signalAt, brakingAt). One instanced
+     box and one instanced halo for every lamp lit on the road, written in
+     place each frame. */
+  const TLAMP_CAP = 64;
+  const LAMP_Y = { sedan: 0.66, hatch: 0.69, suv: 0.85, van: 0.98, truck: 0.84, bus: 1.0 };
+  const lampYOf = S.TYPES.map((T) => LAMP_Y[T.id] || 0.7);
+  const tLamps = new THREE.InstancedMesh(keep(new THREE.BoxGeometry(1, 1, 1)), keep(new THREE.MeshBasicMaterial({ toneMapped: false })), TLAMP_CAP);
+  const tHalos = new THREE.InstancedMesh(keep(new THREE.PlaneGeometry(1, 1)), keep(new THREE.MeshBasicMaterial({ map: lampGlow, transparent: true,
+    depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false, side: THREE.DoubleSide })), TLAMP_CAP);
+  for (const im of [tLamps, tHalos]) {
+    im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(TLAMP_CAP * 3), 3);
+    im.instanceColor.setUsage(THREE.DynamicDrawUsage);
+    im.frustumCulled = false; im.count = 0; im.visible = false;
+    scene.add(im);
+  }
+  tHalos.renderOrder = 4;
+  const tlm = tLamps.instanceMatrix.array, tlc = tLamps.instanceColor.array;
+  const thm = tHalos.instanceMatrix.array, thc = tHalos.instanceColor.array;
+  const AMBER_L = [1, 0.64, 0.1], AMBER_H = [1, 0.6, 0.11], RED_L = [1, 0.36, 0.26], RED_H = [1, 0.17, 0.08];
+  const TL = { n: 0, h: 0 };            // lamps and halos written this frame
+  /* One lamp (and maybe a halo) at local (ox, oy, oz) of a traffic car at (x, zs) turned by (c, sn). */
+  function tLamp(x, zs, c, sn, ox, oy, oz, col, hcol, hw, hh) {
+    if (TL.n >= TLAMP_CAP) return;
+    const px = x + c * ox + sn * oz, pz = zs - sn * ox + c * oz;
+    let o = TL.n * 16;
+    tlm[o] = 0.2; tlm[o + 5] = 0.11; tlm[o + 10] = 0.08; tlm[o + 12] = px; tlm[o + 13] = oy; tlm[o + 14] = pz;
+    tlc[TL.n * 3] = col[0]; tlc[TL.n * 3 + 1] = col[1]; tlc[TL.n * 3 + 2] = col[2];
+    TL.n++;
+    if (!hcol || TL.h >= TLAMP_CAP) return;
+    o = TL.h * 16;
+    thm[o] = hw; thm[o + 5] = hh; thm[o + 10] = 1; thm[o + 12] = px; thm[o + 13] = oy; thm[o + 14] = pz + 0.1;
+    thc[TL.h * 3] = hcol[0]; thc[TL.h * 3 + 1] = hcol[1]; thc[TL.h * 3 + 2] = hcol[2];
+    TL.h++;
+  }
+
   /* speed lines: thin streaks round the edge of the view, riding with the camera */
   const streakGeo = (() => {
     const g = new THREE.BoxGeometry(0.02, 0.02, 1).toNonIndexed(), p = g.attributes.position, c = [];
@@ -1018,6 +1057,7 @@ export function createScene(canvasEl, opts = {}) {
 
     /* traffic */
     tcount.fill(0);
+    TL.n = 0; TL.h = 0;
     let ns = 0;
     if (traffic && traffic.lanes) {
       for (let l = 0; l < S.LANES; l++) {
@@ -1030,6 +1070,26 @@ export function createScene(canvasEl, opts = {}) {
           if (n >= TRAFFIC_CAP) continue;
           tcount[t] = n + 1;
           const tm = tmesh[t], o = n * 16, lx = S.xAt(r, tick);
+          /* A car changing lane turns into its line while it moves: the slope of the 3s^2 - 2s^3 ease. */
+          let c = 1, sn = 0;
+          if (r.length >= 8) {
+            const k = tick - r[6];
+            if (k > 0 && k < S.MOVE) {
+              const s = k / S.MOVE, vx = (S.laneX(r[7]) - S.laneX(r[1])) * 6 * s * (1 - s) / (S.MOVE * S.DT);
+              const yaw = -Math.atan2(vx, S.LANE_V[r[1]]);
+              c = Math.cos(yaw); sn = Math.sin(yaw);
+            }
+            const sig = S.signalAt(r, tick), T = S.TYPES[t], y = lampYOf[t], hl = T.L / 2;
+            if (sig !== 0 && ((tick - r[6] + S.SIGNAL) * S.DT * BLINK_HZ) % 1 < 0.5) {
+              const ox = sig * (T.W / 2 - 0.12);
+              tLamp(lx, -dz, c, sn, ox, y - 0.1, hl + 0.02, AMBER_L, AMBER_H, 0.9, 0.6);
+              tLamp(lx, -dz, c, sn, ox, y - 0.1, -hl - 0.02, AMBER_L, null, 0, 0);
+            }
+            if (S.brakingAt(r, tick)) {
+              for (let s2 = -1; s2 <= 1; s2 += 2) tLamp(lx, -dz, c, sn, s2 * (T.W / 2 - 0.25), y, hl + 0.03, RED_L, RED_H, 1.3, 0.7);
+            }
+          }
+          tm.mat[o] = c; tm.mat[o + 2] = -sn; tm.mat[o + 8] = sn; tm.mat[o + 10] = c;
           tm.mat[o + 12] = lx; tm.mat[o + 14] = -dz;
           const pc = paintLin[((r[5] % 10) + 10) % 10];
           tm.col[n * 3] = pc.r; tm.col[n * 3 + 1] = pc.g; tm.col[n * 3 + 2] = pc.b;
@@ -1041,6 +1101,10 @@ export function createScene(canvasEl, opts = {}) {
         }
       }
     }
+    tLamps.count = TL.n; tLamps.visible = TL.n > 0;
+    tHalos.count = TL.h; tHalos.visible = TL.h > 0;
+    if (TL.n) { upload(tLamps.instanceMatrix, TL.n * 16); upload(tLamps.instanceColor, TL.n * 3); }
+    if (TL.h) { upload(tHalos.instanceMatrix, TL.h * 16); upload(tHalos.instanceColor, TL.h * 3); }
     for (let t = 0; t < tmesh.length; t++) {
       const tm = tmesh[t], n = tcount[t];
       tm.paint.count = tm.det.count = n;
@@ -1140,7 +1204,7 @@ export function createScene(canvasEl, opts = {}) {
 
   resize();
   // compile every program now (solid and ghost), not on the first frames of the race
-  for (const im of [parts, streaks, shadows, rocks, buttes, trees, gantries, ...tmesh.flatMap((t) => [t.paint, t.det])]) im.visible = true;
+  for (const im of [parts, streaks, shadows, rocks, buttes, trees, gantries, tLamps, tHalos, ...tmesh.flatMap((t) => [t.paint, t.det])]) im.visible = true;
   for (const c of cars) { c.group.visible = true; c.ind[0].visible = c.ind[1].visible = c.brake.visible = true; }
   renderer.compile(scene, camera);
   for (const c of cars) { c.paint.material = c.ghost; c.det.material = detGhost; }
@@ -1149,7 +1213,7 @@ export function createScene(canvasEl, opts = {}) {
     c.paint.material = c.solid; c.det.material = detSolid; c.group.visible = false;
     c.ind[0].visible = c.ind[1].visible = c.brake.visible = false;
   }
-  for (const im of [parts, streaks, shadows, ...tmesh.flatMap((t) => [t.paint, t.det])]) im.visible = false;
+  for (const im of [parts, streaks, shadows, tLamps, tHalos, ...tmesh.flatMap((t) => [t.paint, t.det])]) im.visible = false;
 
   return {
     resize,
@@ -1168,7 +1232,7 @@ export function createScene(canvasEl, opts = {}) {
     dispose() {
       for (const d of disposables) if (d && d.dispose) d.dispose();
       for (const t of tmesh) { t.paint.dispose(); t.det.dispose(); }
-      for (const im of [shadows, streaks, parts, rocks, buttes, trees, gantries]) im.dispose();
+      for (const im of [shadows, streaks, parts, rocks, buttes, trees, gantries, tLamps, tHalos]) im.dispose();
       renderer.dispose();
     },
     renderer, scene, camera,

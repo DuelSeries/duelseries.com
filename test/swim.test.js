@@ -4,7 +4,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const S = require('../shared/swimSim');
-const { Spawner } = require('../server/swim/swimTraffic');
+const { Spawner, occMask, ROOM } = require('../server/swim/swimTraffic');
 const { SwimRoom, LAG_MAX } = require('../server/swim/SwimRoom');
 const { SwimLobby, PAID_GIVE_UP_MS, FREE_WAIT_MS } = require('../server/swim/SwimLobby');
 
@@ -214,8 +214,9 @@ test('the line between the two left lanes is no safe corridor: a rider on it mee
       tr.prune(c.z - 120, c.tick);
     }
     assert.strictEqual(c.alive, false, 'seed ' + seed + ': a line rider went a minute untouched');
-    const hit = S.TYPES[tr.byId.get(c.hit)[2]].id;
-    assert.ok(hit !== 'sedan' && hit !== 'hatch', 'only a wide car shuts the line (' + hit + ')');
+    const rec = tr.byId.get(c.hit), hit = S.TYPES[rec[2]].id;
+    const crossing = rec.length === 8 && c.tick > rec[6] && c.tick < rec[6] + S.MOVE;
+    assert.ok((hit !== 'sedan' && hit !== 'hatch') || crossing, 'only a wide car, or one changing lane across it, shuts the line (' + hit + ')');
     secs.push((c.tick - START) / 60);
   }
   secs.sort((a, b) => a - b);
@@ -309,7 +310,8 @@ test('the spawner fills to the horizon and never shuts all four lanes where it p
     for (const rec of out) {
       // The car just placed: at least one other lane is open beside it.
       tr.lanes[rec[1]].splice(tr.lanes[rec[1]].indexOf(rec), 1);
-      assert.strictEqual(sp.shuts(tr, rec[1], rec[3], rec[2], t), false, 'record ' + rec[0]);
+      const occ = rec.length === 8 ? occMask(rec[1], rec[7], rec[6], t) : occMask(rec[1], -1, -1, t);
+      assert.strictEqual(sp.shuts(tr, occ, rec[3], rec[2], t), false, 'record ' + rec[0]);
       tr.lanes[rec[1]].push(rec);
       assert.ok(S.validRecord(rec));
       if (S.TYPES[rec[2]].right) { if (rec[1] >= 2) bigRight++; else bigLeft++; }
@@ -319,6 +321,114 @@ test('the spawner fills to the horizon and never shuts all four lanes where it p
   }
   assert.ok(tr.size > 20, 'there is traffic');
   assert.ok(bigLeft > 0 && bigLeft * 2 < bigRight, 'trucks and buses in every lane, mostly on the right (' + bigLeft + ' left, ' + bigRight + ' right)');
+});
+
+/* â”€â”€ traffic lane changes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* Every record the real spawner makes in `secs` seconds with the front car flat out, nothing pruned. */
+function spawnAll(seed, secs) {
+  const sp = new Spawner(seed), tr = new S.Traffic(), all = [];
+  let z = 0;
+  for (let t = 0; t < 60 * secs; t++) {
+    sp.run(tr, t, z, S.topSpeed(t), all);
+    z += S.topSpeed(t) * S.DT;
+  }
+  return { tr, all };
+}
+
+test('a lane change: in its own lane before, in the new one after, in both from the indicator, on a smooth line', () => {
+  const ct = 600, rec = [1, 2, 0, 100, 0, 0, ct, 1];
+  assert.ok(S.validRecord(rec) && S.validRecord(rec.slice(0, 6)));
+  assert.strictEqual(S.validRecord([1, 2, 0, 100, 0, 0, ct, 0]), false, 'next lane only');
+  assert.strictEqual(S.validRecord([1, 2, 0, 100, 0, 0, ct]), false);
+  assert.strictEqual(S.validRecord([1, 2, 0, 100, 50, 0, 10, 1]), false, 'not before it was born');
+  const tr = new S.Traffic();
+  tr.add(rec.slice());
+  const zz = (t) => S.zAt(rec, t);
+  for (const t of [0, ct - S.SIGNAL - 1, ct - S.SIGNAL, ct]) {
+    assert.strictEqual(tr.hitAt(S.laneX(2), zz(t), t), 1, 'its own lane before it moves (' + t + ')');
+    assert.strictEqual(tr.hitAt(S.laneX(1), zz(t), t), -1);
+  }
+  for (const t of [ct + S.MOVE, ct + S.MOVE + 300]) {
+    assert.strictEqual(tr.hitAt(S.laneX(1), zz(t), t), 1, 'the new lane once it has moved (' + t + ')');
+    assert.strictEqual(tr.hitAt(S.laneX(2), zz(t), t), -1);
+  }
+  // x: lane 2 until the move, lane 1 after, sliding over without a jump, halfway at half time.
+  assert.strictEqual(S.xAt(rec, ct), S.laneX(2));
+  assert.strictEqual(S.xAt(rec, ct + S.MOVE), S.laneX(1));
+  assert.ok(Math.abs(S.xAt(rec, ct + S.MOVE / 2) - 0) < 1e-9);
+  for (let t = ct; t < ct + S.MOVE; t++) {
+    const a = S.xAt(rec, t), b = S.xAt(rec, t + 1);
+    assert.ok(b < a && a - b < 0.1, 'moving left, at most 6 m/s');
+  }
+  // The indicator from 2.5 s before, the brake lamps for the last second before it moves.
+  assert.strictEqual(S.signalAt(rec, ct - S.SIGNAL - 1), 0);
+  assert.strictEqual(S.signalAt(rec, ct - S.SIGNAL), -1);
+  assert.strictEqual(S.signalAt(rec, ct + S.MOVE - 1), -1);
+  assert.strictEqual(S.signalAt(rec, ct + S.MOVE), 0);
+  assert.deepStrictEqual([ct - 61, ct - 60, ct - 1, ct].map(t => S.brakingAt(rec, t)), [false, true, true, false]);
+  // Counted in both lanes from the indicator until it has moved over.
+  const behind = (t) => zz(t) - 30;
+  assert.strictEqual(tr.aheadIn(1, behind(ct - S.SIGNAL - 1), ct - S.SIGNAL - 1), null);
+  assert.strictEqual(tr.aheadIn(1, behind(ct - S.SIGNAL), ct - S.SIGNAL)[0], 1);
+  assert.strictEqual(tr.aheadIn(2, behind(ct + S.MOVE - 1), ct + S.MOVE - 1)[0], 1);
+  assert.strictEqual(tr.aheadIn(2, behind(ct + S.MOVE), ct + S.MOVE), null);
+});
+
+test('lane changes: the server and a screen fed the same records agree on x and hits every tick, and a car is judged the same', () => {
+  const { tr: server, all } = spawnAll(11, 150);
+  const changers = all.filter(r => r.length === 8);
+  assert.ok(changers.length >= 5, 'the spawner plans lane changes (' + changers.length + ' of ' + all.length + ')');
+  const screen = new S.Traffic();
+  for (const r of all.slice().reverse()) screen.add(JSON.parse(JSON.stringify(r)));   // over the wire, out of order
+  for (const c of changers) {
+    const sc = screen.byId.get(c[0]);
+    for (let t = c[6] - S.SIGNAL - 5; t <= c[6] + S.MOVE + 5; t++) {
+      assert.strictEqual(S.xAt(sc, t), S.xAt(c, t));
+      const z = S.zAt(c, t);
+      for (const px of [S.laneX(c[1]), (S.laneX(c[1]) + S.laneX(c[7])) / 2, S.laneX(c[7])]) {
+        assert.strictEqual(screen.hitAt(px, z, t), server.hitAt(px, z, t));
+      }
+    }
+  }
+  /* A race: a sedan in lane 2 moves into Ann's lane 1 ahead of her and she drives straight into it.
+     The server's verdict and a screen's own replay agree on the tick and the car. */
+  const { room } = racing();
+  const cut = [7, 2, 0, 120, 0, 3, 120, 1];
+  room.traffic.add(cut.slice());
+  run(room, 1200, S.NEUTRAL, S.NEUTRAL);
+  assert.strictEqual(room.state, 'over');
+  const ann = room.bySide(0).car;
+  assert.strictEqual(ann.alive, false);
+  assert.strictEqual(ann.hit, 7);
+  assert.ok(ann.crashTick > cut[6] + S.MOVE, 'hit in the new lane, after the move');
+  const mine = S.newCar(0), tr = new S.Traffic();
+  tr.add(JSON.parse(JSON.stringify(cut)));
+  while (mine.alive && mine.tick < 1200) S.step(mine, S.NEUTRAL, tr);
+  assert.strictEqual(mine.crashTick, ann.crashTick);
+  assert.strictEqual(mine.hit, 7);
+  assert.strictEqual(mine.z, ann.z);
+});
+
+test('the spawner never plans a lane change into a gap that is not there', () => {
+  let changes = 0;
+  for (const seed of [3, 4, 5]) {
+    const { all } = spawnAll(seed, 240);
+    for (const c of all) {
+      if (c.length !== 8) continue;
+      changes++;
+      const hc = S.TYPES[c[2]].L / 2;
+      for (const r of all) {
+        if (r === c) continue;
+        const from = Math.max(c[6] - S.SIGNAL, r[4], S.occFrom(r, c[7]));
+        const to = Math.min(c[6] + S.MOVE + 60, S.occTo(r, c[7]) - 1);
+        for (let t = from; t <= to; t += 3) {
+          const gap = Math.abs(S.zAt(c, t) - S.zAt(r, t)) - hc - S.TYPES[r[2]].L / 2;
+          assert.ok(gap >= ROOM - 1e-6, 'record ' + c[0] + ' changing into lane ' + c[7] + ' comes within ' + gap.toFixed(2) + ' m of ' + r[0] + ' on tick ' + t);
+        }
+      }
+    }
+  }
+  assert.ok(changes >= 20, 'enough lane changes to mean something (' + changes + ')');
 });
 
 function racing(seats) {

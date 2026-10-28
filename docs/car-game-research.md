@@ -56,8 +56,12 @@ multiplayer, opponents seeing different traffic.
   second), always reached in about 0.19 s. Keys send full lock, a phone thumb sends anything between.
 - **Traffic:** seeded and server-authoritative; each car is a record sent once and computed everywhere, so
   both players and every watcher see exactly the same road. Gaps shrink from ~95 m to ~17 m per lane (half
-  way after 75 s) and trucks get more common. Before placing a car, the spawner checks the other three lanes
-  now and at the moment the front car will reach it, and never shuts all four.
+  way after 75 s) and trucks get more common (mostly right, about a third as often in the two left lanes).
+  Before placing a car, the spawner checks the other three lanes now and at the moment the front car will
+  reach it, and never shuts all four. Some cars change to the next lane (1 in 20 at the start, up to 1 in
+  6): indicator 2.5 s before, brake lamps the last second, a 1.5 s move at their own speed, planned at
+  spawn and only where the target lane has room; from the indicator on they count as in both lanes.
+  Traffic hitboxes are 1 cm inside the body, so the line between two lanes is a squeeze, not a corridor.
 - **Fairness under lag:** each car is judged on its own tick against the traffic as it was then (what its
   driver saw); the two are compared only on ticks both reached. A stalled connection is moved on with its
   last input after 250 ms, so it can neither hold the race up nor buy time.
@@ -71,6 +75,7 @@ multiplayer, opponents seeing different traffic.
   tick its front goes behind your rear) gives up to +14 m/s at once, more the closer, and says "Close"
   with a whoosh and a gold edge flash, counted on the result card. It is worked out inside the shared step,
   so the server agrees; it can lift you up to 14 m/s past your top speed and bleeds off at 4 m/s a second.
+  After a boost there is no other for 1.2 s.
 - **Gap HUD:** a rope at the top from 200 m behind (you lose) to 200 m ahead (they lose), filling toward
   whoever is in front, with a "Catch up: N m left" warning past 140 m behind. No game in the survey shows
   this; it is the rule that makes Swim a duel.
@@ -78,5 +83,5 @@ multiplayer, opponents seeing different traffic.
   Tilt was not built (open question for Owen).
 - **Bot (free tables only):** reads each lane's time-to-collision with an error that grows with speed and
   only looks again after its reaction time (150 to 230 ms), changes lane only when the way is clear,
-  brakes when boxed. Bot against bot: median race about 94 s, p90 about 4 minutes. It keeps to lane
+  brakes when boxed. Bot against bot: median race about 80 s, p90 about 3 minutes. It keeps to lane
   middles, so it never earns a close-pass boost.

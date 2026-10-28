@@ -12,12 +12,13 @@
    exp), so the two agree to the last bit in every browser and in Node.
 
    THE TRAFFIC IS A LIST OF RECORDS, NOT A STREAM OF POSITIONS. A traffic car
-   never changes lane or speed: it is born at z0 on tick t0 in a lane, and its
-   position on any tick is z0 + laneSpeed * (tick - t0) * DT (zAt), across the
-   road at its lane's middle (xAt). So the server
-   sends each car once (when it appears on the horizon, server/swim/
-   swimTraffic.js) and every screen works out where it is from then on, for
-   free and in perfect agreement.
+   never changes speed: it is born at z0 on tick t0 in a lane, and its
+   position on any tick is z0 + laneSpeed * (tick - t0) * DT (zAt). Some cars
+   change lane once, at a tick fixed when they were born, and say so in their
+   record; xAt gives any car's x on any tick. So the server sends each car once
+   (when it appears on the horizon, server/swim/swimTraffic.js) and every
+   screen works out where it is from then on, for free and in perfect
+   agreement.
 
    EACH CAR IS ITS OWN TIMELINE. The two players never touch each other (they
    pass through, drawn as ghosts when they overlap) and the traffic does not
@@ -38,7 +39,7 @@
   const NAME = 'Swim';
   /* Bumped whenever the step or the traffic rules change: a page left open across a deploy runs the old
      step and would disagree with the server on every tick, so the server turns it away (sw:queue). */
-  const VERSION = 3;
+  const VERSION = 4;
 
   const HZ = 60;
   const DT = 1 / HZ;
@@ -216,19 +217,55 @@
   }
 
   /* ── the traffic ─────────────────────────────────────────────────────────
-     A record is [id, lane, type, z0, t0, colour]. Within a lane every car
-     moves at the lane's speed and they were added front-most last, so each
-     lane's list stays sorted by z from the back of the queue to the front. */
+     A record is [id, lane, type, z0, t0, colour], or with a lane change
+     [id, lane, type, z0, t0, colour, changeTick, toLane]. A car stays in its
+     own lane's list and keeps its own lane's speed for life, even after it has
+     moved over, and the cars were added front-most last, so each list stays
+     sorted by z from the back of the queue to the front.
+
+     A LANE CHANGE (Owen 2026-10-28). To the next lane only. The indicator
+     flashes from SIGNAL ticks before changeTick (2.5 s); the move takes MOVE
+     ticks (1.5 s), x easing over on 3s^2 - 2s^3 (only + - * /). From the
+     indicator until the move is done the car counts as being in BOTH lanes
+     (occupies) for the bot, the spawner and anything that asks what is in a
+     lane; the hit test only ever uses where it really is (xAt). */
+  const SIGNAL = 150, MOVE = 90;
   function zAt(rec, tick) { return rec[3] + LANE_V[rec[1]] * ((tick - rec[4]) * DT); }
-  /* Where a traffic car is across the road on a tick: its lane's middle, for
-     now. Everything that needs a traffic car's x asks this, so a car that
-     changes lane later only has to be taught here (the tick is for then). */
-  function xAt(rec, tick) { return laneX(rec[1]); }
+  const changes = (rec) => rec.length >= 8;
+  /* Where a traffic car is across the road on a tick. */
+  function xAt(rec, tick) {
+    const x0 = laneX(rec[1]);
+    if (rec.length < 8) return x0;
+    const k = tick - rec[6];
+    if (k <= 0) return x0;
+    const x1 = laneX(rec[7]);
+    if (k >= MOVE) return x1;
+    const s = k / MOVE;
+    return x0 + (x1 - x0) * (s * s * (3 - 2 * s));
+  }
+  /* The ticks [from, to) in which a car counts as being in a lane (empty: from >= to). */
+  function occFrom(rec, lane) {
+    if (lane === rec[1]) return -Infinity;
+    return changes(rec) && lane === rec[7] ? rec[6] - SIGNAL : Infinity;
+  }
+  function occTo(rec, lane) {
+    if (lane === rec[1]) return changes(rec) ? rec[6] + MOVE : Infinity;
+    return changes(rec) && lane === rec[7] ? Infinity : -Infinity;
+  }
+  function occupies(rec, lane, tick) { return tick >= occFrom(rec, lane) && tick < occTo(rec, lane); }
+  /* The indicator (-1 left, 1 right) on a tick, else 0; and whether the brake lamps are lit (the last second before the move). */
+  function signalAt(rec, tick) {
+    if (rec.length < 8 || tick < rec[6] - SIGNAL || tick >= rec[6] + MOVE) return 0;
+    return rec[7] > rec[1] ? 1 : -1;
+  }
+  function brakingAt(rec, tick) { return rec.length >= 8 && tick >= rec[6] - HZ && tick < rec[6]; }
   function validRecord(r) {
-    return Array.isArray(r) && r.length >= 6 && Number.isInteger(r[0]) && r[0] >= 0
+    return Array.isArray(r) && (r.length === 6 || r.length === 8) && Number.isInteger(r[0]) && r[0] >= 0
       && Number.isInteger(r[1]) && r[1] >= 0 && r[1] < LANES
       && Number.isInteger(r[2]) && r[2] >= 0 && r[2] < TYPES.length
-      && Number.isFinite(r[3]) && Number.isInteger(r[4]) && Number.isInteger(r[5]);
+      && Number.isFinite(r[3]) && Number.isInteger(r[4]) && Number.isInteger(r[5])
+      && (r.length === 6 || (Number.isInteger(r[6]) && r[6] >= r[4]
+        && Number.isInteger(r[7]) && r[7] >= 0 && r[7] < LANES && (r[7] - r[1] === 1 || r[1] - r[7] === 1)));
   }
 
   class Traffic {
@@ -295,15 +332,24 @@
       }
       return best;
     }
-    /* Each lane's nearest car ahead of z (its back), for the bot and the HUD. */
+    /* The nearest car ahead of z (its back) that is in a lane on this tick, a car changing into or out
+       of it included, for the bot and the HUD. */
     aheadIn(lane, z, tick) {
-      const list = this.lanes[lane];
-      for (let i = 0; i < list.length; i++) {
-        const r = list[i];
-        const back = zAt(r, tick) - TYPES[r[2]].hl;
-        if (back + TYPES[r[2]].L > z - CAR.HL) return r;   // not yet fully behind us
+      let best = null, bestBack = Infinity;
+      for (let k = lane - 1; k <= lane + 1; k++) {
+        if (k < 0 || k >= LANES) continue;
+        const list = this.lanes[k];
+        for (let i = 0; i < list.length; i++) {
+          const r = list[i];
+          if (!occupies(r, lane, tick)) continue;
+          const back = zAt(r, tick) - TYPES[r[2]].hl;
+          if (back + TYPES[r[2]].L > z - CAR.HL) {           // not yet fully behind us
+            if (back < bestBack) { bestBack = back; best = r; }
+            break;                                          // sorted: the first one in a list is its nearest
+          }
+        }
       }
-      return null;
+      return best;
     }
     all() { return [...this.byId.values()]; }
   }
@@ -326,8 +372,8 @@
     NAME, VERSION, HZ, DT, TICK_MS, COUNTDOWN_MS, BEHIND_LOSE,
     LANES, LANE_W, ROAD_HALF, LANE_V, laneX, CAR, WALL, TYPES, MAX_HL,
     V0, V1, T_HALF, TOP_K, FLOOR_MIN, GAS, BRAKE, VX_LO, VX_HI, CLOSE_M, BOOST_MAX, OVER_EASE, BOOST_COOL,
-    cruise, topSpeed, floorSpeed, vxMax, vxAcc,
+    cruise, topSpeed, floorSpeed, vxMax, vxAcc, SIGNAL, MOVE,
     STEER_Q, INPUT_MAX, packInput, steerOf, pedalOf, NEUTRAL, validInput,
-    newCar, copyCar, step, zAt, xAt, validRecord, Traffic, rng, kmh,
+    newCar, copyCar, step, zAt, xAt, changes, occFrom, occTo, occupies, signalAt, brakingAt, validRecord, Traffic, rng, kmh,
   };
 });

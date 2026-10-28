@@ -45,39 +45,49 @@ class SwimBot {
   }
 
   /* Seconds until the car reaches the first traffic car in `lane`, read with an
-     error; -1 when one is alongside right now; 99 when the lane is open. */
+     error; -1 when one is alongside right now; 99 when the lane is open. A
+     car changing into or out of the lane counts from its indicator on
+     (shared/swimSim.js occupies), at its own speed. */
   timeIn(traffic, lane, car, tick, noise) {
-    const list = traffic.lanes[lane];
-    for (let i = 0; i < list.length; i++) {
-      const r = list[i], t = S.TYPES[r[2]];
-      const c = S.zAt(r, tick);
-      const back = c - t.hl, front = c + t.hl;
-      if (front < car.z - S.CAR.HL - 1.5) {
-        /* Behind us, and coming up because we are slower than its lane: too close to pull in front of. */
-        const gain = S.LANE_V[lane] - car.v;
-        if (gain > 0.5 && (car.z - S.CAR.HL - front) / gain < 1.3) return -1;
-        continue;
+    let best = 99;
+    for (let k = lane - 1; k <= lane + 1; k++) {
+      if (k < 0 || k >= S.LANES) continue;
+      const list = traffic.lanes[k];
+      for (let i = 0; i < list.length; i++) {
+        const r = list[i];
+        if (!S.occupies(r, lane, tick)) continue;
+        const t = S.TYPES[r[2]], rv = S.LANE_V[r[1]];
+        const c = S.zAt(r, tick);
+        const back = c - t.hl, front = c + t.hl;
+        if (front < car.z - S.CAR.HL - 1.5) {
+          /* Behind us, and coming up because we are slower than it: too close to pull in front of. */
+          const gain = rv - car.v;
+          if (gain > 0.5 && (car.z - S.CAR.HL - front) / gain < 1.3) return -1;
+          continue;
+        }
+        if (back < car.z + S.CAR.HL + 1.5) return -1;              // alongside
+        const close = car.v - rv;
+        if (close > 0.5) { const tt = (back - car.z - S.CAR.HL) / close; if (tt < best) best = tt; }
+        break;                                                      // sorted: the first ahead in a list is its nearest
       }
-      if (back < car.z + S.CAR.HL + 1.5) return -1;              // alongside
-      const close = car.v - S.LANE_V[lane];
-      if (close <= 0.5) return 99;
-      const tt = (back - car.z - S.CAR.HL) / close;
-      return tt * (1 + noise * (this.rand() * 2 - 1));
     }
-    return 99;
+    return best >= 99 ? 99 : best * (1 + noise * (this.rand() * 2 - 1));
   }
 
   /* Seconds until the nearest car behind us in `lane` touches our back (99 when nothing is gaining on us). */
   behindIn(traffic, lane, car, tick) {
-    const gain = S.LANE_V[lane] - car.v;
-    if (gain <= 0.5) return 99;
-    const list = traffic.lanes[lane];
     let best = 99;
-    for (let i = 0; i < list.length; i++) {
-      const r = list[i];
-      const front = S.zAt(r, tick) + S.TYPES[r[2]].hl;
-      if (front > car.z - S.CAR.HL) break;
-      best = (car.z - S.CAR.HL - front) / gain;
+    for (let k = lane - 1; k <= lane + 1; k++) {
+      if (k < 0 || k >= S.LANES) continue;
+      const list = traffic.lanes[k];
+      for (let i = 0; i < list.length; i++) {
+        const r = list[i];
+        const front = S.zAt(r, tick) + S.TYPES[r[2]].hl;
+        if (front > car.z - S.CAR.HL) break;
+        if (!S.occupies(r, lane, tick)) continue;
+        const gain = S.LANE_V[r[1]] - car.v;
+        if (gain > 0.5) { const t = (car.z - S.CAR.HL - front) / gain; if (t < best) best = t; }
+      }
     }
     return best;
   }
