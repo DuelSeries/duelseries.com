@@ -3185,7 +3185,7 @@ body.scr-anim { overflow-x:hidden }
       <a class="slink" href="/terms.html">Terms of service</a>
       <a class="slink" href="/privacy.html">Privacy policy</a>
       <a class="slink" href="/responsible-play.html">Responsible play</a>
-      <a class="slink" id="set-contact" href="mailto:playduelseries@gmail.com">Contact</a>
+      <a class="slink" id="set-contact" href="https://mail.google.com/mail/?view=cm&amp;to=playduelseries@gmail.com" target="_blank" rel="noopener noreferrer" data-support>Contact</a>
     </nav>
   </div>
 </main>
@@ -3311,7 +3311,7 @@ body.scr-anim { overflow-x:hidden }
   <a href="/terms.html">Terms of service</a>
   <a href="/privacy.html">Privacy policy</a>
   <a href="/responsible-play.html">Responsible play</a>
-  <a href="mailto:playduelseries@gmail.com">Contact</a>
+  <a href="https://mail.google.com/mail/?view=cm&amp;to=playduelseries@gmail.com" target="_blank" rel="noopener noreferrer" data-support>Contact</a>
 </div></footer>
 
 <script src="/shared/constants.js"></script>
@@ -3340,6 +3340,8 @@ body.scr-anim { overflow-x:hidden }
 <script src="/js/v2/clips.js"></script>
 <script src="/js/v2/updates.js"></script>
 <script src="/js/v2/join.js"></script>
+<!-- Support (public/js/v2/support.js): every "write to us" link opens its panel, never mailto:. -->
+<script src="/js/v2/support.js"></script>
 <script src="/js/v2/wallet.js"></script>
 <script src="/js/v2/stats.js"></script>
 <script src="/js/v2/board.js"></script>
@@ -5273,7 +5275,7 @@ function drawNav(){
     +`<button class="sbx sb-br" id="sb-br" type="button" onclick="go('events')" hidden><span class="sb-bri">${SBI(SB_P.trophy)}</span><b class="sb-brn">Battle Royale</b><span class="sb-m"></span><b class="sb-cd" id="sb-cd"></b><span class="sb-fr" id="sb-fr"></span><i class="sb-bar" aria-hidden="true"></i></button>`
     +`<button class="sb-it sbx" type="button" onclick="window.V2Invite&&V2Invite.home()">${SBI(SB_P.refer)}<span>Refer a friend</span></button>`
     +navBtn(pin('join'))
-    +`<a class="sb-it sbx" href="mailto:playduelseries@gmail.com">${SBI(SB_P.support)}<span>Support</span></a>`
+    +`<a class="sb-it sbx" href="https://mail.google.com/mail/?view=cm&amp;to=playduelseries@gmail.com" target="_blank" rel="noopener noreferrer" data-support>${SBI(SB_P.support)}<span>Support</span></a>`
     +navBtn(pin('settings'))
     +`</div>`;
   if(window.V2Side)V2Side.paint();

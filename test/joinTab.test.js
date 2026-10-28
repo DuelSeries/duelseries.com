@@ -78,7 +78,7 @@ function runJoin(links) {
 
 test('a set https link opens in a new tab with noopener noreferrer; anything else stays Opening soon', () => {
   const { made } = runJoin({ discord: 'https://discord.gg/abc123', whop: 'http://whop.com/x', x: 'javascript:alert(1)', tiktok: '', youtube: 'https://www.youtube.com/@duelseries' });
-  const links = made.filter(n => n.tagName === 'A' && n.href && !String(n.href).startsWith('mailto:'));
+  const links = made.filter(n => n.tagName === 'A' && n.href && !('data-support' in n.attrs));
   assert.deepStrictEqual(links.map(a => a.href).sort(), ['https://discord.gg/abc123', 'https://www.youtube.com/@duelseries']);
   for (const a of links) {
     assert.strictEqual(a.target, '_blank', a.href);
@@ -90,11 +90,18 @@ test('a set https link opens in a new tab with noopener noreferrer; anything els
   assert.ok(made.some(n => n.className === 'jn-soon' && n.textContent === 'Opening soon'), 'the row says so');
 });
 
-test('mail goes to the DuelSeries inbox, the clip button goes to the Clips tab', () => {
+test('mail opens the Support panel for the DuelSeries inbox (never mailto:), the clip button goes to the Clips tab', () => {
   const { made } = runJoin({ discord: '', whop: '', x: '', tiktok: '', youtube: '' });
-  const mails = made.filter(n => n.tagName === 'A' && String(n.href || '').startsWith('mailto:'));
-  assert.ok(mails.length >= 3);
-  for (const a of mails) assert.match(a.href, /^mailto:playduelseries@gmail\.com(\?|$)/);
+  const mails = made.filter(n => n.tagName === 'A' && 'data-support' in n.attrs);
+  assert.strictEqual(mails.length, 3, 'Report a bug, Send an idea and the address line');
+  for (const a of mails) {
+    assert.match(a.href, /^https:\/\/mail\.google\.com\/mail\/\?view=cm&to=playduelseries@gmail\.com(&|$)/);
+    assert.strictEqual(a.target, '_blank');
+    assert.strictEqual(a.rel, 'noopener noreferrer');
+  }
+  const bug = mails.find(a => a.attrs['data-title'] === 'Report a bug');
+  assert.ok(bug && bug.attrs['data-subject'] === 'Bug report' && /&su=Bug%20report&body=Which%20game/.test(bug.href), 'the bug form is prefilled');
+  assert.ok(!made.some(n => String(n.href || '').startsWith('mailto:')), 'no mailto: left');
   assert.match(read('public/js/v2/join.js'), /'Share a clip', \(\) => window\.go && go\('clips'\)/);
 });
 

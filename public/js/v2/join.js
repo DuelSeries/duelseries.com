@@ -121,9 +121,16 @@
     b.addEventListener('click', onClick);
     return b;
   }
-  function mailto(subject, body) {
-    const a = el('a', 'jn-ls');
-    a.href = 'mailto:' + MAIL + '?subject=' + encodeURIComponent(subject) + (body ? '&body=' + encodeURIComponent(body) : '');
+  /* Write to us: a data-support link opens the Support panel (support.js), and its own href is the
+     Gmail compose page. Never mailto:, which on a PC with no mail app pops up Windows' "Select an app". */
+  function support(cls, text, o) {
+    const a = el('a', cls, text);
+    a.href = 'https://mail.google.com/mail/?view=cm&to=' + MAIL
+      + (o.subject ? '&su=' + encodeURIComponent(o.subject) : '') + (o.body ? '&body=' + encodeURIComponent(o.body) : '');
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.setAttribute('data-support', '');
+    for (const k of ['title', 'sub', 'subject', 'body']) if (o[k]) a.setAttribute('data-' + k, o[k]);
     return a;
   }
 
@@ -196,9 +203,10 @@
     copy.append(svg(ICON.link, 'st jn-cp'), svg(ICON.ok, 'st jn-ok'), el('span', 'jn-cp', 'Invite a friend'), el('span', 'jn-ok', 'Link copied'));
     copy.setAttribute('aria-live', 'polite');
     copy.addEventListener('click', () => copySite(copy));
-    const bug = mailto('Bug report', 'Which game:\nWhat happened:\nRoughly when:\n');
+    const bug = support('jn-ls', '', { title: 'Report a bug', sub: 'Tell us which game, what happened and roughly when.',
+      subject: 'Bug report', body: 'Which game:\nWhat happened:\nRoughly when:\n' });
     bug.append(svg(ICON.bug, 'st'), el('span', '', 'Report a bug'));
-    const idea = mailto('Idea for DuelSeries', '');
+    const idea = support('jn-ls', '', { title: 'Send an idea', sub: 'Tell us what you would add or change.', subject: 'Idea for DuelSeries' });
     idea.append(svg(ICON.idea, 'st'), el('span', '', 'Send an idea'));
     sm.append(copy, small(ICON.clip, 'Share a clip', () => window.go && go('clips')), bug, idea);
 
@@ -206,8 +214,7 @@
     upd.id = 'jn-upd';
     upd.hidden = true;
 
-    const mail = el('a', 'jn-mail', MAIL);
-    mail.href = 'mailto:' + MAIL;
+    const mail = support('jn-mail', MAIL, {});
 
     box.append(fan, h, sub, big, soc, socl, sm, upd, mail);
     root.appendChild(box);

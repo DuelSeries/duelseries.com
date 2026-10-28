@@ -26,8 +26,10 @@ test('Settings and the footer link to the legal pages and a real contact, no dea
   const settings = html.slice(html.indexOf('<main id="settings-screen"'), html.indexOf('</main>', html.indexOf('<main id="settings-screen"')));
   const footer = html.slice(html.indexOf('<footer>'), html.indexOf('</footer>'));
   for (const block of [settings, footer]) {
-    for (const href of ['/terms.html', '/privacy.html', '/responsible-play.html', 'mailto:playduelseries@gmail.com'])
+    for (const href of ['/terms.html', '/privacy.html', '/responsible-play.html'])
       assert.ok(block.includes('href="' + href + '"'), 'links ' + href);
+    // Contact opens the Support panel (support.js) over a Gmail compose link, never mailto:.
+    assert.ok(block.includes('href="https://mail.google.com/mail/?view=cm&amp;to=playduelseries@gmail.com" target="_blank" rel="noopener noreferrer" data-support>Contact</a>'), 'Contact opens Support');
   }
   assert.ok(!/href="#" onclick="return false"/.test(footer), 'the footer\'s dead links are gone');
   for (const f of ['public/terms.html', 'public/privacy.html', 'public/responsible-play.html'])
