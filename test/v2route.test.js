@@ -277,7 +277,7 @@ test('the lobby pauses its animations while the game is up', () => {
   const loopAt = html.indexOf('function lobbyLoop(t){');
   assert.ok(loopAt > 0, 'the frame loop is where this test expects it');
   assert.ok(html.indexOf('let _paused=false;') < loopAt, '_paused is declared above the loop');
-  assert.ok(html.indexOf('let _rafOn=true;') < loopAt, 'and so is _rafOn, which it also reads');
+  assert.ok(html.indexOf('let _rafOn=false;') > 0 && html.indexOf('let _rafOn=false;') < loopAt, 'and so is _rafOn, which it also reads');
 });
 
 /* The frame loop and the two hooks, run for real in a sandbox: the slice of the
@@ -292,6 +292,8 @@ function lobbyLoopSandbox() {
   const to = html.indexOf('\n};', resumeAt) + 3;
   assert.ok(from > 0 && resumeAt > from && to > resumeAt, 'the loop slice is where this test expects it');
   const queue = [], dts = [];
+  // One canvas, the same object every time it is looked up, as a page's own element is: the loop keeps its list.
+  const cv = { offsetParent: {} };
   const ctx = {
     clock: 0, lookT: 0, queue, dts,
     requestAnimationFrame: (f) => { queue.push(f); return queue.length; },
@@ -303,7 +305,7 @@ function lobbyLoopSandbox() {
     paintLook() {},
     document: {
       body: { classList: { add() {}, remove() {}, contains() { return false; } } },
-      querySelectorAll: (sel) => (sel === 'canvas[data-anim]' ? [{ offsetParent: {} }] : []),
+      querySelectorAll: (sel) => (sel === 'canvas[data-anim]' ? [cv] : []),
     },
     Math,
   };

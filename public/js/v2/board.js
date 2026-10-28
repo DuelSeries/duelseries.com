@@ -252,22 +252,53 @@
     if (!box) return;
     if (failing && !loadedOnce) {
       box.innerHTML = '<div class="none">Could not load lobbies. Trying again…</div>';
+      box._parts = null;
       return;
     }
     const rows = rowsToShow();
     if (!rows.length) {
       box.innerHTML = '<div class="none">Nobody playing yet.</div>';
+      box._parts = null;
       return;
     }
     /* Only the list itself, and only when a row really changed: a live push lands about once a second. It used to
        call repaintAll for the row art, which restarts every moving scene on the page, the backdrop behind an open
        game panel included (Owen 2026-10-27: "the background shouldn't be updated"). Row art is a still image now. */
-    const html = rows.map(rowHTML).join('');
+    const parts = rows.map(rowHTML);
+    const html = parts.join('');
     if (html === box._html && box.querySelector('.lr')) return;
-    box.innerHTML = html;
+    /* And only the rows that changed (setRows): a bot joining one room redrew all of them, every time. */
+    setRows(box, parts);
     box._html = html;
     // The game cards' people counts are refreshed by load(), not here: draw()
     // returns early when this list is not on the page, and the cards still are.
+  }
+
+  /* A list whose rows are each one element of markup (parts), brought up to date row by row: a row whose markup
+     is unchanged is left alone, a changed one is swapped for its new markup, and the list grows or shrinks at the
+     end. Redrawing the whole list on every count change made a fresh node for every row, and a fresh listener for
+     every inline onclick, and restarted every row's beating dot: with the sidebar's list, two thirds of the nodes
+     the home screen made while standing still (the live site grew 1,483 nodes in a minute, 2026-10-28, all of it
+     garbage waiting for the collector). The first draw, or a box that
+     holds something else (the "Nobody playing yet" line), is written whole. The PC sidebar's Live games list uses
+     it too (v2.html V2Side). */
+  function setRows(box, parts) {
+    const old = box._parts, kids = box.children;
+    if (!old || !kids || kids.length !== old.length || typeof document.createElement !== 'function') {
+      box.innerHTML = parts.join('');
+      box._parts = parts;
+      return;
+    }
+    for (let i = 0; i < parts.length; i++) {
+      if (i < old.length && old[i] === parts[i]) continue;
+      const t = document.createElement('template');
+      t.innerHTML = parts[i];
+      const row = t.content.firstElementChild;
+      if (!row) continue;
+      if (i < kids.length) box.replaceChild(row, kids[i]); else box.appendChild(row);
+    }
+    while (kids.length > parts.length) box.removeChild(box.lastElementChild);
+    box._parts = parts;
   }
 
   function join(id) {
@@ -299,7 +330,7 @@
   if (typeof document.addEventListener === 'function')
     document.addEventListener('visibilitychange', () => { if (timer && !document.hidden) load(); });
 
-  window.V2Board = { load: load, push: push, draw: draw, join: join, start: start, stop: stop,
+  window.V2Board = { load: load, push: push, draw: draw, join: join, start: start, stop: stop, setRows: setRows,
                      playableStakes: playableStakes, rowsToShow: rowsToShow,
                      get lobbies() { return LOBBIES; },
                      get counts() { return COUNTS; },

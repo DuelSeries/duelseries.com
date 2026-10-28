@@ -676,7 +676,7 @@ body.ingame>.howveil,body.ingame>.meveil,body.ingame>.apscreen,body.ingame>.bshe
   .tkrun{animation-duration:52s!important;animation-iteration-count:infinite!important}
   .tkrun.cards{transition-duration:.55s!important}
   .tkc.new{animation-duration:.5s!important}
-  .ltag .dot{animation-duration:1.8s!important;animation-iteration-count:infinite!important}
+  .ltag .dot::before{animation-duration:1.8s!important;animation-iteration-count:infinite!important}
 }
 /* Owen's pick A (2026-10-27), Rainbet's Live Wins row, on PC and phone. Each win is the game's card art, the name under it and
    the amount in green under that. It holds still, and every few seconds the newest win slides in at the left and
@@ -686,8 +686,14 @@ body.ingame>.howveil,body.ingame>.meveil,body.ingame>.apscreen,body.ingame>.bshe
 .tickerwrap.top .ltag{display:inline-flex;align-items:center;gap:4px;position:absolute;left:2px;top:2px;z-index:2;
   padding:3px 5px 3px 4px;border-radius:var(--rf);background:rgba(16,14,11,.84);color:var(--tx);
   font-size:10px;font-weight:600;white-space:nowrap;pointer-events:none}
-.ltag .dot{width:6px;height:6px;border-radius:50%;background:var(--live);animation:ltping 1.8s infinite}
-@keyframes ltping{0%{box-shadow:0 0 0 0 rgba(142,208,129,.6)}70%,100%{box-shadow:0 0 0 6px rgba(142,208,129,0)}}
+/* Its ping is a disc 6px wider than the dot on every side, scaled up from the dot's size (6/18) as it fades: the
+   circle the old 0 to 6px box-shadow drew, but on the compositor, not a repaint every frame. The dot's copy over it
+   (::after) keeps the ring from showing through the dot, as the shadow never did. */
+.ltag .dot{position:relative;width:6px;height:6px;border-radius:50%;background:var(--live)}
+.ltag .dot::before{content:'';position:absolute;inset:-6px;border-radius:50%;background:rgba(142,208,129,.6);
+  transform:scale(.3333);animation:ltping 1.8s infinite}
+.ltag .dot::after{content:'';position:absolute;inset:0;border-radius:50%;background:inherit}
+@keyframes ltping{0%{transform:scale(.3333);opacity:1}70%,100%{transform:none;opacity:0}}
 .tickerwrap.top .ticker{-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 96px),transparent);
           mask-image:linear-gradient(90deg,#000 calc(100% - 96px),transparent)}
 .tkrun.cards{animation:none;transition:transform .55s cubic-bezier(.16,1,.3,1)}
@@ -742,9 +748,34 @@ body.ingame>.howveil,body.ingame>.meveil,body.ingame>.apscreen,body.ingame>.bshe
    "should blink"); it now dims to 35% and back, still eased, never a hard flash. */
 .lcount.on .ldot,.gpc.on .ldot{background:var(--live);animation:lpulse 1.6s ease-in-out infinite}
 @keyframes lpulse{
-  0%,100%{box-shadow:0 0 0 0 rgba(142,208,129,.6);opacity:1}
-  50%    {box-shadow:0 0 0 4px rgba(142,208,129,0);opacity:.35}
+  0%,100%{opacity:1}
+  50%    {opacity:.35}
 }
+/* The ring. It was a box-shadow growing 0 to 4px while it faded, which the
+   browser repaints on every frame (with the frame loop, 242 style passes a
+   second on the home screen, measured 2026-10-28). Now it is a disc 4px wider
+   than the dot on every side, scaled up from the dot's own size and faded with
+   it: transform and opacity only, so the compositor runs it, not the page's
+   own thread. Scaling that disc gives exactly the circle the spread drew, at the
+   same alpha through the same easing. --lr is where it starts, the dot's size
+   over the disc's (6/14 here, 5/13 on a card, 7/15 on Social). A copy of the
+   dot sits over it (::after, the dot's own colour, gold on a queue too),
+   because the beating opacity makes the dot a group its children paint
+   inside, and the ring would otherwise tint it. */
+.lcount.on .ldot,.gpc.on .ldot,.win-live i{position:relative}
+.lcount.on .ldot::before,.gpc.on .ldot::before,.win-live i::before{content:'';position:absolute;inset:-4px;
+  border-radius:50%;background:rgba(142,208,129,.6);transform:scale(var(--lr,.4286));
+  animation:lring 1.6s ease-in-out infinite}
+.lcount.on .ldot::after,.gpc.on .ldot::after,.win-live i::after{content:'';position:absolute;inset:0;
+  border-radius:50%;background:inherit}
+.gpc.on .ldot{--lr:.3846}
+.win-live i{--lr:.4667}
+@keyframes lring{0%,100%{transform:scale(var(--lr,.4286));opacity:1}50%{transform:none;opacity:0}}
+/* Not beating where nobody can see it: off screen (watchDots, beside the
+   pause hooks) or under a game. They pick up where they were. */
+.offscr,.offscr::before,
+body.ingame .ldot,body.ingame .ldot::before,body.ingame .ltag .dot::before,
+body.ingame .win-live i,body.ingame .win-live i::before{animation-play-state:paused!important}
 /* Beating for everyone, the system setting included (Owen, 2026-10-10: "Pulse
    for everyone"; his own Windows has animation effects off, and a still dot read
    as nothing). The blanket reduce rule further up would otherwise cut it to one
@@ -753,6 +784,7 @@ body.ingame>.howveil,body.ingame>.meveil,body.ingame>.apscreen,body.ingame>.bshe
    no .on, so it still gets no beat, and the card's dot stays hidden at 0. */
 @media(prefers-reduced-motion:reduce){
   .lcount.on .ldot,.gpc.on .ldot{animation-duration:1.6s!important;animation-iteration-count:infinite!important}
+  .lcount.on .ldot::before,.gpc.on .ldot::before{animation-duration:1.6s!important;animation-iteration-count:infinite!important}
 }
 /* Read aloud, never drawn. */
 .vh{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
@@ -862,7 +894,7 @@ body.ingame>.howveil,body.ingame>.meveil,body.ingame>.apscreen,body.ingame>.bshe
 /* For everyone, like the lobby's live dots: Owen's own Windows has animation
    effects off, and a figure that is meant to look live then sat dead still. */
 @media(prefers-reduced-motion:reduce){
-  .win-live i{animation-duration:1.6s!important;animation-iteration-count:infinite!important}
+  .win-live i,.win-live i::before{animation-duration:1.6s!important;animation-iteration-count:infinite!important}
   .win-up.rise{animation-duration:1.6s!important}
 }
 /* Whole row is the control, so the target is the row and not just the name. */
@@ -2281,10 +2313,11 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
 @media(max-width:760px){
   .scr-park { display:block !important; transform:translateX(-200%); will-change:transform }
 }
-/* Nothing in it moves while it waits: the live dots pulse a box-shadow, which
-   is a repaint every frame, and the ticker would scroll on for nobody. They
-   pick up where they were when it comes back. */
-.scr-park .ldot, .scr-park .tkrun, .scr-park .chip b, .scr-park .win-live i { animation-play-state:paused !important }
+/* Nothing in it moves while it waits: the live dots would beat on (on the
+   compositor now, but still frames for nobody), and the ticker would scroll on
+   for nobody. They pick up where they were when it comes back. */
+.scr-park .ldot, .scr-park .ldot::before, .scr-park .tkrun, .scr-park .chip b, .scr-park .ltag .dot::before,
+.scr-park .win-live i, .scr-park .win-live i::before { animation-play-state:paused !important }
 /* The still of a game screen a swipe is leaving (swipe.js gBegin): a picture, never a target. */
 .scr-still { pointer-events:none }
 /* The duration is set per-release in swipe.js, from the distance still to
@@ -4299,6 +4332,7 @@ function openLook(){
      box measures zero. */
   document.getElementById('lookveil').classList.add('on');
   buildReel(); lookMeta();
+  lobbyWake();                           // the reel's new canvases, painted from the next frame
 }
 
 /* ── the reel ──────────────────────────────────────────────────────────────
@@ -4766,39 +4800,72 @@ let _paused=false;
 /* Whether a frame is queued for the loop. Beside _paused and ABOVE the loop for
    the same reason it documents: the loop first runs on the line it is written,
    so a let declared after it is still in its temporal dead zone then.
-   While a game is up the loop stops asking for frames altogether. It used to
-   re-arm every frame and return at once: 240 empty callbacks a second on a
-   240 Hz panel (measured headless here, 2026-10-08), all on the main thread
-   the game frame renders on. _resumeLobbyAnims re-arms it only while this is
-   false, so a second resume, or one that lands before the paused loop has run
-   once more, can never start a second loop beside the first. */
-let _rafOn=true;
+   The loop asks for frames only while it has something to move (lobbyWant):
+   not while a game is up, not in a hidden tab, and not on a screen with no
+   moving canvas on it, which is the home screen. It used to re-arm every frame
+   regardless: 240 callbacks a second on a 240 Hz panel (measured headless here,
+   2026-10-08 under a game and 2026-10-28 on the home screen), each one reading
+   offsetParent, which forces a style pass and a layout. lobbyKick re-arms it
+   only while this is false, so a second resume, or one that lands before the
+   stopped loop has run once more, can never start a second loop beside the
+   first. */
+let _rafOn=false;
 /* The screen parked out of sight (parkScreen, further down), declared above
    the loop for the same reason as the two above: the loop reads it on its
    first frame. Its canvases are not painted: it is not on screen, whatever
    offsetParent says. */
 let _parked=null;
 const parkedHas=n=>!!_parked&&_parked.contains(n);
+/* The canvases the loop paints, each with what it is ('anim' a game scene,
+   'look' a Customize preview), found once and again whenever a screen changes
+   (lobbyWake), never on a frame. */
+const _cvs=new Map();
+/* The ones on screen right now, kept by an IntersectionObserver, so the loop
+   reads no layout at all. It sees a hidden screen (nothing rendered), a parked
+   one (off to the side) and a canvas scrolled away alike. Without one (an old
+   browser) every canvas counts and the loop asks offsetParent each frame, as
+   it always did. */
+const _lit=new Set();
+const _litIO='IntersectionObserver' in window?new IntersectionObserver(es=>{
+  es.forEach(e=>e.isIntersecting?_lit.add(e.target):_lit.delete(e.target));
+  lobbyKick();
+}):null;
+const lobbyWant=()=>!_paused&&!document.hidden&&_lit.size>0;
+function lobbyWatch(){
+  _cvs.forEach((k,cv)=>{if(cv.isConnected===false){_cvs.delete(cv);_lit.delete(cv);if(_litIO)_litIO.unobserve(cv)}});
+  [['canvas[data-anim]','anim'],['canvas[data-look]','look']].forEach(([sel,k])=>
+    document.querySelectorAll(sel).forEach(cv=>{
+      if(_cvs.has(cv))return;
+      _cvs.set(cv,k);
+      if(_litIO)_litIO.observe(cv);else _lit.add(cv);
+    }));
+}
+function lobbyKick(){
+  if(_rafOn||!lobbyWant())return;
+  _rafOn=true;_last=performance.now();requestAnimationFrame(lobbyLoop);
+}
+/* A screen changed (showScreen, open_, the Customize screen, a game closing):
+   pick up new canvases and settle which are showing NOW, with one layout read,
+   rather than a frame later when the observer reports, which would show a
+   canvas's stale picture for a frame. Each one showing is observed afresh, so
+   the observer's next report corrects it if it is scrolled out of view. */
+function lobbyWake(){
+  lobbyWatch();
+  if(_litIO)_cvs.forEach((k,cv)=>{
+    if(cv.offsetParent&&!parkedHas(cv)){_lit.add(cv);_litIO.unobserve(cv);_litIO.observe(cv)}
+    else _lit.delete(cv);
+  });
+  lobbyKick();
+}
 
 function lobbyLoop(t){
   /* Math.max(0,...): the first frame after a resume can be stamped a hair
      before the performance.now() the resume recorded, and a negative step
      would run every scene backwards for a frame. It counts as a first frame. */
   const dt=Math.min(3,Math.max(0,(t-_last)/16.67)||1); _last=t;
-  if(_paused){_rafOn=false;return}   // the game owns the thread: stop asking
-  /* offsetParent is null for anything inside a hidden screen. Without this the
-     game screen's backdrop kept simulating while you were on the home tab. */
-  document.querySelectorAll('canvas[data-anim]').forEach(cv=>{if(!cv.offsetParent||parkedHas(cv))return;try{
-    /* Always animated. This used to be gated on a Motion switch in Settings,
-       which existed because the OS's prefers-reduced-motion froze the game
-       screen's backdrop with nothing on the page to say why. The switch is
-       gone; the OS flag still stops the CSS animations, which is the part
-       somebody who asked for less movement actually asked for. */
-    paintScene(cv,dt);
-  }catch(e){}});
+  if(!lobbyWant()){_rafOn=false;return}   // a game owns the thread, or nothing here moves: stop asking
   /* The appearance snake is the point of the box, so like the ticker it keeps
-     swimming under reduced motion. Only paint boxes that are actually on
-     screen: offsetParent is null for anything inside a hidden screen.
+     swimming under reduced motion.
      The chooser's reel moves first, in the same frame, so every slot is
      painted with the skin it now holds. performance.now(), not the frame's
      own stamp: a glide starts at an input event's now, and a frame stamped a
@@ -4806,12 +4873,21 @@ function lobbyLoop(t){
   const nowMs=performance.now();
   lookT=nowMs/1000;
   try{reelStep(nowMs)}catch(e){}
-  document.querySelectorAll('canvas[data-look]').forEach(cv=>{
-    if(cv.offsetParent&&!parkedHas(cv))try{paintLook(cv)}catch(e){}
+  /* Only what is on screen (_lit): without that the game screen's backdrop
+     kept simulating while you were on the home tab. */
+  _lit.forEach(cv=>{
+    if(cv.isConnected===false){_lit.delete(cv);return}
+    if(parkedHas(cv)||(!_litIO&&!cv.offsetParent))return;
+    /* Scenes are always animated. This used to be gated on a Motion switch in
+       Settings, which existed because the OS's prefers-reduced-motion froze
+       the game screen's backdrop with nothing on the page to say why. The
+       switch is gone; the OS flag still stops the CSS animations, which is the
+       part somebody who asked for less movement actually asked for. */
+    try{_cvs.get(cv)==='anim'?paintScene(cv,dt):paintLook(cv)}catch(e){}
   });
   requestAnimationFrame(lobbyLoop);
 }
-lobbyLoop(0);
+lobbyWake();
 RM.addEventListener('change',repaintAll);
 
 /* ── pausing everything while the game is up ──────────────────────────────
@@ -4824,16 +4900,16 @@ RM.addEventListener('change',repaintAll);
    (_paused and _rafOn are declared above the frame loop, which reads them.) */
 window._pauseLobbyAnims=()=>{
   _paused=true;
-  document.body.classList.add('ingame');      // freezes the ticker's CSS animation
+  document.body.classList.add('ingame');      // freezes the ticker's and the live dots' CSS animations
   if(window.V2Board)V2Board.stop();           // and stops polling the server
   document.querySelectorAll('video.gart').forEach(v=>v.pause());   // the moving cards
 };
 window._resumeLobbyAnims=()=>{
   _paused=false;
-  /* The paused loop asked for no further frame, so this restarts it. Only when
-     it really stopped (see _rafOn): play.js can pause twice, and a resume can
-     come before the queued frame has noticed the pause. */
-  if(!_rafOn){_rafOn=true;_last=performance.now();requestAnimationFrame(lobbyLoop)}
+  /* The paused loop asked for no further frame, so this restarts it (lobbyKick,
+     only when it really stopped: play.js can pause twice, and a resume can
+     come before the queued frame has noticed the pause). */
+  lobbyWake();
   document.body.classList.remove('ingame');
   if(window.V2Board)V2Board.start();
   watchLoops();
@@ -4842,6 +4918,24 @@ window._resumeLobbyAnims=()=>{
      money count up from $0, then roll to anything the game changed. */
   if(window.DSCount)DSCount.open(document.body);
 };
+/* A hidden tab gets no frames anyway; coming back is a screen showing again. */
+document.addEventListener('visibilitychange',lobbyKick);
+/* The live dots (the lobby rows, the game cards, Live wins, Social's LIVE)
+   beat only while they are on screen: .offscr pauses one that is not
+   (the rule beside lpulse). Called again after anything that draws new dots
+   (paintCounts, after every board draw), and lets go of the ones gone from
+   the page so the observer never holds on to them. */
+const _dots=new Set();
+const dotIO='IntersectionObserver' in window?new IntersectionObserver(es=>es.forEach(e=>
+  e.target.classList.toggle('offscr',!e.isIntersecting))):null;
+function watchDots(){
+  if(!dotIO)return;
+  _dots.forEach(d=>{if(!d.isConnected){dotIO.unobserve(d);_dots.delete(d)}});
+  document.querySelectorAll('.lcount.on .ldot,.gpc.on .ldot,.ltag .dot,.win-live i').forEach(d=>{
+    if(!_dots.has(d)){_dots.add(d);dotIO.observe(d)}
+  });
+}
+window.V2_watchDots=watchDots;
 
 /* HexGrid paints a flat blue-grey gap colour and skips the hex tile entirely
    until /hexbg.jpg has decoded. A live scene repaints every frame so it heals
@@ -4884,7 +4978,10 @@ function paintCounts(){
     const n=Math.max(0,Math.floor(v));
     /* A duel's people waiting for a match (Owen 2026-10-21), said on the card too. */
     const w=window.V2Board&&V2Board.waiting?(V2Board.waiting[el.dataset.pc]||0):0;
-    el.querySelector('b').textContent=String(n)+(w>0?' · '+w+' waiting':'');
+    /* Written only when it changed: every poll and every live push lands here,
+       and setting the same text still swaps in a new text node each time. */
+    const b=el.querySelector('b'), tx=String(n)+(w>0?' · '+w+' waiting':'');
+    if(b.textContent!==tx)b.textContent=tx;
     el.setAttribute('aria-label',n+' playing now'+(w>0?', '+w+' waiting for a match':''));
     /* The green dot: shown and beating while anyone is in, gone at 0. Every
        poll repaints, so it comes and goes with the count. */
@@ -4892,6 +4989,14 @@ function paintCounts(){
     el.hidden=false;
   });
   if(window.V2Side)V2Side.paint();
+  if(window.V2_watchDots)V2_watchDots();   // new rows and newly lit dots pause off screen
+}
+/* Text that changes in place: the existing text node takes the new words, so a
+   count or a clock ticking over adds no node to the page. */
+function setText(el,t){
+  if(!el||el.textContent===t)return;
+  const n=el.firstChild;
+  if(t&&n&&n.nodeType===3&&!n.nextSibling)n.data=t;else el.textContent=t;
 }
 window.V2_paintCounts=paintCounts;
 function cardHTML(g){
@@ -5117,6 +5222,7 @@ function open_(id){
     document.getElementById('golabel').textContent=locked?'Coming soon':'Play';
   }
   drawStake(); drawSkins(); repaintAll(); jumpToTop();
+  lobbyWake();                           // the backdrop may have just been shown or hidden
 }
 /* Step three is the only one that changes: an arena you grow in and a match
    you win are different games, and the other three steps are the product. */
@@ -5394,9 +5500,12 @@ const V2Side=(()=>{
     const games=GAMES.filter(g=>!g.soon);
     const live=games.filter(g=>countOf(c,g.id)>0).sort((a,b)=>countOf(c,b.id)-countOf(c,a.id));
     const idle=games.filter(g=>!(countOf(c,g.id)>0));
-    list.innerHTML=live.map(g=>row(g,countOf(c,g.id))).join('')
-      +(live.length&&idle.length?'<div class="sb-sep" role="presentation"></div>':'')
-      +idle.map(g=>row(g,countOf(c,g.id))).join('');
+    /* Row by row (V2Board.setRows): every poll and push lands here, and redrawing the whole list made new nodes
+       for all eleven games each time. */
+    const parts=live.map(g=>row(g,countOf(c,g.id)))
+      .concat(live.length&&idle.length?['<div class="sb-sep" role="presentation"></div>']:[])
+      .concat(idle.map(g=>row(g,countOf(c,g.id))));
+    if(window.V2Board&&V2Board.setRows)V2Board.setRows(list,parts);else list.innerHTML=parts.join('');
     /* Online: the same counts the cards show, added up. Paid today: only while the public
        earnings feed is on (earnings.js), and the element is gone, not hidden, when it is off. */
     const stat=document.getElementById('sb-stat');
@@ -5406,8 +5515,9 @@ const V2Side=(()=>{
       if(!ns.length){stat.hidden=true}
       else{
         const money=v=>'$'+Number(v).toFixed(2);
-        stat.innerHTML=`<span class="sb-on"><i aria-hidden="true"></i><b>${ns.reduce((a,b)=>a+b,0)}</b>online</span>`
+        const sh=`<span class="sb-on"><i aria-hidden="true"></i><b>${ns.reduce((a,b)=>a+b,0)}</b>online</span>`
           +(t&&t.total>0?`<span class="sb-pd" title="${e.periods.week?money(e.periods.week.total)+' this week, ':''}${money(e.total)} all time"><b>${money(t.total)}</b>paid today</span>`:'');
+        if(stat._html!==sh){stat.innerHTML=sh;stat._html=sh}   // only when a figure moved
         stat.hidden=false;
       }
     }
@@ -5427,8 +5537,8 @@ const V2Side=(()=>{
     if(m.textContent!==mt)m.innerHTML=`<span class="num">$${prize}</span> to 1st`;
     const cd=document.getElementById('sb-cd'), fr=document.getElementById('sb-fr');
     const t=live?'Live now':(left==null?'':pad(Math.floor(left/3600))+':'+pad(Math.floor(left%3600/60))+':'+pad(left%60));
-    if(cd.textContent!==t)cd.textContent=t;
-    fr.textContent=live?'Watch':'Free';
+    setText(cd,t);                        // the clock's own text node, not a new one every second
+    setText(fr,live?'Watch':'Free');
     b.classList.toggle('live',live);
     b.style.setProperty('--p',live?'100%':(left==null?'0%':Math.max(0,Math.min(100,(21600-left)/216)).toFixed(2)+'%'));
     b.setAttribute('aria-label','Battle Royale, $'+prize+' to 1st, '+(live?'live now':'free entry, starts in '+t)+'. Opens Events');
@@ -5486,6 +5596,7 @@ function showScreen(id,dir){
     SCREENS.forEach(s=>{const el=document.getElementById(s); if(el&&el!==next)putAway(el)});
     if(next)next.style.display='block';
     document.body.classList.toggle('no-foot',id==='detail'||id==='settings-screen');
+    lobbyWake();                         // the frame loop: which canvases show now
     return;
   }
 
@@ -5503,6 +5614,7 @@ function showScreen(id,dir){
   next.style.setProperty('--sd',shift);
   next.classList.add('scr-in');
   document.body.classList.add('scr-anim');
+  lobbyWake();
 
   const done=()=>{
     clearTimeout(t); _scrBusy=null;

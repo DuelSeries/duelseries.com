@@ -79,8 +79,11 @@ test('the game screen gives Paper.io the live backdrop through the same frame lo
   assert.ok(html.includes('<script src="/js/v2/paperBg.js"></script>'));
   assert.match(html, /cur\.id==='paper'&&window\.V2PaperBg\?'paper'/);
   assert.match(html, /if\(cv\.dataset\.game==='paper'&&window\.V2PaperBg\)return V2PaperBg\.make/);
-  /* paintScene is what lobbyLoop calls for every canvas[data-anim], which already skips a hidden screen. */
+  /* paintScene is what lobbyLoop calls for every canvas[data-anim] on screen, which already skips a hidden screen:
+     the loop paints only what its IntersectionObserver reports showing (_lit), never a layout read per frame. */
   assert.match(html, /function paintScene\(cv,dt\)\{[\s\S]{0,400}V2PaperBg\.step\(pw,dt\/60\)/);
+  assert.match(html, /\['canvas\[data-anim\]','anim'\]/);
+  assert.match(html, /_cvs\.get\(cv\)==='anim'\?paintScene\(cv,dt\):paintLook\(cv\)/);
   // ...and a parked Play screen too (v2.html parkScreen): displayed, but not on screen.
-  assert.match(html, /canvas\[data-anim\]'\)\.forEach\(cv=>\{if\(!cv\.offsetParent(\|\|parkedHas\(cv\))?\)return/);
+  assert.match(html, /_lit\.forEach\(cv=>\{[\s\S]{0,120}if\(parkedHas\(cv\)\|\|\(!_litIO&&!cv\.offsetParent\)\)return/);
 });
