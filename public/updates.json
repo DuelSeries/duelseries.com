@@ -2,6 +2,17 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-10-27-pc-sidebar",
+      "date": "2026-10-27",
+      "tag": "new",
+      "title": "A fuller sidebar on PC",
+      "body": "The left side on PC now lists the live games with how many are playing. Click a game to open it, or the eye to watch it.\n\nThe next Battle Royale and its countdown sit at the bottom, with Refer a friend, Join us, Support and Settings under it. Shop is coming soon.",
+      "image": {
+        "src": "/updates/pc-sidebar.webp",
+        "alt": "The PC sidebar with Live games, the Battle Royale countdown and the links at the bottom"
+      }
+    },
+    {
       "id": "2026-10-27-live-wins-row",
       "date": "2026-10-27",
       "tag": "new",

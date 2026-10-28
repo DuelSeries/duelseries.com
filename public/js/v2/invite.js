@@ -111,5 +111,14 @@
     else window.addEventListener('load', () => arrive(arrived), { once: true });
   }
 
-  window.V2Invite = { copy: copy, link: linkFor };
+  /* The PC sidebar's "Refer a friend": the lobby's own address, which opens the home screen
+     with the site's link preview (shared/shareGames.js HOME). Nothing is promised for it. */
+  function home() {
+    copyText(location.origin + '/', () => {
+      if (window.DSToast) DSToast.show({ kind: 'ok', title: 'Invite link copied', detail: 'Send it to a friend' });
+    });
+    if (window.phEvent) window.phEvent('invite_copied', { game: 'home' });
+  }
+
+  window.V2Invite = { copy: copy, link: linkFor, home: home };
 })();

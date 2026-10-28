@@ -57,6 +57,9 @@
     LOBBIES = Array.isArray(j.lobbies) ? j.lobbies : [];
     EXTRAS = Array.isArray(j.extras) ? j.extras : [];
     COUNTS = j.counts && typeof j.counts === 'object' ? j.counts : null;
+    /* The Battle Royale state rides along on the same answer: the PC sidebar's clock reads it
+       (V2Event.feed) rather than asking the server again. */
+    if (j.br && window.V2Event && window.V2Event.feed) window.V2Event.feed(j.br);
     if (window.V2Maint && j.maintenance) window.V2Maint.set(j.maintenance);
     loadedOnce = true; failing = false;
   }

@@ -197,6 +197,130 @@ header{position:sticky;top:0;z-index:50;background:rgba(16,14,11,.82);
   .wrap{padding:0 20px}
   .head{margin:24px 0 14px}
 }
+/* ── the PC sidebar's own rows (drawNav, V2Side) ─────────────────────────
+   Shop, Live games, the online line and the pinned foot exist on PC only.
+   Every added block is .sbx, hidden on phones and in the short landscape
+   rail; the foot (.sb-pin) is display:contents there, so Join us and
+   Settings sit in the bottom bar exactly where they always did. Rows are one
+   height token: 32px at 900 tall, 38px from 1000, 40px from 1060. */
+.sbx{display:none}
+.sb-pin{display:contents}
+@media(min-width:761px) and (min-height:501px){
+  :root{--sbw:256px;--rh:32px;--art:24px}
+  .nav{padding:76px 12px 0;gap:2px;scrollbar-width:none}
+  .nav::-webkit-scrollbar{display:none}
+  .nav>*{flex-shrink:0}                   /* a tall sidebar scrolls; rows never squash */
+  .ni{height:var(--rh)}
+  .ni.isnew::after{top:calc(50% - 12px)}
+  .sbx{display:block}
+  .sbx[hidden]{display:none!important}
+  .nav :focus-visible{outline:2px solid var(--bone);outline-offset:-2px}
+
+  /* rows that are actions, not tabs, drawn exactly like a tab */
+  .sb-it.sbx{display:flex}
+  .sb-it{align-items:center;gap:12px;width:100%;height:var(--rh);padding:0 12px;border-radius:var(--r2);
+    color:var(--tx3);font-size:13.5px;font-weight:600;letter-spacing:-.1px;text-align:left;white-space:nowrap;
+    text-decoration:none;transition:background .15s,color .15s}
+  .sb-it:hover{color:var(--tx);background:var(--s2)}
+  .sb-it svg{width:18px;height:18px;flex:none;stroke:currentColor;fill:none;stroke-width:1.7;
+    stroke-linecap:round;stroke-linejoin:round}
+  .sb-soon{cursor:default}
+  .sb-soon:hover{color:var(--tx3);background:none}
+  .sb-pill{margin-left:auto;font:600 13px/20px var(--f);letter-spacing:0;color:var(--tx2);
+    background:var(--s2);border-radius:var(--rf);padding:0 8px}
+
+  /* Live games: a lighter surface, like the lobby's own panels */
+  .sb-live{margin-top:10px;background:var(--s1);border-radius:var(--r2);padding:4px;
+    box-shadow:inset 0 1px 0 rgba(245,241,232,.035)}
+  .sb-lhd{display:flex;align-items:center;gap:12px;height:var(--rh);padding:0 3px 0 8px;
+    font-size:13.5px;font-weight:650;color:var(--tx)}
+  .sb-lhd>svg{width:18px;height:18px;flex:none;color:var(--tx2);stroke:currentColor;fill:none;stroke-width:1.7;
+    stroke-linecap:round;stroke-linejoin:round}
+  .sb-lhd>span{flex:1;min-width:0;white-space:nowrap}
+  .sb-all{flex:none;height:26px;padding:0 8px;border-radius:7px;font-size:13px;font-weight:600;color:var(--tx3);
+    transition:background .15s,color .15s}
+  .sb-all:hover{background:var(--s2);color:var(--tx)}
+  .sb-list{display:flex;flex-direction:column;gap:2px}
+
+  /* a game row: the art centres on the tabs' icon column, the name on their labels */
+  .sb-g{display:flex;align-items:center;height:var(--rh);border-radius:7px;transition:background .15s}
+  .sb-g:hover{background:var(--s2)}
+  .sb-go{flex:1;min-width:0;display:flex;align-items:center;gap:calc(21px - var(--art) / 2);height:100%;
+    padding:0 8px 0 calc(17px - var(--art) / 2);border-radius:7px;text-align:left;
+    color:var(--tx2);font-size:13.5px;font-weight:600}
+  .sb-g:hover .sb-go{color:var(--tx)}
+  .sb-go img{width:var(--art);height:var(--art);flex:none;display:block;border-radius:6px;
+    object-fit:cover;object-position:50% 26%;transition:filter .15s}
+  .sb-n{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sb-c{margin-left:auto;flex:none;display:inline-flex;align-items:center;gap:6px;
+    font:500 13px/1 var(--fm);color:var(--tx2);font-variant-numeric:tabular-nums}
+  .sb-g.on .sb-c{color:var(--tx)}
+  .sb-g.on .sb-c::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--live)}
+  .sb-eye{flex:none;width:28px;height:28px;margin-right:2px;display:grid;place-items:center;border-radius:7px;
+    color:var(--tx3);transition:background .15s,color .15s}
+  .sb-eye svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+  .sb-eye:hover{background:var(--s3);color:var(--tx)}
+  .sb-sep{height:1px;margin:3px 8px;background:var(--s2)}
+  /* nobody in it yet: dim, no Watch; its 0 stays in the count column (the eye's 30px) */
+  .sb-g.idle .sb-go{color:var(--tx3);padding-right:38px}
+  .sb-g.idle img{filter:saturate(.45) brightness(.66)}
+  .sb-g.idle:hover img{filter:none}
+  .sb-g.idle .sb-c{color:var(--tx3)}
+  .sb-new{flex:none;font:650 13px/20px var(--f);color:var(--ink);background:var(--money);
+    border-radius:var(--rf);padding:0 7px;margin-left:-3px}
+  .sb-new+.sb-c{margin-left:auto}
+
+  /* the online line; the paid-out half exists only while the earnings feed is on */
+  .sb-stat.sbx{display:flex}
+  .sb-stat{align-items:center;justify-content:space-between;gap:10px;height:var(--rh);margin-top:2px;
+    padding:0 12px;font-size:13px;color:var(--tx3);white-space:nowrap}
+  .sb-stat b{font:600 13.5px var(--fm);margin-right:6px}
+  .sb-on{display:inline-flex;align-items:center}
+  .sb-on i{width:8px;height:8px;margin:0 17px 0 5px;border-radius:50%;background:var(--live);
+    box-shadow:0 0 0 3px rgba(142,208,129,.16)}
+  .sb-on b{color:var(--tx)}
+  .sb-pd b{color:var(--money)}
+
+  /* the foot stays put while anything above it scrolls */
+  .sb-pin{position:sticky;bottom:0;margin-top:auto;display:flex;flex-direction:column;gap:2px;
+    padding:10px 0 12px;background:var(--bg);z-index:1}
+  .sb-pin::before{content:"";position:absolute;left:0;right:0;top:-16px;height:16px;pointer-events:none;
+    background:linear-gradient(rgba(16,14,11,0),var(--bg));opacity:0;transition:opacity .2s}
+  .nav.sb-over .sb-pin::before{opacity:1}
+  .sb-br.sbx{display:grid}
+  .sb-br{position:relative;overflow:hidden;grid-template-columns:18px minmax(0,1fr) auto;
+    grid-template-areas:"i t c" "i m f";column-gap:12px;row-gap:2px;align-items:center;width:100%;
+    margin-bottom:8px;padding:6px 12px 7px;text-align:left;line-height:16px;
+    background:var(--s1);border-radius:var(--r2);box-shadow:inset 0 0 0 1px rgba(240,168,48,.28);
+    transition:background .15s}
+  .sb-br:hover{background:var(--s2)}
+  .sb-bri{grid-area:i;display:grid;place-items:center;color:var(--money)}
+  .sb-bri svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+  .sb-brn{grid-area:t;min-width:0;font-size:13.5px;font-weight:650;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sb-m{grid-area:m;font-size:13px;font-weight:600;color:var(--money);white-space:nowrap}
+  .sb-cd{grid-area:c;justify-self:end;font:600 13.5px var(--fm);color:var(--tx);font-variant-numeric:tabular-nums}
+  .sb-fr{grid-area:f;justify-self:end;font-size:13px;color:var(--tx3)}
+  .sb-br.live .sb-cd{font-family:var(--f);color:var(--live)}
+  /* how far through the six hours to the next start */
+  .sb-bar{position:absolute;left:0;bottom:0;height:2px;width:var(--p,0%);background:var(--money);opacity:.55}
+}
+@media(min-width:761px) and (min-height:1000px){:root{--rh:38px;--art:28px}}
+@media(min-width:761px) and (min-height:1060px){:root{--rh:40px}}
+/* Narrow PC windows keep the 212px sidebar: zero counts give way to the New
+   pills, the paid-out figure drops under the online count, the trophy steps aside. */
+@media(min-width:761px) and (max-width:1099px) and (min-height:501px){
+  :root{--sbw:212px}
+  .sb-g.idle .sb-c{display:none}
+  .sb-g.idle .sb-go{padding-right:8px}
+  .sb-new{margin-left:auto}
+  .sb-lhd{padding-right:2px}
+  .sb-all{padding:0 4px}
+  .sb-stat{flex-direction:column;align-items:flex-start;justify-content:center;height:auto;gap:6px;padding:6px 12px}
+  .sb-pd{padding-left:30px}
+  .sb-br{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"t c" "m f"}
+  .sb-bri{display:none}
+}
+
 
 /* ── settings ───────────────────────────────────────────────────────── */
 /* Two groups, Account and About, one under the other in a single column
@@ -2697,7 +2821,12 @@ body.scr-anim { overflow-x:hidden }
   }
 
   /* engine(): which engine runs the event ('sl' or 'old', /api/live br.engine), read by play.js to open /sl or /game.html. */
+  /* feed(): the same /api/live answer the lobby board already fetches (board.js), so the PC
+     sidebar's Battle Royale clock costs no request of its own. untilStart(): seconds to the next
+     scheduled start, run on locally since the last answer. */
   window.V2Event={tick:tick, podium:podium, pull:pull, ownerStart:ownerStart,
+                  feed:function(br){ if(br){ BR=br; BRAT=Date.now(); } },
+                  untilStart:untilStart,
                   engine:function(){ return BR&&BR.engine?BR.engine:null },
                   get state(){ return BR }};
   pull(true);
@@ -3314,13 +3443,13 @@ const GAMES=[
  /* Head Soccer (server/HeadSoccerLobby.js, page /headsoccer), a duel on Knockout's queue: Free seats you against a
     bot after the countdown, and play.js OWN_PAGE opens it straight in the game frame. paid:1 like Knockout: $0.50 and
     $1 rungs stake through the wallet widget (HS_PAID_ON in server/index.js, the owner's hs:paid:off on top). In the lobby for everyone since 2026-10-27 (Owen). */
- {id:'headsoccer',name:'Head Soccer',c:['#12261a','#7fd36b'],type:'m',duel:1,built:1,paid:1,
+ {id:'headsoccer',name:'Head Soccer',c:['#12261a','#7fd36b'],type:'m',duel:1,built:1,paid:1,isNew:1,
   d:'One on one, oversized heads, and a ball that rarely goes where you meant it to.'},
  /* Swim (server/swim, page /swim): built, a duel with a buy-in on Knockout's terms (free races a bot after a
     minute, a paid table waits for a person and refunds if none comes). Its name is SwimSim.NAME
     (shared/swimSim.js), the one place to change it. After Head Soccer, in the lobby since 2026-10-27
     (Owen: "open it now"). */
- {id:'swim',name:(window.SwimSim&&SwimSim.NAME)||'Swim',c:['#141a16','#8fd06a'],type:'m',duel:1,built:1,paid:1,
+ {id:'swim',name:(window.SwimSim&&SwimSim.NAME)||'Swim',c:['#141a16','#8fd06a'],type:'m',duel:1,built:1,paid:1,isNew:1,
   d:'Weave through endless traffic. Touch a car, or fall 200 m behind, and you lose.'},
  /* Built, and free while it is new: no ladder, no lobby list, its own page,
     and none of the money path involved in it. `solo` is what says so. */
@@ -4671,6 +4800,7 @@ function paintCounts(){
     el.classList.toggle('on',n>0);
     el.hidden=false;
   });
+  if(window.V2Side)V2Side.paint();
 }
 window.V2_paintCounts=paintCounts;
 function cardHTML(g){
@@ -5087,9 +5217,9 @@ const NAV=[
  {id:'updates',t:'Updates', d:'Everything new on DuelSeries, newest first.', pc:1,
   dot:()=>!!(window.V2Updates&&V2Updates.unread()),
   p:'M4 11v2a1 1 0 0 0 1 1h2l5 4V6L7 10H5a1 1 0 0 0-1 1zM16 9a4 4 0 0 1 0 6M18.5 6.5a7.5 7.5 0 0 1 0 11'},
- {id:'join',   t:'Join us', d:'The Discord, the clip team, and our socials.', pc:1,
+ {id:'join',   t:'Join us', d:'The Discord, the clip team, and our socials.', pc:1, pin:1,
   p:'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M19 8v6M22 11h-6'},
- {id:'settings',t:'Settings',d:'Graphics, sound, region and account preferences.',
+ {id:'settings',t:'Settings',d:'Graphics, sound, region and account preferences.', pin:1,
   p:'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2v.1a2 2 0 1 1-4 0v-.2a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0-1.2-2.9H3a2 2 0 1 1 0-4h.2a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3h.1A1.7 1.7 0 0 0 10.3 3v-.1a2 2 0 1 1 4 0V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 2-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.6 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z'},
 ];
 /* ── your stats ──────────────────────────────────────────────────────────
@@ -5111,12 +5241,122 @@ const NAV=[
    activity table built out of invented games. */
 
 let route='play';
+/* The PC sidebar (Owen 2026-10-27, "do whatever you think is best"; the Launcher, picked by an
+   independent judge from three finalists). Today's tabs, then Shop (soon), the Live games list
+   (a row opens the game, its eye watches the free room), the online line, and a foot pinned to
+   the bottom: the Battle Royale, Refer a friend, Join us, Support and Settings.
+   Phones never see any of it: every added block is .sbx, hidden below 761px and in the short
+   landscape rail, and the foot is display:contents there, so the bottom bar is Home, Wallet,
+   Events, Leaderboards, Settings exactly as before. The tab buttons keep their order in the
+   DOM, which swipe.js and brCall.js rely on. Numbers come from the lobby's own /api/live poll
+   and the earnings feed (V2Side below): nothing here is typed in. */
+const SBI=p=>`<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${p}"/></svg>`;
+const SB_P={
+  shop:'M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4zM3 6h18M16 10a4 4 0 0 1-8 0',
+  live:'M4.9 19.1a10 10 0 0 1 0-14.2M7.8 16.2a6 6 0 0 1 0-8.4M16.2 7.8a6 6 0 0 1 0 8.4M19.1 4.9a10 10 0 0 1 0 14.2M12 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2',
+  refer:'M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7',
+  support:'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01',
+  trophy:'M6 9H4.5a2.5 2.5 0 0 1 0-5H6M18 9h1.5a2.5 2.5 0 0 0 0-5H18M4 22h16M10 14.7V17c0 .6-.5 1-1 1.2C7.9 18.8 7 20.2 7 22M14 14.7V17c0 .6.5 1 1 1.2 1.2.5 2 2 2 3.8M18 2H6v7a6 6 0 0 0 12 0z',
+  eye:'M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6',
+};
 function drawNav(){
-  document.getElementById('nav').innerHTML=NAV.map(n=>
-    `<button class="ni${n.id===route?' on':''}${n.pc?' pconly':''}${n.dot&&n.dot()?' isnew':''}${n.call&&n.call()?' brcall':''}" data-tab="${n.id}" onclick="go('${n.id}')" aria-label="${n.t}">
-       <svg viewBox="0 0 24 24"><path d="${n.p}"/></svg><span class="lbl">${n.t}</span><span class="tip">${n.t}</span>
-     </button>`).join('');
+  const navBtn=n=>
+      `<button class="ni${n.id===route?' on':''}${n.pc?' pconly':''}${n.dot&&n.dot()?' isnew':''}${n.call&&n.call()?' brcall':''}" data-tab="${n.id}" onclick="go('${n.id}')" aria-label="${n.t}">
+         <svg viewBox="0 0 24 24"><path d="${n.p}"/></svg><span class="lbl">${n.t}</span><span class="tip">${n.t}</span>
+       </button>`;
+  const pin=id=>NAV.find(n=>n.id===id);
+  document.getElementById('nav').innerHTML=NAV.filter(n=>!n.pin).map(navBtn).join('')
+    +`<button class="sb-it sbx sb-soon" type="button" aria-disabled="true" aria-label="Shop, coming soon">${SBI(SB_P.shop)}<span>Shop</span><span class="sb-pill">Soon</span></button>`
+    +`<section class="sbx sb-live" aria-labelledby="sb-lh"><div class="sb-lhd">${SBI(SB_P.live)}<span id="sb-lh">Live games</span><button class="sb-all" type="button" onclick="showAllGames()">View all</button></div><div class="sb-list" id="sb-list"></div></section>`
+    +`<div class="sbx sb-stat" id="sb-stat" hidden></div>`
+    +`<div class="sb-pin">`
+    +`<button class="sbx sb-br" id="sb-br" type="button" onclick="go('events')" hidden><span class="sb-bri">${SBI(SB_P.trophy)}</span><b class="sb-brn">Battle Royale</b><span class="sb-m"></span><b class="sb-cd" id="sb-cd"></b><span class="sb-fr" id="sb-fr"></span><i class="sb-bar" aria-hidden="true"></i></button>`
+    +`<button class="sb-it sbx" type="button" onclick="window.V2Invite&&V2Invite.home()">${SBI(SB_P.refer)}<span>Refer a friend</span></button>`
+    +navBtn(pin('join'))
+    +`<a class="sb-it sbx" href="mailto:playduelseries@gmail.com">${SBI(SB_P.support)}<span>Support</span></a>`
+    +navBtn(pin('settings'))
+    +`</div>`;
+  if(window.V2Side)V2Side.paint();
 }
+const V2Side=(()=>{
+  const nav=document.getElementById('nav');
+  const pcSide=matchMedia('(min-width:761px) and (min-height:501px)');
+  const pad=n=>n<10?'0'+n:''+n;
+  /* A count only when the server gave one: no poll yet draws the rows without numbers rather
+     than a made-up 0 (the same rule as the cards' paintCounts). */
+  const countOf=(c,id)=>c&&typeof c[id]==='number'&&Number.isFinite(c[id])?Math.max(0,Math.floor(c[id])):null;
+  function row(g,n){
+    const on=n>0, nm=g.name;
+    return `<div class="sb-g${on?' on':' idle'}"><button class="sb-go" type="button" data-game="${g.id}" aria-label="Play ${nm}${g.isNew?', new':''}${n===null?'':', '+n+' playing'}">`
+      +`<img alt="" draggable="false" src="${artSrc(g.id)}"><span class="sb-n">${nm}</span>${g.isNew?'<span class="sb-new">New</span>':''}`
+      +`${n===null?'':`<span class="sb-c">${n}</span>`}</button>`
+      +(on?`<button class="sb-eye" type="button" data-watch="${g.id}" aria-label="Watch ${nm}" title="Watch">${SBI(SB_P.eye)}</button>`:'')+`</div>`;
+  }
+  function paint(){
+    const list=document.getElementById('sb-list'); if(!list)return;
+    const c=window.V2Board&&V2Board.counts;
+    const games=GAMES.filter(g=>!g.soon);
+    const live=games.filter(g=>countOf(c,g.id)>0).sort((a,b)=>countOf(c,b.id)-countOf(c,a.id));
+    const idle=games.filter(g=>!(countOf(c,g.id)>0));
+    list.innerHTML=live.map(g=>row(g,countOf(c,g.id))).join('')
+      +(live.length&&idle.length?'<div class="sb-sep" role="presentation"></div>':'')
+      +idle.map(g=>row(g,countOf(c,g.id))).join('');
+    /* Online: the same counts the cards show, added up. Paid today: only while the public
+       earnings feed is on (earnings.js), and the element is gone, not hidden, when it is off. */
+    const stat=document.getElementById('sb-stat');
+    if(stat){
+      const ns=games.map(g=>countOf(c,g.id)).filter(n=>n!==null);
+      const e=window.V2Earnings&&V2Earnings.data, t=e&&e.periods&&e.periods.today;
+      if(!ns.length){stat.hidden=true}
+      else{
+        const money=v=>'$'+Number(v).toFixed(2);
+        stat.innerHTML=`<span class="sb-on"><i aria-hidden="true"></i><b>${ns.reduce((a,b)=>a+b,0)}</b>online</span>`
+          +(t&&t.total>0?`<span class="sb-pd" title="${e.periods.week?money(e.periods.week.total)+' this week, ':''}${money(e.total)} all time"><b>${money(t.total)}</b>paid today</span>`:'');
+        stat.hidden=false;
+      }
+    }
+    tick();
+  }
+  /* The Battle Royale foot: its own seconds from the server's schedule (V2Event.untilStart),
+     "Live now" while a match runs, the prize from CONSTANTS, and a hairline that fills
+     through the six hours to the next start. */
+  function tick(){
+    const b=document.getElementById('sb-br'); if(!b)return;
+    const st=window.V2Event&&V2Event.state;
+    if(!st){b.hidden=true;return}
+    const live=st.state==='running'||st.state==='countdown';
+    const left=live||st.autoPending?0:V2Event.untilStart();
+    const prize=(typeof CONSTANTS!=='undefined'&&CONSTANTS.BR_PRIZE_USDC)||20;
+    const m=b.querySelector('.sb-m'), mt='$'+prize+' to 1st';
+    if(m.textContent!==mt)m.innerHTML=`<span class="num">$${prize}</span> to 1st`;
+    const cd=document.getElementById('sb-cd'), fr=document.getElementById('sb-fr');
+    const t=live?'Live now':(left==null?'':pad(Math.floor(left/3600))+':'+pad(Math.floor(left%3600/60))+':'+pad(left%60));
+    if(cd.textContent!==t)cd.textContent=t;
+    fr.textContent=live?'Watch':'Free';
+    b.classList.toggle('live',live);
+    b.style.setProperty('--p',live?'100%':(left==null?'0%':Math.max(0,Math.min(100,(21600-left)/216)).toFixed(2)+'%'));
+    b.setAttribute('aria-label','Battle Royale, $'+prize+' to 1st, '+(live?'live now':'free entry, starts in '+t)+'. Opens Events');
+    b.hidden=false;
+  }
+  /* A row opens its game; the eye watches its free room (play.js spectate), and only the eye. */
+  nav.addEventListener('click',e=>{
+    const w=e.target.closest('.sb-eye[data-watch]');
+    if(w){e.stopPropagation();if(window.V2Play)V2Play.spectate(w.dataset.watch,null,0);return}
+    const g=e.target.closest('.sb-go[data-game]');
+    if(g)open_(g.dataset.game);
+  });
+  /* The fade over the pinned foot only while something is scrolled under it. */
+  const over=()=>nav.classList.toggle('sb-over',nav.scrollHeight>nav.clientHeight+1&&nav.scrollTop+nav.clientHeight<nav.scrollHeight-1);
+  nav.addEventListener('scroll',over,{passive:true});
+  addEventListener('resize',over);
+  /* The clock ticks only where it can be seen: a PC sidebar, a visible tab, no game up. */
+  setInterval(()=>{
+    if(document.hidden||document.body.classList.contains('ingame')||!pcSide.matches)return;
+    tick();over();
+  },1000);
+  return {paint:paint,tick:tick};
+})();
+window.V2Side=V2Side;
 /* One place that knows which screens exist, so a new one cannot be left
    showing underneath another. The player profile has no nav slot of its
    own: it is reached from the board and keeps Social lit while it is up. */

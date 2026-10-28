@@ -227,6 +227,7 @@
 
   function hide() {
     data = null;
+    if (window.V2Side) window.V2Side.paint();
     document.body.classList.remove('earn-on');
     if (strip) { strip.remove(); strip = null; }
     if (cols) cols.classList.remove('on');
@@ -242,6 +243,7 @@
     drawStrip();
     placeBoard();
     if (sheet) drawSheet();
+    if (window.V2Side) window.V2Side.paint();
   }
 
   var busy = false;
@@ -266,5 +268,6 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
   else start();
 
-  window.V2Earnings = { pull: pull, apply: apply, open: openSheet };
+  /* data: the last answer while the feed is on, else null (the PC sidebar's "paid today"). */
+  window.V2Earnings = { pull: pull, apply: apply, open: openSheet, get data() { return data; } };
 })();
