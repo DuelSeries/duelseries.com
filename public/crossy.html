@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>Crossy Road · DuelSeries</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/crossy.css">
+<script type="importmap">{ "imports": { "three": "/vendor/three/three.module.min.js" } }</script>
+</head>
+<body>
+
+<!-- The map, the traffic and both hoppers (three.js, js/crossy/crossyScene.js). -->
+<canvas id="world"></canvas>
+<!-- The score, the coins, the countdown and the key hint, in our own pixel lettering (js/crossy/crossyMain.js). -->
+<canvas id="hud"></canvas>
+<!-- The rival's name over their hopper. -->
+<div id="tag" hidden></div>
+<!-- Leave the match (an online match cannot pause: it asks first). -->
+<button type="button" id="leave" aria-label="Leave the match" hidden><i></i><i></i></button>
+
+<!-- Watching somebody else's match: what happened, in a line. Lobby, previous and next are the shared Spectate bar. -->
+<div id="watchLine" role="status" hidden></div>
+
+<!-- Waiting for somebody: the same card, and the same words, as every other duel's. -->
+<div id="wait">
+  <div class="waitCard">
+    <div class="waitSpin" aria-hidden="true"></div>
+    <b id="waitMain">Looking for an opponent</b>
+    <span id="waitSub">Free table. Nothing staked.</span>
+    <button type="button" id="waitCancel">Back to the lobby</button>
+  </div>
+</div>
+
+<!-- Said when the opponent is the bot a free table gets after the wait. -->
+<div id="botNote" role="status" hidden>Playing a bot</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="/js/shared/dsPerfHud.js"></script>
+<script src="/shared/crossySim.js"></script>
+<script src="/js/shared/dsEnd.js"></script>
+<script src="/js/shared/dsChat.js"></script>
+<script src="/js/shared/dsDialog.js"></script>
+<script src="/js/dsSfx.js"></script><script src="/js/dsSfxGame.js"></script><script src="/js/crossy/crossySound.js"></script>
+<script src="/js/shared/dsEmptyArena.js"></script>
+<script src="/js/shared/dsWatchBar.js"></script>
+<script src="/shared/duelWait.js"></script>
+<script type="module" src="/js/crossy/crossyMain.js"></script>
+</body>
+</html>

@@ -3463,6 +3463,11 @@ const GAMES=[
     paid rungs open (AH_PAID_ON in server/index.js). Ours, with no reference game (docs/airhockey-design.md). */
  {id:'airhockey',name:'Air Hockey',c:['#141c2c','#4ea6f0'],type:'m',duel:1,built:1,freeOnly:1,isNew:1,
   d:'One puck, two mallets, and a goal at each end. First to seven.'},
+ /* Crossy Road (server/crossy, page /crossy): built, a duel on Knockout's queue and money. Both players hop the
+    same seeded map at once; the first one hit, drowned or taken by the eagle loses. Its paid door is PAID_ON in
+    server/crossy/crossyWire.js, the owner's cr:paid:off on top. */
+ {id:'crossy',name:'Crossy Road',c:['#16201a','#82ce54'],type:'m',duel:1,built:1,paid:1,isNew:1,
+  d:'Hop the same roads, rivers and rails as your rival. The first one hit loses.'},
  /* Built, and free while it is new: no ladder, no lobby list, its own page,
     and none of the money path involved in it. `solo` is what says so. */
  {id:'omgshooter',name:'Awesome Tanks',c:['#1d2016','#a8bd63'],type:'p',built:1,solo:1,
@@ -3507,8 +3512,6 @@ const GAMES=[
     (that id is Awesome Tanks). */
  {id:'omgshoot2',name:'OMG Shooter',c:['#1d2016','#e8a040'],type:'p',soon:1,
   d:'Little guys, big guns, and everybody shooting everybody.'},
- {id:'crossy',name:'Crossy Road',c:['#16201a','#82ce54'],type:'p',soon:1,
-  d:'Hop across roads and rivers, and do not stop for long.'},
 ];
 /* Locked games (shared/lockedGames.js, the list the server reads too: today
    Awesome Tanks and Bowmasters). Their entries above stay as they are; for this

@@ -2,6 +2,17 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-10-28-crossy-road",
+      "date": "2026-10-28",
+      "tag": "new",
+      "title": "Crossy Road is here",
+      "body": "Hop across roads, rivers and train tracks against another player on the very same map. You both see each other, and the first one hit, washed away or carried off by the eagle loses. Stand still too long and the eagle comes for you, and the traffic speeds up the longer you both last.\n\nUse the arrow keys or WASD, or click to hop forward. On a phone, tap to hop forward and swipe to hop any way.\n\nFree tables are open now. If nobody joins in time, you play a bot and the screen says so.",
+      "image": {
+        "src": "/updates/crossy-new.webp",
+        "alt": "A Crossy Road match: a green hopper waiting at the edge of a busy road with cars and trucks going by"
+      }
+    },
+    {
       "id": "2026-10-28-rooftop-snipers",
       "date": "2026-10-28",
       "tag": "new",

@@ -82,6 +82,7 @@ const GAME_LABELS = Object.freeze({
   pool8: '8 Ball Pool',
   airhockey: 'Air Hockey',
   rooftop: 'Rooftop Snipers',
+  crossy: 'Crossy Road',
 });
 function gameLabel(g) {
   const k = String(g || '').toLowerCase();

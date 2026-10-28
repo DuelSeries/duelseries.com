@@ -29,6 +29,8 @@
       blurb: 'One puck, two mallets, first to seven on a neon rink. Free 1v1 in your browser.' }),
     Object.freeze({ slug: 'rooftop', game: 'rooftop', name: 'Rooftop Duel', accent: '#e08a7a', image: '/og/rooftop-card.jpg',
       blurb: 'Two snipers on one wobbly roof. Knock the other one off first. Free 1v1 in your browser.' }),
+    Object.freeze({ slug: 'crossy', game: 'crossy', name: 'Crossy Road', accent: '#82ce54', image: '/og/crossy-card.jpg',
+      blurb: 'Hop the same roads, rivers and rails as your friend. The first one hit loses. Free 1v1 in your browser.' }),
   ]);
   var HOME = Object.freeze({
     title: 'DuelSeries: free multiplayer browser games',

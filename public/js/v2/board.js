@@ -185,6 +185,8 @@
     /* Rooftop Snipers, the same kind of duel (server/RooftopLobby.js); listed while its card is playable. */
     { id: 'rooftop:free', game: 'rooftop', region: 'na',
       stake: null, lobbyType: 'free', players: 0, state: 'open', needsCard: true },
+    { id: 'crossy:free',     game: 'crossy',     region: 'na',
+      stake: null, lobbyType: 'free', players: 0, state: 'open', needsCard: true },
     /* Paper and agar.io are not pinned here. Their rooms are on the server and
        /api/live reports a row per rung (paper:na:s0, ag:na:s0, ...), so their
        Free comes off the real board in rowsToShow. */
@@ -226,7 +228,7 @@
     /* A paid duel rung with somebody waiting or playing (knockout:s0.5, ...): listed while it is, so a
        person can see the table and take it, and sorted first below like any paid room. */
     EXTRAS.forEach(e => {
-      if ((e.game !== 'knockout' && e.game !== 'battleship' && e.game !== 'swim' && e.game !== 'headsoccer' && e.game !== 'pool8' && e.game !== 'airhockey' && e.game !== 'rooftop') || !(Number(e.stake) > 0)) return;
+      if ((e.game !== 'knockout' && e.game !== 'battleship' && e.game !== 'swim' && e.game !== 'headsoccer' && e.game !== 'pool8' && e.game !== 'airhockey' && e.game !== 'rooftop' && e.game !== 'crossy') || !(Number(e.stake) > 0)) return;
       if (!listable(e)) return;   // a duel whose card is still shut (Swim behind its gate, Head Soccer without its preview)
       if (!(playing(e) > 0) || !isOpen(e) || rows.some(r => r.id === e.id)) return;
       if (window.DS_LOCKED && window.DS_LOCKED.isLocked(e.game)) return;
@@ -271,7 +273,7 @@
   function join(id) {
     /* A paid duel rung comes from the extras (it has a stake, so Enter stakes it through the wallet). */
     const l = PINNED.find(p => p.id === id) || LOBBIES.find(x => x.id === id)
-      || EXTRAS.find(x => x.id === id && Number(x.stake) > 0 && (x.game === 'knockout' || x.game === 'battleship' || x.game === 'swim' || x.game === 'headsoccer' || x.game === 'pool8' || x.game === 'airhockey' || x.game === 'rooftop') && listable(x));
+      || EXTRAS.find(x => x.id === id && Number(x.stake) > 0 && (x.game === 'knockout' || x.game === 'battleship' || x.game === 'swim' || x.game === 'headsoccer' || x.game === 'pool8' || x.game === 'airhockey' || x.game === 'rooftop' || x.game === 'crossy') && listable(x));
     if (!l || !isOpen(l)) return;
     if (window.DS_LOCKED && window.DS_LOCKED.isLocked(l.game)) return;
     if (window.V2Play) return window.V2Play.enter(l);

@@ -1,0 +1,108 @@
+/* ─── Crossy Road ─────────────────────────────────────────────────────────────
+   The map is all three.js (js/crossy/crossyScene.js) and the score, coins and
+   countdown are drawn on a canvas over it in our own pixel lettering; this file
+   is the frame around them: the rival's name tag, the leave button, the wait
+   card, the watch line and the bot note. The cards are the product's warm ink,
+   the same as every other duel's, so waiting for a match and reading a result
+   look the same in every game. */
+
+:root {
+  --grass: #9bc846;
+  --ink:   #100e0b;
+  --s2:    #1f1b15;
+  --s3:    #282219;
+  --tx:    #f5f1e8;
+  --tx3:   #8d8171;
+  --gold:  #f0a830;
+  --f:  'Archivo', ui-sans-serif, system-ui, 'Segoe UI', Arial, sans-serif;
+}
+
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; height: 100%; overflow: hidden;
+  background: var(--grass); color: var(--tx);
+  font-family: var(--f);
+  -webkit-font-smoothing: antialiased;
+  /* A swipe is a move: the page must never scroll or zoom under it, and a long press must not select anything. */
+  overscroll-behavior: none;
+  touch-action: none;
+  -webkit-user-select: none; user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+}
+
+#world, #hud { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+#hud { pointer-events: none; z-index: 5; }
+
+/* The rival's name, over their (see-through) hopper. */
+#tag {
+  position: fixed; left: 0; top: 0; z-index: 6; pointer-events: none;
+  transform: translate(-50%, -100%);
+  padding: 3px 9px 4px; border-radius: 7px; white-space: nowrap;
+  background: rgba(16, 14, 11, 0.72); color: #fff;
+  font-size: 13px; font-weight: 700; letter-spacing: 0.01em;
+}
+#tag[hidden] { display: none; }
+
+/* Leave: two white bars like the reference's pause button, under the coins. */
+#leave {
+  position: fixed; z-index: 7; width: 44px; height: 44px; padding: 0;
+  right: max(10px, env(safe-area-inset-right)); top: calc(max(10px, env(safe-area-inset-top)) + 52px);
+  display: flex; gap: 7px; align-items: center; justify-content: center;
+  background: transparent; border: 0; cursor: pointer;
+}
+#leave[hidden] { display: none; }
+#leave i { display: block; width: 9px; height: 28px; background: #fff; box-shadow: 3px 3px 0 #000; }
+#leave:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+
+#watchLine {
+  position: fixed; left: 50%; bottom: 84px; z-index: 12; transform: translateX(-50%);
+  padding: 8px 16px; border-radius: 999px; max-width: calc(100% - 32px);
+  background: rgba(0, 0, 0, 0.66); color: var(--tx);
+  font-size: 14px; font-weight: 650; text-align: center;
+  pointer-events: none;
+}
+#watchLine[hidden] { display: none; }
+
+#wait {
+  position: fixed; inset: 0; z-index: 20;
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+  background: rgba(0, 20, 10, 0.55); backdrop-filter: blur(6px);
+}
+#wait[hidden] { display: none; }
+.waitSpin[hidden] { display: none; }
+.waitCard {
+  width: 100%; max-width: 380px; text-align: center;
+  background: var(--ink); border: 1px solid var(--s3); border-radius: 18px;
+  padding: 28px 24px 22px; box-shadow: 0 24px 60px rgba(0,0,0,0.55);
+}
+.waitSpin {
+  width: 24px; height: 24px; margin: 0 auto 16px; border-radius: 50%;
+  border: 2px solid var(--s3); border-top-color: var(--gold);
+  animation: crspin 0.8s linear infinite;
+}
+@keyframes crspin { to { transform: rotate(360deg); } }
+.waitCard b { display: block; font-size: 17px; font-weight: 650; }
+.waitCard span { display: block; margin-top: 6px; font-size: 13px; color: var(--tx3); }
+.waitCard button {
+  font-family: inherit; font-size: 13.5px; font-weight: 600;
+  border-radius: 10px; padding: 11px 16px; cursor: pointer;
+  border: 1px solid var(--s3); background: transparent; color: var(--tx);
+  transition: background 0.15s, border-color 0.15s;
+  margin-top: 20px; width: 100%;
+}
+.waitCard button:hover { background: var(--s2); border-color: #3a3126; }
+.waitCard button:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+#botNote {
+  position: fixed; left: 50%; top: 92px; z-index: 19; transform: translateX(-50%);
+  padding: 8px 16px; border-radius: 999px; pointer-events: none;
+  background: rgba(0,0,0,0.72); color: var(--tx); font-size: 15px; font-weight: 650;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.5);
+}
+#botNote[hidden] { display: none; }
+
+/* The spinner spins under reduced motion as well (it is the only thing on the card saying the search is running). */
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+}

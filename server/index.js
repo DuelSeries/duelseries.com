@@ -14,6 +14,7 @@ const { HeadSoccerLobby } = require('./HeadSoccerLobby'); // Head Soccer, a real
 const { Pool8Lobby } = require('./Pool8Lobby'); // 8 Ball Pool, a turn-based duel on Knockout's queue and money
 const { AirHockeyLobby } = require('./AirHockeyLobby'); // Air Hockey, the same queue and money (shared/ahSim.js)
 const { RooftopLobby } = require('./RooftopLobby');       // Rooftop Snipers, the same queue and money (shared/rtSim.js)
+const crossyWire = require('./crossy/crossyWire');        // Crossy Road, a duel on one seeded map (server/crossy)
 const { BattleshipLobby } = require('./BattleshipLobby'); // the two-grid duel
 const { SwimLobby } = require('./swim/SwimLobby');       // the traffic race (Swim, shared/swimSim.js)
 const SWIM_NAME = require('../shared/swimSim').NAME;     // its player-facing name, kept in one place
@@ -1443,7 +1444,7 @@ app.use('/api/owner', (req, res, next) => { res.set('Cache-Control', 'no-store')
    their stakes in the lobbies' queues and tables, not in a room ALL_ROOMS
    lists, so "Safe to restart" used to be said with a paid duel seated or a
    paid seat waiting for an opponent (console audit finding C). */
-const duelStatusNow = () => ops.duelStatus([knockoutLobby, battleshipLobby, swimLobby, headSoccerLobby, pool8Lobby, airHockeyLobby, rooftopLobby]);
+const duelStatusNow = () => ops.duelStatus([knockoutLobby, battleshipLobby, swimLobby, headSoccerLobby, pool8Lobby, airHockeyLobby, rooftopLobby, crossy.lobby]);
 const drainNow = () => ops.drainStatus(ALL_ROOMS(), entryStore.pending(), duelStatusNow(), brDrainWhy());
 
 /* A room's name in words, for the owner console. `na_free` and `ag_na_s0#1`
@@ -1558,6 +1559,7 @@ function consoleGames(ko, bs, sw, hs, p8, ah, rt) {
     { id: 'rooftop', name: 'Rooftop Snipers', duel: true,
       paid: ownerConsole.paidDoor({ enabled: RT_PAID_ON, open: RT_PAID_ON && rtPaidOpen, stopping: false }, rtPaidSwitch.saved(), 'rt:paid'),
       rungs: ownerConsole.duelRows(rt) },
+    crossy.consoleRow(ownerConsole, ops.duelStatus([crossy.lobby])),
   ];
 }
 
@@ -1640,7 +1642,7 @@ function opsSnapshot(req, signed) {
   const p8 = ops.duelStatus([pool8Lobby]);
   const ah = ops.duelStatus([airHockeyLobby]);
   const rt = ops.duelStatus([rooftopLobby]);
-  let bots = ko.botTables + bs.botTables + sw.botTables + hs.botTables + p8.botTables + ah.botTables + rt.botTables;
+  let bots = ko.botTables + bs.botTables + sw.botTables + hs.botTables + p8.botTables + ah.botTables + rt.botTables + ops.duelStatus([crossy.lobby]).botTables;
   for (const r of all) bots += Number(r.botCount) || 0;
   const m = ops.get();
   const rooms = all.map(r => ({
@@ -2061,6 +2063,10 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
     }
     /* Paid Head Soccer's door (hs:paid:off / hs:paid:on), the same contract and the same saved switch as the two
        above. */
+    // Paid Crossy Road's door, the same contract and saved switch (server/crossy/crossyWire.js).
+    case 'cr:paid:off':
+    case 'cr:paid:on':
+      return done(crossy.setPaid(action === 'cr:paid:on'));
     case 'hs:paid:off':
     case 'hs:paid:on': {
       const on = action === 'hs:paid:on';
@@ -2431,6 +2437,7 @@ app.get('/headsoccer', (_req, res) => res.sendFile(path.join(__dirname, '../publ
 app.get('/pool8', (_req, res) => res.sendFile(path.join(__dirname, '../public/pool8.html')));
 app.get('/airhockey', (_req, res) => res.sendFile(path.join(__dirname, '../public/airhockey.html')));
 app.get('/rooftop', (_req, res) => res.sendFile(path.join(__dirname, '../public/rooftop.html')));
+app.get('/crossy', (_req, res) => res.sendFile(path.join(__dirname, '../public/crossy.html')));
 app.get(['/shooter', '/shooter.html'], gamePage('omgshooter', 'shooter.html'));
 app.get('/paper', (_req, res) => res.sendFile(path.join(__dirname, '../public/paper.html')));
 app.get('/paper-arena', (_req, res) => res.sendFile(path.join(__dirname, '../public/paper-arena.html')));
@@ -2930,6 +2937,9 @@ const hsPaidSwitch = createPaidSwitchStore({
   tag: '[HS]', what: 'paid Head Soccer',
 });
 let hsPaidOpen = !hsPaidSwitch.closedAtBoot().closed;
+/* Crossy Road: its lobby, its settling (Knockout's split, through koSend), and its saved paid door. */
+const crossy = crossyWire.create({ io, koSend, trackEarning, sweepRake, houseCut: KO_HOUSE_CUT, region: REGION,
+  createPaidSwitchStore, journalDir: path.dirname(agJournal.file) });
 if (!hsPaidOpen) console.warn("[HS] paid door CLOSED at boot: the owner's hs:paid:off outlived the restart");
 /* Paid 8 Ball Pool: P8_PAID_ON is the build switch (paid rungs exist at all), hs:paid:off the owner's door on top
    of it, saved like the other two. */
@@ -3655,9 +3665,10 @@ headSoccerLobby.journal = agJournal;
 pool8Lobby.journal = agJournal;
 airHockeyLobby.journal = agJournal;
 rooftopLobby.journal = agJournal;
+crossy.lobby.journal = agJournal;
 const paidShutdownDirs = [AG_PAID_ON ? agArenas : null, slPaid, PAPER_PAID ? paperArenas : null,
   CHOMP_PAID_ON ? chompArenas : null, knockoutLobby, battleshipLobby, swimLobby, headSoccerLobby, pool8Lobby, airHockeyLobby,
-  rooftopLobby];
+  rooftopLobby, crossy.lobby];
 if (paidShutdownDirs.some(Boolean)) {
   const paidAll = slPaidBoot.composePaidShutdown(paidShutdownDirs);
   agShutdown.installAgShutdown({
@@ -3771,6 +3782,7 @@ for (const rgn of [REGION]) {
   pool8Lobby.start();
   airHockeyLobby.start();
   rooftopLobby.start();
+  crossy.lobby.start();
 }
 
 /* ─── The live board ──────────────────────────────────────────────────────────
@@ -3909,6 +3921,7 @@ function liveExtras() {
   if (typeof pool8Lobby !== 'undefined' && pool8Lobby) duelRows('pool8', pool8Lobby, P8_PAID_ON && p8PaidOpen);
   if (typeof airHockeyLobby !== 'undefined' && airHockeyLobby) duelRows('airhockey', airHockeyLobby, AH_PAID_ON && ahPaidOpen);
   if (typeof rooftopLobby !== 'undefined' && rooftopLobby) duelRows('rooftop', rooftopLobby, RT_PAID_ON && rtPaidOpen);
+  if (typeof crossy !== 'undefined' && crossy) duelRows('crossy', crossy.lobby, crossy.paidOpen());
   return out;
 }
 
@@ -4004,6 +4017,7 @@ function liveGameCounts() {
     pool8: typeof pool8Lobby !== 'undefined' ? pool8Lobby : null,
     airhockey: typeof airHockeyLobby !== 'undefined' ? airHockeyLobby : null,
     rooftop: typeof rooftopLobby !== 'undefined' ? rooftopLobby : null,
+    crossy: typeof crossy !== 'undefined' ? crossy.lobby : null,
     paper: paperArenas,
     chomp: CHOMP_IN_LOBBY ? chompArenas : null,
     swim: SWIM_IN_LOBBY && typeof swimLobby !== 'undefined' ? swimLobby : null,
@@ -5918,6 +5932,9 @@ io.on('connection', (socket) => {
   on('p8:unwatch', () => {
     try { pool8Lobby.unwatch(socket.id); } catch (e) { console.error('[P8] unwatch failed:', e.message); }
   });
+  /* ── Crossy Road ── the queue, hops, chat and watching (server/crossy/crossyWire.js). */
+  crossy.sockets(socket, on, { socketRL, sanitizeName, rungOf, enterPaid, consumePaidEntryAtStake, strOr, ENTRY_REFUSED,
+    RETIRED_BUYIN, DUEL_PAID_CLOSED, isStake, chatGuard, joinAlerts, ops });
 
   /* ── Air Hockey ──────────────────────────────────────────────────────────
      A real-time duel. The queue and the paid door are Knockout's, line for line (the handler below is that one
@@ -6545,6 +6562,7 @@ io.on('connection', (socket) => {
     pool8Lobby.unwatch(socket.id);
     airHockeyLobby.unwatch(socket.id);
     rooftopLobby.unwatch(socket.id);
+    crossy.disconnect(socket.id);                // a Crossy seat forfeits; a paid queue seat is refunded
     endShooter(socket.id);
     paper.drop(socket.id);                       // a Paper seat enters its 5 s grace
     console.log(`[-] Disconnected: ${socket.id}`);

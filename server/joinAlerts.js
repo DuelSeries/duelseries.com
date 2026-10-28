@@ -46,6 +46,7 @@ const GAMES = Object.freeze({
   pool8: '8 Ball Pool',
   airhockey: 'Air Hockey',
   rooftop: 'Rooftop Snipers',
+  crossy: 'Crossy Road',
   br: 'Battle Royale',
   tanks: 'Bowmasters',
   shooter: 'Awesome Tanks',

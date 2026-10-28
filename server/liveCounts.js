@@ -106,6 +106,7 @@ function liveCounts(src = {}) {
     ...(src.pool8 ? { pool8: duelLobby(src.pool8) } : {}),
     ...(src.airhockey ? { airhockey: duelLobby(src.airhockey) } : {}),
     ...(src.rooftop ? { rooftop: duelLobby(src.rooftop) } : {}),
+    ...(src.crossy ? { crossy: duelLobby(src.crossy) } : {}),
     paper,
   };
   if (src.chomp) out.chomp = chomp;

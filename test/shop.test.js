@@ -44,7 +44,8 @@ function lobbyGames() {
     .filter(id => id !== 'headsoccer' && id !== 'pool8')
     /* Air Hockey's mallets come later too (built 2026-10-27 with no Shop look yet). */
     .filter(id => id !== 'airhockey')
-    .filter(id => id !== 'rooftop');   // Rooftop Snipers: its looks are free ones in Customize (shared/rtLooks.js)
+    .filter(id => id !== 'rooftop')
+    .filter(id => id !== 'crossy');   // Crossy Road: no Shop critters yet   // Rooftop Snipers: its looks are free ones in Customize (shared/rtLooks.js)
 }
 
 test('every game in the lobby that has been built has its own skins in the Shop', () => {
