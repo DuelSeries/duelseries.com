@@ -26,7 +26,7 @@ let traffic = new S.Traffic(), nextId = 1, last = [null, null, null, null], need
 function laneGap(t) { return 17 + 78 * 75 / (75 + t); }
 function pickType(lane, t) {
   const big = lane >= 2, later = t / (t + 120);
-  let total = 0; const w = S.TYPES.map((T) => { const k = T.right && !big ? 0 : T.right ? T.w * (1 + 0.8 * later) : T.w; total += k; return k; });
+  let total = 0; const w = S.TYPES.map((T) => { const k = T.right ? T.w * (1 + 0.8 * later) * (big ? 1 : 0.35) : T.w; total += k; return k; });
   let x = rand() * total;
   for (let i = 0; i < w.length; i++) { x -= w[i]; if (x < 0) return i; }
   return 0;

@@ -175,6 +175,54 @@ test('a boost eases back down to the top speed, gas or not, never cut off at onc
   }
 });
 
+test('boosts cannot chain: none inside the cooldown, the next one after it', () => {
+  const sedan = S.TYPES[0], hl = sedan.hl;
+  const car = S.newCar(0);
+  car.x = S.laneX(2) - (S.CAR.HW + sedan.hw + 0.1);
+  const tr = new S.Traffic();
+  // Three sedans in lane 2: the second 8 m past the first (gone by well inside 1.2 s), the third 60 m on.
+  const recs = [[1, 2, 0, 30, 0, 0], [2, 2, 0, 38, 0, 0], [3, 2, 0, 98, 0, 0]];
+  for (const r of recs) tr.add(r.slice());
+  const code = S.packInput(0, 1), boosts = [], passed = {};
+  for (let i = 0; i < 900 && car.alive; i++) {
+    const n = car.tick, rear0 = car.z - S.CAR.HL, coolWas = car.cool;
+    const plain = S.step(S.copyCar(car), code, null);
+    S.step(car, code, tr);
+    for (const r of recs) {
+      if (S.zAt(r, n) + hl >= rear0 && S.zAt(r, n + 1) + hl < car.z - S.CAR.HL) passed[r[0]] = n;
+    }
+    if (car.close >= 0) { boosts.push(n); assert.strictEqual(car.cool, S.BOOST_COOL); assert.ok(coolWas <= 1); }
+    else { assert.strictEqual(car.v, plain.v); assert.strictEqual(car.cool, coolWas > 0 ? coolWas - 1 : 0); }
+  }
+  assert.strictEqual(car.alive, true);
+  assert.deepStrictEqual(Object.keys(passed).map(Number), [1, 2, 3], 'all three went by');
+  assert.deepStrictEqual(boosts, [passed[1], passed[3]], 'the first and the third boosted, the second did not');
+  assert.ok(passed[2] - passed[1] < S.BOOST_COOL, 'the second was passed inside the cooldown');
+  assert.ok(passed[3] - passed[1] >= S.BOOST_COOL);
+});
+
+test('the line between the two left lanes is no safe corridor: a rider on it meets a wide car within seconds', () => {
+  const START = 60 * 60;                                   // a minute in: mid-race density
+  const secs = [];
+  for (let seed = 1; seed <= 16; seed++) {
+    const sp = new Spawner(seed), tr = new S.Traffic();
+    const c = S.newCar(0);
+    c.tick = START; c.x = (S.laneX(0) + S.laneX(1)) / 2; c.v = S.topSpeed(START);
+    while (c.alive && c.tick < START + 60 * 60) {
+      sp.run(tr, c.tick, c.z, c.v, null);
+      S.step(c, S.packInput(0, 1), tr);
+      tr.prune(c.z - 120, c.tick);
+    }
+    assert.strictEqual(c.alive, false, 'seed ' + seed + ': a line rider went a minute untouched');
+    const hit = S.TYPES[tr.byId.get(c.hit)[2]].id;
+    assert.ok(hit !== 'sedan' && hit !== 'hatch', 'only a wide car shuts the line (' + hit + ')');
+    secs.push((c.tick - START) / 60);
+  }
+  secs.sort((a, b) => a - b);
+  const med = secs[secs.length >> 1];
+  assert.ok(med < 6, 'median ' + med.toFixed(1) + ' s: ' + secs.map(x => x.toFixed(1)).join(' '));
+});
+
 test('the wheel is sharper slow than fast', () => {
   assert.strictEqual(S.vxMax(0), S.VX_HI);
   assert.strictEqual(S.vxMax(500), S.VX_LO);
@@ -242,17 +290,19 @@ test('a server room and a screen replaying the same inputs agree to the bit thro
     assert.strictEqual(mine.z, server.zHist[mine.tick % 1024], 'z on tick ' + mine.tick);
   }
   assert.strictEqual(closes, 1);
-  for (const k of ['tick', 'z', 'x', 'v', 'vx', 'alive', 'wall']) assert.strictEqual(mine[k], server.car[k], k);
+  for (const k of ['tick', 'z', 'x', 'v', 'vx', 'alive', 'wall', 'cool']) assert.strictEqual(mine[k], server.car[k], k);
   // Rebuilt from the server's row in the middle of the boost (what a correction does), the replay lands on the same bits.
-  const re = { tick: mid[1], z: mid[2], x: mid[3], v: mid[4], vx: mid[5], alive: !!mid[6], crashTick: -1, hit: -1, wall: mid[7] };
+  assert.strictEqual(mid.length, 9, 'the row carries the boost cooldown');
+  assert.ok(mid[8] > 0, 'mid-boost, the cooldown is running');
+  const re = { tick: mid[1], z: mid[2], x: mid[3], v: mid[4], vx: mid[5], alive: !!mid[6], crashTick: -1, hit: -1, wall: mid[7], cool: mid[8] };
   for (let t = re.tick; t < TICKS; t++) S.step(re, codes[t], tr);
-  for (const k of ['tick', 'z', 'x', 'v', 'vx', 'alive', 'wall']) assert.strictEqual(re[k], server.car[k], 'after a correction: ' + k);
+  for (const k of ['tick', 'z', 'x', 'v', 'vx', 'alive', 'wall', 'cool']) assert.strictEqual(re[k], server.car[k], 'after a correction: ' + k);
 });
 
 test('the spawner fills to the horizon and never shuts all four lanes where it places a car', () => {
   const sp = new Spawner(99);
   const tr = new S.Traffic();
-  let z = 0;
+  let z = 0, bigLeft = 0, bigRight = 0;
   for (let t = 0; t < 60 * 240; t++) {
     const out = [];
     sp.run(tr, t, z, 50, out);
@@ -262,12 +312,13 @@ test('the spawner fills to the horizon and never shuts all four lanes where it p
       assert.strictEqual(sp.shuts(tr, rec[1], rec[3], rec[2], t), false, 'record ' + rec[0]);
       tr.lanes[rec[1]].push(rec);
       assert.ok(S.validRecord(rec));
-      if (S.TYPES[rec[2]].right) assert.ok(rec[1] >= 2, 'trucks and buses keep right');
+      if (S.TYPES[rec[2]].right) { if (rec[1] >= 2) bigRight++; else bigLeft++; }
     }
     z += 50 / 60;
     tr.prune(z - 120, t);
   }
   assert.ok(tr.size > 20, 'there is traffic');
+  assert.ok(bigLeft > 0 && bigLeft * 2 < bigRight, 'trucks and buses in every lane, mostly on the right (' + bigLeft + ' left, ' + bigRight + ' right)');
 });
 
 function racing(seats) {

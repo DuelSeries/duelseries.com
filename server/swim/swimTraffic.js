@@ -28,6 +28,7 @@ const START_CLEAR = 130;      // nothing within this of the start line
 const G0 = 95, GMIN = 17, TG = 75;
 const WIN = 7.5;              // the clear length a car needs to slip between two
 const COLOURS = 10;           // how many paint colours a screen picks from
+const LEFT_BIG = 0.35;        // how much rarer a truck or bus is in the two left lanes than the right
 
 function laneGap(tick) {
   const t = Math.max(0, tick) * S.DT;
@@ -43,15 +44,20 @@ class Spawner {
     // The first car in each lane lands somewhere in its first gap past the start.
     this.need = [];
     for (let l = 0; l < S.LANES; l++) this.need.push(this.rand() * G0);
+    /* The type of each lane's next car, picked once and kept until it is placed. Picking afresh on
+       every try let the shortest car that fitted under the horizon win each time, so trucks and buses
+       almost never came (2026-10-28: 1 truck in 240 s of a test road for 198 sedans and 226 hatchbacks). */
+    this.nextType = new Array(S.LANES).fill(-1);
   }
 
+  /* Trucks and buses mostly keep right, but any lane can have one (Owen
+     2026-10-28: the line between the two left lanes is no safe corridor). */
   pickType(lane, tick) {
     const big = S.LANES - lane <= 2;                       // the two right lanes
     const later = (tick * S.DT) / (tick * S.DT + 120);     // 0 at the start, towards 1
     let total = 0;
     const w = S.TYPES.map((t) => {
-      if (t.right && !big) return 0;
-      const k = t.right ? t.w * (1 + 0.8 * later) : t.w;
+      const k = t.right ? t.w * (1 + 0.8 * later) * (big ? 1 : LEFT_BIG) : t.w;
       total += k;
       return k;
     });
@@ -86,7 +92,8 @@ class Spawner {
       for (let guard = 0; guard < 12; guard++) {
         const last = this.last[l];
         const back = last ? S.zAt(last, tick) + S.TYPES[last[2]].L / 2 : START_CLEAR;
-        const type = this.pickType(l, tick);
+        if (this.nextType[l] < 0) this.nextType[l] = this.pickType(l, tick);
+        const type = this.nextType[l];
         const z = back + this.need[l] + S.TYPES[type].L / 2;
         if (z > horizon) break;
         /* Where this car will be when the front car gets to it, if both keep going as they are. */
@@ -100,6 +107,7 @@ class Spawner {
         traffic.add(rec);
         if (out) out.push(rec);
         this.last[l] = rec;
+        this.nextType[l] = -1;
         this.need[l] = laneGap(tick) * (0.55 + this.rand() * 0.9);
       }
     }

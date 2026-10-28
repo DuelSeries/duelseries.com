@@ -145,7 +145,7 @@ const tickNow = () => (race ? (serverNow() - race.goAt) / S.TICK_MS : 0);
 
 function rowCar(row) {
   return { tick: row[1], z: row[2], x: row[3], v: row[4], vx: row[5], alive: !!row[6],
-           crashTick: row[6] ? -1 : row[1], hit: -1, wall: row[7] || 0 };
+           crashTick: row[6] ? -1 : row[1], hit: -1, wall: row[7] || 0, cool: row[8] || 0, close: -1 };
 }
 const SLOWING = 5;                   // m/s lost per second that lights a remote car's brake lights
 function takeRow(r, row) {
@@ -174,7 +174,8 @@ function reconcile(r, row) {
   }
   const h = r.hist[t % R];
   if (!h || h.tick !== t) return;
-  const same = h.alive === !!row[6] && h.z === row[2] && h.x === row[3] && h.v === row[4] && h.vx === row[5];
+  const same = h.alive === !!row[6] && h.z === row[2] && h.x === row[3] && h.v === row[4] && h.vx === row[5]
+    && h.cool === (row[8] || 0);
   if (same) return;
   const c = rowCar(row);
   r.hist[t % R] = S.copyCar(c);

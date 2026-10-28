@@ -408,13 +408,14 @@ class SwimRoom {
     }
   }
 
-  /* [side, tick, z, x, v, vx, alive, wall] per seat. Full precision: a screen
-     compares its own row to its prediction for that tick. */
+  /* [side, tick, z, x, v, vx, alive, wall, cool] per seat. Full precision: a
+     screen compares its own row to its prediction for that tick, and a car
+     rebuilt from it (with the boost cooldown) steps exactly as this one. */
   carRows() {
     const out = [];
     for (const p of this.players.values()) {
       const c = p.car;
-      out.push([p.side, c.tick, c.z, c.x, c.v, c.vx, c.alive ? 1 : 0, c.wall]);
+      out.push([p.side, c.tick, c.z, c.x, c.v, c.vx, c.alive ? 1 : 0, c.wall, c.cool]);
     }
     return out;
   }

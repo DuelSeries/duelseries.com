@@ -38,7 +38,7 @@
   const NAME = 'Swim';
   /* Bumped whenever the step or the traffic rules change: a page left open across a deploy runs the old
      step and would disagree with the server on every tick, so the server turns it away (sw:queue). */
-  const VERSION = 2;
+  const VERSION = 3;
 
   const HZ = 60;
   const DT = 1 / HZ;
@@ -49,7 +49,7 @@
   /* ── the road ─────────────────────────────────────────────────────────────
      Four lanes one way, 3.6 m each (a real highway lane). Lane 0 is the left
      lane and the fastest, as on a real road; the right lane is the slow one,
-     and the only place trucks and buses drive. */
+     and trucks and buses keep mostly to the two right lanes. */
   const LANES = 4;
   const LANE_W = 3.6;
   const ROAD_HALF = LANES * LANE_W / 2;                  // 7.2
@@ -57,12 +57,16 @@
   const LANE_V = [27, 24, 21, 18];                       // m/s, left to right
 
   /* The players' car. Its hitbox is a touch smaller than the body drawn, so a
-     pass that LOOKS clean is clean. Between two ordinary cars side by side
-     there is 0.1 m to spare each side: a squeeze, never a gift. */
+     pass that LOOKS clean is clean. Traffic hitboxes are 1 cm inside the body
+     each side (Owen 2026-10-28, was 6 cm): between two sedans side by side
+     there are 5 cm to spare each side, and an SUV, a van, a truck or a bus
+     alongside shuts the gap. The line between two lanes is a squeeze to
+     time, never a safe corridor. */
   const CAR = { L: 4.3, W: 1.8, HL: 2.06, HW: 0.84 };
   const WALL = ROAD_HALF + 0.3 - CAR.W / 2;             // where the barrier stops the car's centre
 
-  /* Traffic. L, W, H in metres; trucks and buses only in the two right lanes. */
+  /* Traffic. L, W, H in metres; `right`: trucks and buses, mostly in the two
+     right lanes (the spawner, server/swim/swimTraffic.js). */
   const TYPES = [
     { id: 'sedan', L: 4.5, W: 1.84, H: 1.42, w: 34, right: false },
     { id: 'hatch', L: 3.9, W: 1.76, H: 1.52, w: 22, right: false },
@@ -71,7 +75,7 @@
     { id: 'truck', L: 9.6, W: 2.45, H: 3.3,  w: 9,  right: true },
     { id: 'bus',   L: 12,  W: 2.5,  H: 3.2,  w: 5,  right: true },
   ];
-  for (const t of TYPES) { t.hl = t.L / 2 - 0.08; t.hw = t.W / 2 - 0.06; }
+  for (const t of TYPES) { t.hl = t.L / 2 - 0.08; t.hw = t.W / 2 - 0.01; }
   const MAX_HL = Math.max(...TYPES.map(t => t.hl));
 
   /* ── speed ────────────────────────────────────────────────────────────────
@@ -107,10 +111,13 @@
      all of it for a pass with no daylight at all, nothing at CLOSE_M. Touching
      is still a crash. The boost can carry the car past its top speed, never
      more than BOOST_MAX over it, and above the top it bleeds off at OVER_EASE
-     m/s every second, gas or not: a surge, not a new top speed. The step works
-     it out from the car and the traffic alone, so the server, the bot and
-     every screen agree on it without anything new on the wire. */
-  const CLOSE_M = 0.6, BOOST_MAX = 14, OVER_EASE = 4;
+     m/s every second, gas or not: a surge, not a new top speed. After a boost
+     there is no other for BOOST_COOL ticks (1.2 s), so a run of cars cannot be
+     strung into one long surge; a pass inside that time is not a close pass
+     at all (no boost, no "Close"). The step works it out from the car and the
+     traffic alone; the cooldown is a car field (`cool`, ticks left) that the
+     server sends in its rows, so every screen agrees on it. */
+  const CLOSE_M = 0.6, BOOST_MAX = 14, OVER_EASE = 4, BOOST_COOL = 72;
 
   function cruise(tick) {
     const t = (tick > 0 ? tick : 0) * DT;
@@ -138,18 +145,20 @@
 
   /* ── a player's car ──────────────────────────────────────────────────────
      `tick` is the tick this state is AT: step() applies that tick's input and
-     moves it to tick + 1. Side 0 starts in lane 1, side 1 in lane 2. `close`
-     is what the last step saw (the clearance of a close pass on it, else -1)
-     and is never read back, so a car rebuilt from the server's row (tick, z,
-     x, v, vx, alive, wall) steps exactly as the one it came from. */
+     moves it to tick + 1. Side 0 starts in lane 1, side 1 in lane 2. `cool`
+     is the ticks left before another boost may come. `close` is what the
+     last step saw (the clearance of a close pass that boosted, else -1) and
+     is never read back, so a car rebuilt from the server's row (tick, z, x,
+     v, vx, alive, wall, cool) steps exactly as the one it came from. */
   function newCar(side) {
     return { tick: 0, z: 0, x: side === 1 ? laneX(2) : laneX(1), v: V0, vx: 0,
-             alive: true, crashTick: -1, hit: -1, wall: 0, close: -1 };
+             alive: true, crashTick: -1, hit: -1, wall: 0, cool: 0, close: -1 };
   }
   function copyCar(c, out) {
     const o = out || {};
     o.tick = c.tick; o.z = c.z; o.x = c.x; o.v = c.v; o.vx = c.vx;
     o.alive = c.alive; o.crashTick = c.crashTick; o.hit = c.hit; o.wall = c.wall;
+    o.cool = c.cool || 0;
     o.close = c.close === undefined ? -1 : c.close;
     return o;
   }
@@ -158,6 +167,7 @@
     const n = car.tick;
     car.close = -1;
     if (!car.alive) { car.tick = n + 1; return car; }
+    let cool = car.cool > 0 ? car.cool - 1 : 0;
     const steer = steerOf(code), pedal = pedalOf(code);
     const hi = topSpeed(n), lo = floorSpeed(n), mid = cruise(n);
 
@@ -190,16 +200,18 @@
     if (traffic) {
       const hit = traffic.hitAt(car.x, car.z, car.tick);
       if (hit >= 0) { car.alive = false; car.crashTick = car.tick; car.hit = hit; }
-      else {
+      else if (cool === 0) {
         const gap = traffic.closeAt(car.x, z0, car.z, n);
         if (gap >= 0) {
           let b = v + BOOST_MAX * (1 - gap / CLOSE_M);
           if (b > hi + BOOST_MAX) b = hi + BOOST_MAX;
           if (b > v) car.v = b;
           car.close = gap;
+          cool = BOOST_COOL;
         }
       }
     }
+    car.cool = cool;
     return car;
   }
 
@@ -313,7 +325,7 @@
   return {
     NAME, VERSION, HZ, DT, TICK_MS, COUNTDOWN_MS, BEHIND_LOSE,
     LANES, LANE_W, ROAD_HALF, LANE_V, laneX, CAR, WALL, TYPES, MAX_HL,
-    V0, V1, T_HALF, TOP_K, FLOOR_MIN, GAS, BRAKE, VX_LO, VX_HI, CLOSE_M, BOOST_MAX, OVER_EASE,
+    V0, V1, T_HALF, TOP_K, FLOOR_MIN, GAS, BRAKE, VX_LO, VX_HI, CLOSE_M, BOOST_MAX, OVER_EASE, BOOST_COOL,
     cruise, topSpeed, floorSpeed, vxMax, vxAcc,
     STEER_Q, INPUT_MAX, packInput, steerOf, pedalOf, NEUTRAL, validInput,
     newCar, copyCar, step, zAt, xAt, validRecord, Traffic, rng, kmh,
