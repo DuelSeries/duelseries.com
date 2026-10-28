@@ -13,6 +13,7 @@
    DSSfx.play(name, {vol, rate, pan, gap, max})   start one; false when it did not
                        (muted, hidden tab, held, too soon after itself, too many)
    DSSfx.setLevel(fn)  fn() is this page's volume (0..1), read on every play
+   DSSfx.level()       that volume now, 0 while held or hidden: a live graph follows it
    DSSfx.hold(b)       true silences and suspends everything (the lobby while a game is up)
    DSSfx.context(), DSSfx.output()   for a game's own live graph (an engine hum)
    DSSfx.playIn(ctx, dest, name, vol)   one of these sounds on someone else's context
@@ -211,6 +212,7 @@
   root.DSSfx = {
     define: define, play: play, playIn: playIn, hold: hold, wake: wake,
     setLevel: fn => { level = typeof fn === 'function' ? fn : () => +fn || 0; },
+    level: () => { if (held || (doc && doc.hidden)) return 0; const v = +level(); return v > 0 ? v : 0; },
     context: () => context(), output: () => (context(), out),
     has: name => !!DEFS[name], names: () => Object.keys(DEFS), def: name => DEFS[name],
     ready: name => !!BUF[name],

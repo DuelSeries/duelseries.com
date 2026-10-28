@@ -477,8 +477,95 @@
     ctx.restore();
   }
 
+  /* ── Swim ────────────────────────────────────────────────────────────── */
+  /* No Shop section: Customize's three free engines (shared/swimLooks.js), drawn through paintWith with
+     { engine: id }; no id is the car's own, the V12. The car is the game's one car, the gold coupe with the big
+     rear wing (public/js/swim/swimScene.js, the gold side's paint), side on and facing right. The three engines
+     share the car, so the engine's badge on the door is what tells them apart, with its tail pipes under the
+     wing: two big ones for the V8, four slim ones for the V12, one fat one for the turbo four. Drawn in a 102 by
+     40 unit box scaled to fit, so the badge reads in the 56 px Customize bar and the 104 px reel alike. */
+  var SW = { gold: '#e8b84a', hi: '#ffd27e', low: '#9a6d1e', glass: '#1b2532', tyre: '#141518', hub: '#8d929b',
+    trim: '#202228', tail: '#ff2a1c', head: '#fff2d4', ink: '#141820' };
+  var SW_PIPES = { v8: [[27.3, 1.8], [29.5, 1.8]], v12: [[26.9, 0.9], [28.1, 0.9], [29.3, 0.9], [30.5, 0.9]], turbo4: [[27.5, 2.9]] };
+  function swPoly(ctx, pts, fill) {
+    ctx.beginPath(); ctx.moveTo(pts[0], pts[1]);
+    for (var i = 2; i < pts.length; i += 2) ctx.lineTo(pts[i], pts[i + 1]);
+    ctx.closePath(); ctx.fillStyle = fill; ctx.fill();
+  }
+  function paintSwim(cv, k, t, big, bare) {
+    var ctx = cv.getContext('2d'), w = cv.width, h = cv.height;
+    var L = root.DS_SWIM_LOOKS, e = L ? (L.byId(k && k.engine) || L.byId(L.DEFAULT)) : null;
+    var id = e ? e.id : 'v12', badge = e ? e.badge : 'V12';
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    if (!bare) { ctx.fillStyle = '#1c1942'; ctx.fillRect(0, 0, w, h); }
+    var s = Math.min(w * 0.92 / 102, h * (big ? 0.7 : 0.88) / 40), i;
+    ctx.save();
+    ctx.translate((w - 102 * s) / 2 + 1.5 * s, (h - 40 * s) / 2 + 0.6 * s);
+    ctx.scale(s, s);
+    ctx.lineCap = 'round';
+    // tail pipes, under the bumper
+    var P = SW_PIPES[id] || SW_PIPES.v12;
+    for (i = 0; i < P.length; i++) {
+      ctx.fillStyle = SW.trim; ctx.fillRect(-1.4, P[i][0], 6, P[i][1]);
+      ctx.fillStyle = '#6b6f76'; ctx.fillRect(-1.4, P[i][0], 0.7, P[i][1]);
+    }
+    // wing struts
+    ctx.fillStyle = SW.trim; ctx.fillRect(9, 8.6, 1.4, 9.6); ctx.fillRect(15, 8.6, 1.4, 9.6);
+    // body, lit from above
+    var g = ctx.createLinearGradient(0, 16, 0, 31);
+    g.addColorStop(0, SW.hi); g.addColorStop(0.45, SW.gold); g.addColorStop(1, SW.low);
+    swPoly(ctx, [3, 31, 2.5, 22, 5, 18.6, 27, 17.2, 70, 18.4, 88, 21.2, 97, 24, 99.5, 27, 98.5, 31], g);
+    // cabin, its glass and the pillar between the windows
+    swPoly(ctx, [25, 17.6, 37, 9.6, 57, 8.6, 73, 18.8], SW.gold);
+    swPoly(ctx, [30, 16.9, 39.5, 10.8, 55.5, 10.1, 67.5, 17.9], SW.glass);
+    swPoly(ctx, [48.4, 10.3, 50.6, 10.2, 51.6, 18, 49.2, 17.9], SW.gold);
+    ctx.strokeStyle = 'rgba(255,255,255,.2)'; ctx.lineWidth = 0.8;
+    ctx.beginPath(); ctx.moveTo(41.5, 11.6); ctx.lineTo(35.5, 15.8); ctx.stroke();
+    // the wing, with its end plate
+    swPoly(ctx, [-0.6, 6.2, 22.4, 6.7, 22.4, 9.3, 0, 9.6], SW.low);
+    ctx.fillStyle = SW.hi; ctx.fillRect(-0.6, 6.2, 23, 0.7);
+    ctx.fillStyle = SW.trim; ctx.fillRect(-0.4, 5.2, 2.2, 6);
+    // lamps and the sill
+    swPoly(ctx, [2.4, 20.4, 4.4, 19.6, 4.4, 23.4, 2.6, 23.4], SW.tail);
+    swPoly(ctx, [92.6, 23, 97.4, 24.4, 96.8, 25.8, 92.2, 24.6], SW.head);
+    ctx.strokeStyle = SW.trim; ctx.lineWidth = 1.3;
+    ctx.beginPath(); ctx.moveTo(29, 30.4); ctx.lineTo(71, 30.6); ctx.stroke();
+    // wheel arches (cut at the body's foot), then the wheels
+    var W = [20, 80];
+    ctx.save();
+    ctx.beginPath(); ctx.rect(-2, 0, 104, 31.2); ctx.clip();
+    ctx.fillStyle = '#0d0f13';
+    for (i = 0; i < 2; i++) { ctx.beginPath(); ctx.arc(W[i], 31, 8.6, 0, Math.PI * 2); ctx.fill(); }
+    ctx.restore();
+    for (i = 0; i < 2; i++) {
+      var x = W[i];
+      ctx.fillStyle = SW.tyre; ctx.beginPath(); ctx.arc(x, 31, 7, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = SW.hub; ctx.beginPath(); ctx.arc(x, 31, 4.7, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#3c4047'; ctx.beginPath(); ctx.arc(x, 31, 3.7, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = SW.hub; ctx.lineWidth = 1;
+      for (var a = 0; a < 5; a++) {
+        var an = a * Math.PI * 2 / 5 - Math.PI / 2;
+        ctx.beginPath(); ctx.moveTo(x + Math.cos(an) * 1.2, 31 + Math.sin(an) * 1.2);
+        ctx.lineTo(x + Math.cos(an) * 4, 31 + Math.sin(an) * 4); ctx.stroke();
+      }
+    }
+    // the engine's badge on the door
+    ctx.font = 'italic 800 8.6px Archivo, ui-sans-serif, system-ui, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    var bw = ctx.measureText(badge).width + 5.4, bx = 50 - bw / 2, by = 19.8, bh = 9.4, r = 3;
+    ctx.beginPath();
+    ctx.moveTo(bx + r, by); ctx.lineTo(bx + bw - r, by); ctx.quadraticCurveTo(bx + bw, by, bx + bw, by + r);
+    ctx.lineTo(bx + bw, by + bh - r); ctx.quadraticCurveTo(bx + bw, by + bh, bx + bw - r, by + bh);
+    ctx.lineTo(bx + r, by + bh); ctx.quadraticCurveTo(bx, by + bh, bx, by + bh - r);
+    ctx.lineTo(bx, by + r); ctx.quadraticCurveTo(bx, by, bx + r, by); ctx.closePath();
+    ctx.fillStyle = SW.ink; ctx.fill();
+    ctx.fillStyle = SW.hi; ctx.fillText(badge, 50, by + bh / 2 + 0.4);
+    ctx.restore();
+  }
+
   var PAINT = { crossy: paintCrossy, snake: paintSnake, airhockey: paintAirhockey, agar: paintAgar, paper: paintPaper, chomp: paintChomp, knockout: paintKnockout,
-    battleship: paintBattleship, omgshooter: paintShooter, tanks: paintTanks, pool8: paintPool8, rooftop: paintRooftop };
+    battleship: paintBattleship, omgshooter: paintShooter, tanks: paintTanks, pool8: paintPool8, rooftop: paintRooftop, swim: paintSwim };
   /* Which previews move. The rest are painted once per size, which keeps a
      page of forty-odd canvases off the frame budget. */
   var MOVES = { snake: 1, paper: 1, chomp: 1, omgshooter: 1, tanks: 1, airhockey: 1, pool8: 1, crossy: 1, rooftop: 1 };
