@@ -480,8 +480,11 @@ class GameRoom {
          has nothing anyone can see or lose, so it waits; the first player or
          spectator brings the next tick back at full rate and topUpBots refills
          within a second. The battle royale room runs its zone off the clock and
-         is left on the old idle rate. */
-      if (!this.updateZone && this.orphans.size === 0 && !this._humanAlive()) {
+         keeps the old idle rate, unless the event is on the new engine
+         (index.js sets dormant): then nobody can reach it and it waits too
+         (the live profile's remaining 12.9 ms/s after the plain rooms stopped). */
+      const asleep = !this.updateZone || (typeof this.dormant === 'function' && this.dormant());
+      if (asleep && this.orphans.size === 0 && !this._humanAlive()) {
         this._idleSkip = 0;
         return;
       }

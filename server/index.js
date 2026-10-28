@@ -3727,6 +3727,9 @@ for (const rgn of [REGION]) {
        so there is no stake here to get wrong. */
     br:     new BattleRoyaleRoom(io, `${rgn}_br`),
   };
+  /* While the event runs on the new slither.io engine nobody can reach this room, so with nobody in it it does not
+     simulate (GameRoom.tick); the owner console's switch back to the old engine wakes it. */
+  gameRooms[rgn].br.dormant = () => brOnSl();
   /* THE SNAKE FIXED TIERS ARE A FALLBACK, NOT A DESTINATION.
 
      They pre-date the ladder. liveBoard lists rungs only, index.html is gone,
