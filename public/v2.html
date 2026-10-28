@@ -694,6 +694,10 @@ body.ingame>.howveil,body.ingame>.meveil,body.ingame>.apscreen,body.ingame>.bshe
   transform:scale(.3333);animation:ltping 1.8s infinite}
 .ltag .dot::after{content:'';position:absolute;inset:0;border-radius:50%;background:inherit}
 @keyframes ltping{0%{transform:scale(.3333);opacity:1}70%,100%{transform:none;opacity:0}}
+/* No real wins yet: the row shows examples, so the pill says so in the leaderboard's Sample colours and has no live
+   dot (Owen's rule: made-up winnings are never shown to the public as real; site sweep 2026-10-28). */
+.tickerwrap.top .ltag.sample{background:var(--money);color:var(--ink);padding:3px 6px}
+.ltag.sample .dot{display:none}
 .tickerwrap.top .ticker{-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 96px),transparent);
           mask-image:linear-gradient(90deg,#000 calc(100% - 96px),transparent)}
 .tkrun.cards{animation:none;transition:transform .55s cubic-bezier(.16,1,.3,1)}
@@ -5120,15 +5124,18 @@ function madeUpAmount(){
   return Math.round(v*100)/100;
 }
 /* An empty ticker is worse than no ticker, so when there are no real results
-   the row invents plausible ones rather than sitting blank. Made-up wins can
-   only ever name a game that is actually playable. */
+   the row shows plausible examples rather than sitting blank, and its pill says
+   "Sample wins" (WINS_REAL below). Real and made-up wins are never mixed: once
+   any real result exists the row shows only those, under "Live wins". Made-up
+   wins can only ever name a game that is actually playable. */
 const MIN_TICKER=14;
+let WINS_REAL=false;
 const WINS=(()=>{
   const live=REAL_WINS.filter(w=>{const g=G(w.g); return g&&!g.soon});
-  if(live.length>=MIN_TICKER)return live;
+  if(live.length){WINS_REAL=true;return live;}
   const playable=GAMES.filter(g=>!g.soon);
   if(!playable.length)return live;
-  const pool=NAMES.slice(), out=live.slice();
+  const pool=NAMES.slice(), out=[];
   while(out.length<MIN_TICKER&&pool.length){
     const who=pool.splice(Math.floor(Math.random()*pool.length),1)[0];
     out.push({who,g:playable[Math.floor(Math.random()*playable.length)].id,
@@ -5141,6 +5148,8 @@ const TK_RANK='<svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true
 let tkTimer=0;
 function drawTicker(){
   const run=document.getElementById('tkrun');
+  const tag=document.querySelector('.tickerwrap.top .ltag');
+  if(tag&&!WINS_REAL&&!tag.classList.contains('sample')){tag.classList.add('sample');tag.textContent='Sample wins';}
   clearInterval(tkTimer); run.classList.remove('cards'); run.style.transform=''; run.style.transition='';
   /* Twice over, so the card that leaves on the right is never the one coming in on the left. */
   const card=w=>`<div class="tkc"><img src="${artSrc(w.g)}" alt="${G(w.g).name}" width="64" height="66" decoding="async">
