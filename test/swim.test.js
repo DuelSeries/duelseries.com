@@ -819,6 +819,29 @@ test('the bot drives a whole race on the real lobby clock', () => {
   assert.strictEqual(lobby.rooms.size, 0, 'the race ended and was swept');
 });
 
+test('the bot holds the gas itself, close passes with daylight, and lasts its first minute on the real traffic', () => {
+  const { SwimBot } = require('../server/swim/swimBot');
+  for (let seed = 1; seed <= 4; seed++) {
+    const tr = new S.Traffic(), sp = new Spawner(seed), car = S.newCar(seed & 1), bot = new SwimBot(S.rng(seed));
+    sp.run(tr, 0, 0, S.V0, null);
+    let sv = 0, st = 0, gas = 0, passes = 0, closest = Infinity;
+    for (let t = 0; t < 60 * 60 && car.alive; t++) {
+      sp.run(tr, t, car.z, car.v, null);
+      const code = bot.input(car, tr, t, null);
+      assert.ok(S.validInput(code));
+      if (S.pedalOf(code) > 0) gas++;
+      S.step(car, code, tr);
+      if (car.close >= 0) { passes++; closest = Math.min(closest, car.close); }
+      tr.prune(car.z - 120, t + 1);
+      sv += car.v; st += S.topSpeed(t);
+    }
+    assert.strictEqual(car.alive, true, 'seed ' + seed + ': crashed at ' + (car.crashTick / 60).toFixed(1) + ' s');
+    assert.ok(gas > 0.6 * 3600, 'seed ' + seed + ': the gas held ' + (gas / 36).toFixed(0) + '% of the time');
+    assert.ok(sv / st > 0.75, 'seed ' + seed + ': ' + (100 * sv / st).toFixed(0) + '% of the top speed on average');
+    assert.ok(passes >= 8 && closest > 0.1, 'seed ' + seed + ': ' + passes + ' close passes, closest ' + closest.toFixed(2) + ' m');
+  }
+});
+
 test('a server stall does not drive anyone blind: inputs sent in time are still used', () => {
   const { room } = racing();
   run(room, 60, S.NEUTRAL, S.NEUTRAL);
