@@ -26,7 +26,7 @@
   /* The step's version. A page running an older step would predict a different
      game from the one the server judges, so the server only seats a page that
      says this number (cr:queue v). Bump it with any change to the rules. */
-  const VERSION = 2;                    // 2: the map comes as lanes (packRow), never as a seed
+  const VERSION = 3;                    // 2: the map comes as lanes (packRow), never as a seed; 3: x rounds off a log over water
 
   const HZ = 60;
   const DT = 1 / HZ;
@@ -590,7 +590,8 @@
       const now = row && logById(row, h.log, d), was = row && logById(row, h.log, d0);
       if (now && was) h.x += now.x - was.x;
       else h.log = -1;
-    } else if (!h.water) h.x = Math.round(h.x);
+    } else h.x = Math.round(h.x);   // off a log, over water too: the reference rounds every frame it has no log (so a hop
+                                    // from a log can land on a lily, which it finds by exact x); it was skipped over water
     if (Math.abs(h.x) > C.EDGE) { die(h, 'log'); h.tick++; return; }
     h.eagle += DT;
     if (h.eagle > C.EAGLE_S) { die(h, 'eagle'); h.tick++; return; }

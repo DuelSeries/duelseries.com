@@ -188,3 +188,13 @@ black glass (10 to 12 such pairs per car), the truck's band and windscreen, the 
 reference starts a train with its nose already on screen, so it popped in; it is now drawn sliding in along the same
 line just before (the rules, where it can hit, are unchanged). `redo/blink.js` records every vehicle per frame: no
 vehicle vanishes or appears on screen any more.
+
+Evening (Owen: now it "dies way too easy"; wanted safe, careful, a middling steady pace). SKILL is now careful: on grass or a
+lily it waits out a pace of 30 to 44 ticks after each forward hop, then leaves only along a whole crossing it has found
+(a search over hop, wait, left, right, each stepped tick by tick, to grass that leads on or a lily), walks round pockets of
+trees (a grid search over the grass), and rushes only when the eagle is 3 s along. No blind hops, no freezes, no delay.
+Solo over the full 5 minutes with the ramp, 20 maps: lives 18 / 53 s (p10 / p50), 116 rows a minute, deaths car 6 /
+eagle 11 / log 3; the old sharp bot on the same runs: 3 / 17 s, 232 a minute. Not yet "alive at 5 minutes in most runs":
+it still gets caught waiting by the eagle at long highways and drifting logs (open). The search found a rules bug: off a
+log over water x was never rounded, so a hop from a log could never land on a lily (the reference rounds every frame it
+has no log, then finds the lily by exact x); fixed in shared/crossySim.js, VERSION 3.
