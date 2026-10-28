@@ -1239,6 +1239,8 @@ if (document.fonts && document.fonts.load) {
   Promise.all(['800 19px Archivo', '900 42px Archivo'].map(f => document.fonts.load(f).catch(() => null)))
     .then(() => { tableS = 0; for (const b of view) b.art.dirty = true; });
 }
+// The ping and FPS readout every game shares (public/js/shared/dsPerfHud.js), timed on this socket.
+if (window.DSPerfHud) window.DSPerfHud.mount({ socket });
 requestAnimationFrame(frame);
 
 if (WATCH) {
