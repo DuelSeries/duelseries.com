@@ -426,11 +426,40 @@
     ctx.fillStyle = '#15201a'; ctx.fillRect(cx - s * 0.25, top + s * 0.34, s * 0.1, s * 0.14); ctx.fillRect(cx + s * 0.17, top + s * 0.34, s * 0.1, s * 0.14);
   }
 
+  /* ── Rooftop Snipers ─────────────────────────────────────────────────── */
+  /* No Shop section (no bought skins): Customize's free looks only (shared/rtLooks.js), drawn through paintWith with
+     { look: id }. The sniper is the game's own (public/js/rooftop/rtArt.js pose: the body, arm and rifle the match
+     draws, in the red team's colour), standing, turned to face right, in whole squares with no smoothing. No look is
+     Random: the preview walks through the whole cast, as each round deals one. The Customize bar and the chooser's
+     reel (56 and 104 px high) show it from the belt up at two pixels a square, where the hats and helmets that tell
+     the snipers apart read; a box over 160 px high shows all of it. */
+  function paintRooftop(cv, k, t, big, bare) {
+    var A = root.RTArt;
+    if (!A || !A.pose) return;
+    var ctx = cv.getContext('2d'), w = cv.width, h = cv.height;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    if (!bare) { ctx.fillStyle = '#6dd9e8'; ctx.fillRect(0, 0, w, h); }
+    var name = k && k.look ? k.look : A.NAMES[Math.floor((t || 0) / 1.2) % A.NAMES.length];
+    var img = A.pose(name, 0);
+    if (!img) return;
+    var srcH = (cv.clientHeight || h) < 160 ? 96 : 150;
+    var s = Math.min(w * 0.9 / 60, h * (big ? 0.8 : 0.94) / srcH);
+    if (s >= 0.5) s = Math.floor(s * 2) / 2;                           // whole squares: a square is 2 base px
+    var dw = Math.round(60 * s), dh = Math.round(srcH * s);
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    ctx.translate(Math.round((w + dw) / 2), Math.round((h - dh) / 2));
+    ctx.scale(-1, 1);
+    ctx.drawImage(img, 0, 0, 60, srcH, 0, 0, dw, dh);
+    ctx.restore();
+  }
+
   var PAINT = { crossy: paintCrossy, snake: paintSnake, airhockey: paintAirhockey, agar: paintAgar, paper: paintPaper, chomp: paintChomp, knockout: paintKnockout,
-    battleship: paintBattleship, omgshooter: paintShooter, tanks: paintTanks, pool8: paintPool8 };
+    battleship: paintBattleship, omgshooter: paintShooter, tanks: paintTanks, pool8: paintPool8, rooftop: paintRooftop };
   /* Which previews move. The rest are painted once per size, which keeps a
      page of forty-odd canvases off the frame budget. */
-  var MOVES = { snake: 1, paper: 1, chomp: 1, omgshooter: 1, tanks: 1, airhockey: 1, pool8: 1, crossy: 1 };
+  var MOVES = { snake: 1, paper: 1, chomp: 1, omgshooter: 1, tanks: 1, airhockey: 1, pool8: 1, crossy: 1, rooftop: 1 };
 
   /* skinId 'default' is the game's free look (each game's `def`). bare draws
      the piece alone on a clear canvas, for Customize's dark chooser. */

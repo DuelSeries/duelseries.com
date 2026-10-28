@@ -54,7 +54,17 @@ function shopFields() {
   } catch (_) { /* storage blocked: the free look */ }
   return {};
 }
-const FRAMED = (() => { try { return !!window.parent && window.parent !== window; } catch (_) { return true; } })();
+/* The free look picked in the lobby's Customize (shared/rtLooks.js, stored under duel.rooftop.look): an id on the
+   list, else nothing (Random, a different sniper each round). The server keeps only a listed id and tells both
+   screens and every watcher which sniper each seat wears (players[].look). */
+function lookField() {
+  try {
+    const L = window.DS_RT_LOOKS, id = L ? localStorage.getItem(L.KEY) : null;
+    if (L && L.byId(id)) return { look: id };
+  } catch (_) { /* storage blocked: Random */ }
+  return {};
+}
+const FRAMED =(() => { try { return !!window.parent && window.parent !== window; } catch (_) { return true; } })();
 
 /* WATCHING, NOT PLAYING: the lobby's Spectate writes 'dsWatch' with the game just before it opens this page. Read
    once and removed at once; honoured only when it names this game. A watcher never queues and never sends a key. */
@@ -195,6 +205,13 @@ function onPause(cx, cy) {
   const [x, y] = toBase(cx, cy), b = buttonRects().P;
   return x >= b.x && x <= b.x + b.w + 10 && y >= b.y && y <= b.y + b.h + 10;
 }
+/* SOUND: the speaker rtArt draws in the top right corner (the pause button's mirror, 82 x 100 base px to tap) and the
+   M key both switch the music and the effects together; rooftopSound.js remembers it on this device. */
+function onSound(cx, cy) {
+  const [x, y] = toBase(cx, cy);
+  return !!SND && x >= VIEW.bw - 82 && y <= 100;
+}
+function toggleSound() { if (SND) SND.toggle(); }
 
 function placeOverlays() {
   const note = $('botNote'); if (note) note.style.top = Math.round(150 * VIEW.k) + 'px';
@@ -279,6 +296,7 @@ const typingIn = (e) => {
 };
 window.addEventListener('keydown', (e) => {
   if (e.code === 'Escape' && canPlay()) { pauseMenu(); return; }
+  if (e.code === 'KeyM' && !e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey && !typingIn(e)) { toggleSound(); return; }
   const a = KEYS[e.code];
   if (!a || typingIn(e) || !canPlay()) return;
   e.preventDefault();
@@ -302,6 +320,7 @@ const fingerOn = (k) => { for (const b of fingers.values()) if (b === k) return 
 cv.addEventListener('pointerdown', (e) => {
   if (e.pointerType === 'touch' && !touchUI) touchUI = true;
   if (match && !overShown && onPause(e.clientX, e.clientY)) { e.preventDefault(); pauseMenu(); return; }
+  if (match && onSound(e.clientX, e.clientY)) { e.preventDefault(); toggleSound(); return; }
   if (!touchUI || !canPlay()) return;
   e.preventDefault();
   try { cv.setPointerCapture(e.pointerId); } catch (_) {}
@@ -378,6 +397,7 @@ function stepSim() {
       if (e.s !== mySeat) continue;
       if (e.e === 'shot') { addTracer(e, true); if (SND) SND.local('shot', e.s, e.f[0], !!e.hit); }
       else if (e.e === 'rocket') { arms[e.s].kick = performance.now(); if (SND) SND.local('rocket', e.s, e.f[0]); }
+      else if (e.e === 'toss') { arms[e.s].kick = performance.now(); if (SND) SND.local('toss', e.s, 0); }
       else if (e.e === 'jump' && SND) SND.local('jump', e.s, sim.p[e.s].body.x);
     }
   }
@@ -591,9 +611,12 @@ function draw(now) {
   const scene = {
     now, cam, bw: V.bw, bh: V.bh, mods: m.mods, round: m.round, chars: m.chars || [0, 1],
     players: [0, 1].map(i => ({ x: rp[i].x, y: rp[i].y, a: rp[i].a, sx: rp[i].sx, armA: arms[i].wa, kick: arms[i].kick,
-                                raising: rp[i].raising, side: i })),
+                                raising: rp[i].raising, side: i, reloaded: m.p[i].reloaded })),
     tracers, sparks, ts: m.ts || 1,
-    rockets: (m.objs || []).map(r => ({ x: r.body.x, y: r.body.y, a: r.body.a, side: r.side })),
+    rockets: (m.objs || []).filter(r => !r.k).map(r => ({ x: r.body.x, y: r.body.y, a: r.body.a, side: r.side })),
+    // the round's other objects (tomahawks, civilians, beach balls) and the Elevator's car and doors
+    objs: (m.objs || []).filter(r => r.k).map(r => ({ k: r.k, x: r.body.x, y: r.body.y, a: r.body.a, side: r.side, ch: r.ch, fl: r.fl })),
+    lift: Sim.liftY(m), doors: Sim.doorsShut(m.anim || 0),
   };
   art.world(g, scene);
   const B = buttonRects();
@@ -603,6 +626,7 @@ function draw(now) {
     first: m.round === 1, playTo: RT.PLAY_TO, goAt, endAt, winner: m.winner, timeUpAt,
     matchPoint: m.round > 1 && (RT.PLAY_TO - score[0] <= 1 || RT.PLAY_TO - score[1] <= 1),
     pause: !overShown && phase !== 'over',
+    sound: SND ? (SND.muted() ? 'off' : 'on') : null,      // the speaker, top right (onSound)
     ready, readyMine: mySeat, readyFlags: m.ready || [false, false],
     readyMs: ready ? Math.max(0, readyLeft.ms - (now - readyLeft.at)) : 0,
     buttons: (touchUI || ready) && canPlay() ? B : null, touch: touchUI,   // S: on a computer only while readying up
@@ -660,9 +684,14 @@ function startMatch(m) {
   haveBase = false; baseFresh = false; wbuf.length = 0; baseK = 0; lastSnap = null;
   shownRound = 0; firstRoundOfMatch = true; goAt = m.state === 'countdown' ? -1e9 : performance.now() - 5000; endAt = -1e9;
   if (m.snap) onSnap(m.snap);
+  // Each seat's free look from the server (players[].look, shared/rtLooks.js); a seat without one stays random.
+  const looks = [null, null];
+  for (const p of players) if ((p.side === 0 || p.side === 1) && typeof p.look === 'string') looks[p.side] = p.look;
+  art.setLooks(looks);
   $('wait').hidden = true;
   fit();
   chatShow(true);
+  if (SND) SND.music(m.state !== 'over');   // the match's music, until the result (rooftopSound.js)
 }
 
 socket.on('connect', () => {
@@ -679,6 +708,7 @@ socket.on('connect', () => {
 function dropMatch() {
   match = null; mySeat = -1; phase = null; haveBase = false; predicting = false;
   releaseAll();
+  if (SND) SND.music(false);
   fit();
 }
 
@@ -739,7 +769,7 @@ function queue(token, resume) {
     name: myName, wallet: myWallet,
     stake: myStake, entryToken: token || myEntryToken,
     resume: resume || undefined,
-  }, shopFields()));
+  }, shopFields(), lookField()));
   myEntryToken = null;      // one use only
   try { sessionStorage.removeItem('entryToken'); } catch (_) {}
 }
@@ -764,7 +794,7 @@ socket.on('rt:ev', (list) => {
   for (const e of list) {
     if (!Array.isArray(e)) continue;
     if (e[0] === 'shot') addTracer({ s: e[1] | 0, f: [e[2], e[3]], h: [e[4], e[5]], hit: e[6], strong: e[7] }, false);
-    else if (e[0] === 'rocket' && (WATCH || (e[1] | 0) !== mySeat)) arms[e[1] | 0].kick = performance.now();
+    else if ((e[0] === 'rocket' || e[0] === 'toss') && (WATCH || (e[1] | 0) !== mySeat)) arms[e[1] | 0].kick = performance.now();
     else if (e[0] === 'boom') boom(e[2], e[3]);
   }
 });

@@ -385,3 +385,167 @@ test('Rocket Launchers: a rocket flies from the launcher, blasts the other playe
   for (let i = 0; i < 30; i++) Sim.tick(m, null);
   assert.ok(m.p[0].body.x < x0 - 150, 'red was blown left: ' + (m.p[0].body.x - x0));
 });
+
+// ── the round modifiers: Tomahawks, Civilians, Beach Balls, the four maps (docs/rooftop-reference.md) ──
+// A round with the given modifiers, through the same startRound the match uses (only the roll is skipped).
+function roundWith(seed, mods) {
+  const m = Sim.newMatch(seed);
+  Sim.begin(m);
+  Sim.startRound(m, false, mods);
+  return m;
+}
+
+test('Tomahawks: thrown at 900 along the arm and spinning, a hit knocks the other player back; it lasts 15 s', () => {
+  const m = roundWith(8, [0, 3, 0, 0, 0]);
+  for (let i = 0; i < 120; i++) Sim.tick(m, null);
+  const x0 = m.p[0].body.x;
+  Sim.tick(m, [null, { d: 1 }]);
+  for (let i = 0; i < 19; i++) Sim.tick(m, null);
+  const ev = Sim.tick(m, [null, { d: 1, r: 1 }]);                      // released at about 95 degrees: level
+  assert.ok(ev.some(e => e.e === 'toss') && m.objs.length === 1 && m.objs[0].k === 1, 'a tomahawk, no ray, no rocket');
+  const t = m.objs[0].body;
+  assert.ok(Math.abs(Math.hypot(t.vx, t.vy) - RT.TOM_SPEED) < 15, 'at 900 (one step of gravity on it): ' + Math.hypot(t.vx, t.vy));
+  assert.strictEqual(t.w, -RT.TOM_SPIN, 'blue faces left, its arm is not mirrored: -16 rad/s');
+  assert.strictEqual(t.sh.length, 2, 'two boxes, the handle and the head');
+  assert.strictEqual(m.p[1].reloaded, false);
+  for (let i = 0; i < 11; i++) Sim.tick(m, null);
+  assert.strictEqual(m.p[1].reloaded, false, 'still reloading after 0.18 s (the tomahawk takes 0.2)');
+  for (let i = 0; i < 39; i++) Sim.tick(m, null);
+  assert.ok(m.p[0].body.x < x0 - 60, 'red was knocked left: ' + (m.p[0].body.x - x0));
+  for (let i = 0; i < 60 * 15; i++) Sim.tick(m, null);
+  assert.strictEqual(m.objs.filter(o => o.k === 1).length, 0, 'gone after 15 s');
+});
+
+test('Tomahawks never touch their thrower, and a mirrored arm throws it turned half round, spinning the other way', () => {
+  const m = roundWith(8, [0, 3, 0, 0, 0]);
+  for (let i = 0; i < 120; i++) Sim.tick(m, null);
+  Sim.tick(m, [{ d: 1 }, null]);
+  Sim.tick(m, [{ d: 1, r: 1 }, null]);                                  // red throws straight down at its own feet
+  const o = m.objs[0];
+  assert.strictEqual(o.fl, 1, 'red faces right: its arm is mirrored');
+  assert.strictEqual(o.body.w, RT.TOM_SPIN);
+  const armA = Sim.armAngle(m.p[0]);
+  assert.ok(Math.abs(Math.cos(o.a0 - (armA + Math.PI))) > 0.9999, 'turned as the mirrored spot: the arm plus PI');
+  for (let i = 0; i < 30; i++) Sim.tick(m, null);
+  assert.ok(!Object.keys(m.pairs).some(k => k.startsWith('p0:r' + o.id)), 'no pair with its own thrower');
+});
+
+test('Civilians fall from 1000 above the camera, within 700 of it, and come to rest on the roof', () => {
+  const m = roundWith(2, [0, 0, 1, 0, 0]);
+  const ev = Sim.tick(m, null);                                         // the first one at once (wait_time starts at 0)
+  assert.ok(ev.some(e => e.e === 'drop' && e.k === 2));
+  const c = m.objs[0];
+  assert.strictEqual(c.body.y, m.cam.y + RT.FALL_DY);
+  assert.ok(Math.abs(c.body.x - m.cam.x) <= RT.FALL_DX);
+  assert.ok(c.ch >= 0 && c.ch < RT.CHARS, 'a random look');
+  assert.ok(m.fall.w >= 0 && m.fall.w < RT.FALL_WAIT, 'the next within 5 s');
+  m.fall.k = 0;                                                         // just this one, so nothing lands on it
+  for (let i = 0; i < 300; i++) Sim.tick(m, null);
+  const b = c.body;
+  assert.ok(Math.abs(b.vx) < 5 && Math.abs(b.vy) < 5, 'at rest');
+  // lying on its side its 36 px wide box is under the origin: the origin 18 above the roof
+  const bottom = Math.max(...[[-18, -100], [18, -100], [-18, 28], [18, 28]].map(([x, y]) => Sim.toWorld(b, x, y)[1]));
+  assert.ok(Math.abs(bottom - Sim.ROOF_TOP) < 1, 'its lowest corner on the roof: ' + bottom);
+  for (let i = 0; i < 60 * 8; i++) Sim.tick(m, null);
+  assert.ok(!m.objs.includes(c), 'gone after 10 s');
+});
+
+test('Beach Balls fall at 200 px/s to start, bounce, and settle on the roof a radius above it', () => {
+  const m = roundWith(12, [0, 0, 2, 0, 0]);
+  Sim.tick(m, null);
+  const ball = m.objs[0];
+  assert.strictEqual(ball.k, 3);
+  assert.strictEqual(ball.body.sh[0].r, RT.BALL_R);
+  assert.ok(Math.abs(ball.body.vy - RT.BALL_VY) < 6, 'its scene starts it at 200 down: ' + ball.body.vy);
+  m.fall.k = 0;
+  let bounced = false, prev = 0;
+  for (let i = 0; i < 700; i++) { Sim.tick(m, null); if (prev > 100 && ball.body.vy < 0) bounced = true; prev = ball.body.vy; }
+  assert.ok(bounced, 'it bounced');
+  if (Math.abs(ball.body.x) < 600) assert.ok(Math.abs(ball.body.y - (Sim.ROOF_TOP - RT.BALL_R)) < 1, 'resting on the roof: ' + ball.body.y);
+});
+
+test('the winning fall rains civilians from 2 s on (S: game_over calls create_falling(1))', () => {
+  const m = roundWith(3, [0, 0, 0, 0, 0]);
+  for (let i = 0; i < 60; i++) Sim.tick(m, null);
+  m.score = [4, 0];
+  m.p[1].body.x = 700; m.p[1].body.y = RT.DEATH_Y + 5;
+  Sim.tick(m, null);
+  assert.strictEqual(m.winner, 0);
+  assert.strictEqual(m.fall.k, 0, 'nothing falls in a plain round');
+  let civ = 0;
+  for (let i = 0; i < 60 * 12 && !civ; i++) { civ = Sim.tick(m, null).filter(e => e.e === 'drop' && e.k === 2).length; if (civ) assert.ok(m.timer >= RT.POINT_AFTER); }
+  assert.ok(m.pointShown && m.fall.k === 1 && civ > 0, 'civilians after the point');
+});
+
+test('each map: its spawn, a player resting on its roof, and its own death line', () => {
+  // T: the roof each spawn drops onto: MainBuilding's top, the House's flat roof (-115 x 0.75 + 74.8837), the Blimp's
+  // top (-396 + 374.567), the Cabin's eave slope between (233.293, -209.777) and (745.133, -171.5) x 0.75 + 74.8837
+  const roof = [() => Sim.ROOF_TOP, () => Sim.ROOF_TOP, () => -115 * 0.75 + 74.8837, () => -396 + 374.567,
+    (x) => { const ax = 233.293 * 0.75, ay = -209.777 * 0.75 + 74.8837, bx = 745.133 * 0.75, by = -171.5 * 0.75 + 74.8837;
+      return ay + (by - ay) * (Math.abs(x) - ax) / (bx - ax); }];
+  const want = [[250, -200, 75, 640], [250, -200, 75, 640], [246.965, -131.784, 83.0374, 555.464], [250, -144.136, 248.984, 613.4],
+    [263.138, -175.084, 75, 557.925]];
+  for (let map = 0; map < 5; map++) {
+    const m = roundWith(4, [map, 0, 0, 0, 0]);
+    const mp = Sim.mapOf(m);
+    assert.deepStrictEqual([mp.spawn[0], mp.spawn[1], mp.death, mp.edge], want[map], 'map ' + map);
+    assert.deepStrictEqual([m.p[0].body.x, m.p[1].body.x, m.p[0].body.y], [-want[map][0], want[map][0], want[map][1]], 'spawn ' + map);
+    for (let i = 0; i < 300; i++) Sim.tick(m, null);
+    for (const p of m.p) {
+      const feet = Sim.toWorld(p.body, 0, 28);
+      assert.ok(p.grounded, 'map ' + map + ': its foot rays touch');
+      assert.ok(Math.abs(feet[1] - roof[map](feet[0])) < 1.5, 'map ' + map + ': standing on the roof: ' + feet[1] + ' vs ' + roof[map](feet[0]));
+      assert.ok(Math.abs(p.body.a) < 0.1, 'map ' + map + ': upright');
+    }
+    assert.strictEqual(m.phase, 'play', 'nobody fell');
+    m.p[0].body.x = -1200; m.p[0].body.y = want[map][2] - 2; m.p[0].body.vy = 0; Sim.tick(m, null);
+    assert.strictEqual(m.phase, 'play', 'above the death line is still in');
+    m.p[0].body.y = want[map][2] + 1; m.p[0].body.vy = 50; Sim.tick(m, null);
+    assert.deepStrictEqual(m.score, [0, 1], 'map ' + map + ': below its death line red loses');
+  }
+});
+
+test('the Elevator: its car rests level with the roof, then carries whoever stands on it down to a fall', () => {
+  const m = roundWith(9, [1, 0, 0, 0, 0]);
+  const lift = m.world.find(w => w.kin);
+  assert.ok(lift && lift.sh.length === 2, 'a kinematic body of two boxes');
+  assert.ok(Math.abs(lift.y + lift.sh[1].oy - lift.sh[1].hy - (-50.06)) < 0.01, 'its floor 1.1 px above the roof');
+  assert.strictEqual(Sim.liftAt(6.5), 60);
+  assert.strictEqual(Sim.liftAt(1), 0); assert.strictEqual(Sim.liftAt(11), 0);
+  m.p[1].body.x = 0; m.p[1].body.y = -150;                              // blue drops into the shaft, onto the car
+  let fellAt = -1;
+  for (let i = 0; i < 400 && fellAt < 0; i++) { if (Sim.tick(m, null).some(e => e.e === 'fall' && e.s === 1)) fellAt = m.anim; if (i === 100) assert.ok(m.p[1].grounded, 'standing on the car'); }
+  assert.ok(fellAt > 2 && fellAt < 3.5, 'down with it after 2 s: ' + fellAt);
+  assert.ok(Math.abs(lift.y - (-180 + Sim.LIFT.S * Sim.liftAt(m.anim))) < 1e-9, 'the car follows its animation');
+  assert.ok(lift.y > -170, 'on its way down: ' + lift.y);
+});
+
+test('the full roll: every map, weapon, falling object, weather and ability, at the reference odds', () => {
+  assert.deepStrictEqual(Sim.MOD_BUILT.map(b => b.length), [5, 4, 3, 2, 2], 'every choice is built');
+  const m = Sim.newMatch(31), seen = new Set(), plain = [0, 0, 0, 0, 0], N = 6000;
+  for (let i = 0; i < N; i++) {
+    const c = Sim.rollMods(m);
+    for (let s = 0; s < 5; s++) { if (c[s]) seen.add(Sim.MOD_NAMES[s][c[s] - 1]); else plain[s]++; }
+  }
+  for (const names of Sim.MOD_NAMES) for (const n of names) assert.ok(seen.has(n), n);
+  // S: plain with chance (2 / (n + 1) + 1) / 3
+  [4, 3, 2, 1, 1].forEach((n, s) => assert.ok(Math.abs(plain[s] / N - (2 / (n + 1) + 1) / 3) < 0.03, 'slot ' + s));
+});
+
+test('a snapshot with a map, tomahawks, civilians and balls round-trips: the client steps as the server does', () => {
+  for (const mods of [[1, 3, 1, 0, 0], [2, 3, 2, 1, 0], [4, 3, 1, 1, 1]]) {
+    const a = roundWith(17, mods);
+    const inp = (i) => [{ d: i > 20 ? 1 : 0, r: i > 40 ? 1 : 0 }, { d: i > 30 ? 1 : 0, r: i > 52 ? 1 : 0 }];
+    for (let i = 0; i < 150; i++) Sim.tick(a, inp(i));
+    const b = Sim.newMatch(1);
+    Sim.unpack(b, JSON.parse(JSON.stringify(Sim.pack(a))));
+    b.pairs = JSON.parse(JSON.stringify(a.pairs));
+    assert.deepStrictEqual(b.mods, a.mods);
+    assert.strictEqual(b.world.length, a.world.length, 'the same map');
+    assert.deepStrictEqual(b.objs.map(o => o.k), a.objs.map(o => o.k));
+    for (let i = 150; i < 170; i++) { Sim.tick(a, inp(i)); Sim.tick(b, inp(i)); }
+    for (let s = 0; s < 2; s++) assert.ok(Math.hypot(a.p[s].body.x - b.p[s].body.x, a.p[s].body.y - b.p[s].body.y) < 0.05, mods + ' seat ' + s);
+    a.objs.forEach((o, k) => assert.ok(Math.hypot(o.body.x - b.objs[k].body.x, o.body.y - b.objs[k].body.y) < 0.5, mods + ' object ' + k));
+    assert.deepStrictEqual([b.cam.x, b.cam.y], [a.cam.x, a.cam.y]);
+  }
+});

@@ -3367,8 +3367,11 @@ body.scr-anim { overflow-x:hidden }
 <script src="/shared/ahSkins.js"></script>
 <script src="/shared/pool8Looks.js"></script>
 <script src="/shared/crossyLooks.js"></script>
+<script src="/shared/rtLooks.js"></script>
 <script src="/shared/shopSkins.js"></script>
 <script src="/js/battleshipArt.js"></script>
+<!-- Rooftop Snipers' own sniper painter (nothing runs at load), so Customize draws its free looks from the game's art. -->
+<script src="/js/rooftop/rtArt.js"></script>
 <script src="/js/v2/shopArt.js"></script>
 <!-- Buying a paid skin from Customize, and the pass the games check before wearing it (docs/skin-purchases.md). -->
 <script src="/js/v2/skinBuy.js"></script>
@@ -4089,7 +4092,7 @@ const skin=()=>LOOKS.find(s=>s.id===skinId)||null;
    duel.ag.skin, which /ag sends in its handshake (public/js/ag/agMain.js) and
    the server checks against the same list (server/ag/agRoom.js skinOf).
    Every other game keeps dealing its own look, as it does today. */
-const hasLook=g=>!!(g&&(g.look||(window.V2Shop&&V2Shop.game(g.id))||(g.id==='crossy'&&CR_LOOKS.length)||(g.id==='pool8'&&P8_LOOKS.length)));
+const hasLook=g=>!!(g&&(g.look||(window.V2Shop&&V2Shop.game(g.id))||(g.id==='crossy'&&CR_LOOKS.length)||(g.id==='pool8'&&P8_LOOKS.length)||(g.id==='rooftop'&&RT_LOOKS.length)));
 const AGS=window.DS_AG_SKINS;
 const AG_LOOKS=(AGS?AGS.SKINS:[]).map(s=>({id:'ag:'+s.id,game:'agar',ag:s,name:s.name,col:AGS.hex(s)}));
 let agSkinId='';
@@ -4123,6 +4126,14 @@ const CR_LOOKS=(CRL?CRL.SKINS:[]).map(s=>({id:'cr:'+s.id,game:'crossy',cr:s,name
 let crSkinId='';
 try{crSkinId=String(localStorage.getItem(CRL?CRL.KEY:'')||'').trim()}catch(_){}
 if(!CR_LOOKS.some(s=>s.cr.id===crSkinId))crSkinId='';
+/* Rooftop Snipers keeps one of its free looks (shared/rtLooks.js: three of the game's own snipers, no Shop skins)
+   under duel.rooftop.look, sent by /rooftop in rt:queue (public/js/rooftop.js) and kept by its server only if listed
+   (server/index.js, RooftopRoom.addPlayer). Nothing stored is Random, the game's own look: a sniper a round. */
+const RTL=window.DS_RT_LOOKS;
+const RT_LOOKS=(RTL?RTL.LOOKS:[]).map(l=>({id:'rt:'+l.id,game:'rooftop',rt:l,name:l.name}));
+let rtLookId='';
+try{rtLookId=String(localStorage.getItem(RTL?RTL.KEY:'')||'').trim()}catch(_){}
+if(!RT_LOOKS.some(s=>s.rt.id===rtLookId))rtLookId='';   /* unknown or stale: Random */
 /* What a game keeps: how to read the skin being worn, and how to store a new
    one (null is the game's free look: a random colour in both). */
 /* A paid skin (docs/skin-purchases.md) is worn through DSSkins (public/js/v2/skinBuy.js): its id under
@@ -4150,6 +4161,10 @@ const SAVED={
   crossy:{worn:()=>CR_LOOKS.find(s=>s.cr.id===crSkinId)||null,
     put:s=>{crSkinId=s&&s.cr?s.cr.id:'';
       try{if(crSkinId)localStorage.setItem(CRL.KEY,crSkinId);else localStorage.removeItem(CRL.KEY)}catch(_){}}},
+  /* Rooftop Snipers: free looks only, no Shop skins to wear. */
+  rooftop:{worn:()=>RT_LOOKS.find(s=>s.rt.id===rtLookId)||null,
+    put:s=>{rtLookId=s&&s.rt?s.rt.id:'';
+      try{if(rtLookId)localStorage.setItem(RTL.KEY,rtLookId);else localStorage.removeItem(RTL.KEY)}catch(_){}}},
 };
 SAVED.pool8={worn:()=>P8_LOOKS.find(s=>s.p8.id===p8LookId)||null,
   put:s=>{p8LookId=s&&s.p8?s.p8.id:'';
@@ -4170,7 +4185,7 @@ function lookList(g){
   }):[];
   /* Every free skin first, then every paid one: one run of each. */
   const free=g.look?LOOKS
-    :[{id:'default',game:g.id,name:g.id==='pool8'?'Classic blue':g.id==='crossy'?'Sprout':S.defaultName(g.id)}].concat(g.id==='agar'?AG_LOOKS:g.id==='chomp'?CH_LOOKS:g.id==='airhockey'?AH_LOOKS:g.id==='pool8'?P8_LOOKS:g.id==='crossy'?CR_LOOKS:[]);
+    :[{id:'default',game:g.id,name:g.id==='rooftop'?'Random':g.id==='pool8'?'Classic blue':g.id==='crossy'?'Sprout':S.defaultName(g.id)}].concat(g.id==='rooftop'?RT_LOOKS:g.id==='agar'?AG_LOOKS:g.id==='chomp'?CH_LOOKS:g.id==='airhockey'?AH_LOOKS:g.id==='pool8'?P8_LOOKS:g.id==='crossy'?CR_LOOKS:[]);
   return free.concat(paid);
 }
 let LK=[];   /* what the open chooser lists, from lookList */
@@ -4212,13 +4227,16 @@ function paintLook(cv){
   const s=cv.dataset.skin?LK.find(l=>l.id===cv.dataset.skin):wornIn(cur);
   /* Any game but slither.io: its own piece, drawn alone, from shopArt. */
   if(key==='mini'&&cur&&!cur.look){
-    if(window.V2Shop){if(cur.id==='pool8')V2Shop.paintWith(cv,cur.id,s&&s.p8?s.p8:{},lookT,false,true);
+    /* Rooftop Snipers: its sniper from the game's own art (no look worn walks through the cast: Random). */
+    if(window.V2Shop){if(cur.id==='rooftop')V2Shop.paintWith(cv,'rooftop',{look:s&&s.rt?s.rt.id:''},lookT,false,true);
+      else if(cur.id==='pool8')V2Shop.paintWith(cv,cur.id,s&&s.p8?s.p8:{},lookT,false,true);
       else if(cur.id==='crossy')V2Shop.paintWith(cv,cur.id,{col:s&&s.cr?s.col:'#62c84a'},lookT,false,true);
       else if(s&&(s.ag||s.ch||s.ah))V2Shop.paintWith(cv,cur.id,{col:s.col},lookT,false,true);
       else V2Shop.paint(cv,cur.id,s&&s.shop?s.shop.id:'default',lookT,false,true)}
     return}
   if(s&&s.game&&s.game!=='snake'){
-    if(s.game==='pool8')V2Shop.paintWith(cv,s.game,s.p8||{},lookT,false,true);
+    if(s.game==='rooftop')V2Shop.paintWith(cv,'rooftop',{look:s.rt?s.rt.id:''},lookT,false,true);
+    else if(s.game==='pool8')V2Shop.paintWith(cv,s.game,s.p8||{},lookT,false,true);
     else if(s.game==='crossy')V2Shop.paintWith(cv,s.game,{col:s.cr?s.col:'#62c84a'},lookT,false,true);
     else if(s.ag||s.ch||s.ah)V2Shop.paintWith(cv,s.game,{col:s.col},lookT,false,true);
     else V2Shop.paint(cv,s.game,s.shop?s.shop.id:'default',lookT,false,true);
@@ -4472,7 +4490,7 @@ function lookMeta(){
   document.getElementById('lookname').textContent=s.locked
     ?s.name+(s.sale?'':', coming soon')
     :s.owned?s.name+', yours'
-    :((s.cv!=null&&s.cv<9)||s.id==='default'||s.ag||s.ch||s.p8?s.name+'  ':'')+(lookIx+1)+' / '+LK.length;   /* a striped skin's name IS its number */
+    :((s.cv!=null&&s.cv<9)||s.id==='default'||s.ag||s.ch||s.p8||s.rt?s.name+'  ':'')+(lookIx+1)+' / '+LK.length;   /* a striped skin's name IS its number */
   const btn=document.querySelector('#lookveil .ap-save-btn');
   if(btn){const buy=!!(s.locked&&s.sale);
     btn.disabled=!!(s.locked&&!s.sale);

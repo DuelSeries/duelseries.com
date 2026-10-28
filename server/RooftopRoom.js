@@ -21,6 +21,7 @@
 
 const { KnockoutRoom } = require('./KnockoutRoom');
 const Sim = require('../shared/rtSim');
+const rtLooks = require('../shared/rtLooks');
 const { RT } = Sim;
 
 let nextId = 1;
@@ -56,6 +57,16 @@ class RooftopRoom extends KnockoutRoom {
     this.lastSnap = null;
     this.readyEndsAt = 0;
     this.playSince = 0;
+  }
+
+  /* The seat as Knockout's, plus the free look its page asked for in rt:queue (shared/rtLooks.js): index.js keeps
+     only a listed id on the socket (socket._rtLook) and this checks it again, so anything else, and the bot's
+     stand-in socket, is null (a random sniper each round). Cosmetic only: no rule or money path reads it. */
+  addPlayer(socket, name, wallet, worth, paid, skin) {
+    const ok = super.addPlayer(socket, name, wallet, worth, paid, skin);
+    const p = ok && socket ? this.players.get(socket.id) : null;
+    if (p) p.look = rtLooks.pick(socket._rtLook);
+    return ok;
   }
 
   sideOfSocket(socketId) {
@@ -148,6 +159,7 @@ class RooftopRoom extends KnockoutRoom {
       else if (e.e === 'shot') out.push(['shot', e.s, Math.round(e.f[0]), Math.round(e.f[1]), Math.round(e.h[0]), Math.round(e.h[1]), e.hit, e.strong]);
       else if (e.e === 'jump') out.push(['jump', e.s]);
       else if (e.e === 'rocket') out.push(['rocket', e.s, e.id]);
+      else if (e.e === 'toss') out.push(['toss', e.s, e.id]);
       else if (e.e === 'boom') out.push(['boom', e.s, Math.round(e.x), Math.round(e.y), e.hit]);
       else if (e.e === 'ready') out.push(['ready', e.s]);
       else if (e.e === 'go') { /* sent above */ }
@@ -204,6 +216,7 @@ class RooftopRoom extends KnockoutRoom {
       vsBot: !!this.bot,
       players: [...this.players.entries()].map(([id, p]) => ({
         id: this.publicId(id), name: p.name, side: p.side, skin: p.skin || null,
+        look: p.look || null,      // the seat's free look (shared/rtLooks.js), or null: random each round
       })),
       stake: this.stake,
       pot: this.pot(),
@@ -220,7 +233,7 @@ class RooftopRoom extends KnockoutRoom {
   watchState(ps) {
     return {
       id: ps.id, state: ps.state, phaseMs: ps.phaseMs,
-      players: (ps.players || []).map(p => ({ side: p.side, name: p.name, skin: p.skin || null })),
+      players: (ps.players || []).map(p => ({ side: p.side, name: p.name, skin: p.skin || null, look: p.look || null })),
       stake: ps.stake, pot: ps.pot, score: (ps.score || []).slice(), playTo: ps.playTo, label: ps.label,
       snap: ps.snap ? this.forWatchers('rt:snap', ps.snap) : null,
     };

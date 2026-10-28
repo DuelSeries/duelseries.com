@@ -59,10 +59,11 @@ function aimed(me, him, offset) {
 }
 
 // S: check_jump
-function wantsJump(me) {
+// m: the match, for its map's edge (S: map_edge = Map/MapEdge.global_position.x, which each map sets)
+function wantsJump(me, m) {
   const at = Sim.toWorld(me.body, 0, -55);
   const edgeDir = at[0] < 0 ? 1 : -1;
-  const toEdge = Sim.RT.EDGE_X - Math.abs(me.body.x);
+  const toEdge = (m ? Sim.mapOf(m).edge : Sim.RT.EDGE_X) - Math.abs(me.body.x);
   return me.body.a * edgeDir >= Math.min((100 - toEdge) / 400, -0.01);
 }
 
@@ -97,7 +98,7 @@ function drive(room, now, who) {
   }
   // S: jump(delta)
   if (ai.jumpT < ai.jumpWait) ai.jumpT += dt;
-  else { if (wantsJump(me)) inp.j++; resetJump(ai); }
+  else { if (wantsJump(me, m)) inp.j++; resetJump(ai); }
 }
 
 module.exports = { drive, aimed, wantsJump, INV };

@@ -50,7 +50,7 @@ test('every game shows the bar, built or not (BACKLOG 2.2: one layout for every 
   const games = [...html.matchAll(/\{id:'(\w+)'[^}]*\}/g)];
   const withLook = games.filter((m) => /\blook:1/.test(m[0])).map((m) => m[1]);
   assert.deepStrictEqual(withLook, ['snake']);
-  assert.ok(html.includes("const hasLook=g=>!!(g&&(g.look||(window.V2Shop&&V2Shop.game(g.id))||(g.id==='crossy'&&CR_LOOKS.length)||(g.id==='pool8'&&P8_LOOKS.length)));"),
+  assert.ok(html.includes("const hasLook=g=>!!(g&&(g.look||(window.V2Shop&&V2Shop.game(g.id))||(g.id==='crossy'&&CR_LOOKS.length)||(g.id==='pool8'&&P8_LOOKS.length)||(g.id==='rooftop'&&RT_LOOKS.length)));"),
     'a game has a chooser if it saves a skin, the Shop has skins for it, or (8 Ball Pool, Crossy Road) it has free looks');
   assert.ok(/function openLook\(\)\{\s*if\(!hasLook\(cur\)\)return;/.test(html), 'and does not open otherwise');
   assert.ok(html.includes("det.classList.toggle('nolook',!hasLook(cur));"), 'the shut bar is a class');
@@ -65,7 +65,7 @@ test('every game shows the bar, built or not (BACKLOG 2.2: one layout for every 
   assert.ok(close.includes('if(save&&s&&s.locked){if(s.sale)openBuy(s);return}'), 'Save on a locked skin never saves; Unlock opens the sheet');
   assert.ok(close.includes('if(save&&cur&&SAVED[cur.id]&&s){'), 'and only a game that keeps a skin stores one');
   const saved = html.slice(html.indexOf('const SAVED={'), html.indexOf('const wornIn='));
-  assert.deepStrictEqual([...saved.matchAll(/^ {2}(\w+):\{worn:/gm)].map((m) => m[1]), ['snake', 'agar', 'chomp', 'airhockey', 'crossy'],
+  assert.deepStrictEqual([...saved.matchAll(/^ {2}(\w+):\{worn:/gm)].map((m) => m[1]), ['snake', 'agar', 'chomp', 'airhockey', 'crossy', 'rooftop'],
     'slither.io, agar.io, Pac-Man (chomp) Air Hockey and Crossy Road keep a free skin; every game keeps a paid one it owns');
   assert.ok(saved.includes("['paper','knockout','battleship','omgshooter','tanks'].forEach"), 'every other game wears an owned paid skin');
   const meta = html.slice(html.indexOf('function lookMeta'), html.indexOf('function lookMeta') + 900);

@@ -92,26 +92,33 @@
   const glyph = (ch) => G[ch] || G[String(ch).toUpperCase()] || G['?'];
 
   /* One square's size for a reference font size, at least 1. */
-  const px = (size) => Math.max(1, Math.round(size / 11));
-  function measure(text, size) {
+  const px = (size) => Math.max(1, Math.round(size / 10));   // A: a size-70 digit stands 63 px with its outline, a size-30 word 30
+  /* Where each letter starts, in squares. Bold (the score's heavy lettering, A: the reference's digits are solid
+     blocks with a one-square slot) doubles every square's width, so a letter takes 7 squares and a space 3. */
+  function layout(text, bold) {
+    const s = String(text), at = [];
+    let x = 0;
+    for (let i = 0; i < s.length; i++) { at.push(x); x += s[i] === ' ' ? (bold ? 3 : 6) : (bold ? 7 : 6); }
+    return { at, w: Math.max(0, x - 1) };
+  }
+  function measure(text, size, bold) {
     const p = px(size);
-    return { w: Math.max(0, String(text).length * 6 - 1) * p, h: 7 * p, p };
+    return { w: layout(text, bold).w * p, h: 7 * p, p };
   }
 
   /* Draws text with its left edge at x and its baseline's top-of-capitals at y (the top of a capital).
-     opts: color, outline (squares of the reference's outline_size, in base px), shadow [dx, dy, color], bold (each
-     square half again as wide, for the heavy score lettering). */
+     opts: color, outline (squares of the reference's outline_size, in base px), shadow [dx, dy, color], bold. */
   function draw(g, text, x, y, size, opts) {
     const o = opts || {};
     const p = px(size), s = String(text);
     const ol = o.outline ? Math.max(1, Math.round(o.outline * 0.75)) : 0;
-    const pw = o.bold ? p + Math.ceil(p / 2) : p;
-    const cells = [];
+    const pw = o.bold ? 2 * p : p;
+    const L = layout(s, o.bold), cells = [];
     for (let i = 0; i < s.length; i++) {
       const rows = glyph(s[i]);
       for (let r = 0; r < rows.length; r++) {
         const row = rows[r];
-        for (let c = 0; c < 5; c++) if (row.charCodeAt(c) === 35) cells.push([x + (i * 6 + c) * p, y + r * p]);
+        for (let c = 0; c < 5; c++) if (row.charCodeAt(c) === 35) cells.push([x + (L.at[i] + c) * p, y + r * p]);
       }
     }
     if (o.shadow) {
@@ -127,21 +134,22 @@
   }
   // Centred on cx, with the capitals' middle on cy.
   function center(g, text, cx, cy, size, opts) {
-    const m = measure(text, size);
+    const m = measure(text, size, opts && opts.bold);
     draw(g, text, Math.round(cx - m.w / 2), Math.round(cy - m.h / 2), size, opts);
     return m;
   }
   /* Several runs of different colours on one centred line: [[text, color], ...]. */
   function runs(g, parts, cx, cy, size, opts) {
+    const bold = !!(opts && opts.bold);
     const all = parts.map(p => p[0]).join('');
-    const m = measure(all, size), p = m.p;
+    const m = measure(all, size, bold), p = m.p;
     let x = Math.round(cx - m.w / 2);
     const y = Math.round(cy - m.h / 2);
     // Outline everything first so one run's outline never covers the next run's ink.
     if (opts && opts.outline) draw(g, all, x, y, size, Object.assign({}, opts, { color: opts.outlineColor || '#000' }));
     for (const [t, c] of parts) {
       draw(g, t, x, y, size, Object.assign({}, opts, { color: c, outline: 0, shadow: null }));
-      x += t.length * 6 * p;
+      x += layout(t + 'x', bold).at[t.length] * p;
     }
     return m;
   }

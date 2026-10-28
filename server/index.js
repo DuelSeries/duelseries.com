@@ -16,6 +16,7 @@ const { AirHockeyLobby } = require('./AirHockeyLobby'); // Air Hockey, the same 
 const { RooftopLobby } = require('./RooftopLobby');       // Rooftop Snipers, the same queue and money (shared/rtSim.js)
 const crossyWire = require('./crossy/crossyWire');        // Crossy Road, a duel on one seeded map (server/crossy)
 const P8Looks = require('../shared/pool8Looks'); // its free looks (a cloth and a cue), chosen in the lobby's Customize
+const rtLooks = require('../shared/rtLooks');             // Rooftop's free looks, the ids its rt:queue may ask for
 const { BattleshipLobby } = require('./BattleshipLobby'); // the two-grid duel
 const { SwimLobby } = require('./swim/SwimLobby');       // the traffic race (Swim, shared/swimSim.js)
 const SWIM_NAME = require('../shared/swimSim').NAME;     // its player-facing name, kept in one place
@@ -6094,13 +6095,18 @@ io.on('connection', (socket) => {
      A real-time duel on the same queue and paid door as Head Soccer (the handler below is that one with rt: names);
      the room runs the physics and the client only says what it is pressing: running counts of jump presses and of
      the shoot button going down and up, and how long the last shot was held (RooftopRoom.setInput clamps it). */
-  on('rt:queue', ({ name, wallet, stake, entryToken, shop, skinPass, resume } = {}) => {
+  on('rt:queue', ({ name, wallet, stake, entryToken, shop, skinPass, resume, look } = {}) => {
     if (!socketRL(socket, 'rtq', 1000)) return;
     if (ops.get().maintenance) { socket.emit('maintenance', ops.get()); return; }
     /* Already at a table that is still being played: a second seat from the same socket would leave the first table
        with a seat nobody can leave or reach (Fable review 2026-10-27). Refused before any token is touched. */
     const seated = rooftopLobby.roomOf(socket.id);
     if (seated && seated.state !== 'over') { socket.emit('rt:refused', { why: 'You are in a match already.' }); return; }
+
+    /* THE FREE LOOK picked in Customize (shared/rtLooks.js), Pac-Man's way (chompBoot.js skinOf): an id on the list
+       or nothing, never anything else the page sends. Kept on the socket, where the room reads it when it seats this
+       socket (RooftopRoom.addPlayer), so a resumed wait and a rescue from a bot match keep it too. Cosmetic only. */
+    socket._rtLook = rtLooks.pick(look);
 
     /* A RECONNECT WHILE WAITING takes its seat back by the key only that seat was sent
        (server/duelQueue.js resumeSeat): the same place, minute and stake, no new token. A paid seat
