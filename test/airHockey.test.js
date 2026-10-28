@@ -344,8 +344,8 @@ test('index.js wires Air Hockey like Head Soccer: page, queue, door, settle, jou
   assert.match(src, /case 'ah:paid:off':/);
   assert.match(src, /airHockeyLobby\.onSettled = /);
   assert.match(src, /airHockeyLobby\.journal = agJournal;/);
-  assert.match(src, /headSoccerLobby, airHockeyLobby\];/);
-  assert.match(src, /airHockeyLobby\.leave\(socket\.id\);\n\s*knockoutLobby\.unwatch/);
+  assert.match(src, /headSoccerLobby, [^\]]*airHockeyLobby\];/);
+  assert.match(src, /airHockeyLobby\.leave\(socket\.id\);\r?\n\s*knockoutLobby\.unwatch/);
   assert.match(src, /airHockeyLobby\.start\(\);/);
   assert.match(src, /consumePaidEntryAtStake\(entryToken, want, 'airhockey'\)/);
   assert.match(src, /if \(!AH_PAID_ON \|\| !ahPaidOpen\) \{ socket\.emit\('ah:refused'/);

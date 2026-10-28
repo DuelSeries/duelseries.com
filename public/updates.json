@@ -2,6 +2,17 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-10-28-air-hockey",
+      "date": "2026-10-28",
+      "tag": "new",
+      "title": "New game: Air Hockey",
+      "body": "A one on one air hockey duel on a neon rink. Your goal is always at the bottom. First to 7 wins.\n\nOn PC your mallet follows the mouse. On a phone, drag anywhere and the mallet stays just above your finger so you can always see it. Hit the puck while your mallet is moving to fire it, and use the side walls for bank shots.\n\nKeep the puck on your side for 7 seconds and it goes to the other player.",
+      "image": {
+        "src": "/updates/air-hockey-arrives.webp",
+        "alt": "An Air Hockey match on the neon rink with GOAL across the table"
+      }
+    },
+    {
       "id": "2026-10-28-8-ball-pool",
       "date": "2026-10-28",
       "tag": "new",
@@ -30,17 +41,6 @@
       "title": "Support opens right here",
       "body": "Support, Contact and the email links no longer ask your computer to pick an app. They open a small Support box with our email address, a Copy button, Open in Gmail and the Discord.",
       "image": { "src": "/updates/support-panel.webp", "alt": "The Support box with the email address, Copy, Open in Gmail and Ask on Discord" }
-    },
-    {
-      "id": "2026-10-28-air-hockey",
-      "date": "2026-10-28",
-      "tag": "new",
-      "title": "New game: Air Hockey",
-      "body": "A one on one air hockey duel on a neon rink. Your goal is always at the bottom. First to 7 wins.\n\nOn PC your mallet follows the mouse. On a phone, drag anywhere and the mallet stays just above your finger so you can always see it. Hit the puck while your mallet is moving to fire it, and use the side walls for bank shots.\n\nKeep the puck on your side for 7 seconds and it goes to the other player.",
-      "image": {
-        "src": "/updates/air-hockey-arrives.webp",
-        "alt": "An Air Hockey match on the neon rink with GOAL across the table"
-      }
     },
     {
       "id": "2026-10-27-pc-sidebar",

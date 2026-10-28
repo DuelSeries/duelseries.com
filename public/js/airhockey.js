@@ -29,6 +29,8 @@
    Soccer's and Knockout's, behaviour for behaviour, with ah: event names. */
 
 const socket = io();
+// The ping and FPS readout every game shares (public/js/shared/dsPerfHud.js), timed on this socket.
+if (window.DSPerfHud) window.DSPerfHud.mount({ socket });
 const Sim = window.AHSim, AH = Sim.AH;
 const $ = (id) => document.getElementById(id);
 const cv = $('table');

@@ -413,7 +413,7 @@ test('index.js: the restart check, maintenance, Start alone, bots:set and announ
 test('index.js: the snapshot is state v2, with the old fields kept, and every owner answer is no-store', () => {
   const snap = SRC.slice(SRC.indexOf('function opsSnapshot(req, signed)'), SRC.indexOf("app.post('/api/owner/state'"));
   for (const k of ['v: 2,', 'auth: consoleAuthOf(req, signed),', 'open: !m.maintenance,', 'drain: drainNow(),',
-    'escrow: consoleEscrow(),', 'games: consoleGames(ko, bs, sw, hs, ah),', 'smooth: consoleSmooth(),', 'rooms,',
+    'escrow: consoleEscrow(),', 'games: consoleGames(ko, bs, sw, hs, p8, ah),', 'smooth: consoleSmooth(),', 'rooms,',
     'audit: ownerConsole.mergeAudit(ops.auditLog, ownerAuth.auditLog, 50),']) {
     assert.ok(snap.includes(k), k);
   }
