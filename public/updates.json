@@ -2,6 +2,13 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-10-28-agar-chat-clip-hint",
+      "date": "2026-10-28",
+      "tag": "fix",
+      "title": "Chat on your phone in Agar.io, and a clearer clip hint",
+      "body": "In Agar.io on a phone the chat button now shows up while you play, just under the Lobby button instead of on top of it.\n\nThe small P clip hint is now dark on the light Agar.io and Paper.io maps, so you can read it."
+    },
+    {
       "id": "2026-10-28-game-fixes",
       "date": "2026-10-28",
       "tag": "fix",

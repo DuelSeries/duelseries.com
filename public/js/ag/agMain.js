@@ -692,7 +692,7 @@
         canSend: function () { return menuState === 'PLAY' && connected && world.state().alive; },
         light: true,
         pc: { left: 15, bottom: 150 },
-        phoneAt: { left: 10, top: 30 }
+        phoneAt: { left: 10, top: 62 }   // under the Lobby button (16..52), not on it (site sweep 2026-10-28)
       });
       placeChat();
     }

@@ -580,9 +580,14 @@
       box.classList.toggle('dsc-nosend', !canSend());
     }
 
+    // While shown, ask again every second: whether you can talk changes on its own (agar's player comes alive after
+    // the PLAY state is set), and the button stayed hidden until the next chat line otherwise (site sweep 2026-10-28).
+    var sendTimer = 0;
     function visible(on) {
       on = !!on;
       if (on) sendable();
+      if (on && !sendTimer) sendTimer = setInterval(sendable, 1000);
+      if (!on && sendTimer) { clearInterval(sendTimer); sendTimer = 0; }
       if (on === shown) return;
       shown = on;
       box.hidden = !on;

@@ -50,6 +50,9 @@
   const SCRIPT = document.currentScript;
   const GAME = (SCRIPT && SCRIPT.dataset.game) || 'game';
   const DOT = (SCRIPT && SCRIPT.dataset.dot) || 'tl';      // where the red dot sits: top left, or bottom left (bl)
+  // data-light: the game's map is light (Agar.io, Paper.io), so the hint is dark text; white on it was near invisible
+  // (site sweep 2026-10-28).
+  const LIGHT = !!(SCRIPT && SCRIPT.dataset.light);
   const TOP = !!(SCRIPT && SCRIPT.dataset.top);            // the lobby: whole-tab recording only, when switched on
   const KEEP_US = 30e6;          // what a clip holds
   const FPS = 30;
@@ -609,8 +612,10 @@
 .dsclip-dot{position:fixed;left:12px;top:64px;z-index:2147482999;display:flex;gap:6px;align-items:center;pointer-events:none;
   font:600 10.5px/1 "IBM Plex Mono",ui-monospace,Consolas,monospace;color:rgba(255,255,255,.8);text-shadow:0 1px 2px rgba(0,0,0,.6)}
 .dsclip-dot.bl{top:auto;bottom:10px}
+.dsclip-dot.lt{color:rgba(16,14,11,.82);text-shadow:0 1px 1px rgba(255,255,255,.55)}
 .dsclip-dot i{width:7px;height:7px;border-radius:50%;background:#e5534b;box-shadow:0 0 0 2px rgba(0,0,0,.25)}
-@media (prefers-reduced-motion:reduce){.dsclip-t{transition:none}.dsclip-t .bar i{animation:none}}`;
+/* The time-left bar keeps running under reduced motion: Owen's PC reports it, and a still bar says nothing (site sweep). */
+@media (prefers-reduced-motion:reduce){.dsclip-t{transition:none}}`;
   let styled = false;
   function style() {
     if (styled) return;
@@ -769,7 +774,7 @@
     if (!on) { if (dotEl) dotEl.remove(); dotEl = null; return; }
     style();
     if (dotEl) return;
-    dotEl = el('div', 'dsclip-dot' + (DOT === 'bl' ? ' bl' : ''));
+    dotEl = el('div', 'dsclip-dot' + (DOT === 'bl' ? ' bl' : '') + (LIGHT ? ' lt' : ''));
     dotEl.setAttribute('aria-hidden', 'true');
     dotEl.appendChild(el('i'));
     dotEl.appendChild(document.createTextNode('P clip'));

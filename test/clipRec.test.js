@@ -72,10 +72,10 @@ test('the mic only when the player turned it on in Settings', () => {
 test('every PC game page loads it after mp4mux, with its game name', () => {
   const ag = read('public/ag.html');
   assert.ok(ag.indexOf('/js/clip/mp4mux.js') > 0 && ag.indexOf('/js/clip/mp4mux.js') < ag.indexOf('/js/clip/clipRec.js'));
-  assert.match(ag, /<script src="\/js\/clip\/clipRec\.js" data-game="agar"><\/script>/);
+  assert.match(ag, /<script src="\/js\/clip\/clipRec\.js" data-game="agar" data-light="1"><\/script>/);   // dark hint on the light map
   assert.ok(ag.indexOf('/js/clip/clipRec.js') < ag.indexOf('/js/ag/agSound.js'), 'before agar makes a sound');
   const pa = read('public/paper-arena.html');
-  assert.match(pa, /<script src="\/js\/clip\/clipRec\.js" data-game="paper" data-dot="bl"><\/script>/,
+  assert.match(pa, /<script src="\/js\/clip\/clipRec\.js" data-game="paper" data-dot="bl" data-light="1"><\/script>/,
     'the dot sits bottom left on Paper.io, clear of its score bar');
   const B = require('../server/sl/slBoot');
   assert.match(B.SLX_TAIL, /<script src="\/js\/clip\/mp4mux\.js"><\/script>\n<script src="\/js\/clip\/clipRec\.js" data-game="slither"><\/script>\n$/);
