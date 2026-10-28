@@ -163,13 +163,15 @@ class AirHockeyRoom extends KnockoutRoom {
       else if (live) sounds.push(e);
     }
     if (sounds.length) this.sendEvents(sounds);
+    /* The step's time comes off the clock BEFORE its goal is judged, so a goal on the last step is a goal at 0:00 and
+       is decided at once (scored), never left in a goal break a leader could forfeit by leaving (Opus review 2026-10-28). */
+    if (live && !this.sudden) this.msLeft = Math.max(0, this.msLeft - STEP_MS);
     if (goal && live) { this.scored(goal.s, t); return; }
     if (live) {
       if (this.sudden) {
         this.suddenMs += STEP_MS;
         if (this.suddenMs >= AH.SUDDEN_MS) { this.whistle(t, 'time'); return; }
       } else {
-        this.msLeft = Math.max(0, this.msLeft - STEP_MS);
         if (this.msLeft <= 0) {
           if (this.score[0] !== this.score[1]) { this.whistle(t, 'time'); return; }
           this.sudden = true;
@@ -197,6 +199,12 @@ class AirHockeyRoom extends KnockoutRoom {
     this.broadcast('ah:goal', { s: side, score: this.score.slice() });
     // First to seven, or any goal in sudden death, ends it.
     if (this.score[side] >= AH.TO_WIN || this.sudden) { this.whistle(t, 'goal'); return; }
+    /* A goal at 0:00: a lead wins now; an equaliser goes to sudden death after the goal break, served as usual. */
+    if (this.msLeft <= 0) {
+      if (this.score[0] !== this.score[1]) { this.whistle(t, 'time'); return; }
+      this.sudden = true;
+      this.broadcast('ah:sudden', { score: this.score.slice(), ms: AH.SUDDEN_MS });
+    }
     this.state = 'goal';
     this.phaseEndsAt = t + AH.GOAL_PAUSE_MS;
     this.maybeSnap(true);

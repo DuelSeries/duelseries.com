@@ -180,6 +180,40 @@ test('the winner leaving during the hold after the winning goal still wins', () 
   assert.strictEqual(settled[0].winnerId, winner, 'the score decides, not who stayed');
 });
 
+test("a goal on the clock's last step decides it at once: the leader leaving after it is still paid (Opus review)", () => {
+  const { lob, settled } = lobby();
+  const { room } = paidMatch(lob, 1);
+  let t = run(room, 0, AH.COUNTDOWN_MS + 100);
+  room.score = [3, 1];
+  room.msLeft = 1000 / 60;            // one step of play left
+  shoot(room, 0);
+  room.match.puck.y = -5;            // in the mouth: over the goal line on the next step
+  room.stepOnce(t);
+  assert.strictEqual(room.score[0], 4);
+  assert.strictEqual(room.state, 'settling', 'whistled, not a goal break');
+  const leader = seatOf(room, 0);
+  lob.leave(leader);
+  assert.strictEqual(settled.length, 1);
+  assert.strictEqual(settled[0].winnerId, leader);
+});
+
+test("an equaliser on the clock's last step goes to sudden death after the goal break", () => {
+  const { lob, settled } = lobby();
+  const { room } = paidMatch(lob, 1);
+  let t = run(room, 0, AH.COUNTDOWN_MS + 100);
+  room.score = [2, 3];
+  room.msLeft = 1000 / 60;
+  shoot(room, 0);
+  room.match.puck.y = -5;
+  room.stepOnce(t);
+  assert.deepStrictEqual(room.score, [3, 3]);
+  assert.strictEqual(room.state, 'goal');
+  assert.strictEqual(room.sudden, true);
+  t = run(room, t, AH.GOAL_PAUSE_MS + 100);
+  assert.strictEqual(room.state, 'playing');
+  assert.strictEqual(settled.length, 0);
+});
+
 test('a restart owes every held paid seat a full refund row, keyed agowed:, named airhockey', () => {
   const { lob } = lobby();
   paidMatch(lob, 1);
