@@ -35,7 +35,7 @@ test('no stylesheet in <head> can hold back its first paint', () => {
 
 test('it removes itself once the lobby script has built the page', () => {
   const ready = body.indexOf('<script>window.dsSplashDone&&dsSplashDone()</script>');
-  const built = body.indexOf('drawNav();V2Wallet.render();drawRail();drawTicker();V2Board.start();\n</script>');
+  const built = body.indexOf('drawNav();V2Wallet.render();drawRail();drawTicker();loadRealWins();V2Board.start();\n</script>');
   const widget = body.indexOf('<script src="/wallet/widget.js">');
   assert.ok(built > 0 && ready > built, 'ready signal comes right after the lobby script');
   assert.ok(ready < widget, 'and before the 5 MB wallet widget, so it never waits on it');

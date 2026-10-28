@@ -701,11 +701,9 @@ body.ingame>.howveil,body.ingame>.meveil,body.ingame>.apscreen,body.ingame>.bshe
 .tickerwrap.top .ticker{-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 96px),transparent);
           mask-image:linear-gradient(90deg,#000 calc(100% - 96px),transparent)}
 .tkrun.cards{animation:none;transition:transform .55s cubic-bezier(.16,1,.3,1)}
-.tkc{flex:none;width:64px;margin-right:9px;text-align:center}
-/* Picture only (Owen 2026-10-27, phone first, then PC too): the top of the art, so the game's name and the
-   DUELSERIES line printed on every card stay out of the square. 20% down the spare height keeps the hero centred and
-   still clears the lowest title (Head Soccer's), checked on all 16 cards. */
-.tkc img{display:block;width:64px;height:66px;object-fit:cover;object-position:50% 20%;border-radius:8px;background:var(--s2)}
+.tkc{flex:none;width:70px;margin-right:9px;text-align:center}
+/* The whole card, its name and DUELSERIES line showing (Owen 2026-10-28, back from the picture-only crop). */
+.tkc img{display:block;width:70px;height:98px;object-fit:cover;border-radius:8px;background:var(--s2)}
 .tkc .nm{display:flex;align-items:center;justify-content:center;gap:4px;margin-top:6px;font-size:11.5px;color:var(--tx2);
   white-space:nowrap;overflow:hidden}
 .tkc .nm svg{flex:none}
@@ -2272,8 +2270,8 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
   /* The Live wins row on a phone (Owen 2026-10-27): smaller cards, and the Games heading keeps its phone gap. */
   .tickerwrap.top{margin-top:12px}
   .tickerwrap.top+.head{margin-top:18px}
-  .tkc{width:54px;margin-right:8px}
-  .tkc img{width:54px;height:56px;border-radius:7px}
+  .tkc{width:60px;margin-right:8px}
+  .tkc img{width:60px;height:84px;border-radius:7px}
   .tkc .nm{font-size:10.5px;gap:3px}
   .tkc .am{font-size:11.5px}
   .tickerwrap.top .ltag{font-size:9px;padding:2px 4px 2px 3px;gap:3px;left:2px;top:2px}
@@ -5180,7 +5178,7 @@ function drawTicker(){
   if(tag&&WINS_REAL&&tag.classList.contains('sample')){tag.classList.remove('sample');tag.innerHTML='<span class="dot"></span>Live wins';}
   clearInterval(tkTimer); run.classList.remove('cards'); run.style.transform=''; run.style.transition='';
   /* Twice over, so the card that leaves on the right is never the one coming in on the left. */
-  const card=w=>`<div class="tkc"><img src="${artSrc(w.g)}" alt="${G(w.g).name}" width="64" height="66" decoding="async">
+  const card=w=>`<div class="tkc"><img src="${artSrc(w.g)}" alt="${G(w.g).name}" width="70" height="98" decoding="async">
     <div class="nm">${TK_RANK}<b>${tkEsc(w.who)}</b></div><div class="am num">$${w.amt.toFixed(2)}</div></div>`;
   run.innerHTML=WINS.map(card).join('')+WINS.map(w=>card(w).replace('class="tkc"','class="tkc" aria-hidden="true"')).join('');
   run.classList.add('cards');
