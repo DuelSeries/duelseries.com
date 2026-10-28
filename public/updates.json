@@ -2,6 +2,17 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-10-28-swim-faster",
+      "date": "2026-10-28",
+      "tag": "new",
+      "title": "Swim is faster, and close passes pay off",
+      "body": "Swim now tops out near 350 km/h, with faster traffic to match, and steering gets heavier the faster you go.\n\nSlip past a car with less than a stride to spare and you get a burst of speed: the closer the pass, the bigger the boost. Some cars now change lanes too, blinking for a couple of seconds before they move, and trucks can turn up in any lane. Your car blinks when you steer and its brake lights glow when you brake.",
+      "image": {
+        "src": "/updates/swim-faster.webp",
+        "alt": "A gold car at 170 km/h behind a truck in the left lane, a teal car alongside"
+      }
+    },
+    {
       "id": "2026-10-28-empty-watch-art",
       "date": "2026-10-28",
       "tag": "fix",
