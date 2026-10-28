@@ -62,6 +62,9 @@ const CARD_READ_S = ['best_rank'];
 // colour (Owen 2026-10-16 chat redo): the live snake's cs, else its skin's table colour.
 const CHAT_READ_S = ['os', 'rrs', 'ggs', 'bbs'];
 const WRITE_S = ['render_mode', 'xm', 'ym'];
+// slxNet.js alone, on a Spectate life's {t:'watch'}: the watched snake's name into my_nick and the own snake's nk, which
+// their client otherwise fills with the viewer's own Play name (Owen 2026-10-28: his name on someone else's snake).
+const NET_WATCH_S = ['my_nick'];
 // slxQuality.js alone reads and writes their quality wish and switch (Owen 2026-10-21 Graphics quality): the two keys
 // their socket open sets from the stored "qual" (slLoop.js onSocketOpen), so a change in the lobby's Settings applies
 // without a reload. Their own fades do the rest.
@@ -73,7 +76,7 @@ const QUICK_FILES = ['slxWatch.js', 'slxBr.js'];
 // The 12 blank picture canvases (public/js/sl/slSprites.js:411-424), drawn into once each (Q3, T18).
 const PICTURE_S = ['kwkbulb', 'jmou', 'pwdbulb', 'sest', 'playbulb', 'bonkbulb', 'leafbulb', 'swissbulb', 'moldovabulb',
   'vietnambulb', 'argentinabulb', 'movbulb'];
-const SLITHER_FIELDS = ['ang', 'sct', 'fam', 'rsc', 'xx', 'yy', 'id', 'kill_count'];
+const SLITHER_FIELDS = ['ang', 'sct', 'fam', 'rsc', 'xx', 'yy', 'id', 'kill_count', 'nk']; // nk: slxNet watchedNick
 // DuelSlither members, and the one member each frozen module may be used for. slMain.nick is read only: the name their
 // Play kept (public/js/sl/slMain.js:99), for the results card's Play again.
 const D_MEMBERS = { slx: null, S: null, play: null, stats: null, slNet: ['makeSocketIoTransport'], slWire: ['decodeInput'],
@@ -126,12 +129,14 @@ test('frozen members: only the 15.1 seams', () => {
       assert.ok(READ_S.includes(m[1]) || WRITE_S.includes(m[1]) || PICTURE_S.includes(m[1]) ||
         (f === 'slxPaid.js' && PAID_READ_S.includes(m[1])) || (f === 'slxBr.js' && BR_READ_S.includes(m[1])) ||
         (f === 'slxHud.js' && HUD_READ_S.includes(m[1])) || (f === 'slxCard.js' && CARD_READ_S.includes(m[1])) ||
-        (f === 'slxChat.js' && CHAT_READ_S.includes(m[1])) || (f === 'slxQuality.js' && QUALITY_S.includes(m[1])),
+        (f === 'slxChat.js' && CHAT_READ_S.includes(m[1])) || (f === 'slxQuality.js' && QUALITY_S.includes(m[1])) ||
+        (f === 'slxNet.js' && NET_WATCH_S.includes(m[1])),
         f + ': S.' + m[1]);
     }
     for (const m of s.matchAll(/\bS\.([A-Za-z_$][\w$]*)\s*=(?!=)/g)) {
       const quick = QUICK_FILES.includes(f) && m[1] === 'dead_mtm' && /^\s*=\s*-1;/.test(s.slice(m.index + m[0].length - 1));
-      assert.ok(WRITE_S.includes(m[1]) || quick || (f === 'slxQuality.js' && QUALITY_S.includes(m[1])), f + ': writes S.' + m[1]);
+      assert.ok(WRITE_S.includes(m[1]) || quick || (f === 'slxQuality.js' && QUALITY_S.includes(m[1])) ||
+        (f === 'slxNet.js' && NET_WATCH_S.includes(m[1])), f + ': writes S.' + m[1]);
     }
     for (const m of s.matchAll(/\bslither\.([A-Za-z_$][\w$]*)/g)) assert.ok(SLITHER_FIELDS.includes(m[1]), f + ': slither.' + m[1]);
     for (const m of s.matchAll(/\bhooks\.([A-Za-z_$][\w$]*)/g)) assert.ok(HOOKS.includes(m[1]), f + ': hooks.' + m[1]);

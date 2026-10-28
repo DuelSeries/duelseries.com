@@ -123,12 +123,13 @@
     for (var i = 0; i < m.rows.length; i++) {
       var r = m.rows[i];
       var own = i + 1 === mine;
-      var name = own && nick() ? nick() : String(r[0] == null ? '' : r[0]);
+      var mineName = watchedName() || nick(); // watching: the own row is the watched snake's
+      var name = own && mineName ? mineName : String(r[0] == null ? '' : r[0]);
       if (!own && gd && !gd(name)) name = '';
       out.push({ name: name, value: E.usd(micro(r[1])), me: own });
     }
     rows = out;
-    me = m.me ? { rank: m.me[0], name: nick(), value: E.usd(micro(m.me[1])) } : null;
+    me = m.me ? { rank: m.me[0], name: watchedName() || nick(), value: E.usd(micro(m.me[1])) } : null;
     push();
   }
   if (typeof slx.on === 'function') {

@@ -194,6 +194,7 @@
         continue;
       }
       if (m.t === 'refused' && typeof m.why === 'string') rec.life.refused = m.why;
+      if (m.t === 'watch') watchedNick(m);
       fire('x', m);
       fire('x:' + m.t, m);
     }
@@ -246,6 +247,18 @@
     };
     for (var key in origIo) if (has.call(origIo, key)) wrapped[key] = origIo[key];
     root.io = wrapped;
+  }
+
+  // Watching, their own snake is the watched one, and their client names it (and its board row) with my_nick, the
+  // name this page's Play used (slNet onOpen). The watched snake's own name goes there instead, filtered as every other
+  // snake's (Owen 2026-10-28: switching showed his name on someone else's snake).
+  function watchedNick(m) {
+    var S = D.S;
+    if (!S || typeof m.name !== 'string') return;
+    var gd = D.slApply && typeof D.slApply.gdnm === 'function' ? D.slApply.gdnm : null;
+    var name = !gd || gd(m.name) ? m.name : '';
+    S.my_nick = name;
+    if (S.slither && S.slither.id === m.id) S.slither.nk = name;
   }
 
   // ---- the tap
