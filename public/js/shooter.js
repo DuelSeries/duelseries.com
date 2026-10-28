@@ -399,12 +399,12 @@
     cw.hidden = !(prog > 0 || empty);
     cw.classList.toggle('idle', empty && prog <= 0);
     if (prog > 0) {
-      $('cashBar').style.width = (prog * 100) + '%';
+      $('cashBar').style.transform = 'scaleX(' + prog + ')';   // a transform: no layout each frame
       var full = quick ? 1200 : (map ? map.cashoutMs : 5000);
       $('cashNum').textContent = (full / 1000 * (1 - prog)).toFixed(1);
       $('cashLbl').textContent = quick ? 'Banking' : 'Cashing out';
     } else if (empty) {
-      $('cashBar').style.width = '0%';
+      $('cashBar').style.transform = 'scaleX(0)';
       $('cashNum').textContent = '';
       $('cashLbl').textContent = 'Nothing to bank yet';
     }

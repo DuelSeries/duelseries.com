@@ -45,10 +45,6 @@ html, body {
   background: linear-gradient(to bottom, rgba(11,15,9,0.92), rgba(11,15,9,0));
   pointer-events: none;
 }
-.hudLeft { flex: 1 1 0; display: flex; align-items: center; gap: 9px; min-width: 0; max-width: 240px; }
-.hpWrap { flex: 1; height: 9px; border-radius: 5px; background: rgba(0,0,0,0.55); overflow: hidden; }
-.hpWrap i { display: block; height: 100%; width: 100%; background: var(--you); transition: width 0.15s; }
-.hpNum { font-size: 14px; font-weight: 600; color: var(--you); min-width: 28px; }
 
 /* The carrying/banked pair is gone from the HUD. It used to sit in the middle
    and the board was hidden outright on a phone; they have swapped. What you are
@@ -121,7 +117,7 @@ html, body {
 }
 .cashlbl { font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--gold); }
 .cashTrack { width: 190px; height: 8px; border-radius: 4px; background: rgba(0,0,0,0.6); overflow: hidden; }
-.cashTrack i { display: block; height: 100%; width: 0; background: var(--gold); }
+.cashTrack i { display: block; height: 100%; width: 100%; background: var(--gold); transform: scaleX(0); transform-origin: 0 50%; }
 .cashNum { font-size: 14px; font-weight: 650; color: var(--tx); min-width: 30px; text-align: right; }
 
 /* ── the guns ──────────────────────────────────────────────────────────────
@@ -310,8 +306,6 @@ html, body {
   #stick  { left: calc(16px + env(safe-area-inset-left)); }
   #astick { right: calc(16px + env(safe-area-inset-right)); }
   #feed { bottom: calc(122px + env(safe-area-inset-bottom)); max-width: 40vw; }
-  .hpWrap { display: none; }
-  .hudLeft { flex: 0 0 auto; max-width: none; }
   /* margin-left:auto is the spacer now: the middle column that used to push
      this to the right edge went with carrying/banked. */
   .hudRight { flex: 0 0 auto; margin-left: auto; flex-direction: column; align-items: flex-end; gap: 4px; }
@@ -331,8 +325,6 @@ html, body {
      ping and frame rate are the shared readout in the bottom right corner
      (public/js/shared/dsPerfHud.js). */
   #hud { gap: 10px; padding-right: 10px; }
-  .hudLeft { flex: 0 0 auto; max-width: none; }
-  .hpWrap { display: none; }
   /* Stacked rather than side by side. Sound and Leave are the two controls
      nobody presses while driving, so they are the two that can afford to give
      up the width the money figures cannot. */
