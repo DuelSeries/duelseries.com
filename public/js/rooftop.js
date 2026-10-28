@@ -214,7 +214,8 @@ function onSound(cx, cy) {
 function toggleSound() { if (SND) SND.toggle(); }
 
 function placeOverlays() {
-  const note = $('botNote'); if (note) note.style.top = Math.round(150 * VIEW.k) + 'px';
+  // Under "Press JUMP button to ready up" (drawn at 150), not on it (site sweep 2026-10-28).
+  const note = $('botNote'); if (note) note.style.top = Math.round(200 * VIEW.k) + 'px';
   const line = $('watchLine'); if (line) line.style.top = Math.round(150 * VIEW.k) + 'px';
   if (chat && chat.el) {
     chat.el.style.setProperty('--dsc-t', '70px');
@@ -821,7 +822,7 @@ socket.on('rt:over', (m) => {
   overShown = true;
   setPhase('over');
   releaseAll();
-  lastOver = Object.assign({}, m || {}, { ms: matchAt ? Date.now() - matchAt : 0, me, seat: mySeat });
+  lastOver = Object.assign({}, m || {}, { ms: matchAt ? Date.now() - matchAt : 0, me, seat: mySeat, vsBot: !!(match && match.vsBot) });   // the card names the bot as a bot (site sweep 2026-10-28)
   if (m && m.winnerId) { if (m.winnerId === me) series.mine++; else series.theirs++; }
   restake = null; restakeLine = '';
   paintOver();
@@ -849,7 +850,7 @@ function paintOver() {
   const time = m.ms > 0 ? DSEnd.clock(m.ms) : '';
   const card = {
     tone: 'plain',
-    verdict: won === true ? 'You win' : won === false ? (m.winner || 'Opponent') + ' wins' : 'Draw',
+    verdict: won === true ? 'You win' : won === false ? (m.winner || 'Opponent') + (m.vsBot && m.winner ? ' (bot)' : '') + ' wins' : 'Draw',
     notes: [],
   };
   if (money) {

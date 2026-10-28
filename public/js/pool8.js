@@ -112,6 +112,9 @@ let mySeat = -1;              // 0 or 1; -1 while watching
 let phase = null;             // the server's state: countdown | aiming | rolling | settling | over
 let phaseAt = 0;
 let overShown = false;
+// Wins this sitting, like rooftop.js. It was never declared, so every finished match threw at the result card and
+// the table froze with no Lobby or Play again (site sweep 2026-10-28).
+const series = { mine: 0, theirs: 0 };
 let lastOver = null;          // the result on the card, with how long the match ran (ms)
 let matchAt = 0;              // when this match started, for the card's Time
 let restake = null;           // { nonce, slow } while a paid Play again is with the lobby's wallet
@@ -491,6 +494,8 @@ cv.addEventListener('wheel', (e) => {
 }, { passive: false });
 window.addEventListener('keydown', (e) => {
   if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+  // Escape asks "Leave the match?", as in Rooftop Snipers and Air Hockey (site sweep 2026-10-28).
+  if (e.code === 'Escape' && match && !overShown) { pauseMenu(); return; }
   if (!myTurn()) return;
   if (e.code === 'ArrowLeft' || e.code === 'ArrowUp') { aim.a -= e.shiftKey ? 0.0175 : 0.0026; aimDirty = true; e.preventDefault(); }
   if (e.code === 'ArrowRight' || e.code === 'ArrowDown') { aim.a += e.shiftKey ? 0.0175 : 0.0026; aimDirty = true; e.preventDefault(); }
@@ -861,7 +866,7 @@ socket.on('p8:over', (m) => {
   releaseAll();
   /* Whose result it is, read now: a reconnect while the card is up changes the socket id, and the card is drawn
      again on every restake step. */
-  lastOver = Object.assign({}, m || {}, { ms: matchAt ? Date.now() - matchAt : 0, me, seat: mySeat });
+  lastOver = Object.assign({}, m || {}, { ms: matchAt ? Date.now() - matchAt : 0, me, seat: mySeat, vsBot: !!(match && match.vsBot) });   // the card names the bot as a bot (site sweep 2026-10-28)
   if (m && m.winnerId) { if (m.winnerId === me) series.mine++; else series.theirs++; }
   restake = null; restakeLine = '';
   paintOver();
@@ -893,7 +898,7 @@ function paintOver() {
   const time = m.ms > 0 ? DSEnd.clock(m.ms) : '';
   const card = {
     tone: 'plain',
-    verdict: won === true ? 'You win' : won === false ? (m.winner || 'Opponent') + ' wins' : 'Draw',
+    verdict: won === true ? 'You win' : won === false ? (m.winner || 'Opponent') + (m.vsBot && m.winner ? ' (bot)' : '') + ' wins' : 'Draw',
     notes: [],
   };
   if (money) {
@@ -1302,4 +1307,4 @@ if (WATCH) {
     BAR.busy(true);
   }
   publishWatch('searching');
-}
+}

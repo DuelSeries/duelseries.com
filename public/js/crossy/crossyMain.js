@@ -202,6 +202,7 @@ function startMatch(m) {
   $('leave').hidden = WATCH;
   chatShow(true);
 }
+let lastLeaveTop = '';
 function dropMatch() { match = null; mySeat = -1; phase = null; mine = null; $('tag').hidden = true; $('leave').hidden = true; }
 
 /* A server row: [side, ...packed hopper]. Mine is checked against my prediction for that tick; the other is drawn. */
@@ -301,7 +302,8 @@ socket.on('cr:over', (m) => {
   if (overShown || !match) return;
   overShown = true;
   phase = 'over';
-  lastOver = Object.assign({}, m || {}, { ms: matchAt ? Date.now() - matchAt : 0, me, seat: mySeat });
+  $('leave').hidden = true;      // the result card has its own Lobby; the pause button stayed lit on top of it (site sweep 2026-10-28)
+  lastOver = Object.assign({}, m || {}, { ms: matchAt ? Date.now() - matchAt : 0, me, seat: mySeat, vsBot: !!(match && match.vsBot) });   // the card names the bot as a bot (site sweep 2026-10-28)
   if (m && m.winnerId) { if (m.winnerId === me) series.mine++; else series.theirs++; }
   restake = null; restakeLine = '';
   // The death plays out first: the card comes up 1.6 s after the first one went.
@@ -380,7 +382,7 @@ function paintOver() {
   const sc = Array.isArray(m.score) && m.score.length === 2 ? m.score : [0, 0];
   const s = m.seat === 1 ? 1 : 0;
   const time = m.ms > 0 ? DSEnd.clock(m.ms) : '';
-  const card = { tone: 'plain', verdict: won === true ? 'You win' : won === false ? (m.winner || 'Opponent') + ' wins' : 'Draw', notes: [] };
+  const card = { tone: 'plain', verdict: won === true ? 'You win' : won === false ? (m.winner || 'Opponent') + (m.vsBot && m.winner ? ' (bot)' : '') + ' wins' : 'Draw', notes: [] };
   if (money) {
     if (money.refunded) { card.hero = DSEnd.usd(seat ? seat.refundMicro : 0); card.unit = 'refunded'; }
     else if (won === true) {
@@ -518,8 +520,8 @@ $('waitCancel').addEventListener('click', () => {
 });
 $('leave').addEventListener('click', async () => {
   if (!match || overShown) { toLobby(); return; }
-  const ok = window.DSDialog ? await window.DSDialog.confirm({ title: 'Leave this match?', line: 'Leaving counts as a loss.', ok: 'Leave', cancel: 'Keep playing' })
-    : window.confirm('Leave this match? Leaving counts as a loss.');
+  const ok = window.DSDialog ? await window.DSDialog.confirm({ title: 'Leave the match?', line: 'The match keeps going without a pause. Leaving now hands it to your opponent.', ok: 'Leave', cancel: 'Keep playing' })
+    : window.confirm('Leave the match? Leaving now hands it to your opponent.');
   if (ok) toLobby();
 });
 const WATCH_URL = '/crossy';
@@ -686,6 +688,10 @@ function drawHud(W, H, dpr) {
   const iconS = cu * 7;
   coinIcon(W - top - iconS, top, iconS);
   pixText(coins, W - top - iconS - cu * 2, top, cu, '#ffe100', 'right');
+  // The pause button sits under the coin, which grows with the window: at a fixed 52 px it covered the coin on a
+  // 1080p screen (site sweep 2026-10-28).
+  const leaveTop = Math.round(top + iconS + 8) + 'px';
+  if (leaveTop !== lastLeaveTop) { lastLeaveTop = leaveTop; $('leave').style.top = leaveTop; }
   // The countdown, then GO.
   const ft = matchFt();
   if (phase === 'countdown' || (phase === 'playing' && ft < 40)) {

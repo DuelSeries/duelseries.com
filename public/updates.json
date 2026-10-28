@@ -2,6 +2,13 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-10-28-duel-fixes",
+      "date": "2026-10-28",
+      "tag": "fix",
+      "title": "8 Ball Pool result card, and fixes in the new duels",
+      "body": "8 Ball Pool now shows its result card with Lobby and Play again when a match ends, instead of stopping on the table. Escape opens Leave the match there too.\n\nIn Rooftop Snipers, Crossy Road, Air Hockey and 8 Ball Pool the result card now says when the winner was a bot. Crossy Road's pause button no longer covers the coin counter or sits on the result card, and Rooftop's bot note no longer covers the ready-up line."
+    },
+    {
       "id": "2026-10-28-lobby-polish",
       "date": "2026-10-28",
       "tag": "fix",

@@ -710,7 +710,12 @@ function drawHud(now) {
   }
   ctx.restore();
 }
-const cutTo = (s, n) => { const t = String(s || 'Player'); return t.length > n ? t.slice(0, n - 1) + '…' : t; };
+// A bot's " (bot)" is never the part that gets cut: the phone strip used to show "ben13 (b…" (site sweep 2026-10-28).
+const cutTo = (s, n) => {
+  const t = String(s || 'Player');
+  if (t.length > n && / \(bot\)$/.test(t)) return cutTo(t.slice(0, -6), Math.max(4, n - 6)) + ' (bot)';
+  return t.length > n ? t.slice(0, n - 1) + '…' : t;
+};
 
 /* The big words over the table: 3 2 1 Go, GOAL, sudden death, the 7 second rule, the final buzzer. */
 function drawBanners(now) {
@@ -1018,7 +1023,7 @@ socket.on('ah:over', (m) => {
   setPhase('over');
   releaseAll();
   cv.classList.remove('playing');
-  lastOver = Object.assign({}, m || {}, { ms: matchAt ? Date.now() - matchAt : 0, me, seat: mySeat });
+  lastOver = Object.assign({}, m || {}, { ms: matchAt ? Date.now() - matchAt : 0, me, seat: mySeat, vsBot: !!(match && match.vsBot) });   // the card names the bot as a bot (site sweep 2026-10-28)
   if (m && m.winnerId) { if (m.winnerId === me) series.mine++; else series.theirs++; }
   restake = null; restakeLine = '';
   paintOver();
@@ -1051,7 +1056,7 @@ function paintOver() {
   const time = m.ms > 0 ? DSEnd.clock(m.ms) : '';
   const card = {
     tone: 'plain',
-    verdict: won === true ? 'You win' : won === false ? (m.winner || 'Opponent') + ' wins' : 'Draw',
+    verdict: won === true ? 'You win' : won === false ? (m.winner || 'Opponent') + (m.vsBot && m.winner ? ' (bot)' : '') + ' wins' : 'Draw',
     notes: [],
   };
   if (money) {
