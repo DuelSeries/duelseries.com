@@ -89,9 +89,11 @@
 
   var AGAIN_MS = 900; // after their menu shows (a dropped connection only), as slxBr's watcher
   var RETRY_MS = 3000;
-  // The lobby draws /sl at 0.7 on phones (.sl07): the bar sits above their minimap (its top is about 176 frame px up)
-  // with buttons that are still a thumb's size there (dsWatchBar phoneLift, phoneSize).
-  var PHONE_LIFT = 192;
+  // The lobby draws /sl at 0.7 on phones (.sl07): the bar sits at the bottom (Owen 2026-10-28: "at the very bottom",
+  // above the safe area) and stops left of their minimap (160 frame px wide, 16 in from the right), with buttons that
+  // are still a thumb's size there (dsWatchBar phoneLift, phoneRight, phoneSize).
+  var PHONE_LIFT = 12;
+  var PHONE_RIGHT = 184;
   var PHONE_SIZE = 80; // nobody to watch: the next ask
   var DEATH_MS = 1200; // the watched snake's death on screen before the next life
   var NAME_MAX = 24; // their name cap (law L45 nameMax)
@@ -358,7 +360,7 @@
       } else {
         if (!opened || !B.shown()) {
           opened = B.open({ game: 'snake', stake: watchStake, onPrev: prev, onNext: next, onLobby: toLobby,
-            phoneLift: PHONE_LIFT, phoneSize: PHONE_SIZE }) === true;
+            phoneLift: PHONE_LIFT, phoneRight: PHONE_RIGHT, phoneSize: PHONE_SIZE }) === true;
           named = null;
         }
         if (opened) {

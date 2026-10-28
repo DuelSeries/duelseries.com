@@ -855,9 +855,10 @@
       return;
     }
     if (!B.shown()) {
-      // the lobby draws /sl at 0.7 on phones: above their minimap, thumb-sized there (slxWatch PHONE_LIFT, PHONE_SIZE)
+      // the lobby draws /sl at 0.7 on phones: at the bottom, left of their minimap, thumb-sized there (slxWatch
+      // PHONE_LIFT, PHONE_RIGHT, PHONE_SIZE)
       if (B.open({ game: 'snake', onPrev: function () { step(-1); }, onNext: function () { step(1); },
-        onLobby: toLobby, phoneLift: 192, phoneSize: 80 }) !== true) return;
+        onLobby: toLobby, phoneLift: 12, phoneRight: 184, phoneSize: 80 }) !== true) return;
       named = null;
     }
     if (empty) {

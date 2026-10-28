@@ -10,7 +10,7 @@
 // Paper.io (public/js/paper/mp/paperArenaMain.js), Knockout and Battleship. Each game says who it is following and
 // does the switching itself; this file never talks to a server, reads money or seats anyone.
 //
-// DSWatchBar.open({ game, stake, onPrev, onNext, onLobby, phoneLift, phoneSize })  shows the bar (again: updates the
+// DSWatchBar.open({ game, stake, onPrev, onNext, onLobby, phoneLift, phoneSize, phoneRight })  shows the bar (again: updates the
 //           handlers); 'Finding a player' on the plate until watching(name)
 //           .watching(name)   the name on the plate, arrows on, the empty map hidden
 //           .empty()          the empty table: the whole map behind, "Nobody is playing yet", arrows off
@@ -61,7 +61,7 @@
     '.dsw-empty .dsw-name{font-weight:600;font-size:16px;color:#d9d0c1;}',
     // phones: thumbs, and clear of the minimaps at the bottom right
     '@media (max-width:600px),(pointer:coarse) and (max-height:600px){',
-    '.dsw-switch{left:12px;right:12px;transform:none;bottom:calc(var(--dsw-lift,116px) + env(safe-area-inset-bottom,0px));',
+    '.dsw-switch{left:12px;right:var(--dsw-right,12px);transform:none;bottom:calc(var(--dsw-lift,116px) + env(safe-area-inset-bottom,0px));',
     'justify-content:space-between;}',
     '.dsw-round{width:var(--dsw-size,64px);height:var(--dsw-size,64px);}',
     '.dsw-plate{min-width:0;max-width:none;flex:1;height:var(--dsw-size,64px);padding:0 14px;}',
@@ -195,7 +195,8 @@
 
   root.DSWatchBar = {
     // o.phoneLift, o.phoneSize (px, optional): a page drawn smaller on phones (the lobby shows /sl at 0.7) lifts the
-    // bar clear of its own minimap and keeps the buttons a thumb's size.
+    // bar clear of its own minimap and keeps the buttons a thumb's size. o.phoneRight (px, optional): the bar sits low
+    // and stops this far from the right edge instead, clear of a minimap in that corner.
     open: function (o) {
       opts = o || {};
       if (!build()) return false;
@@ -203,6 +204,7 @@
       if (rs && typeof rs.setProperty === 'function') {
         if (opts.phoneLift > 0) rs.setProperty('--dsw-lift', Math.round(opts.phoneLift) + 'px');
         if (opts.phoneSize > 0) rs.setProperty('--dsw-size', Math.round(opts.phoneSize) + 'px');
+        if (opts.phoneRight > 0) rs.setProperty('--dsw-right', Math.round(opts.phoneRight) + 'px');
       }
       if (!on) name = null;
       on = true;
