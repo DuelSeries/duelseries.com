@@ -164,7 +164,7 @@ function rowCar(row) {
   return { tick: row[1], z: row[2], x: row[3], v: row[4], vx: row[5], alive: !!row[6],
            crashTick: row[6] ? -1 : row[1], hit: -1, wall: row[7] || 0, cool: row[8] || 0, close: -1 };
 }
-const SLOWING = 5;                   // m/s lost per second that lights a remote car's brake lights
+const SLOWING = 7;                   // m/s lost per second that lights a remote car's brake lights
 function takeRow(r, row) {
   if (!Array.isArray(row) || row.length < 8) return;
   const side = row[0];
@@ -172,7 +172,7 @@ function takeRow(r, row) {
   const prev = r.rows[side];
   if (prev && prev[1] > row[1]) return;            // an older snapshot arriving late
   /* Brake lights for a car we only hear about: lit while it loses more than SLOWING m/s a second
-     between two rows. That is the brake pedal (22) or the barrier, not easing off the gas (3.2) or a
+     between two rows. That is the brake pedal (22) or the barrier, not coasting (at most 5.6) or a
      boost bleeding off (4), so it lights when ours would. */
   if (prev && row[1] > prev[1]) {
     const decel = (prev[4] - row[4]) / ((row[1] - prev[1]) * S.DT);

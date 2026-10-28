@@ -35,7 +35,8 @@
    driving straight for 5 s while they reconnect"). It used to forfeit at once,
    Knockout's rule, and a phone that blinks for a second lost a paid race for
    it. Now the seat is marked away (SwimLobby.drop): its car is driven on with
-   the wheel straight and no pedal, so it settles to cruise, and it is judged
+   the wheel straight and no pedal, so it coasts down (no pedal is no gas
+   since 2026-10-28, shared/swimSim.js), and it is judged
    exactly as before, so a crash or falling 200 m behind still ends the race in
    that time. A reconnect that shows the seat's key within the five seconds
    takes the seat over on its new socket (rekey); otherwise the lobby does what
@@ -58,7 +59,11 @@ const HIST = 1024;             // ticks of z history kept per car, far more than
 const PRUNE_BEHIND = 120;      // metres behind the rear car past which traffic is forgotten
 /* A safety stop, not a rule anybody should meet: 30 minutes of racing with
    both still going is called a draw (a stake is refunded), so a pair of
-   flawless drivers cannot hold a room open forever. */
+   flawless drivers cannot hold a room open forever. It is also where two
+   players who both crawl or stop end up (nothing comes from behind a car that
+   never passed anything, and neither falls 200 m back): a refund, so neither
+   profits, and one crawler alone always loses to a car that keeps driving
+   (test/swim.test.js). */
 const MAX_TICKS = 30 * 60 * S.HZ;
 const GRACE_MS = 5000;         // how long a dropped seat is held for its reconnect (Owen 2026-10-27)
 
@@ -197,8 +202,8 @@ class SwimRoom {
 
   /* The seat's socket went. Only a person's seat in a race that is still on is
      held; anything else is the old rule (false: the lobby makes it a leave).
-     Wheel straight, no pedal from here (codeFor), so the car holds its line at
-     cruise rather than repeating whatever was held when the link went. */
+     Wheel straight, no pedal from here (codeFor), so the car holds its line and
+     coasts rather than repeating whatever was held when the link went. */
   away(socketId, now) {
     const p = this.players.get(socketId);
     if (!p || p.bot || !p.key || (this.state !== 'countdown' && this.state !== 'racing')) return false;

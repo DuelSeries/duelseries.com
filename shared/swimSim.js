@@ -39,7 +39,7 @@
   const NAME = 'Swim';
   /* Bumped whenever the step or the traffic rules change: a page left open across a deploy runs the old
      step and would disagree with the server on every tick, so the server turns it away (sw:queue). */
-  const VERSION = 4;
+  const VERSION = 5;
 
   const HZ = 60;
   const DT = 1 / HZ;
@@ -81,28 +81,46 @@
 
   /* ── speed ────────────────────────────────────────────────────────────────
      The road gets faster for as long as the match lasts: a cruise speed that
-     starts at 130 km/h and climbs towards 302, half way there after 70 s. W
-     pushes up to 16% over it (about 350 km/h late on, Owen 2026-10-28), S
-     brakes all the way down to 54 km/h at any stage, and with neither the car
-     settles back to it. Braking is the way out of a box: slow enough to drop
-     in behind a car alongside and pull out behind it. It costs ground, which
-     is the whole game against the 200 m rule; and sit slower than a lane's
-     traffic for long and it comes up behind you, and touching it from behind
-     counts the same. */
+     starts at 130 km/h and climbs towards 302, half way there after 70 s, and
+     the top speed is 16% over it (about 350 km/h late on, Owen 2026-10-28).
+     Both cars start on tick 0 at V0.
+
+     NO AUTO-THROTTLE (Owen 2026-10-28: "letting go of W can still speed you
+     up"). The car only gains speed while the gas is held, up to topSpeed. Let
+     go and it coasts down on engine braking plus drag, COAST + DRAG v^2 m/s
+     every second (1.65 at the start, 2.5 at 216 km/h, 4.5 flat out), all the
+     way to a stop if you wait; S brakes at BRAKE, far harder. There is no
+     floor: a stopped or slow car is a sitting target for the traffic coming up
+     behind it, and touching that from behind counts the same as any touch.
+     Braking is still the way out of a box (drop in behind a car alongside and
+     pull out behind it), but it costs ground, which is the whole game against
+     the 200 m rule.
+
+     STOPPING NEVER WINS (shared rules, judged in server/swim/SwimRoom.js). A
+     car that stops or crawls falls BEHIND_LOSE metres back from one that keeps
+     driving within seconds and loses, or is hit by traffic from behind first.
+     If BOTH crawl and neither ever falls 200 m back or touches anything, the
+     30 minute cap calls it a draw and refunds both stakes: nobody profits, so
+     it is no way to win and no way to take money (test/swim.test.js). */
   const V0 = 36, V1 = 84, T_HALF = 70;
-  const TOP_K = 1.16, FLOOR_MIN = 15;
-  const GAS = 11, BRAKE = 22, EASE = 3.2, SCRAPE = 9;
+  const TOP_K = 1.16;
+  const GAS = 11, BRAKE = 22, COAST = 1.2, DRAG = 0.00035, SCRAPE = 9;
 
   /* THE WHEEL GETS HEAVIER WITH SPEED (Owen 2026-10-28). Sideways speed at
      full lock is 11.5 - 0.075 v, held between 4.5 and 10.5 m/s: about 8.8 at
      the start (a lane in half a second), 5.2 at the late cruise, 4.5 flat
      out. How fast it answers the wheel scales with it, so full lock is always
-     reached in about 0.19 s. Only * - and comparisons, so every engine agrees. */
-  const VX_0 = 11.5, VX_K = 0.075, VX_LO = 4.5, VX_HI = 10.5;
+     reached in about 0.19 s. Only * - and comparisons, so every engine agrees.
+     Below about 15 m/s (only reachable since the floor went, 2026-10-28) it is
+     also held to VX_SLIP times the speed, so a stopped car cannot slide across
+     the road out of the way of traffic coming up behind it. */
+  const VX_0 = 11.5, VX_K = 0.075, VX_LO = 4.5, VX_HI = 10.5, VX_SLIP = 0.7;
   const VX_RISE = 46 / 8.6;           // sideways acceleration per m/s of sideways top speed
   function vxMax(v) {
-    const m = VX_0 - VX_K * v;
-    return m < VX_LO ? VX_LO : m > VX_HI ? VX_HI : m;
+    let m = VX_0 - VX_K * v;
+    m = m < VX_LO ? VX_LO : m > VX_HI ? VX_HI : m;
+    const slip = VX_SLIP * v;
+    return slip < m ? slip : m;
   }
   function vxAcc(v) { return vxMax(v) * VX_RISE; }
 
@@ -125,8 +143,8 @@
     return V0 + (V1 - V0) * t / (t + T_HALF);
   }
   function topSpeed(tick) { return cruise(tick) * TOP_K; }
-  /* Always below every lane's traffic, so braking can always drop you in behind a car. */
-  function floorSpeed() { return FLOOR_MIN; }
+  /* What the car loses in a second with no pedal at speed v: engine braking plus drag. */
+  function coastDecel(v) { return COAST + DRAG * v * v; }
 
   /* ── inputs ───────────────────────────────────────────────────────────────
      One small integer per tick: the wheel in 101 steps (-1 left to +1 right;
@@ -170,15 +188,20 @@
     if (!car.alive) { car.tick = n + 1; return car; }
     let cool = car.cool > 0 ? car.cool - 1 : 0;
     const steer = steerOf(code), pedal = pedalOf(code);
-    const hi = topSpeed(n), lo = floorSpeed(n), mid = cruise(n);
+    const hi = topSpeed(n);
 
     let v = car.v;
-    if (pedal < 0) { v -= BRAKE * DT; if (v < lo) v = lo; }
-    else if (v > hi) { v -= OVER_EASE * DT; if (v < hi) v = hi; }   // a boost bleeding off
-    else if (pedal > 0) { v += GAS * DT; if (v > hi) v = hi; }
-    else if (v < mid) { v += EASE * DT; if (v > mid) v = mid; }
-    else if (v > mid) { v -= EASE * DT; if (v < mid) v = mid; }
-    if (v < lo) v = lo;
+    if (pedal < 0) v -= BRAKE * DT;
+    else if (pedal > 0) {
+      if (v > hi) { v -= OVER_EASE * DT; if (v < hi) v = hi; }   // a boost bleeding off to the top speed
+      else { v += GAS * DT; if (v > hi) v = hi; }
+    } else {
+      /* Coasting; a boost never bleeds off slower with the foot off than on the gas. */
+      let d = coastDecel(v);
+      if (v > hi && d < OVER_EASE) d = OVER_EASE;
+      v -= d * DT;
+    }
+    if (v < 0) v = 0;
 
     const reach = vxMax(v);
     const want = steer * reach;
@@ -192,7 +215,7 @@
        It never ends the match: the rule is about traffic. */
     if (x > WALL) { x = WALL; if (vx > 0) vx = 0; wall = 1; }
     else if (x < -WALL) { x = -WALL; if (vx < 0) vx = 0; wall = -1; }
-    if (wall !== 0 && steer * wall > 0) { v -= SCRAPE * DT; if (v < lo) v = lo; }
+    if (wall !== 0 && steer * wall > 0) { v -= SCRAPE * DT; if (v < 0) v = 0; }
 
     const z0 = car.z;
     car.z = z0 + v * DT;
@@ -373,8 +396,8 @@
   return {
     NAME, VERSION, HZ, DT, TICK_MS, COUNTDOWN_MS, BEHIND_LOSE,
     LANES, LANE_W, ROAD_HALF, LANE_V, laneX, CAR, WALL, TYPES, MAX_HL,
-    V0, V1, T_HALF, TOP_K, FLOOR_MIN, GAS, BRAKE, VX_LO, VX_HI, CLOSE_M, BOOST_MAX, OVER_EASE, BOOST_COOL,
-    cruise, topSpeed, floorSpeed, vxMax, vxAcc, SIGNAL, MOVE,
+    V0, V1, T_HALF, TOP_K, GAS, BRAKE, COAST, DRAG, VX_LO, VX_HI, VX_SLIP, CLOSE_M, BOOST_MAX, OVER_EASE, BOOST_COOL,
+    cruise, topSpeed, coastDecel, vxMax, vxAcc, SIGNAL, MOVE,
     STEER_Q, INPUT_MAX, packInput, steerOf, pedalOf, NEUTRAL, validInput,
     newCar, copyCar, step, zAt, xAt, changes, occFrom, occTo, occupies, signalAt, brakingAt, validRecord, Traffic, rng, kmh,
   };

@@ -69,7 +69,7 @@ test('the step is deterministic and stays on the road', () => {
   }
   assert.deepStrictEqual(a, b);
   assert.ok(Math.abs(a.x) <= S.WALL + 1e-9);
-  assert.ok(a.v >= S.FLOOR_MIN - 1e-9 && a.v <= S.topSpeed(a.tick) + 1e-9);
+  assert.ok(a.v >= 0 && a.v <= S.topSpeed(a.tick) + 1e-9);
 });
 
 test('a traffic car is hit only when the boxes touch', () => {
@@ -135,7 +135,7 @@ test('no boost for a wide pass, a car that overtakes us, or a touch (that is a c
   const wide = passBy(S.CLOSE_M + 0.05);
   assert.strictEqual(wide.seen.length, 0);
   assert.strictEqual(wide.car.alive, true);
-  // Braking at the floor in lane 1 while a lane 0 car comes past on our left, 0.2 m away: it passes us, not us it.
+  // Braking (down to a stop) in lane 1 while a lane 0 car comes past on our left, 0.2 m away: it passes us, not us it.
   const passed = passBy(0.2, { lane: 0, side: 1, z: -30, code: S.packInput(0, -1) });
   assert.ok(passed.car.z < S.zAt(passed.tr.all()[0], passed.car.tick) - 10, 'it went by');
   assert.strictEqual(passed.seen.length, 0);
@@ -225,18 +225,22 @@ test('the line between the two left lanes is no safe corridor: a rider on it mee
 });
 
 test('the wheel is sharper slow than fast', () => {
-  assert.strictEqual(S.vxMax(0), S.VX_HI);
+  const SLOW = 15;                                         // the old speed floor: the sharpest the wheel gets
+  assert.strictEqual(S.vxMax(SLOW), 11.5 - 0.075 * SLOW);
   assert.strictEqual(S.vxMax(500), S.VX_LO);
-  assert.ok(S.vxMax(S.FLOOR_MIN) > S.vxMax(S.V0) && S.vxMax(S.V0) > S.vxMax(S.V1) && S.vxMax(S.V1) > S.vxMax(S.V1 * S.TOP_K));
+  // Below it the wheel is held to a share of the speed: a stopped car cannot slide out of anything's way.
+  assert.strictEqual(S.vxMax(0), 0);
+  assert.strictEqual(S.vxMax(10), S.VX_SLIP * 10);
+  assert.ok(S.vxMax(SLOW) > S.vxMax(S.V0) && S.vxMax(S.V0) > S.vxMax(S.V1) && S.vxMax(S.V1) > S.vxMax(S.V1 * S.TOP_K));
   const late = 60 * 600;                                   // ten minutes in
   const slow = S.newCar(0), fast = S.newCar(0);
   slow.tick = fast.tick = late;
-  slow.v = S.FLOOR_MIN; fast.v = S.topSpeed(late);
+  slow.v = SLOW; fast.v = S.topSpeed(late);
   const limit = S.V1 * S.TOP_K * 3.6;
   assert.ok(limit > 345 && limit < 355, 'flat out heads for about 350 km/h (' + Math.round(limit) + ')');
   assert.ok(fast.v * 3.6 > 320, 'and is past 320 ten minutes in (' + Math.round(fast.v * 3.6) + ')');
   const x0 = slow.x;
-  for (let i = 0; i < 30; i++) { S.step(slow, S.packInput(1, -1), null); S.step(fast, S.packInput(1, 1), null); }
+  for (let i = 0; i < 30; i++) { S.step(slow, S.packInput(1, 0), null); S.step(fast, S.packInput(1, 1), null); }
   assert.ok(slow.x - x0 > 2 * (fast.x - x0), 'half a second of full lock: ' + (slow.x - x0).toFixed(2) + ' m slow, ' + (fast.x - x0).toFixed(2) + ' m fast');
   // A lane's width at full lock takes well under half a second slow and nearer a second flat out.
   const laneTime = (v, pedal) => {
@@ -245,7 +249,7 @@ test('the wheel is sharper slow than fast', () => {
     while (c.x - S.laneX(1) < S.LANE_W) { S.step(c, S.packInput(1, pedal), null); n++; }
     return n / 60;
   };
-  assert.ok(laneTime(S.FLOOR_MIN, -1) < 0.45);
+  assert.ok(laneTime(SLOW, 0) <= 0.45, 'coasting at 54 km/h (' + laneTime(SLOW, 0) + ' s)');
   assert.ok(laneTime(S.topSpeed(late), 1) > 0.8);
 });
 
@@ -395,7 +399,8 @@ test('lane changes: the server and a screen fed the same records agree on x and 
   const { room } = racing();
   const cut = [7, 2, 0, 120, 0, 3, 120, 1];
   room.traffic.add(cut.slice());
-  run(room, 1200, S.NEUTRAL, S.NEUTRAL);
+  const GO = S.packInput(0, 1);
+  run(room, 1200, GO, GO);
   assert.strictEqual(room.state, 'over');
   const ann = room.bySide(0).car;
   assert.strictEqual(ann.alive, false);
@@ -403,7 +408,7 @@ test('lane changes: the server and a screen fed the same records agree on x and 
   assert.ok(ann.crashTick > cut[6] + S.MOVE, 'hit in the new lane, after the move');
   const mine = S.newCar(0), tr = new S.Traffic();
   tr.add(JSON.parse(JSON.stringify(cut)));
-  while (mine.alive && mine.tick < 1200) S.step(mine, S.NEUTRAL, tr);
+  while (mine.alive && mine.tick < 1200) S.step(mine, GO, tr);
   assert.strictEqual(mine.crashTick, ann.crashTick);
   assert.strictEqual(mine.hit, 7);
   assert.strictEqual(mine.z, ann.z);
@@ -493,17 +498,185 @@ test('200 m behind loses', () => {
   assert.ok(gapAt >= S.BEHIND_LOSE && gapAt < S.BEHIND_LOSE + 1);
 });
 
+/* ── no auto-throttle (Owen 2026-10-28) ─────────────────────────────────────── */
+test('no pedal never gains speed: the car coasts down to a stop, the gas alone climbs to the top, the brake beats coasting', () => {
+  // Both cars start alike: tick 0 at V0, and the same inputs keep them alike but for the lane.
+  const c0 = S.newCar(0), c1 = S.newCar(1);
+  assert.strictEqual(c0.v, S.V0); assert.strictEqual(c1.v, S.V0);
+  assert.strictEqual(c0.z, 0); assert.strictEqual(c1.z, 0); assert.strictEqual(c0.tick, 0); assert.strictEqual(c1.tick, 0);
+  const r = S.rng(3);
+  for (let i = 0; i < 2000; i++) {
+    const code = S.packInput(0, Math.floor(r() * 3) - 1);
+    S.step(c0, code, null); S.step(c1, code, null);
+    assert.strictEqual(c0.v, c1.v); assert.strictEqual(c0.z, c1.z);
+  }
+  // From any speed, early or late, boosted or not, no pedal only ever loses speed, and never below 0.
+  for (let i = 0; i < 3000; i++) {
+    const c = S.newCar(0);
+    c.tick = Math.floor(r() * 60 * 900);
+    c.v = r() * (S.topSpeed(c.tick) + S.BOOST_MAX);
+    const v0 = c.v;
+    S.step(c, S.NEUTRAL, null);
+    assert.ok(c.v < v0 || v0 === 0, 'coasting at ' + v0.toFixed(2) + ' went to ' + c.v);
+    assert.ok(c.v >= 0);
+    if (v0 <= S.topSpeed(c.tick)) assert.strictEqual(c.v, Math.max(0, v0 - S.coastDecel(v0) * S.DT));
+    const b = S.newCar(0); b.tick = c.tick; b.v = v0;
+    S.step(b, S.packInput(0, -1), null);
+    assert.ok(b.v < c.v || b.v === 0, 'the brake bites harder than coasting');
+  }
+  // Let go at the start: the speed falls every tick and reaches 0 in under a minute, then stays there.
+  const coast = S.newCar(0);
+  let last = coast.v;
+  while (coast.v > 0 && coast.tick < 60 * 60) { S.step(coast, S.NEUTRAL, null); assert.ok(coast.v < last); last = coast.v; }
+  assert.strictEqual(coast.v, 0, 'stopped after ' + (coast.tick / 60).toFixed(1) + ' s');
+  assert.ok(coast.tick > 60 * 15, 'a long roll, not a stop (' + (coast.tick / 60).toFixed(1) + ' s)');
+  const z = coast.z;
+  for (let i = 0; i < 120; i++) S.step(coast, S.packInput(1, 0), null);
+  assert.strictEqual(coast.v, 0); assert.strictEqual(coast.z, z);
+  assert.ok(Math.abs(coast.x - S.laneX(1)) < 1e-9, 'a stopped car cannot slide sideways');
+  // The gas takes it back up, to the top speed and no further.
+  for (let i = 0; i < 60 * 30; i++) { const t = coast.tick, v = coast.v; S.step(coast, S.packInput(0, 1), null); assert.ok(coast.v >= v && coast.v <= S.topSpeed(t)); }
+  assert.strictEqual(coast.v, S.topSpeed(coast.tick - 1));
+  // The numbers in the comment: 1.65 m/s a second at the start, about 4.5 flat out late on.
+  assert.ok(Math.abs(S.coastDecel(S.V0) - 1.65) < 0.01 && Math.abs(S.coastDecel(S.V1 * S.TOP_K) - 4.5) < 0.05);
+});
+
+test('stopping is no way to win: a car that stops, or only coasts, falls 200 m behind one that keeps driving', () => {
+  for (const lazy of [S.packInput(0, -1), S.NEUTRAL]) {
+    const { room } = racing({ worth: 1, wa: 'WA', wb: 'WB' });
+    const settled = [];
+    room.onSettled = (x) => settled.push(x);
+    let stopped = false;
+    for (let t = room.clock + 1; t <= 60 * 120 && room.state === 'racing'; t++) {
+      room.input('a', { t: t - 1, k: [S.packInput(0, 1)] });
+      room.input('b', { t: t - 1, k: [lazy] });
+      room.tick(at(room, t));
+      if (room.bySide(1).car.v === 0) stopped = true;
+    }
+    if (lazy !== S.NEUTRAL) assert.ok(stopped, 'the brake took Bob to a standstill');
+    assert.strictEqual(room.state, 'over');
+    assert.strictEqual(room.winner, 'a');
+    assert.strictEqual(room.overWhy, 'fell behind');
+    assert.strictEqual(settled.length, 1);
+    assert.strictEqual(settled[0].winnerId, 'a');
+    assert.ok(room.endTick < 60 * 12, 'and soon (' + (room.endTick / 60).toFixed(1) + ' s)');
+  }
+});
+
+/* Bob pulls into the slow lane (3) and crawls there at 5 to 7 m/s; Ann keeps her foot down in lane 1. */
+function crawlRace(behind) {
+  const { room } = racing({ worth: 1, wa: 'WA', wb: 'WB' });
+  const settled = [];
+  room.onSettled = (x) => settled.push(x);
+  if (behind) room.traffic.add([1, 3, 0, -25, 0, 0]);           // a sedan in the slow lane, 25 m behind the start
+  for (let t = room.clock + 1; t <= 60 * 120 && room.state === 'racing'; t++) {
+    const bob = room.bySide(1).car;
+    const e = S.laneX(3) - bob.x;
+    const pedal = bob.v > 7 ? -1 : bob.v < 5 ? 1 : 0;
+    room.input('a', { t: t - 1, k: [S.packInput(0, 1)] });
+    room.input('b', { t: t - 1, k: [S.packInput(Math.abs(e) < 0.05 ? 0 : Math.max(-1, Math.min(1, e)), pedal)] });
+    room.tick(at(room, t));
+  }
+  return { room, settled };
+}
+
+test('crawling in the slow lane loses: traffic comes up from behind and hits you, or you fall 200 m back', () => {
+  const hit = crawlRace(true);
+  assert.strictEqual(hit.room.state, 'over');
+  assert.strictEqual(hit.room.overWhy, 'crashed');
+  assert.strictEqual(hit.room.winner, 'a');
+  const bob = hit.room.bySide(1).car;
+  assert.strictEqual(bob.hit, 1);
+  assert.ok(Math.abs(bob.x - S.laneX(3)) < 0.5, 'in the slow lane');
+  assert.ok(S.zAt([1, 3, 0, -25, 0, 0], bob.crashTick) < bob.z, 'hit from behind');
+  assert.strictEqual(hit.settled[0].winnerId, 'a');
+  const alone = crawlRace(false);
+  assert.strictEqual(alone.room.overWhy, 'fell behind');
+  assert.strictEqual(alone.room.winner, 'a');
+  assert.strictEqual(alone.settled[0].winnerId, 'a');
+});
+
+test('both stopping is a draw at the 30 minute cap that refunds both: nobody profits from it', () => {
+  // The real spawner this time: traffic is only ever placed ahead, so nothing comes from behind two cars that never passed it.
+  const io = fakeIo();
+  const room = new SwimRoom(io);
+  room.addPlayer(sock('a'), 'Ann', 'WA', 1, 1);
+  room.addPlayer(sock('b'), 'Bob', 'WB', 1, 1);
+  room.stake = 1;
+  const settled = [];
+  room.onSettled = (x) => settled.push(x);
+  room.start(1000);
+  room.tick(room.goAt);
+  const STOP = S.packInput(0, -1);
+  const { MAX_TICKS } = require('../server/swim/SwimRoom');
+  for (let t = 1; t <= MAX_TICKS + 5 && room.state === 'racing'; t++) {
+    room.input('a', { t: t - 1, k: [STOP] });
+    room.input('b', { t: t - 1, k: [STOP] });
+    room.tick(at(room, t));
+    if (t % 6000 === 1) io.sent.length = 0;                     // the test keeps no wire history
+  }
+  assert.strictEqual(room.state, 'over');
+  assert.strictEqual(room.overWhy, 'time');
+  assert.strictEqual(room.winner, null);
+  assert.strictEqual(room.endTick, MAX_TICKS);
+  assert.ok(room.bySide(0).car.alive && room.bySide(1).car.alive, 'nothing touched either');
+  assert.strictEqual(settled.length, 1);
+  assert.strictEqual(settled[0].winnerId, null, 'a draw: both stakes back, nobody paid');
+  assert.strictEqual(settled[0].pot, 2);
+  const over = io.sent.find(m => m.ev === 'sw:over');
+  assert.ok(over.p.money && over.p.money.refunded, 'the card says refunded');
+});
+
+test('a server room and a screen replaying the same inputs agree to the bit through coasting, a stop and the gas again', () => {
+  const plan = [];
+  for (let t = 0; t < 1500; t++) {
+    const steer = t >= 200 && t < 230 ? 0.6 : t >= 900 && t < 960 ? -0.4 : 0;
+    plan.push(S.packInput(steer, t < 90 ? 1 : t < 520 ? 0 : t < 700 ? -1 : t < 780 ? 0 : 1));
+  }
+  const TICKS = plan.length;
+  const { room } = racing();
+  let mid = null;
+  const zs = [];
+  for (let t = 1; t <= TICKS; t++) {
+    room.input('a', { t: t - 1, k: [plan[t - 1]] });
+    room.input('b', { t: t - 1, k: [S.packInput(0, S.pedalOf(plan[t - 1]))] });   // Bob on the same pedals keeps level
+    room.tick(at(room, t));
+    const c = room.bySide(0).car;
+    zs[c.tick] = c.z;
+    if (t === 400) mid = room.carRows().find(r => r[0] === 0).slice();   // mid-coast
+  }
+  assert.strictEqual(room.state, 'racing');
+  const server = room.bySide(0);
+  assert.strictEqual(server.car.tick, TICKS);
+  const mine = S.newCar(0);
+  let stoppedAt = -1, regained = false;
+  for (let t = 0; t < TICKS; t++) {
+    S.step(mine, plan[t], null);
+    assert.strictEqual(mine.z, zs[mine.tick], 'z on tick ' + mine.tick);
+    if (mine.v === 0 && stoppedAt < 0) stoppedAt = mine.tick;
+    if (stoppedAt >= 0 && mine.v > S.V0) regained = true;
+  }
+  assert.ok(stoppedAt > 520 && stoppedAt < 700, 'braked to a standstill (' + stoppedAt + ')');
+  assert.ok(regained, 'and the gas took it back up');
+  for (const k of ['tick', 'z', 'x', 'v', 'vx', 'alive', 'wall', 'cool']) assert.strictEqual(mine[k], server.car[k], k);
+  const re = { tick: mid[1], z: mid[2], x: mid[3], v: mid[4], vx: mid[5], alive: !!mid[6], crashTick: -1, hit: -1, wall: mid[7], cool: mid[8] };
+  assert.ok(re.v > 0 && re.v < S.V0, 'the row was taken mid-coast');
+  for (let t = re.tick; t < TICKS; t++) S.step(re, plan[t], null);
+  for (const k of ['tick', 'z', 'x', 'v', 'vx', 'alive', 'wall', 'cool']) assert.strictEqual(re[k], server.car[k], 'after a correction: ' + k);
+});
+
 test('both crashing on the same tick is a draw, and a paid draw settles once with no winner', () => {
   const { room } = racing({ worth: 1, wa: 'WA', wb: 'WB' });
   const settled = [];
   room.onSettled = (x) => settled.push(x);
-  /* A car in each lane, placed so both cars (same speed, driving straight) first touch theirs on
-     the same tick: Ann's in lane 1 at z 150, Bob's in lane 2 at the same distance from him then. */
+  /* A car in each lane, placed so both cars (same speed, driving straight on the gas) first touch
+     theirs on the same tick: Ann's in lane 1 at z 150, Bob's in lane 2 at the same distance from him then. */
+  const GO = S.packInput(0, 1);
   room.traffic.add([1, 1, 0, 150, 0, 0]);
-  const meet = crashTickFor(0, [1, 1, 0, 150, 0, 0], S.NEUTRAL);
+  const meet = crashTickFor(0, [1, 1, 0, 150, 0, 0], GO);
   const dz = S.zAt([1, 1, 0, 150, 0, 0], meet);
   room.traffic.add([2, 2, 0, dz - S.LANE_V[2] * meet * S.DT, 0, 0]);
-  run(room, 2000, S.NEUTRAL, S.NEUTRAL);
+  run(room, 2000, GO, GO);
   assert.strictEqual(room.state, 'over');
   assert.strictEqual(room.overWhy, 'both crashed');
   assert.strictEqual(room.winner, null);

@@ -11,7 +11,7 @@
 
    swimMain.js calls SwimSound.play(name) for those and SwimSound.frame({ v, pedal, on, rev })
    every animation frame: v is the car being followed (m/s), pedal is -1 brake,
-   0 cruise, 1 gas, and on is false off the road (crash, result card, watching),
+   0 coasting, 1 gas, and on is false off the road (crash, result card, watching),
    which fades the engine out. rev is true on the start line (your own car in the
    countdown): the engine is out of gear and the gas only revs it, speed 0.
 
@@ -46,7 +46,7 @@
   });
 
   const VOL = 0.35;         // the engine under the one-shots: about as loud as g.go, measured
-  const CRUISE = 0.4;       // the pedal left alone still holds the cruise: part throttle, not a lift
+  const CRUISE = 0;         // no pedal is a lift: the car coasts, nothing holds a cruise (2026-10-28)
   const LET_GO = 2;         // seconds off the road before the engine is let go
 
   let ctx = null, bus = null, gain = -1, eng = null, engId = '', was = false, offAt = 0, ease = 0, lastT = 0;
