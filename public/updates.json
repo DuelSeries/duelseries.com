@@ -6,8 +6,8 @@
       "date": "2026-10-28",
       "tag": "new",
       "title": "Pick your car in Swim",
-      "body": "Customize now has three cars, three colours and three engines for Swim, and your opponent sees your car and colour. Hold gas on the start line to rev it, feel every gear shift, and lift off at high revs to hear it backfire.",
-      "image": { "src": "/updates/swim-cars.webp", "alt": "A red muscle car and a teal hot hatch side by side on the Swim start line at dusk" }
+      "body": "Pick one of three cars for Swim in Customize, each with its own colour and engine, and your opponent sees the car you picked. Hold gas on the start line to rev it, feel every gear shift, and lift off at high revs to hear it backfire. The car now only speeds up while you hold gas and coasts down when you let go.",
+      "image": { "src": "/updates/swim-cars.webp", "alt": "A blue muscle car and a yellow hot hatch side by side on the Swim start line at dusk" }
     },
     {
       "id": "2026-10-28-sound-switch-games",

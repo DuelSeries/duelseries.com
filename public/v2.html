@@ -1973,14 +1973,6 @@ body.no-foot footer{display:none}
 /* Every finger on this screen belongs to the reel (see the reel code): no
    page scroll, no pull to refresh, no text selection mid-drag. */
 #lookveil{touch-action:none;-webkit-user-select:none;user-select:none}
-/* Swim's three rows, as three tabs under the title. */
-.ap-rows{position:absolute;left:50%;top:calc(68px + env(safe-area-inset-top));transform:translateX(-50%);z-index:56;
-  display:flex;gap:6px;padding:4px;border-radius:12px;background:var(--s1);border:1px solid var(--s3)}
-.ap-rows[hidden]{display:none}
-.ap-rows button{background:none;border:0;color:var(--tx2);font:inherit;font-size:.86rem;font-weight:700;
-  padding:7px 16px;border-radius:9px;cursor:pointer;letter-spacing:.3px}
-.ap-rows button.on{background:var(--s3);color:var(--tx)}
-#lookveil.swrows .ap-hint{top:calc(116px + env(safe-area-inset-top))}
 /* Above the scrim, so the arrows stay bright when a locked skin darkens the
    screen around them. */
 .ap-selector{position:absolute;inset:0;display:block;padding:0;max-width:none;
@@ -3324,13 +3316,6 @@ body.scr-anim { overflow-x:hidden }
        to aim at; seeing the ones either side is what makes it read as a list
        you are moving through. Its slots are placed by the reel code, not by a
        scroll box. -->
-  <!-- Swim only: its three rows (car, colour, engine), three of each. Browsing one row keeps what you browsed
-       in the others; Save keeps all three. -->
-  <div class="ap-rows" id="ap-rows" role="tablist" aria-label="What to change" hidden>
-    <button type="button" role="tab" data-row="car" onclick="swRowSet('car')">Car</button>
-    <button type="button" role="tab" data-row="colour" onclick="swRowSet('colour')">Colour</button>
-    <button type="button" role="tab" data-row="engine" onclick="swRowSet('engine')">Engine</button>
-  </div>
   <div class="ap-reel" id="ap-reel" aria-hidden="true"></div>
   <!-- A locked skin in the middle: everything round it darkens, a gold case
        frames it, and the padlock and price sit on the case's bottom edge, so
@@ -4216,35 +4201,16 @@ const RT_LOOKS=(RTL?RTL.LOOKS:[]).map(l=>({id:'rt:'+l.id,game:'rooftop',rt:l,nam
 let rtLookId='';
 try{rtLookId=String(localStorage.getItem(RTL?RTL.KEY:'')||'').trim()}catch(_){}
 if(!RT_LOOKS.some(s=>s.rt.id===rtLookId))rtLookId='';   /* unknown or stale: Random */
-/* Swim keeps the engine you hear (shared/swimLooks.js: three engines for its one car, free, nothing sold) under
-   duel.swim.engine, read by /swim itself when a race starts (public/js/swim/swimSound.js). No "default" row: the
-   three engines are the list, and nothing stored wears the car's own, the V12. Only you hear it; the server never
-   sees it. */
+/* Swim keeps one of its three cars (shared/swimLooks.js: free, nothing sold) under duel.swim.car. Each car comes
+   with its own paint and engine (the supercar red with the V12, the muscle car blue with the V8, the hot hatch
+   yellow with the turbo four). /swim sends the car with sw:queue so the other player and the watchers see it,
+   the server keeps it only if listed, and only you hear its engine. Looks only: every car races the same. No
+   "default" row: the three cars are the list, and nothing stored wears the supercar. */
 const SWL=window.DS_SWIM_LOOKS;
-const SW_LOOKS=(SWL?SWL.ENGINES:[]).map(e=>({id:'sw:'+e.id,game:'swim',sw:e,swk:'engine',name:e.name}));
-/* Swim's car and paint (Owen 2026-10-28): three of each, looks only, sent by /swim with sw:queue so the other
-   player and the watchers see them, kept by the server only if listed (shared/swimLooks.js clean()). */
-const SW_CARS=(SWL?SWL.CARS:[]).map(c=>({id:'swc:'+c.id,game:'swim',sw:c,swk:'car',name:c.name}));
-const SW_PAINTS=(SWL?SWL.PAINTS:[]).map(c=>({id:'swp:'+c.id,game:'swim',sw:c,swk:'colour',name:c.name,col:c.hex}));
-const SW_ROWS={car:SW_CARS,colour:SW_PAINTS,engine:SW_LOOKS};
-const SW_KEY={car:SWL?SWL.CAR_KEY:'',colour:SWL?SWL.PAINT_KEY:'',engine:SWL?SWL.KEY:''};
-const SW_DEF={car:SWL?SWL.DEFAULT_CAR:'supercar',colour:SWL?SWL.DEFAULT_PAINT:'gold',engine:SWL?SWL.DEFAULT:'v12'};
-const swGet=k=>{let v='';try{v=String(localStorage.getItem(SW_KEY[k])||'').trim()}catch(_){}
-  return SW_ROWS[k].some(s=>s.sw.id===v)?v:SW_DEF[k]};   /* unknown or stale: the default */
-let swEngineId='';
-try{swEngineId=String(localStorage.getItem(SWL?SWL.KEY:'')||'').trim()}catch(_){}
-if(!SW_LOOKS.some(s=>s.sw.id===swEngineId))swEngineId='';   /* unknown or stale: the V12 */
-/* The row on screen, and what is being browsed in each row while the chooser is open (Save keeps all three). */
-let swRow='car';
-const swPend={car:'',colour:'',engine:''};
-/* What the Swim preview draws: the saved three, or while the chooser is open what is being browsed, with the
-   item s (a row's entry) put in its own row. */
-function swSpec(s){
-  const o=isOn('lookveil')&&cur&&cur.id==='swim'?{car:swPend.car,colour:swPend.colour,engine:swPend.engine}
-    :{car:swGet('car'),colour:swGet('colour'),engine:swGet('engine')};
-  if(s&&s.swk)o[s.swk]=s.sw.id;
-  return o;
-}
+const SW_LOOKS=(SWL?SWL.CARS:[]).map(c=>({id:'sw:'+c.id,game:'swim',sw:c,name:c.name}));
+let swCarId='';
+try{swCarId=String(localStorage.getItem(SWL?SWL.KEY:'')||'').trim()}catch(_){}
+if(!SW_LOOKS.some(s=>s.sw.id===swCarId))swCarId='';   /* unknown or stale: the supercar */
 /* What a game keeps: how to read the skin being worn, and how to store a new
    one (null is the game's free look: a random colour in both). */
 /* A paid skin (docs/skin-purchases.md) is worn through DSSkins (public/js/v2/skinBuy.js): its id under
@@ -4276,12 +4242,10 @@ const SAVED={
   rooftop:{worn:()=>RT_LOOKS.find(s=>s.rt.id===rtLookId)||null,
     put:s=>{rtLookId=s&&s.rt?s.rt.id:'';
       try{if(rtLookId)localStorage.setItem(RTL.KEY,rtLookId);else localStorage.removeItem(RTL.KEY)}catch(_){}}},
-  /* Swim: three cars, three paints, three engines, all free; worn() is the row on screen. Nothing stored is
-     the supercar, gold, the V12. put() stores an entry in its own row (null clears the row on screen). */
-  swim:{worn:()=>{const k=swRow;return SW_ROWS[k].find(s=>s.sw.id===swGet(k))||null},
-    put:s=>{const k=s&&s.swk?s.swk:swRow, id=s&&s.sw?s.sw.id:'';
-      if(k==='engine')swEngineId=id;
-      try{if(id)localStorage.setItem(SW_KEY[k],id);else localStorage.removeItem(SW_KEY[k])}catch(_){}}},
+  /* Swim: one of three cars, all free, each with its own paint and engine. Nothing stored is the supercar. */
+  swim:{worn:()=>SW_LOOKS.find(s=>s.sw.id===(swCarId||(SWL&&SWL.DEFAULT_CAR)))||null,
+    put:s=>{swCarId=s&&s.sw?s.sw.id:'';
+      try{if(swCarId)localStorage.setItem(SWL.KEY,swCarId);else localStorage.removeItem(SWL.KEY)}catch(_){}}},
 };
 SAVED.pool8={worn:()=>P8_LOOKS.find(s=>s.p8.id===p8LookId)||null,
   put:s=>{p8LookId=s&&s.p8?s.p8.id:'';
@@ -4301,7 +4265,7 @@ function lookList(g){
       locked:own?0:1,owned:own?1:0,sale:onSale(g.id)};
   }):[];
   /* Every free skin first, then every paid one: one run of each. */
-  const free=g.look?LOOKS:g.id==='swim'?SW_ROWS[swRow]
+  const free=g.look?LOOKS:g.id==='swim'?SW_LOOKS
     :[{id:'default',game:g.id,name:g.id==='rooftop'?'Random':g.id==='pool8'?'Classic blue':g.id==='crossy'?'Nugget':S.defaultName(g.id)}].concat(g.id==='rooftop'?RT_LOOKS:g.id==='agar'?AG_LOOKS:g.id==='chomp'?CH_LOOKS:g.id==='airhockey'?AH_LOOKS:g.id==='pool8'?P8_LOOKS:g.id==='crossy'?CR_LOOKS:[]);
   return free.concat(paid);
 }
@@ -4346,7 +4310,7 @@ function paintLook(cv){
   if(key==='mini'&&cur&&!cur.look){
     /* Rooftop Snipers: its sniper from the game's own art (no look worn walks through the cast: Random). */
     if(window.V2Shop){if(cur.id==='rooftop')V2Shop.paintWith(cv,'rooftop',{look:s&&s.rt?s.rt.id:''},lookT,false,true);
-      else if(cur.id==='swim')V2Shop.paintWith(cv,'swim',swSpec(s),lookT,false,true);
+      else if(cur.id==='swim')V2Shop.paintWith(cv,'swim',{car:s&&s.sw?s.sw.id:''},lookT,false,true);
       else if(cur.id==='pool8')V2Shop.paintWith(cv,cur.id,s&&s.p8?s.p8:{},lookT,false,true);
       else if(cur.id==='crossy')V2Shop.paintWith(cv,cur.id,{col:s&&s.cr?s.col:'#fbd88e',id:s&&s.cr?s.cr.id:'nugget'},lookT,false,true);
       else if(s&&(s.ag||s.ch||s.ah))V2Shop.paintWith(cv,cur.id,{col:s.col},lookT,false,true);
@@ -4354,7 +4318,7 @@ function paintLook(cv){
     return}
   if(s&&s.game&&s.game!=='snake'){
     if(s.game==='rooftop')V2Shop.paintWith(cv,'rooftop',{look:s.rt?s.rt.id:''},lookT,false,true);
-    else if(s.game==='swim')V2Shop.paintWith(cv,'swim',swSpec(s),lookT,false,true);
+    else if(s.game==='swim')V2Shop.paintWith(cv,'swim',{car:s.sw?s.sw.id:''},lookT,false,true);
     else if(s.game==='pool8')V2Shop.paintWith(cv,s.game,s.p8||{},lookT,false,true);
     else if(s.game==='crossy')V2Shop.paintWith(cv,s.game,{col:s.cr?s.col:'#fbd88e',id:s.cr?s.cr.id:'nugget'},lookT,false,true);
     else if(s.ag||s.ch||s.ah)V2Shop.paintWith(cv,s.game,{col:s.col},lookT,false,true);
@@ -4388,11 +4352,10 @@ function drawSkins(){
 }
 function openLook(){
   if(!hasLook(cur))return;
-  /* Swim: three rows of three (car, colour, engine), opening on the car with your saved three. */
-  const sw=cur.id==='swim';
-  if(sw){swRow='car';swPend.car=swGet('car');swPend.colour=swGet('colour');swPend.engine=swGet('engine')}
-  swTabs(sw);
   LK=lookList(cur);
+  /* Swim's choice is a car (its paint and engine come with it), not a skin. */
+  const hint=document.querySelector('#lookveil .ap-hint');
+  if(hint)hint.textContent=cur.id==='swim'?'Scroll to change car':'Scroll to change skin';
   /* Always reopens on the skin actually being worn, which is also what makes
      Back safe: browsing moves lookIx, and only Save stores it. */
   const w=wornIn(cur);
@@ -4609,7 +4572,6 @@ function cycleLook(d){
 }
 function lookMeta(){
   const s=LK[lookIx]; if(!s)return;
-  if(s.swk)swPend[s.swk]=s.sw.id;   /* Swim: what you browse in a row is kept while you visit the others */
   /* A locked skin shows its name, and Save turns into Unlock with its price
      (the unlock sheet). In a game that cannot be played yet it stays shut. */
   document.getElementById('lookname').textContent=s.locked
@@ -4625,36 +4587,13 @@ function lookMeta(){
 }
 /* Save commits what you were browsing; Back closes without changing the
    equipped skin. There is no cancel button, matching the live screen. */
-/* Swim's row tabs: shown only for Swim; a tab swaps the reel to that row, on what you are browsing there. */
-function swTabs(on){
-  const t=document.getElementById('ap-rows'); if(!t)return;
-  t.hidden=!on; document.getElementById('lookveil').classList.toggle('swrows',!!on);
-  t.querySelectorAll('button').forEach(b=>{const k=b.dataset.row===swRow;b.classList.toggle('on',k);b.setAttribute('aria-selected',k?'true':'false')});
-  const hint=document.querySelector('#lookveil .ap-hint');
-  if(hint)hint.textContent=on?'Scroll to change '+swRow:'Scroll to change skin';
-}
-function swRowSet(k){
-  if(!cur||cur.id!=='swim'||!SW_ROWS[k]||k===swRow)return;
-  swRow=k; swTabs(true);
-  LK=lookList(cur);
-  lookIx=Math.max(0,LK.findIndex(x=>x.sw.id===swPend[k]));
-  if(typeof REEL!=='undefined'&&REEL.slots){REEL.slots.forEach(sl=>{sl.ix=-1})}
-  buildReel(); lookMeta();
-}
-/* Swim's Save: all three rows at once, the car, the paint and the engine you left each row on. */
-function swSave(){
-  const names=['car','colour','engine'].map(k=>{const e=SW_ROWS[k].find(x=>x.sw.id===swPend[k]);if(e)SAVED.swim.put(e);return e?e.name:''});
-  if(window.DSToast)DSToast.show({kind:'ok',title:'Car saved',detail:names.filter(Boolean).join(', ')+' for '+cur.name});
-}
 function closeLook(save){
   const s=LK[lookIx];
   if(save&&s&&s.locked){if(s.sale)openBuy(s);return}   /* Unlock: the sheet, never a save */
   if(save&&cur&&SAVED[cur.id]&&s){
-    if(cur.id!=='swim'){
-    SAVED[cur.id].put(s.id==='default'?null:s);   /* /sl's skin number, /ag's colour */
+    SAVED[cur.id].put(s.id==='default'?null:s);   /* /sl's skin number, /ag's colour, Swim's car */
     /* Said by the Save button's own word, with the skin and the game it is for. */
-    if(window.DSToast)DSToast.show({kind:'ok',title:'Skin saved',detail:(s.name||'Default')+' for '+cur.name});
-    }else swSave();
+    if(window.DSToast)DSToast.show({kind:'ok',title:cur.id==='swim'?'Car saved':'Skin saved',detail:(s.name||'Default')+' for '+cur.name});
   }
   if(save)drawSkins();
   REEL.on=false; REEL.mode='idle';

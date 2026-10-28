@@ -24,17 +24,17 @@ const socket = io();
 // The ping and FPS readout every game shares (public/js/shared/dsPerfHud.js), timed on this socket.
 if (window.DSPerfHud) window.DSPerfHud.mount({ socket });
 const SOUND = window.SwimSound || { play() {}, frame() {}, stop() {} };
-/* The car and paint you picked in Customize (shared/swimLooks.js), sent with sw:queue so the other player and
-   the watchers see them. Looks only: the server keeps listed ids alone and the step never reads them. The
-   engine is not read here: only you hear it (swimSound.js). */
+/* The car you picked in Customize (shared/swimLooks.js), sent with sw:queue so the other player and the
+   watchers see it; its paint comes with it, and its engine is the one you hear (swimSound.js). Looks only:
+   the server keeps a listed car alone and the step never reads it. */
 const LOOKS = window.DS_SWIM_LOOKS || null;
 function myLook() {
-  let car = null, colour = null;
-  try { car = localStorage.getItem(LOOKS ? LOOKS.CAR_KEY : ''); colour = localStorage.getItem(LOOKS ? LOOKS.PAINT_KEY : ''); } catch (_) {}
-  return LOOKS ? LOOKS.clean({ car, colour }) : { car: 'supercar', colour: 'gold' };
+  let car = null;
+  try { car = localStorage.getItem(LOOKS ? LOOKS.KEY : ''); } catch (_) {}
+  return LOOKS ? LOOKS.clean({ car }) : { car: 'supercar' };
 }
-function lookOf(p) { return LOOKS ? LOOKS.clean(p) : { car: 'supercar', colour: 'gold' }; }
-function paintHex(id) { const c = LOOKS && LOOKS.paintById(id); return c ? c.hex : '#e8b84a'; }
+function lookOf(p) { return LOOKS ? LOOKS.clean(p) : { car: 'supercar' }; }
+function paintHex(car) { return LOOKS ? LOOKS.paintOf(car) : '#e2363f'; }
 const NAME = S.NAME;
 const R = 1024;                      // ticks of input and state kept for replay
 
@@ -146,12 +146,12 @@ function newRace(m, side) {
     rows: [null, null], disp: [null, null], seen: [0, 0], slowing: [false, false],
     crashed: false, closes: 0, topV: 0, startedAt: 0, follow: 0, countShown: -1,
     corrections: 0, scrapeWas: 0,
-    /* Each seat's car and paint, by seat (the server's cleaned ids), drawn by the scene. */
+    /* Each seat's car, by seat (the server's cleaned id), drawn by the scene in the car's own paint. */
     looks: [0, 1].map(s => lookOf((m.players || []).find(q => q.side === s))),
     /* The start line and the engine: revs shown, the engine's counts already acted on, lift-offs seen. */
     rev: 0, seenUp: 0, seenDown: 0, seenPops: 0, lifting: [false, false],
   };
-  if (scene && scene.setLooks) scene.setLooks(r.looks.map(l => ({ car: l.car, paint: paintHex(l.colour) })));
+  if (scene && scene.setLooks) scene.setLooks(r.looks.map(l => ({ car: l.car, paint: paintHex(l.car) })));
   if (window.SwimSound && SwimSound.state) { const st = SwimSound.state(); r.seenUp = st.up; r.seenDown = st.down; r.seenPops = st.pops; }
   if (r.me) r.hist[0] = S.copyCar(r.me);
   for (const row of m.p || []) takeRow(r, row);
@@ -582,7 +582,7 @@ function queue(token, resume) {
   if (!resume) startWait(WAIT_MS); else paintWait();
   const look = myLook();
   socket.emit('sw:queue', { name: myName, wallet: myWallet, stake: myStake, entryToken: token || myEntryToken, resume: resume || undefined, v: S.VERSION,
-    car: look.car, colour: look.colour });
+    car: look.car });
   myEntryToken = null;
   try { sessionStorage.removeItem('entryToken'); } catch (_) {}
 }

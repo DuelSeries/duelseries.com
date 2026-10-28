@@ -478,13 +478,14 @@
   }
 
   /* ── Swim ────────────────────────────────────────────────────────────── */
-  /* No Shop section: Customize's three cars, three paints and three engines (shared/swimLooks.js), drawn
-     through paintWith with { car, colour, engine }; anything missing is the default (the supercar, gold, the
-     V12). Each car is the game's own model (public/js/swim/swimScene.js) side on and facing right: the supercar
-     with its big rear wing, the muscle car with its long scooped hood and set-back cabin, the hot hatch tall and
-     boxy. The engine's badge sits on the door, with its tail pipes under the bumper: two big ones for the V8,
-     four slim ones for the V12, one fat one for the turbo four. Drawn in a 102 by 40 unit box scaled to fit, so
-     the badge reads in the 56 px Customize bar and the 104 px reel alike. */
+  /* No Shop section: Customize's three cars (shared/swimLooks.js), drawn through paintWith with { car };
+     anything else is the default, the supercar. Each car comes with its own paint and engine: the supercar red
+     with the V12, the muscle car blue with the V8, the hot hatch yellow with the turbo four. Each is the game's
+     own model (public/js/swim/swimScene.js) side on and facing right: the supercar with its big rear wing, the
+     muscle car with its long scooped hood and set-back cabin, the hot hatch tall and boxy. The engine's badge
+     sits on the door, with its tail pipes under the bumper: two big ones for the V8, four slim ones for the V12,
+     one fat one for the turbo four. Drawn in a 102 by 40 unit box scaled to fit, so the badge reads in the 56 px
+     Customize bar and the 104 px reel alike. */
   var SW = { gold: '#e8b84a', hi: '#ffd27e', low: '#9a6d1e', glass: '#1b2532', tyre: '#141518', hub: '#8d929b',
     trim: '#202228', tail: '#ff2a1c', head: '#fff2d4', ink: '#141820' };
   var SW_PIPES = { v8: [[27.3, 1.8], [29.5, 1.8]], v12: [[26.9, 0.9], [28.1, 0.9], [29.3, 0.9], [30.5, 0.9]], turbo4: [[27.5, 2.9]] };
@@ -501,11 +502,10 @@
   }
   function paintSwim(cv, k, t, big, bare) {
     var ctx = cv.getContext('2d'), w = cv.width, h = cv.height;
-    var L = root.DS_SWIM_LOOKS, e = L ? (L.byId(k && k.engine) || L.byId(L.DEFAULT)) : null;
+    var L = root.DS_SWIM_LOOKS, car = L ? L.carOf(k && k.car) : 'supercar';
+    var e = L ? L.byId(L.engineOf(car)) : null;
     var id = e ? e.id : 'v12', badge = e ? e.badge : 'V12';
-    var car = L && L.carById(k && k.car) ? k.car : 'supercar';
-    var pc = L ? (L.paintById(k && k.colour) || L.paintById(L.DEFAULT_PAINT)) : null;
-    var base = pc ? pc.hex : SW.gold, PH = swMix(base, 255, 0.35), PL = swMix(base, 0, 0.42);
+    var base = L ? L.paintOf(car) : SW.gold, PH = swMix(base, 255, 0.35), PL = swMix(base, 0, 0.42);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, w, h);
     if (!bare) { ctx.fillStyle = '#1c1942'; ctx.fillRect(0, 0, w, h); }

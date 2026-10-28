@@ -20,9 +20,9 @@
    redline, and running counts of upshifts, downshifts and backfire bangs, each
    counted when it is heard (one object, reused).
 
-   THE ENGINE is the one picked in Customize (shared/swimLooks.js, kept under
-   duel.swim.engine), read each time a race starts; nothing or anything unknown
-   is the car's own, the V12. Only ever one engine: the other car is silent (the
+   THE ENGINE is your car's own (shared/swimLooks.js: the car picked in Customize,
+   kept under duel.swim.car), read each time a race starts; nothing or anything
+   unknown is the supercar's, the V12. Only ever one engine: the other car is silent (the
    same engine twice risks phasing). It is made when a race starts and let go
    two seconds after it ends, so nothing runs on the audio thread between races;
    its waves are worked out while the page waits, so the start line never waits.
@@ -61,11 +61,11 @@
     evK[i] = k === 'up' ? 1 : k === 'down' ? 2 : 3; evT[i] = t; evN++;
   }
 
-  /* The engine for this race: the Customize pick, else the car's own. */
+  /* The engine for this race: the engine of the car picked in Customize. */
   function chosen() {
-    let id = null;
-    try { id = root.localStorage.getItem(L ? L.KEY : 'duel.swim.engine'); } catch (_) {}
-    return L ? L.pick(id) : 'v12';
+    let car = null;
+    try { car = root.localStorage.getItem(L ? L.KEY : 'duel.swim.car'); } catch (_) {}
+    return L ? L.engineOf(car) : 'v12';
   }
   function level() {
     const v = S.level ? Number(S.level()) : 1;

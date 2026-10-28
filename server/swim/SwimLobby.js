@@ -73,7 +73,7 @@ class SwimLobby {
   stop() { if (this.timer) { clearInterval(this.timer); this.timer = null; } }
 
   /* ── the queue (KnockoutLobby.enqueue, the same contract) ───────────────── */
-  /* look: { car, colour } as sent; kept only through SwimLooks.clean (listed ids, else the defaults). */
+  /* look: { car } as sent; kept only through SwimLooks.clean (a listed car, else the supercar). */
   enqueue(socket, name, wallet, stake, worth, now, paid, skin, look) {
     /* Already in a race: one seat per socket (Fable review 2026-10-27). Not taken, so a paid caller
        refunds it through the stake row (enterPaid), and the race in progress is left alone. */
