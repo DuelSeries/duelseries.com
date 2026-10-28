@@ -3525,7 +3525,9 @@ function ownerStartBr(room, force) {
     return { ok: false, why: 'The last match is finishing. Try again in a few seconds.' };
   }
   if (room.state !== 'waiting') return { ok: false, why: 'A match is already under way' };
-  if (force && room.livingCount() < 1) return { ok: false, why: 'Nobody is in the room to start with' };
+  // people, not snakes: bots wait in the arena now, and forceStart refuses a room with no human (BattleRoyaleRoom)
+  const humans = typeof room.humanLiving === 'function' ? room.humanLiving() : room.livingCount();
+  if (force && humans < 1) return { ok: false, why: 'Nobody is in the room to start with' };
   if (force) room.forceStart('owner override');
   else if (room.canStart()) room.startMatch('owner');
   if (room.state === 'waiting') {

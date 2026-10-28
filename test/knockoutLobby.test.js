@@ -72,14 +72,14 @@ test('the bot turns up when the minute the screen counts down is up, and not bef
   const lob = new KnockoutLobby(io);
   const T0 = 1e9;
   lob.enqueue(sock('A'), 'Owen', null, 0, 0, T0);
-  lob.tick(T0 + 19999);
+  lob.tick(T0 + 9999);
   assert.ok(!lob.roomOf('A'), 'still looking for a person at 0:01');
-  lob.tick(T0 + 20000);
+  lob.tick(T0 + 10000);
   const room = lob.roomOf('A');
   assert.ok(room && room.bot, 'a bot at 0:00');
   assert.strictEqual(room.publicState().vsBot, true, 'and the screen is told it is a bot');
-  assert.strictEqual(BOT_AFTER_MIN_MS, 20000);   // shared/duelWait.js, Owen 2026-10-27
-  assert.strictEqual(BOT_AFTER_MS, 20000);
+  assert.strictEqual(BOT_AFTER_MIN_MS, 10000);   // shared/duelWait.js: the duel wait is 10 s since 2026-10-28 (Owen)
+  assert.strictEqual(BOT_AFTER_MS, 10000);
 });
 
 test('the bot locking in tells the other screen, and no message a client gets names the bot id', () => {

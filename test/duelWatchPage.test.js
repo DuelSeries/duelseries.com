@@ -168,6 +168,7 @@ function boot(file, storage, { framed = true } = {}) {
     clearTimeout: (id) => { const i = timers.findIndex(x => x.id === id); if (i >= 0) timers.splice(i, 1); },
     setInterval: () => 0,
     clearInterval: () => {},
+    getComputedStyle: () => ({ paddingTop: '0px' }), // battleship.js measures its stage padding (daf4b0f)
     location: { href: '', origin: ORIGIN, replace(u) { this.href = String(u); replaced.push(String(u)); } },
     BattleshipArt: { drawShip() {} },
     BattleshipSound: { hit() {}, miss() {}, sunk() {}, taken() {} },
@@ -891,7 +892,7 @@ for (const [file, q, queued, unqueue, unqueued] of [
     const page = boot(file, { playerName: 'Owen' });
     page.deliver('connect');
     assert.strictEqual(page.sent(q).length, 1);
-    assert.match(page.$('waitMain').textContent, /^Looking for a player… (0:20|0:19)$/);
+    assert.match(page.$('waitMain').textContent, /^Looking for a player… (0:10|0:09)$/); // the duel wait is 10 s since 2026-10-28 (Owen)
     assert.match(page.$('waitSub').textContent, /you'll play a bot/);
     assert.strictEqual(page.$('waitCancel').textContent, 'Back to the lobby');
     const key = 'ab'.repeat(16);

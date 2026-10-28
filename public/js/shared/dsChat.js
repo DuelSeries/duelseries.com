@@ -586,8 +586,8 @@
     function visible(on) {
       on = !!on;
       if (on) sendable();
-      if (on && !sendTimer) sendTimer = setInterval(sendable, 1000);
-      if (!on && sendTimer) { clearInterval(sendTimer); sendTimer = 0; }
+      if (on && !sendTimer) sendTimer = root.setInterval(sendable, 1000);
+      if (!on && sendTimer) { root.clearInterval(sendTimer); sendTimer = 0; }
       if (on === shown) return;
       shown = on;
       box.hidden = !on;

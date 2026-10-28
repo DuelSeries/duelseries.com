@@ -157,6 +157,8 @@ function makePage(opts) {
     requestAnimationFrame(cb) { rafs.push(cb); return rafs.length; },
     setTimeout(cb, ms) { timers.push({ id: ++tid, due: clock.now + (+ms || 0), cb }); return tid; },
     clearTimeout(id) { const at = timers.findIndex((t) => t.id === id); if (at >= 0) timers.splice(at, 1); },
+    setInterval() { return ++tid; }, // dsChat's once-a-second "can you talk" check (7ff3cd5); never run here
+    clearInterval() {},
     addEventListener(type, fn, opt) { addL(win, type, fn, opt); },
     removeEventListener(type, fn) { removeL(win, type, fn); },
     location: { assigned: [], replaced: [], assign(u) { this.assigned.push(String(u)); }, replace(u) { this.replaced.push(String(u)); } },
