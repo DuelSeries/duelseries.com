@@ -63,6 +63,13 @@ are more than 2 percent off (the rigid model had 63). Lockstep: the engine's mem
 rides the wire, and the server rounds its match to the wire at every snapshot, so the page replays the server's
 steps exactly. HS.CONTACT_P2 = false restores the rigid model bit for bit.
 
+Money guards (OURS, Fable review 2026-10-28; none changes a measured scenario): a ball sunk deeper than a solid is
+thick there takes the true nearest face whenever p2's pick disagrees by more than ~25 degrees (a pitch piece's cut
+lines are never a face), so it cannot pass through the 40-unit crossbar or be buried in the thin wedge at a step's
+foot; a ball pinned more than 4 units into both a solid and a player is put back to 4 and the player moved off it
+(positions only); the ball's speed is capped at HS.BALL_MAX_V 3500; a goal needs the ball's centre under the
+crossbar's underside (the goal box's top line runs inside the bar's front end).
+
 **Not symmetric in the reference:** its kick aims at the ball sprite's top-left corner for both players. Ours
 mirrors that corner for the right seat so neither seat kicks differently (a money duel must be fair).
 

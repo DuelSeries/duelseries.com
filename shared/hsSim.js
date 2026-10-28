@@ -90,6 +90,7 @@
     // spring, friction, restitution on a first impact only, a spinning ball) and its kick's second update() call.
     // M: 52 measured scenarios match it within 0.5 units. false is the rigid push-out model this file had before.
     CONTACT_P2: true,
+    BALL_MAX_V: 3500,                // OURS (with CONTACT_P2): the ball's top speed; a kick is 2900, a fall from the top 2100
   };
 
   var IN = { LEFT: 1, RIGHT: 2 };
@@ -439,6 +440,17 @@
     var STATICS = [TOP, FLOOR, BAR_L, NET_L, BAR_R, NET_R];
     var LEGS = convex([[20, 50], [20, 150], [-20, 150], [-20, 50]], 'player', 0), HEAD = convex(HS.HEAD, 'player', 1, true);   // L: its vertex order
     var BALL = { type: CIRCLE, radius: HS.BALL_R * SM, mat: 'ball', ix: 0 };
+    // OURS: which edges of each pitch piece are cut lines inside the pitch (shared with another piece), not its surface
+    function near(p, q) { return Math.abs(p[0] - q[0]) < 1e-7 && Math.abs(p[1] - q[1]) < 1e-7; }
+    function corner(sh, i) { var v = sh.v[i % sh.v.length]; return [v[0] + sh.off[0], v[1] + sh.off[1]]; }
+    FLOOR.shapes.forEach(function (sh) {
+      sh.inner = sh.v.map(function (_, i) {
+        var a = corner(sh, i), b = corner(sh, i + 1);
+        return FLOOR.shapes.some(function (o) {
+          return o !== sh && o.v.some(function (_, j) { return near(corner(o, j), b) && near(corner(o, j + 1), a); });
+        });
+      });
+    });
 
     function aabbOf(b) {
       var lx = Infinity, ux = -Infinity, ly = Infinity, uy = -Infinity;
@@ -545,7 +557,12 @@
       return true;
     }
     function circleConvex(w, A, sA, B, sB) {
-      var c = spos(A, sA), R = sA.radius, k = spos(B, sB), M = sB.v, found = false, L = Infinity, J = null, Ap = null, N;
+      var c = spos(A, sA), R = sA.radius, k = spos(B, sB), M = sB.v, found = false, L = Infinity, J = null, Ap = null, N, n, cpB;
+      // OURS: a centre inside the solid (see trueFace): the piece holding it answers, its neighbours stay out
+      for (N = 0; N < B.shapes.length; N++) {
+        var o = B.shapes[N];
+        if (o.type === CONVEX && pointInConvex(c, o.v, spos(B, o))) return o === sB ? circleContact(w, A, sA, B, sB, c, R, trueFace(c, R, k, sB, true)) : 0;
+      }
       for (N = 0; N !== M.length + 1; N++) {
         var O = add(M[N % M.length], k), P = add(M[(N + 1) % M.length], k), x = cw(unit(sub(P, O))), D = add(mul(x, -R), c);
         if (pointInConvex(D, M, k)) {
@@ -553,23 +570,50 @@
           if (L > Q) { J = D; L = Q; Ap = add(mul(x, Q), D); found = true; }
         }
       }
-      var e;
-      if (found) {
-        e = newContact(w, A, B, sA, sB);
-        e.n = unit(sub(J, c)); e.cpA = sub(add(mul(e.n, R), c), A.pos); e.cpB = sub(add(sub(Ap, k), k), B.pos);
-        friction(w, A, B, e.cpA.slice(), e.cpB.slice(), cw(e.n));
-        return 1;
-      }
-      for (N = 0; N < M.length; N++) {   // a vertex inside the circle
-        var z = add(M[N], k), y = sub(z, c);
-        if (dot(y, y) < R * R) {
-          e = newContact(w, A, B, sA, sB);
-          e.n = unit(y); e.cpA = sub(add(mul(e.n, R), c), A.pos); e.cpB = sub(add(sub(z, k), k), B.pos);
-          friction(w, A, B, e.cpA.slice(), e.cpB.slice(), cw(e.n));
-          return 1;
+      if (found) { n = unit(sub(J, c)); cpB = sub(add(sub(Ap, k), k), B.pos); }
+      else {
+        for (N = 0; N < M.length; N++) {   // a vertex inside the circle
+          var z = add(M[N], k), y = sub(z, c);
+          if (dot(y, y) < R * R) { n = unit(y); cpB = sub(add(sub(z, k), k), B.pos); break; }
         }
       }
-      return 0;
+      var f = trueFace(c, R, k, sB, false);
+      if (!n || (f && dot(f.n, n) < 0.9)) return circleContact(w, A, sA, B, sB, c, R, f);
+      var e = newContact(w, A, B, sA, sB);
+      e.n = n; e.cpA = sub(add(mul(e.n, R), c), A.pos); e.cpB = cpB;
+      friction(w, A, B, e.cpA.slice(), e.cpB.slice(), cw(e.n));
+      return 1;
+    }
+    /* OURS, not the reference's: sunk deeper than the polygon is thick there, its candidates above go wrong: the
+       deepest point is out the far side, or a corner of the shape is the only thing inside the circle. p2 then lets a
+       fast ball through the 40-unit crossbar or off its end into the goal, and throws a ball squeezed into the thin
+       wedge at a step's foot out at thousands a second (Fable review 2026-10-28). So the true nearest face is worked
+       out too, and wins whenever the two disagree by more than about 25 degrees (a shallow touch always agrees, so
+       every measured reference case is unchanged): the closest boundary point, or with the centre inside, the face
+       it is nearest. A pitch piece's cut lines (inner edges) are never a face: across one is more pitch. */
+    function trueFace(c, R, k, sh, inside) {
+      var M = sh.v, best = -Infinity, bi = -1, bd = Infinity, bq = null, N;
+      for (N = 0; N < M.length; N++) {
+        if (sh.inner && sh.inner[N]) continue;
+        var O = add(M[N], k), E = sub(add(M[(N + 1) % M.length], k), O), x = cw(unit(E)), co = sub(c, O), s = dot(co, x);
+        if (s > best) { best = s; bi = N; }
+        var t = clamp(dot(co, E) / dot(E, E), 0, 1), q = add(O, mul(E, t)), d2 = dot(sub(c, q), sub(c, q));
+        if (d2 < bd) { bd = d2; bq = q; }
+      }
+      if (inside) {
+        if (bi < 0) return null;
+        var xo = cw(unit(sub(add(M[(bi + 1) % M.length], k), add(M[bi], k))));
+        return { n: mul(xo, -1), at: sub(c, mul(xo, best)) };
+      }
+      if (bd >= R * R || bd === 0) return null;
+      return { n: unit(sub(bq, c)), at: bq };
+    }
+    function circleContact(w, A, sA, B, sB, c, R, f) {
+      if (!f) return 0;
+      var e = newContact(w, A, B, sA, sB);
+      e.n = f.n; e.cpA = sub(add(mul(f.n, R), c), A.pos); e.cpB = sub(f.at, B.pos);
+      friction(w, A, B, e.cpA.slice(), e.cpB.slice(), cw(e.n));
+      return 1;
     }
     function projectOnto(v, pos, axis) {
       var mn = null, mx = null;
@@ -719,6 +763,8 @@
         var y = bodies[i];
         y.vel[0] += y.vl[0]; y.vel[1] += y.vl[1]; y.w += y.wl;
         y.vel[0] += y.force[0] * h * y.invMass; y.vel[1] += y.force[1] * h * y.invMass;
+        var sp = Math.hypot(y.vel[0], y.vel[1]);   // OURS: the ball's top speed (no kick reaches it), so no step outruns a crossbar
+        if (i === 8 && sp > HS.BALL_MAX_V * SM) { y.vel[0] *= HS.BALL_MAX_V * SM / sp; y.vel[1] *= HS.BALL_MAX_V * SM / sp; }
         y.pos[0] += y.vel[0] * h; y.pos[1] += y.vel[1] * h;
       }
       back(bb, ball);
@@ -756,6 +802,41 @@
     return { step: step };
   })();
 
+  /* OURS (with CONTACT_P2): a ball pinned between a player and the pitch, a bar or a net. A runner's speed is set
+     back to 1000 every step and the solver cannot hold a 100 kg player off a 2 kg ball, so the ball is squeezed into
+     the solid and squirted out at thousands a second (Fable review 2026-10-28: a runner holding the ball against a
+     step face threw it into the far goal). When the ball is more than PIN into both a solid and a player, it is put
+     back to PIN out of the solid and the player to PIN off the ball, positions only. M: in every measured reference
+     scenario the ball is never more than .25 into both at once, so none of them changes. */
+  var PIN = 4;
+  function deepestIn(b, polys) {
+    var best = null;
+    for (var i = 0; i < polys.length; i++) { var c = circlePoly(b.x, b.y, HS.BALL_R, polys[i].v, polys[i].n); if (c && (!best || c.d > best.d)) best = c; }
+    return best;
+  }
+  function unpin(m) {
+    var b = m.ball;
+    for (var pass = 0; pass < 2; pass++) {
+      for (var i = 0; i < 2; i++) {
+        var p = m.p[i];
+        if (Math.abs(b.x - p.x) > 200 || Math.abs(b.y - p.y) > 260) continue;
+        var w = deepestIn(b, WORLD), pc = deepestIn(b, shapesOf(p));
+        if (!w || !pc || w.d <= PIN || pc.d <= PIN) continue;
+        b.x += w.nx * (w.d - PIN); b.y += w.ny * (w.d - PIN);
+        pc = deepestIn(b, shapesOf(p));
+        if (pc && pc.d > PIN) { p.x -= pc.nx * (pc.d - PIN); p.y -= pc.ny * (pc.d - PIN); }
+      }
+    }
+  }
+  // A goal is the ball's centre in the goal box UNDER the crossbar: with CONTACT_P2 a fast ball can sink into the
+  // bar's top for a step, and the box's top line (GOAL_TOP_Y) runs inside the bar's front end.
+  var BAR_UNDER = [7, 8].map(function (i) {
+    var w = WORLD[i], k = 0;
+    for (var j = 1; j < w.n.length; j++) if (w.n[j][1] > w.n[k][1]) k = j;
+    return { x: w.v[k][0], y: w.v[k][1], nx: w.n[k][0], ny: w.n[k][1] };
+  });
+  function underBar(b) { var u = BAR_UNDER[b.x < 0 ? 0 : 1]; return (b.x - u.x) * u.nx + (b.y - u.y) * u.ny > 0; }
+
   // The whole match, one step. inputs[side]: { held, jumps, kicks, powers } (counts only ever go up). `live` true
   // runs the clock and counts goals; `enabled` false is the reference's disabled input (default on). Returns the
   // step's events: kick, swing, jump, head, bounce, post, net, goal { s: who scored }.
@@ -771,11 +852,12 @@
     }
     if (HS.CONTACT_P2) {
       Contact.step(m, ev, dt);
+      unpin(m);
       ball.rot += ball.spin * dt;   // the sprite turns with the body (S: Phaser sets rotation from the p2 angle)
     } else rigid(m, ev, dt);
 
     // A goal: the ball's centre inside a goal's box (S: Goal.isInGoal).
-    if (live && ball.y > HS.GOAL_TOP_Y && ball.y < HS.GOAL_BOT_Y) {
+    if (live && ball.y > HS.GOAL_TOP_Y && ball.y < HS.GOAL_BOT_Y && (!HS.CONTACT_P2 || underBar(ball))) {
       var scored = ball.x < -HS.GOAL_LINE_X ? 1 : ball.x > HS.GOAL_LINE_X ? 0 : -1;
       if (scored >= 0) { m.score[scored]++; ev.push({ e: 'goal', s: scored }); }
     }

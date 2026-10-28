@@ -504,3 +504,74 @@ test("the page's replay from each snapshot is the server's next states, bit for 
   }
   assert.strictEqual(compared, 900);
 });
+
+/* ── the contact engine's money guards (Fable review 2026-10-28) ───────────────────────────────────────────────
+   The reference's own narrowphase loses a ball sunk deeper than a solid is thick, and its solver cannot hold a runner
+   off a pinned ball: a ball dribbled into a step face was buried 284 units and thrown into the far goal at 4,500 u/s,
+   and a fast drop on the 40-unit crossbar went through it into the goal in 10 to 33 drops of 100. */
+const deepestSolid = (b) => {
+  let d = 0;
+  for (const w of Sim.WORLD) { const c = Sim.circlePoly(b.x, b.y, HS.BALL_R, w.v, w.n); if (c && c.d > d) d = c.d; }
+  return d;
+};
+const speed = (b) => Math.hypot(b.vx, b.vy);
+
+test('contact engine: a ball run into a step face is never buried or thrown into a goal', () => {
+  const stand = HS.PITCH_Y - HS.FOOT, rest = HS.PITCH_Y - HS.BALL_R;
+  let goals = 0, deep = 0, fast = 0;
+  for (let run = 0; run < 60; run++) {
+    const m = Sim.newMatch(), p = m.p[0];
+    Object.assign(m.p[1], { x: -700, y: stand, ground: true });
+    Object.assign(p, { x: 760 + (run % 6) * 25, y: stand, ground: true, left: false });
+    Object.assign(m.ball, { x: Math.min(p.x + 20 + HS.BALL_R + 1 + Math.floor(run / 6) * 4, HS.FIELD_HALF - HS.BALL_R - 1), y: rest });
+    const inp = [{ held: Sim.IN.RIGHT, jumps: 0, kicks: 0, powers: 0 }, { held: 0, jumps: 0, kicks: 0, powers: 0 }];
+    for (let i = 0; i < 600; i++) {
+      if ((i + run) % 30 === 0) inp[0].kicks++;   // holding right against the step, kicking every half second
+      Sim.step(m, inp, HS.STEP, true, true);
+      deep = Math.max(deep, deepestSolid(m.ball)); fast = Math.max(fast, speed(m.ball));
+    }
+    goals += m.score[0] + m.score[1];
+  }
+  assert.strictEqual(goals, 0, 'no goal from 60 runs at the step');
+  // A step's travel can still sink a kicked ball a little into the face for one step (the reference's soft contact,
+  // 31 units for a 2000 u/s ball into a net), but its centre never goes inside.
+  assert.ok(deep < HS.BALL_R, 'deepest into a solid ' + deep.toFixed(1));
+  assert.ok(fast <= HS.BALL_MAX_V + 1e-6, 'top speed ' + fast.toFixed(0));
+});
+
+test('contact engine: a fast ball onto the crossbar never goes through it into the goal', () => {
+  for (const sp of [2500, 3000, 3500]) {
+    for (let k = 0; k < 100; k++) {
+      const m = Sim.newMatch();
+      // ten places along the right bar, ten phases of the last step before it
+      Object.assign(m.ball, { x: 1060 + (k % 10) * 10, y: 300 + Math.floor(k / 10) * (sp / 600), vx: 0, vy: sp });
+      for (let i = 0; i < 90; i++) {
+        Sim.step(m, null, HS.STEP, true, true);
+        assert.ok(speed(m.ball) <= HS.BALL_MAX_V + 1e-6, sp + ' drop ' + k + ' speed ' + speed(m.ball));
+      }
+      assert.deepStrictEqual(m.score, [0, 0], sp + ' u/s, drop ' + k + ': no goal off the crossbar');
+    }
+  }
+});
+
+test('contact engine fuzz: random states and presses stay finite and inside the arena', () => {
+  let s = 99;
+  const r = () => (s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296;
+  const between = (a, b) => a + (b - a) * r();
+  for (let run = 0; run < 24; run++) {
+    const m = Sim.newMatch();
+    for (const p of m.p) Object.assign(p, { x: between(-900, 900), y: between(600, HS.PITCH_Y - HS.FOOT), vx: between(-1500, 1500), vy: between(-2500, 2500) });
+    Object.assign(m.ball, { x: between(-900, 900), y: between(100, HS.PITCH_Y - HS.BALL_R), vx: between(-3000, 3000), vy: between(-3000, 3000) });
+    const inp = script(250, 1000 + run);
+    for (let i = 0; i < 250; i++) {
+      Sim.step(m, inp[i], HS.STEP, true, true);
+      const all = [m.ball, m.p[0], m.p[1]];
+      for (const o of all) for (const k of ['x', 'y', 'vx', 'vy', 'spin']) assert.ok(Number.isFinite(o[k]), 'run ' + run + ' step ' + i + ' ' + k);
+      const b = m.ball;
+      assert.ok(Math.abs(b.x) < HS.NET_X && b.y > 0 && b.y < HS.PITCH_Y, 'ball inside, run ' + run + ' step ' + i + ': ' + b.x + ',' + b.y);
+      assert.ok(deepestSolid(b) < HS.BALL_R, 'ball centre never inside a solid, run ' + run + ' step ' + i);
+      assert.ok(speed(b) <= HS.BALL_MAX_V + 1e-6);
+      for (const p of m.p) assert.ok(Math.abs(p.x) < HS.NET_X && p.y > 0 && p.y < HS.PITCH_Y - 50, 'player inside, run ' + run + ' step ' + i + ': ' + p.x + ',' + p.y);
+    }
+  }
+});
