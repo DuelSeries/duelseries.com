@@ -307,3 +307,10 @@ test('recent wins: the public exclusions (owner and revenue), never the preview\
   const none = createEarnings({ config: CFG, log: quiet });
   assert.deepStrictEqual(await none.recentList(), { ok: false, wins: [] });
 });
+
+test('recent wins: hidden with the strip (SHOW false), and reads nothing then', async () => {
+  const q = fakeQuery([{ wallet: A, game: 'paper', rake: '0.1', name: 'neo' }]);
+  const e = createEarnings({ query: q, excludeWallets: [OWNER, REV], previewExclude: [REV], config: Object.assign({}, CFG, { SHOW: false }), log: quiet });
+  assert.deepStrictEqual(await e.recentList(), { ok: false, wins: [] });
+  assert.strictEqual(q.calls.length, 0);
+});

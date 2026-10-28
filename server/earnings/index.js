@@ -339,10 +339,10 @@ function createEarnings({ query, excludeWallets, previewExclude, switchFile = nu
   }
 
   /* The Live wins row: {ok:true, wins:[{name, game, amount}]} newest first, or ok:false (no database or a failed
-     first read), which the lobby treats like no wins: its Sample row. Like the board, not behind the strip's
-     switch. */
+     first read), which the lobby treats like no wins: its Sample row. Behind the strip's switches (config SHOW
+     and the owner console's hide), so a payout the owner hides from the strip is hidden here too (Fable review). */
   async function recentList() {
-    if (!rec) return { ok: false, wins: [] };
+    if (!rec || !shown()) return { ok: false, wins: [] };
     const v = await rec();
     if (!v) return { ok: false, wins: [] };
     return { ok: true, wins: v.map((w) => ({ name: w.name, game: w.game, amount: w.amount })) };
