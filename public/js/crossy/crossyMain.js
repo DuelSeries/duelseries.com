@@ -738,6 +738,31 @@ function coinIcon(x, y, s, u) {
   hx.fillStyle = '#ffd23f'; hx.fillRect(x + u, y + u, s - 2 * u, s - 2 * u);
   hx.fillStyle = '#fff3a8'; hx.fillRect(x + s / 2 - u, y + s / 2 - u, 2 * u, 2 * u);
 }
+/* The rival off screen: a white arrow at the edge of the screen, pointing at where they are, with how many rows away.
+   rivalNdc is where placeTag last found them (-1..1 on screen). */
+let rivalNdc = null;
+function rivalArrow(o, dr, s) {
+  const v = rivalNdc;
+  if (!v || !o.alive || (Math.abs(v.x) <= 1 && Math.abs(v.y) <= 1)) return;
+  const W = view.size().w, H = view.size().h, pad = s * 1.6;
+  // From the middle of the screen toward them, stopped at the edge (inset by pad).
+  const cx = W / 2, cy = H / 2, tx = (v.x + 1) / 2 * W, ty = (1 - v.y) / 2 * H;
+  const dx = tx - cx, dy = ty - cy, k = Math.min((W / 2 - pad) / Math.max(1e-6, Math.abs(dx)), (H / 2 - pad) / Math.max(1e-6, Math.abs(dy)));
+  const ax = cx + dx * k, ay = cy + dy * k, ang = Math.atan2(dy, dx);
+  hx.save();
+  hx.translate(ax, ay); hx.rotate(ang);
+  hx.beginPath(); hx.moveTo(s * 0.9, 0); hx.lineTo(-s * 0.55, -s * 0.7); hx.lineTo(-s * 0.55, s * 0.7); hx.closePath();
+  hx.lineWidth = Math.max(3, s * 0.22); hx.strokeStyle = '#000'; hx.lineJoin = 'round'; hx.stroke();
+  hx.fillStyle = '#fff'; hx.fill();
+  hx.restore();
+  const txt = Math.abs(dr) + (Math.abs(dr) === 1 ? ' row' : ' rows');
+  hx.font = '800 ' + Math.round(s * 0.8) + 'px Archivo, system-ui, sans-serif';
+  hx.textAlign = 'center'; hx.textBaseline = 'middle';
+  const lx = ax - Math.cos(ang) * s * 1.9, ly = ay - Math.sin(ang) * s * 1.6;
+  hx.fillStyle = '#000'; hx.fillText(txt, lx + 2, ly + 2);
+  hx.fillStyle = '#fff'; hx.fillText(txt, lx, ly);
+  hx.textAlign = 'left'; hx.textBaseline = 'top';
+}
 function drawHud(W, H, dpr) {
   hx.setTransform(dpr, 0, 0, dpr, 0, 0);
   hx.clearRect(0, 0, W, H);
@@ -757,7 +782,24 @@ function drawHud(W, H, dpr) {
     hx.fillStyle = '#000'; hx.fillText(label, top + 2, yy + 2);
     hx.fillStyle = '#fff'; hx.fillText(label, top, yy);
     const lw = hx.measureText(label).width;
-    blockText(o ? Sim.score(o) : 0, top + lw + u, yy + 1, Math.max(2, Math.round(fs / 11)), '#fff');
+    const sx = top + lw + u, su = Math.max(2, Math.round(fs / 11));
+    const sw = blockText(o ? Sim.score(o) : 0, sx, yy + 1, su, '#fff');
+    /* How far ahead or behind you are, in rows where you both stand now (Owen 2026-10-28): a dark pill after their
+       score, green when you lead, red when you trail. Shown only; the server decides the match. */
+    if (o && mine) {
+      const dr = mine.r - o.r;
+      const txt = dr === 0 ? 'level' : (dr > 0 ? '+' : '-') + Math.abs(dr) + (Math.abs(dr) === 1 ? ' row' : ' rows');
+      const pf = Math.max(11, Math.round(fs * 0.86));
+      hx.font = '800 ' + pf + 'px Archivo, system-ui, sans-serif';
+      const pw = hx.measureText(txt).width + pf, ph = Math.round(pf * 1.45), px = sx + sw + su * 4, py = yy + Math.round((fs - ph) / 2) + 1;
+      hx.fillStyle = 'rgba(0,0,0,0.58)';
+      hx.beginPath(); if (hx.roundRect) hx.roundRect(px, py, pw, ph, ph / 2); else hx.rect(px, py, pw, ph); hx.fill();
+      hx.fillStyle = dr > 0 ? '#a6f27a' : dr < 0 ? '#ff8f7f' : '#ffffff';
+      hx.textBaseline = 'middle';
+      hx.fillText(txt, px + pf / 2, py + ph / 2 + 1);
+      hx.textBaseline = 'top';
+      rivalArrow(o, dr, Math.max(14, Math.round(u * 3.4)));
+    }
   }
   // Coins, top right: 7 units tall, yellow, then our coin.
   const cu = u * 0.7, iconS = Math.round(u * 6);
@@ -887,11 +929,12 @@ function frame(now) {
 const tagV = { x: 0, y: 0, z: 0 };
 function placeTag(ft) {
   const t = $('tag');
-  if (mySeat < 0 || !match || !seen[1 - mySeat]) { t.hidden = true; return; }
+  if (mySeat < 0 || !match || !seen[1 - mySeat]) { t.hidden = true; rivalNdc = null; return; }
   const h = shown[1 - mySeat];
   const b = Sim.bodyAt(world, h, ft);
   tagV.x = b.x; tagV.y = b.y + 1.15; tagV.z = b.z;
   const v = new (view.camera.position.constructor)(tagV.x, tagV.y, tagV.z).project(view.camera);
+  rivalNdc = { x: v.x, y: v.y };
   if (v.x < -1.2 || v.x > 1.2 || v.y < -1.2 || v.y > 1.2) { t.hidden = true; return; }
   t.hidden = false;
   t.textContent = match.names[1 - mySeat] || 'Rival';
@@ -904,7 +947,7 @@ window.__cr = () => ({
   phase, mySeat, lanes: world ? world.rows.size : 0, tick: mine ? mine.tick : null, ft: Math.round(matchFt()),
   me: mine ? { x: mine.x, r: mine.r, alive: mine.alive, death: mine.death, score: Sim.score(mine), coins: mine.coins, eagle: mine.eagle } : null,
   them: mySeat >= 0 && seen[1 - mySeat] ? { r: seen[1 - mySeat].h.r, alive: seen[1 - mySeat].h.alive } : null,
-  corrections, rtt: Math.round(rtt), over: overShown, waiting, touchUI,
+  corrections, rtt: Math.round(rtt), over: overShown, waiting, touchUI, rival: rivalNdc,
   connected: socket.connected, hold: seatHold ? seatHold.state() : null,
   result: lastOver ? (lastOver.winnerId ? (lastOver.winnerId === lastOver.me ? 'won' : 'lost') : 'draw') + ', ' + lastOver.why : null,
 });
