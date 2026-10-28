@@ -202,11 +202,12 @@ header{position:sticky;top:0;z-index:50;background:rgba(16,14,11,.82);
    Every added block is .sbx, hidden on phones and in the short landscape
    rail; the foot (.sb-pin) is display:contents there, so Join us and
    Settings sit in the bottom bar exactly where they always did. Rows are one
-   height token: 32px at 900 tall, 38px from 1000, 40px from 1060. */
+   height token: 32px at 900 tall, 38px from 1000, 40px from 1060; the Live
+   games rows are a notch shorter (--gh): 28px, 30px from 1000, 32px from 1060. */
 .sbx{display:none}
 .sb-pin{display:contents}
 @media(min-width:761px) and (min-height:501px){
-  :root{--sbw:256px;--rh:32px;--art:24px}
+  :root{--sbw:256px;--rh:32px;--gh:28px;--art:22px}
   .nav{padding:76px 12px 0;gap:2px;scrollbar-width:none}
   .nav::-webkit-scrollbar{display:none}
   .nav>*{flex-shrink:0}                   /* a tall sidebar scrolls; rows never squash */
@@ -240,35 +241,36 @@ header{position:sticky;top:0;z-index:50;background:rgba(16,14,11,.82);
   .sb-all{flex:none;height:26px;padding:0 8px;border-radius:7px;font-size:13px;font-weight:600;color:var(--tx3);
     transition:background .15s,color .15s}
   .sb-all:hover{background:var(--s2);color:var(--tx)}
-  .sb-list{display:flex;flex-direction:column;gap:2px}
+  .sb-list{display:flex;flex-direction:column;gap:1px}
 
-  /* a game row: the art centres on the tabs' icon column, the name on their labels */
-  .sb-g{display:flex;align-items:center;height:var(--rh);border-radius:7px;transition:background .15s}
+  /* a game row: the art centres on the tabs' icon column, the name on their labels. Everything after
+     the name has a column of its own (Owen 2026-10-28), so the New pills, the counts and the Watch
+     eyes each sit in one straight line down the list, however long the names are. */
+  .sb-g{display:flex;align-items:center;height:var(--gh);border-radius:7px;transition:background .15s}
   .sb-g:hover{background:var(--s2)}
-  .sb-go{flex:1;min-width:0;display:flex;align-items:center;gap:calc(21px - var(--art) / 2);height:100%;
-    padding:0 8px 0 calc(17px - var(--art) / 2);border-radius:7px;text-align:left;
+  .sb-go{flex:1;min-width:0;display:grid;grid-template-columns:calc(21px + var(--art) / 2) minmax(0,1fr) auto minmax(28px,max-content);
+    align-items:center;height:100%;padding:0 2px 0 calc(17px - var(--art) / 2);border-radius:7px;text-align:left;
     color:var(--tx2);font-size:13.5px;font-weight:600}
   .sb-g:hover .sb-go{color:var(--tx)}
-  .sb-go img{width:var(--art);height:var(--art);flex:none;display:block;border-radius:6px;
+  .sb-go img{grid-column:1;width:var(--art);height:var(--art);display:block;border-radius:6px;
     object-fit:cover;object-position:50% 26%;transition:filter .15s}
-  .sb-n{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .sb-c{margin-left:auto;flex:none;display:inline-flex;align-items:center;gap:6px;
+  .sb-n{grid-column:2;min-width:0;padding-right:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sb-new{grid-column:3;margin-right:2px;font:650 11.5px/17px var(--f);color:var(--ink);background:var(--money);
+    border-radius:var(--rf);padding:0 5px}
+  .sb-c{grid-column:4;justify-self:end;display:inline-flex;align-items:center;gap:5px;
     font:500 13px/1 var(--fm);color:var(--tx2);font-variant-numeric:tabular-nums}
   .sb-g.on .sb-c{color:var(--tx)}
   .sb-g.on .sb-c::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--live)}
-  .sb-eye{flex:none;width:28px;height:28px;margin-right:2px;display:grid;place-items:center;border-radius:7px;
-    color:var(--tx3);transition:background .15s,color .15s}
+  .sb-eye{flex:none;width:26px;height:calc(var(--gh) - 4px);margin-right:1px;display:grid;place-items:center;
+    border-radius:7px;color:var(--tx3);transition:background .15s,color .15s}
   .sb-eye svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
   .sb-eye:hover{background:var(--s3);color:var(--tx)}
-  .sb-sep{height:1px;margin:3px 8px;background:var(--s2)}
-  /* nobody in it yet: dim, no Watch; its 0 stays in the count column (the eye's 30px) */
-  .sb-g.idle .sb-go{color:var(--tx3);padding-right:38px}
+  .sb-sep{height:1px;margin:2px 8px;background:var(--s2)}
+  /* nobody in it right now: dim, its 0 in the count column, and still a Watch (V2Side watchRoom) */
+  .sb-g.idle .sb-go{color:var(--tx3)}
   .sb-g.idle img{filter:saturate(.45) brightness(.66)}
   .sb-g.idle:hover img{filter:none}
   .sb-g.idle .sb-c{color:var(--tx3)}
-  .sb-new{flex:none;font:650 13px/20px var(--f);color:var(--ink);background:var(--money);
-    border-radius:var(--rf);padding:0 7px;margin-left:-3px}
-  .sb-new+.sb-c{margin-left:auto}
 
   /* the online line; the paid-out half exists only while the earnings feed is on */
   .sb-stat.sbx{display:flex}
@@ -304,15 +306,14 @@ header{position:sticky;top:0;z-index:50;background:rgba(16,14,11,.82);
   /* how far through the six hours to the next start */
   .sb-bar{position:absolute;left:0;bottom:0;height:2px;width:var(--p,0%);background:var(--money);opacity:.55}
 }
-@media(min-width:761px) and (min-height:1000px){:root{--rh:38px;--art:28px}}
-@media(min-width:761px) and (min-height:1060px){:root{--rh:40px}}
+@media(min-width:761px) and (min-height:1000px){:root{--rh:38px;--gh:30px;--art:24px}}
+@media(min-width:761px) and (min-height:1060px){:root{--rh:40px;--gh:32px;--art:26px}}
 /* Narrow PC windows keep the 212px sidebar: zero counts give way to the New
    pills, the paid-out figure drops under the online count, the trophy steps aside. */
 @media(min-width:761px) and (max-width:1099px) and (min-height:501px){
   :root{--sbw:212px}
   .sb-g.idle .sb-c{display:none}
-  .sb-g.idle .sb-go{padding-right:8px}
-  .sb-new{margin-left:auto}
+  .sb-go{grid-template-columns:calc(21px + var(--art) / 2) minmax(0,1fr) auto auto}
   .sb-lhd{padding-right:2px}
   .sb-all{padding:0 4px}
   .sb-stat{flex-direction:column;align-items:flex-start;justify-content:center;height:auto;gap:6px;padding:6px 12px}
@@ -5545,7 +5546,20 @@ const V2Side=(()=>{
     return `<div class="sb-g${on?' on':' idle'}"><button class="sb-go" type="button" data-game="${g.id}" aria-label="Play ${nm}${g.isNew?', new':''}${n===null?'':', '+n+' playing'}">`
       +`<img alt="" draggable="false" src="${artSrc(g.id)}"><span class="sb-n">${nm}</span>${g.isNew?'<span class="sb-new">New</span>':''}`
       +`${n===null?'':`<span class="sb-c">${n}</span>`}</button>`
-      +(on?`<button class="sb-eye" type="button" data-watch="${g.id}" aria-label="Watch ${nm}" title="Watch">${SBI(SB_P.eye)}</button>`:'')+`</div>`;
+      +`<button class="sb-eye" type="button" data-watch="${g.id}" aria-label="Watch ${nm}" title="Watch">${SBI(SB_P.eye)}</button></div>`;
+  }
+  /* Watch, on every row (Owen 2026-10-28): the game's busiest room on the board, which is its free
+     room unless a paid rung has more people in it (ties go to the cheaper room). A game with nobody
+     anywhere, and every duel (they have no board rows), opens its free room's watch view: the empty
+     map or table, "Nobody is playing yet", and the next match picked up by itself (dsWatchBar empty). */
+  function watchRoom(id){
+    let stake=0, most=0;
+    for(const l of (window.V2Board&&V2Board.lobbies)||[]){
+      if(!l||l.game!==id)continue;
+      const n=(Number(l.players)||0)+(Number(l.bots)||0), s=Number(l.stake)||0;
+      if(n>most||(n===most&&s<stake)){most=n;stake=s}
+    }
+    return stake;
   }
   function paint(){
     const list=document.getElementById('sb-list'); if(!list)return;
@@ -5597,10 +5611,10 @@ const V2Side=(()=>{
     b.setAttribute('aria-label','Battle Royale, $'+prize+' to 1st, '+(live?'live now':'free entry, starts in '+t)+'. Opens Events');
     b.hidden=false;
   }
-  /* A row opens its game; the eye watches its free room (play.js spectate), and only the eye. */
+  /* A row opens its game; the eye watches its busiest room (play.js spectate), and only the eye. */
   nav.addEventListener('click',e=>{
     const w=e.target.closest('.sb-eye[data-watch]');
-    if(w){e.stopPropagation();if(window.V2Play)V2Play.spectate(w.dataset.watch,null,0);return}
+    if(w){e.stopPropagation();if(window.V2Play)V2Play.spectate(w.dataset.watch,null,watchRoom(w.dataset.watch));return}
     const g=e.target.closest('.sb-go[data-game]');
     if(g)open_(g.dataset.game);
   });
@@ -5613,7 +5627,7 @@ const V2Side=(()=>{
     if(document.hidden||document.body.classList.contains('ingame')||!pcSide.matches)return;
     tick();over();
   },1000);
-  return {paint:paint,tick:tick};
+  return {paint:paint,tick:tick,watchRoom:watchRoom};
 })();
 window.V2Side=V2Side;
 /* One place that knows which screens exist, so a new one cannot be left

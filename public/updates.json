@@ -2,6 +2,13 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-10-28-sidebar-watch",
+      "date": "2026-10-28",
+      "tag": "new",
+      "title": "Watch any game from the sidebar",
+      "body": "On PC, every game in the sidebar's Live games list now has a Watch button, even when nobody is playing it yet. The list is tighter too, with the New tags lined up in one column."
+    },
+    {
       "id": "2026-10-28-duel-wait-10s",
       "date": "2026-10-28",
       "tag": "new",
