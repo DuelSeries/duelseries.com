@@ -26,7 +26,7 @@
   /* The step's version. A page running an older step would predict a different
      game from the one the server judges, so the server only seats a page that
      says this number (cr:queue v). Bump it with any change to the rules. */
-  const VERSION = 1;
+  const VERSION = 2;                    // 2: the map comes as lanes (packRow), never as a seed
 
   const HZ = 60;
   const DT = 1 / HZ;
@@ -117,13 +117,15 @@
   /* ── a seeded generator (mulberry32) ───────────────────────────────────── */
   function rng(seed) {
     let a = seed >>> 0;
-    return function () {
+    const next = function () {
       a = (a + 0x6D2B79F5) >>> 0;
       let t = a;
       t = Math.imul(t ^ (t >>> 15), t | 1);
       t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
       return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     };
+    next.state = () => a;                    // rng(state) carries on with exactly the numbers this one would draw next
+    return next;
   }
   // A row's own stream: the same row on the same seed always draws the same numbers, whatever was made before it.
   function rowSeed(seed, r) { return (Math.imul((seed >>> 0) ^ 0x9E3779B9, 0x85EBCA6B) ^ Math.imul(r + 0x7F4A7C15, 0xC2B2AE35)) >>> 0; }
@@ -166,11 +168,24 @@
   const BY_RARITY = {};
   for (const ch of CHUNKS) (BY_RARITY[ch[1]] = BY_RARITY[ch[1]] || []).push(ch);
 
+  /* A map. `seed` is a number (the map is a pure function of it: the tests and the bot harness), or a match's secret
+     streams { chunk: () => a number in [0, 1), row: (r) => a 32-bit seed } (the server's, from a key no screen is ever
+     sent: server/crossy/CrossyRoom.js). A screen's map is World.fromLanes: it makes nothing and holds only the lanes
+     the server has sent it (packRow / unpackRow), a few ahead of the furthest hopper, so no page can see the road
+     further on (Owen 2026-10-28: a script given the seed could play a paid match perfectly). */
   function World(seed) {
-    this.seed = seed >>> 0;
     this.rows = new Map();
     this.next = C.FIRST_ROW;
-    this.R = rng(this.seed ^ 0x2545F491);    // the chunk stream: which chunk comes next
+    this.fed = false;
+    if (seed && typeof seed === 'object') {
+      this.seed = null;
+      this.R = seed.chunk;                   // the chunk stream: which chunk comes next
+      this.rowSeed = seed.row;
+    } else {
+      const s = this.seed = seed >>> 0;
+      this.R = rng(s ^ 0x2545F491);
+      this.rowSeed = (r) => rowSeed(s, r);
+    }
     this.chunk = [];
     this.startLeft = 9;
     this.prevType = 'grass';
@@ -179,8 +194,23 @@
   }
 
   World.prototype.row = function (r) {
+    if (this.fed) return this.rows.get(r);   // a lane not sent yet is no lane: blocked (see blocked) until it comes
     while (this.next <= r) this.make(this.next++);
     return this.rows.get(r);
+  };
+  World.fromLanes = function (lanes) {
+    const w = new World(0);
+    w.fed = true; w.R = null;
+    w.add(lanes);
+    return w;
+  };
+  // A screen takes lanes as the server sends them; a lane it already has is kept as it is (its traffic has run on).
+  World.prototype.add = function (lanes) {
+    if (!this.fed || !Array.isArray(lanes)) return;
+    for (const L of lanes) {
+      const row = unpackRow(L);
+      if (row && !this.rows.has(row.r)) this.rows.set(row.r, row);
+    }
   };
   // Rows well behind everybody are never reached again (the reference drops them 10 behind).
   World.prototype.forget = function (below) {
@@ -203,7 +233,7 @@
 
   World.prototype.make = function (r) {
     const name = this.nextStrip();
-    const R = rng(rowSeed(this.seed, r));
+    const R = rng(this.rowSeed(r));
     const row = {
       r, name, kind: 'grass', h: 0.375, cells: new Int8Array(9), look: new Int8Array(9), coin: null,
       dir: 0, speed: 0, R, alt: (r % 2 + 2) % 2,
@@ -283,8 +313,49 @@
       }
     }
     this.prevType = row.type;
+    row.R0 = R.state();                      // where the lane's own stream stands once it is made: what packRow sends
     this.rows.set(r, row);
   };
+
+  /* ── a lane on the wire ─────────────────────────────────────────────────────
+     Everything a lane was made with, and where its own stream stood then: the screen's copy (unpackRow) draws the
+     same logs and trains from there in the same order as the server's, so both step every hopper identically. The
+     stream is the lane's alone (the server seeds each lane from its secret key), so a lane says nothing of the next. */
+  function packRow(row) {
+    const o = { r: row.r, k: row.kind, h: row.h, al: row.alt, ty: row.type, R: row.R0 >>> 0 };
+    if (row.coin !== null && row.coin !== undefined) o.co = row.coin;
+    if (row.kind === 'grass') { o.c = Array.from(row.cells || []); o.l = Array.from(row.look || []); }
+    else if (row.kind === 'road') Object.assign(o, { e: row.edge ? 1 : 0, d: row.dir, s: row.speed, t0: row.t0, mi: row.mini, car: row.car && row.car.id, tr: row.truck ? 1 : 0 });
+    else if (row.type === 'log') Object.assign(o, { d: row.dir, s: row.speed, gm: row.gapMax, w0: row.w0, t0: row.t0, p: row.poop ? 1 : 0, cu: row.cur });
+    else if (row.type === 'lily') o.li = (row.lilies || []).slice();
+    else if (row.kind === 'rail') Object.assign(o, { d: row.dir, t0: row.t0 });
+    return o;
+  }
+  const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+  function unpackRow(o) {
+    if (!o || typeof o !== 'object' || !Number.isInteger(o.r)) return null;
+    const kind = o.k === 'road' || o.k === 'water' || o.k === 'rail' ? o.k : 'grass';
+    const row = {
+      // The name is never sent: it would say which chunk is under way (Fable review 2026-10-28).
+      r: o.r, name: '', kind, h: num(o.h), cells: new Int8Array(9), look: new Int8Array(9),
+      coin: Number.isInteger(o.co) ? o.co : null, dir: o.d === -1 ? -1 : o.d === 1 ? 1 : 0, speed: num(o.s),
+      R: rng(o.R >>> 0), R0: o.R >>> 0, alt: o.al ? 1 : 0, type: String(o.ty || 'grass'),
+    };
+    if (Array.isArray(o.c)) for (let i = 0; i < 9; i++) { row.cells[i] = o.c[i] | 0; row.look[i] = Array.isArray(o.l) ? o.l[i] | 0 : 0; }
+    if (kind === 'road') {
+      row.edge = !!o.e; row.t0 = num(o.t0); row.mini = o.mi | 0; row.truck = !!o.tr;
+      row.car = (row.truck ? TRUCKS : CARS).find((c) => c.id === o.car) || (row.truck ? TRUCKS[0] : CARS[0]);
+      row.type = row.truck ? 'truck' : 'car';
+      row.spawns = []; row.gapN = 0;
+      if (!(row.speed > 0)) return null;
+    } else if (row.type === 'log') {
+      row.gapMax = num(o.gm); row.w0 = num(o.w0); row.t0 = num(o.t0); row.poop = !!o.p; row.cur = num(o.cu);
+      row.spawns = []; row.ws = [];
+      if (!(row.speed > 0)) return null;
+    } else if (row.type === 'lily') row.lilies = Array.isArray(o.li) ? o.li.filter(Number.isInteger) : [0];
+    else if (kind === 'rail') { row.t0 = num(o.t0); row.trains = []; }
+    return row;
+  }
 
   // A log's length: 1 only from row 100 (scoreRequired), else 2 or 3, equal weights.
   World.prototype.logWidth = function (cur, R) { return logLen(cur, R); };
@@ -510,21 +581,23 @@
         landWater(world, h, d, dx, prevLog, prevRow);
         if (h.r > h.best) h.best = h.r;
         const row = world.row(h.r);
-        if (row.coin !== null && row.coin === h.x && h.got.indexOf(h.r) < 0) { h.got.push(h.r); h.coins++; }
+        if (row && row.coin !== null && row.coin === h.x && h.got.indexOf(h.r) < 0) { h.got.push(h.r); h.coins++; }
       }
     }
     // Riding: moved with the log, by exactly as far as the log moved this tick.
     if (h.log >= 0) {
       const row = world.row(h.r);
-      const now = logById(row, h.log, d), was = logById(row, h.log, d0);
+      const now = row && logById(row, h.log, d), was = row && logById(row, h.log, d0);
       if (now && was) h.x += now.x - was.x;
       else h.log = -1;
     } else if (!h.water) h.x = Math.round(h.x);
     if (Math.abs(h.x) > C.EDGE) { die(h, 'log'); h.tick++; return; }
     h.eagle += DT;
     if (h.eagle > C.EAGLE_S) { die(h, 'eagle'); h.tick++; return; }
-    // Hit: anything overlapping the TARGET cell (the reference checks the target, not where the body is drawn).
+    /* Hit: anything overlapping the TARGET cell (the reference checks the target, not where the body is drawn). A lane
+       a screen does not hold (behind what it was sent; the server always holds them) has nothing on it to hit. */
     const row = world.row(h.r);
+    if (!row) { h.tick++; return; }
     if (row.kind === 'road') {
       const hx = row.car.hx;
       for (const cx of carsAt(row, d, SCRATCH2)) {
@@ -560,7 +633,7 @@
   const api = {
     NAME, VERSION, HZ, DT, TICK_MS, C, DUEL, IN, CARS, TRUCKS, CAR_HZ, CHUNKS,
     rng, World, laneTime, rampAt, carsAt, logsAt, logById, trainAt,
-    newHopper, copyHopper, step, bodyAt, score, blocked, packHopper, unpackHopper,
+    newHopper, copyHopper, step, bodyAt, score, blocked, packHopper, unpackHopper, packRow, unpackRow,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (root) root.CrossySim = api;

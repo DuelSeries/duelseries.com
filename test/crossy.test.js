@@ -408,3 +408,112 @@ test('the bot plays by the same rules and gets somewhere', () => {
   for (let t = 0; t < 1800 && h.alive; t++) S.step(w, h, bot.input(w, h));
   assert.ok(S.score(h) >= 5, 'score ' + S.score(h));
 });
+
+/* ── the map on the wire: lanes, never a seed (Owen 2026-10-28) ─────────────── */
+const crypto = require('crypto');
+const keyedWorld = (key) => {
+  const h = (s) => crypto.createHmac('sha256', key).update(s).digest().readUInt32LE(0);
+  let n = 0;
+  return new S.World({ chunk: () => h('chunk:' + (n++)) / 4294967296, row: (r) => h('row:' + r) });
+};
+
+test('a screen\'s map made only from the lanes it was sent steps every hopper exactly as the server\'s', () => {
+  for (const k of [1, 2, 3]) {
+    const key = crypto.createHash('sha256').update('lanes' + k).digest();
+    const server = keyedWorld(key);
+    const page = S.World.fromLanes([]);
+    let sent = S.C.FIRST_ROW - 1;
+    const feed = (front) => {               // CrossyRoom.pushLanes: up to 24 beyond the furthest hopper, through JSON
+      const hi = front + 24, out = [];
+      for (let r = sent + 1; r <= hi; r++) out.push(S.packRow(server.row(r)));
+      sent = Math.max(sent, hi);
+      page.add(JSON.parse(JSON.stringify(out)));
+    };
+    const hs = S.newHopper(), hp = S.newHopper(), bot = new CrossyBot(S.rng(k * 977));
+    feed(hs.r);
+    let t = 0;
+    for (; t < 6000 && hs.alive; t++) {
+      const press = bot.input(server, hs);
+      S.step(server, hs, press);
+      S.step(page, hp, press);
+      assert.deepStrictEqual(S.packHopper(hp), S.packHopper(hs), 'tick ' + t + ' map ' + k);
+      feed(hs.r);
+    }
+    // The traffic on every lane the page holds is the server's, asked about at any time, in any order.
+    for (const d of [90, 3, 40.5, 12, 200]) for (let r = Math.max(S.C.FIRST_ROW, hs.r - 5); r <= hs.r + 20; r++) {
+      const a = server.row(r), b = page.row(r);
+      if (!a || !b) continue;
+      if (a.kind === 'road') assert.deepStrictEqual(S.carsAt(b, d, []), S.carsAt(a, d, []), 'cars r' + r + ' d' + d);
+      else if (a.type === 'log') assert.deepStrictEqual(S.logsAt(b, d, []), S.logsAt(a, d, []), 'logs r' + r + ' d' + d);
+      else if (a.kind === 'rail') assert.deepStrictEqual(S.trainAt(b, d), S.trainAt(a, d), 'train r' + r + ' d' + d);
+    }
+    assert.ok(S.score(hs) >= 5, 'the bot got somewhere: ' + S.score(hs));
+  }
+});
+
+test('a lane the page has not been sent blocks the hop (it is never made up)', () => {
+  const server = keyedWorld(crypto.randomBytes(32)), lanes = [];
+  for (let r = S.C.FIRST_ROW; r <= S.C.START_ROW; r++) lanes.push(S.packRow(server.row(r)));
+  const page = S.World.fromLanes(lanes);   // up to the hopper's own lane, none beyond
+  const h = S.newHopper();
+  for (let i = 0; i < 30; i++) S.step(page, h, i === 0 ? IN.FWD : 0);
+  assert.strictEqual(h.r, S.C.START_ROW, 'no lane ahead, no hop');
+});
+
+test('the room never sends a seed or its key: cr:start and every watcher see lanes only, never more than 24 ahead', () => {
+  const io = fakeIo();
+  const room = new CrossyRoom(io);
+  room.addPlayer(sock('a'), 'Ann', 'WA', 1, 1);
+  room.addPlayer(sock('b'), 'Bob', 'WB', 1, 1);
+  room.start(1000);
+  const st = io.sent.find((m) => m.ev === 'cr:start').p;
+  assert.ok(!('seed' in st) && !('key' in st), 'no seed in cr:start');
+  assert.ok(Array.isArray(st.lanes) && st.lanes.length > 0);
+  assert.strictEqual(Math.max(...st.lanes.map((l) => l.r)), S.C.START_ROW + 24);
+  const json = JSON.stringify(st);
+  assert.ok(!/seed|key/i.test(json.replace(/"lanes"/, '')), 'nothing named seed or key on the wire');
+  // Ann hops forward every 12 ticks; the lanes keep 24 ahead of her and no further.
+  const at = (t) => room.goAt + t * S.TICK_MS + 0.5;
+  room.tick(at(0));
+  let top = S.C.START_ROW + 24;
+  for (let t = 1; t <= 200 && room.state === 'playing'; t++) {
+    room.input('a', { t: t - 1, h: (t - 1) % 12 === 0 ? [[t - 1, IN.FWD]] : [] });
+    room.input('b', { t: t - 1 });
+    room.tick(at(t));
+    for (const m of io.sent.filter((x) => x.ev === 'cr:lanes')) {
+      assert.ok(!m.volatile, 'lanes are sent reliably');
+      for (const l of m.p.rows) { assert.strictEqual(l.r, top + 1, 'lanes come in order, none skipped'); top = l.r; }
+    }
+    io.sent.length = 0;
+    const lead = Math.max(...[...room.players.values()].map((p) => p.cr.h.r));
+    assert.ok(top <= lead + 24, 'never more than 24 lanes ahead of the furthest hopper');
+  }
+  assert.ok(top > S.C.START_ROW + 24, 'more lanes followed as Ann moved on');
+  const w = room.watchSnapshot(at(200));
+  assert.ok(!('seed' in w) && Array.isArray(w.lanes) && Math.max(...w.lanes.map((l) => l.r)) === top);
+});
+
+test('a page back mid-match holds only the lanes near the hoppers: it never throws, and seated from the server it steps as the server does', () => {
+  const server = keyedWorld(crypto.createHash('sha256').update('rejoin').digest());
+  const hs = S.newHopper(), bot = new CrossyBot(S.rng(31));
+  for (let t = 0; t < 6000 && hs.alive && hs.r < 14; t++) S.step(server, hs, bot.input(server, hs));
+  assert.ok(hs.alive && hs.r >= 14, 'the bot got past row 14: ' + hs.r);
+  // What a rejoin carries (CrossyRoom.lanesNow): from 12 behind the last hopper to 24 beyond the furthest.
+  const lanes = [];
+  for (let r = hs.r - 12; r <= hs.r + 24; r++) lanes.push(S.packRow(server.row(r)));
+  const page = S.World.fromLanes(JSON.parse(JSON.stringify(lanes)));
+  const fresh = S.newHopper();                       // stepped from the start on lanes the page does not hold
+  assert.doesNotThrow(() => { for (let i = 0; i < 240; i++) S.step(page, fresh, 0); });
+  const hp = S.unpackHopper(S.packHopper(hs));      // crossyMain.startMatch seats it from the server's row
+  hp.got = hs.got.slice();
+  for (let t = 0; t < 600 && hs.alive; t++) {
+    const press = bot.input(server, hs);
+    S.step(server, hs, press); S.step(page, hp, press);
+    assert.deepStrictEqual(S.packHopper(hp), S.packHopper(hs), 'tick ' + t);
+  }
+});
+
+test('no lane on the wire carries its name (it would tell which chunk is under way)', () => {
+  const server = keyedWorld(crypto.randomBytes(32));
+  for (let r = S.C.FIRST_ROW; r < 40; r++) assert.ok(!('n' in S.packRow(server.row(r))));
+});

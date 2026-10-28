@@ -95,7 +95,7 @@ tall x 1/2/3 long. Lily 0.5 x 0.125. Train: front 4.875, five middles 4.5 apart,
 * Coins: 0.09 chance per lane.
 
 ## CHOSEN for the duel (not in the reference; Owen picked the format)
-* Both players run the same seeded map at the same time. Chunk rarity and lane speed use the lane's own row minus 18
+* Both players run the same map at the same time (made from a secret key, sent lane by lane: "The map on the wire"). Chunk rarity and lane speed use the lane's own row minus 18
   (the row the player stood on when the reference made it), so the map is the same for both and for the server.
 * Each screen follows its own hopper exactly like the reference; the rival is a whole character with a name tag
   (Owen 2026-10-28), and you pass through each other.
@@ -119,9 +119,21 @@ Fixed from the reviews: a leave or dropped connection is judged on both timeline
 still from that tick; the stayer gets 0.5 s to reach it) so leaving never turns a locked-in loss into a refund or a
 win; the lag floor never trails the clock by more than 0.5 s however slowly the server ticks; nobody is stepped past
 the 5 minute stop; a room that throws ends as a draw with refunds instead of taking the server down.
-Known and left (for Owen): the seed is public, so a scripted client could play the map perfectly (true of any
-deterministic duel; the stakes are $0.50 and $1); the rival's row reaches a deliberately lagging client up to 0.25 s
-early; no reconnect grace (a dropped connection forfeits, like Head Soccer).
+Known and left (for Owen): the rival's row reaches a deliberately lagging client up to 0.25 s early. (The seed is no
+longer sent: see "The map on the wire" below. A reconnect grace was added later: server/KnockoutLobby.js.)
+
+## The map on the wire (2026-10-28, phase 2)
+The server sends LANES, never a seed. Each match's map is made from a secret 256-bit key (crypto.randomBytes(32), never
+sent or logged): every lane's own stream is seeded by HMAC-SHA256(key, 'row:' + r) and every chunk draw (which lanes come
+next) is HMAC-SHA256(key, 'chunk:' + n). A lane goes out packed (S.packRow: what it was made with plus where its own
+stream stood once made), reliably, as `cr:lanes`, never more than 24 rows beyond the furthest hopper as the server has it
+(a screen draws 20 ahead; its own hopper runs at most a couple of rows ahead of the server's copy). Both seats and every
+watcher get the same lanes at the same moment. The page's map is S.World.fromLanes: it makes nothing; a lane it has not
+been sent blocks a hop (the server's correction then puts it right), so it never invents road. What this closes: a script
+can no longer make the whole map and solve it offline, and with a 256-bit key there is nothing to brute-force from the
+lanes it sees. What it cannot close: a script still sees the 24 lanes on its screen exactly, as any player does, so a
+scripted player with perfect reactions is still possible (true of every real-time game). Test: test/crossy.test.js
+("a screen's map made only from the lanes it was sent steps every hopper exactly as the server's").
 
 ## The 2026-10-28 redo: models, deaths and HUD (measured, then built as our own)
 Owen after playing: "not a 1 to 1 replica". Every number below was read from the reference's model data (bounds and

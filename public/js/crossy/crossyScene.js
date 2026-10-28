@@ -804,6 +804,7 @@ export function createScene(canvas) {
     for (const r of [...rows.keys()]) if (r < lo || r > hi) dropRow(r);
     let nb = 0;
     for (let r = Math.max(C.FIRST_ROW, lo); r <= hi; r++) {
+      if (!rows.has(r) && !world.row(r)) continue;       // a lane the server has not sent yet
       const R = rows.get(r) || buildRow(r);
       updateRow(r, R, d);
       if (R.coin) {

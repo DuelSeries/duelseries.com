@@ -188,12 +188,20 @@ function startMatch(m) {
   const looks = [null, null];
   for (const p of players) if ((p.side === 0 || p.side === 1) && typeof p.skin === 'string') looks[p.side] = p.skin;
   view.setLooks(looks, mySeat);
-  match = { id: m.id, seed: m.seed >>> 0, vsBot: !!m.vsBot, players, names, stake: m.stake, pot: m.pot, goAt: Number(m.goAt) || 0, offset };
-  world = new Sim.World(match.seed);
+  match = { id: m.id, vsBot: !!m.vsBot, players, names, stake: m.stake, pot: m.pot, goAt: Number(m.goAt) || 0, offset };
+  // The map as the server sends it, lane by lane (cr:lanes); there is no seed to make the rest from.
+  world = Sim.World.fromLanes(m.lanes);
   view.setWorld(world);
   view.resetCoins();
   mine = mySeat >= 0 ? Sim.newHopper() : null;
   hist.fill(null); presses.clear(); sentT = -1; lastBeat = 0; corrections = 0;
+  /* Back in a match already under way (cr:rejoined): my hopper is the server's, from the row it sent, never one stepped
+     up from the start (the lanes it was sent begin a little behind the last hopper, not at the start: Fable review). */
+  for (const row of m.p || []) {
+    if (!mine || !Array.isArray(row) || row[0] !== mySeat) continue;
+    const h = Sim.unpackHopper(row.slice(1));
+    if (h) { mine = h; mine.got = []; hist[mine.tick & 255] = Sim.copyHopper(mine); sentT = mine.tick - 1; }
+  }
   seen[0] = seen[1] = null;
   shown[0] = Sim.newHopper(); shown[1] = Sim.newHopper();
   overShown = false; lastOver = null; deadAt = [0, 0]; overAt = 0; hinted = false;
@@ -323,6 +331,8 @@ socket.on('cr:start', (raw) => {
   startMatch(raw);
 });
 socket.on('cr:go', () => { if (match) phase = 'playing'; });
+// The next lanes, a few ahead of the furthest hopper (server/crossy/CrossyRoom.js pushLanes).
+socket.on('cr:lanes', (m) => { if (match && world && m && m.id === match.id && Array.isArray(m.rows)) world.add(m.rows); });
 socket.on('cr:s', (m) => {
   if (!match || !m || !Array.isArray(m.p)) return;
   if (phase === 'countdown' && m.T > 0) phase = 'playing';
@@ -890,7 +900,7 @@ function placeTag(ft) {
 
 /* What the match looks like right now, for a headless check. Read only. */
 window.__cr = () => ({
-  phase, mySeat, seed: match ? match.seed : null, tick: mine ? mine.tick : null, ft: Math.round(matchFt()),
+  phase, mySeat, lanes: world ? world.rows.size : 0, tick: mine ? mine.tick : null, ft: Math.round(matchFt()),
   me: mine ? { x: mine.x, r: mine.r, alive: mine.alive, death: mine.death, score: Sim.score(mine), coins: mine.coins, eagle: mine.eagle } : null,
   them: mySeat >= 0 && seen[1 - mySeat] ? { r: seen[1 - mySeat].h.r, alive: seen[1 - mySeat].h.alive } : null,
   corrections, rtt: Math.round(rtt), over: overShown, waiting, touchUI,

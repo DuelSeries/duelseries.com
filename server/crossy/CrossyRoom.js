@@ -23,7 +23,10 @@
    (Owen 2026-10-28), equal coins is a draw.
 
    WHAT THE SCREENS ARE SENT.
-     cr:start  once: the seed, when it goes on the server's clock, the seats
+     cr:start  once: the first lanes, when it goes on the server's clock, the seats
+     cr:lanes  reliable, as the front moves: the next lanes (S.packRow), never more than AHEAD rows beyond the
+               furthest hopper. NO SEED, no key: the map is made here from a secret 256-bit key (HMAC per lane and
+               per chunk draw), so no screen and no script can see the road further on than the lanes it was sent.
      cr:s      20 a second, volatile: both hoppers by seat and the tick each has
                reached; a screen's own row is how it checks its prediction
      cr:over   once: who won, why, both scores, the money for the card
@@ -41,6 +44,10 @@ const SNAP_EVERY = 3;          // ticks between cr:s (20 a second)
 const HIST = 1024;             // ticks of presses kept per seat, far more than LAG_MAX
 const MAX_HOPS_MSG = 8;        // hops one message may carry
 const LEAVE_WAIT_TICKS = LAG_MAX * 2;   // how long a seat that left is kept for a death still to be judged (0.5 s)
+/* Lanes sent beyond the furthest hopper (as the server has it): a screen draws 20 ahead of its own hopper, which runs
+   at most a couple of rows ahead of the server's copy (LAG_MAX), so 24 never leaves a screen short. */
+const AHEAD = 24;
+const hmac32 = (key, s) => crypto.createHmac('sha256', key).update(s).digest().readUInt32LE(0);
 const isBotId = (id) => typeof id === 'string' && id.startsWith('bot_');
 
 let nextId = 1;
@@ -48,8 +55,11 @@ let nextId = 1;
 class CrossyRoom extends KnockoutRoom {
   constructor(io) {
     super(io, 'cr_' + (nextId++), 'cr');
-    this.seed = crypto.randomBytes(4).readUInt32LE(0);
-    this.world = new S.World(this.seed);
+    // The map's secret: never sent, never logged. Every lane's stream and every chunk draw is an HMAC of it.
+    const key = crypto.randomBytes(32);
+    let draws = 0;
+    this.world = new S.World({ chunk: () => hmac32(key, 'chunk:' + (draws++)) / 4294967296, row: (r) => hmac32(key, 'row:' + r) });
+    this.sent = S.C.FIRST_ROW - 1;   // the highest lane every screen in the match has been sent
     this.goAt = 0;
     this.clock = 0;            // the server's tick
     this.floor = 0;            // the clock the lag allowance is measured from (Swim's: a stall never drives anyone blind)
@@ -67,7 +77,7 @@ class CrossyRoom extends KnockoutRoom {
       press: new Int8Array(HIST),
       pressTick: new Int32Array(HIST).fill(-1),
       heard: -1,
-      bot: isBotId(socket.id) ? new CrossyBot(S.rng(this.seed ^ 0x5bd1e995)) : null,
+      bot: isBotId(socket.id) ? new CrossyBot(S.rng(crypto.randomBytes(4).readUInt32LE(0))) : null,
     };
     return true;
   }
@@ -82,6 +92,7 @@ class CrossyRoom extends KnockoutRoom {
     const t = typeof now === 'number' ? now : Date.now();
     this.state = 'countdown';
     this.goAt = t + S.DUEL.COUNTDOWN_MS;
+    this.sent = this.front();                   // cr:start carries the lanes up to here
     this.broadcast('cr:start', this.publicState(t));
     return true;
   }
@@ -188,7 +199,36 @@ class CrossyRoom extends KnockoutRoom {
       this.turn = Math.max(S.score(a.cr.h), S.score(b.cr.h));
       this.world.forget(Math.min(a.cr.h.r, b.cr.h.r) - 12);
     }
+    this.pushLanes();
     if (Math.floor(this.clock / SNAP_EVERY) !== Math.floor(from / SNAP_EVERY)) this.snapshot();
+  }
+
+  /* The lanes: up to AHEAD beyond the furthest hopper, to the players and watchers alike (the same map for both). */
+  front() {
+    let f = S.C.START_ROW;
+    for (const p of this.players.values()) if (p.cr && p.cr.h.r > f) f = p.cr.h.r;
+    return f + AHEAD;
+  }
+  lanes(lo, hi) {
+    const out = [];
+    for (let r = Math.max(lo, S.C.FIRST_ROW); r <= hi; r++) { const row = this.world.row(r); if (row) out.push(S.packRow(row)); }
+    return out;
+  }
+  // What a screen joining now is given (cr:start, a rejoin, a watcher): from a little behind the last hopper to the front.
+  lanesNow() {
+    let lo = Infinity;
+    for (const p of this.players.values()) if (p.cr && p.cr.h.r < lo) lo = p.cr.h.r;
+    return this.lanes(Number.isFinite(lo) ? lo - 12 : S.C.FIRST_ROW, this.sent);
+  }
+  /* RELIABLE, unlike cr:s: a lane a screen never got would be a lane its hopper could not hop into. */
+  pushLanes() {
+    const hi = this.front();
+    if (hi <= this.sent) return;
+    const msg = { id: this.id, rows: this.lanes(this.sent + 1, hi) };
+    this.sent = hi;
+    if (!this.io || !this.io.to) return;
+    try { this.io.to(this.socketRoomName).emit('cr:lanes', msg); } catch (_) {}
+    if (this.watchers > 0) { try { this.io.to(this.watchRoomName).emit('cr:lanes', msg); } catch (_) {} }
   }
 
   /* Every hopper's whole state (S.packHopper), by seat, at full precision: a screen checks its own row against its
@@ -292,7 +332,7 @@ class CrossyRoom extends KnockoutRoom {
     return {
       id: this.id,
       state: this.state,
-      seed: this.seed,
+      lanes: this.lanesNow(),
       v: S.VERSION,
       /* The server's clock (ms) and when the match goes on it: with ping_check the page lines its own clock up with
          these, so it runs its hopper on the server's ticks. */
@@ -312,7 +352,7 @@ class CrossyRoom extends KnockoutRoom {
   /* ── what a watcher is told: the same moments, by seat, with every id gone ── */
   watchState(ps) {
     return {
-      id: ps.id, state: ps.state, seed: ps.seed, v: ps.v, goAt: ps.goAt, now: ps.now, tick: ps.tick,
+      id: ps.id, state: ps.state, lanes: ps.lanes, v: ps.v, goAt: ps.goAt, now: ps.now, tick: ps.tick,
       players: (ps.players || []).map(q => ({ side: q.side, name: q.name, skin: q.skin || null })),
       stake: ps.stake, pot: ps.pot, p: ps.p,
     };
