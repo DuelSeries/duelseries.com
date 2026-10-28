@@ -136,8 +136,6 @@ reference's are lookalikes of famous characters and none of them is copied.
 - **Snow and the elevator doors** are pictures only (no physics in the reference either); the snowflakes' randomness is the browser's own.
 - **The solver's constraint order** (player-roof pairs first, then player-player) and the broadphase (a bounding-circle check) stand in for Godot's island and hash-grid order.
 - **A rocket that never hits anything** is removed 5000 px from the roof (the reference's flies on for ever).
-- **The slow motion runs 3 frames (0.05 s) longer** than the reference's 2 s (`RT.SLOW_LAG`), as ours always has, so the
-  point and the next round come 3 frames after the reference's (see Gaps). Setting it to 0 lands them on +212 and +272.
 - **Characters**: eight of our own, drawn for each player at random each round as the reference does with its own.
 
 ## Measured on the real build (M)
