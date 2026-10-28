@@ -25,6 +25,11 @@ const cv = $('table');
 const ctx = cv.getContext('2d', { alpha: false });
 const SND = window.Pool8Sound || null;
 const GAME = 'pool8';
+/* The free look picked in the lobby's Customize (shared/pool8Looks.js, stored under duel.pool8.look): my cloth on my
+   screen, and my cue on every screen once the server has worn it (players[].skin). */
+const LOOKS = window.DS_POOL8_LOOKS || null;
+const myLook = (() => { try { return LOOKS ? LOOKS.byId(localStorage.getItem(LOOKS.KEY)) : null; } catch (_) { return null; } })();
+let seatCue = [null, null];
 
 /* The name and wallet, read exactly the way Knockout reads them: the lobby
    writes the name into sessionStorage immediately before it sets this page's
@@ -221,6 +226,8 @@ function startMatch(m) {
   if (m.vsBot && mySeat >= 0) names[1 - mySeat] = cut(names[1 - mySeat] || 'Opponent', 13) + ' (bot)';
   const initials = names.map(n => (String(n).trim().charAt(0) || '?'));
   match = { id: m.id, vsBot: !!m.vsBot, players, names, initials, stake: m.stake, pot: m.pot };
+  seatCue = [null, null];
+  for (const p of players) { const lk = LOOKS && LOOKS.byId(p.skin); if (lk && (p.side === 0 || p.side === 1)) seatCue[p.side] = lk.cue; }
   overShown = false; lastOver = null;
   tape = null; pendingTurn = null; opp = null; drag = null; spinOpen = false;
   returned.length = 0;
@@ -561,7 +568,7 @@ function draw(now) {
   if (!tableCanvas || tableS !== s) {
     tableCanvas = tableCanvas || document.createElement('canvas');
     tableCanvas.width = Math.ceil(D.w * s); tableCanvas.height = Math.ceil(D.h * s);
-    Art.paintTable(tableCanvas.getContext('2d'), s);
+    Art.paintTable(tableCanvas.getContext('2d'), s, WATCH ? null : myLook);
     tableS = s;
     for (const b of view) b.art.dirty = true;
   }
@@ -605,7 +612,7 @@ function draw(now) {
       const warn = gd.kind === 'ball' && !legalFirst(gd.n, rules.turn);
       if (mine || opp) Art.drawGuide(ctx, cd.x, cd.y, gd, s, warn);
       const pull = mine ? aim.p * 70 : (opp ? opp.p * 70 : 0);
-      if (!(mine && aim.placing)) Art.drawCue(ctx, cd.x, cd.y, a, 6 + pull, s);
+      if (!(mine && aim.placing)) Art.drawCue(ctx, cd.x, cd.y, a, 6 + pull, s, seatCue[rules.turn]);
     }
     if (mine && rules.inHand) Art.drawInHand(ctx, cd.x, cd.y, s, Sim.placeOk(view, c.x, c.y, rules.inHand === 'kitchen'));
     if (rules.onEight[rules.turn] && mine && aim.call !== null) Art.drawCall(ctx, aim.call, s, (Math.sin(now / 160) + 1) / 2);
@@ -617,7 +624,7 @@ function draw(now) {
       const k0 = Math.min(1, t / 160);
       const start = cueStart || { x: cd.x, y: cd.y };
       ctx.globalAlpha = 1 - Math.max(0, (t - 160) / 100);
-      Art.drawCue(ctx, start.x, start.y, tape.a, 6 + tape.p * 70 * (1 - k0) - k0 * 8, s);
+      Art.drawCue(ctx, start.x, start.y, tape.a, 6 + tape.p * 70 * (1 - k0) - k0 * 8, s, seatCue[tape.shooter]);
       ctx.globalAlpha = 1;
     }
   } else cueStart = { x: cd.x, y: cd.y };
@@ -796,7 +803,7 @@ function queue(token, resume) {
   else paintWait();
   socket.emit('p8:queue', Object.assign({
     name: myName, wallet: myWallet,
-    stake: myStake, entryToken: token || myEntryToken,
+    stake: myStake, entryToken: token || myEntryToken, look: myLook ? myLook.id : undefined,
     resume: resume || undefined,
   }, shopFields()));
   /* One use only. Re-sending it on a Play again would be asking the server to spend a token it has already

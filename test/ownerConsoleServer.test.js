@@ -154,6 +154,15 @@ test('state v2, maintenance and the paid Knockout door across a restart, bots:se
   assert.ok(!s.games.some((g) => g.rungs.some((x) => /^na_(free|br)$/.test(String(x.room)))), 'the old tiers are not rows');
   assert.deepStrictEqual(gameOf(s, 'knockout').paid, { enabled: true, open: true, stopping: false, saved: false, action: 'ko:paid' });
   assert.strictEqual(gameOf(s, 'agar').paid.action, 'agar:paid');
+  // 8 Ball Pool's paid door: a row of its own, shut and opened from the console like the others.
+  assert.deepStrictEqual(gameOf(s, 'pool8').paid, { enabled: true, open: true, stopping: false, saved: false, action: 'p8:paid' });
+  r = await act(one.port, 'p8:paid:off');
+  assert.strictEqual(r.status, 200, r.body);
+  assert.match(r.json.note, /Paid 8 Ball Pool closed to new players/);
+  assert.deepStrictEqual([gameOf(r.json.state, 'pool8').paid.open, gameOf(r.json.state, 'pool8').paid.saved], [false, true]);
+  r = await act(one.port, 'p8:paid:on');
+  assert.strictEqual(r.status, 200, r.body);
+  assert.strictEqual(gameOf(r.json.state, 'pool8').paid.open, true);
   assert.strictEqual(gameOf(s, 'agar').rungs[0].room, 'ag_na_s0');
   assert.strictEqual(gameOf(s, 'paper').rungs[0].room, 'paper_na_s0');
   for (const k of ['safe', 'reason', 'people', 'paidPeople', 'moneyInPlay', 'floor', 'pending', 'duels']) assert.ok(k in s.drain, k);

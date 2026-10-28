@@ -57,8 +57,10 @@
   const POCKET_R = { corner: 24, side: 22 };
 
   /* ── the table, painted once per size ──────────────────────────────────── */
-  function paintTable(g, s) {
+  /* look: a free look of shared/pool8Looks.js (its cloth), or null for the reference's blue. */
+  function paintTable(g, s, look) {
     const R = LAYOUT.rail;
+    const K = look && look.cloth ? look.cloth : { hi: C.feltHi, mid: C.feltMid, lo: C.feltLo, cushion: C.cushion, cushionHi: C.cushionHi };
     g.save();
     g.scale(s, s);
     g.fillStyle = C.bg;
@@ -92,7 +94,7 @@
 
     // The felt: lit from above, brightest in the middle.
     const fg = g.createRadialGradient(F.x + F.w / 2, F.y + F.h / 2, 30, F.x + F.w / 2, F.y + F.h / 2, F.w * 0.62);
-    fg.addColorStop(0, C.feltHi); fg.addColorStop(0.55, C.feltMid); fg.addColorStop(1, C.feltLo);
+    fg.addColorStop(0, K.hi); fg.addColorStop(0.55, K.mid); fg.addColorStop(1, K.lo);
     g.fillStyle = fg;
     g.fillRect(F.x - 12, F.y - 12, F.w + 24, F.h + 24);
 
@@ -102,10 +104,10 @@
     for (const sg of Sim.SEGS) {
       g.beginPath();
       g.moveTo(tx(sg.ax), ty(sg.ay)); g.lineTo(tx(sg.bx), ty(sg.by));
-      g.lineWidth = 3; g.strokeStyle = C.cushionHi; g.stroke();
+      g.lineWidth = 3; g.strokeStyle = K.cushionHi; g.stroke();
     }
     g.restore();
-    const lip = (x, y, w, h) => { g.fillStyle = C.cushion; g.fillRect(x, y, w, h); };
+    const lip = (x, y, w, h) => { g.fillStyle = K.cushion; g.fillRect(x, y, w, h); };
     lip(F.x, F.y - 9, F.w, 9); lip(F.x, F.y + F.h, F.w, 9); lip(F.x - 9, F.y, 9, F.h); lip(F.x + F.w, F.y, 9, F.h);
     // The baulk line the break is taken from behind.
     g.strokeStyle = 'rgba(255,255,255,0.22)'; g.lineWidth = 1.5;
@@ -231,8 +233,10 @@
   }
 
   /* ── the cue, the guide, the power bar ─────────────────────────────────── */
-  // The cue stick behind the cue ball, pointing along `a`, pulled back `pull` design units.
-  function drawCue(g, cx, cy, a, pull, s) {
+  // The cue stick behind the cue ball, pointing along `a`, pulled back `pull` design units. cue: a free look's colours.
+  const CUE = { shaft: '#d8b27a', butt: '#5a2a14', joint: '#1b1b1b' };
+  function drawCue(g, cx, cy, a, pull, s, cue) {
+    const Q = cue || CUE;
     const R = P8.R * k;
     const len = 560, ux = Math.cos(a), uy = Math.sin(a);
     const x0 = cx - ux * (R + 4 + pull), y0 = cy - uy * (R + 4 + pull);
@@ -248,9 +252,9 @@
     };
     seg(0, 0.012, 5, '#e9eef2');          // tip
     seg(0.012, 0.03, 5.4, '#f4f1e6');     // ferrule
-    seg(0.03, 0.62, 6.2, '#d8b27a');      // shaft
-    seg(0.62, 0.66, 7.4, '#1b1b1b');      // joint
-    seg(0.66, 1, 9, '#5a2a14');           // butt
+    seg(0.03, 0.62, 6.2, Q.shaft);        // shaft
+    seg(0.62, 0.66, 7.4, Q.joint);        // joint
+    seg(0.66, 1, 9, Q.butt);              // butt
     g.strokeStyle = 'rgba(255,255,255,0.28)'; g.lineWidth = 1.6;
     line(g, x0 - ux * len * 0.03 - uy * 1.5, y0 - uy * len * 0.03 + ux * 1.5, x1 - uy * 2.2, y1 + ux * 2.2);
     g.restore();

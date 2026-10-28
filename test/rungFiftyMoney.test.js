@@ -301,12 +301,13 @@ async function p8Eight(pre, rightPocket) {
   room.rules = Rules.newState(sideA);
   room.rules.broken = true; room.rules.inHand = null;
   room.rules.groups = sideA === 0 ? ['solids', 'stripes'] : ['stripes', 'solids'];
+  room.aimError = () => 0;   // an exact shot for the proof: the server's hair of aim error off
   // The ghost ball that sends the 8 into the bottom right corner.
   const e = room.balls[8], pk = Sim.POCKETS[5];
   const dx = pk.x - e.x, dy = pk.y - e.y, d = Math.hypot(dx, dy);
   const gx = e.x - dx / d * 2 * P8.R, gy = e.y - dy / d * 2 * P8.R;
   const c = room.balls[0];
-  a.s.emit('p8:shot', { a: Math.atan2(gy - c.y, gx - c.x), p: 0.55, call: rightPocket ? 5 : 2 });
+  a.s.emit('p8:shot', { a: Math.atan2(gy - c.y, gx - c.x), p: 0.9, call: rightPocket ? 5 : 2 });
   assert.ok(await until(() => a.has('p8:shot') && b.has('p8:shot'), 4000), 'both screens get the tape');
   const shot = a.has('p8:shot')[1];
   assert.ok(shot.over, 'the shot decided it: ' + JSON.stringify({ foul: shot.foul, pots: shot.pots }));

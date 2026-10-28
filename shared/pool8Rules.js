@@ -15,7 +15,8 @@
     BREAK_IN_HAND: 'kitchen',      // where the breaker may put the cue ball: behind the baulk line
     FOUL_IN_HAND: 'table',         // after a foul: anywhere on the table
     EIGHT_ON_BREAK: 'respot',      // the 8 potted on the break comes back to the foot spot, play on
-    TIMEOUTS_TO_LOSE: 3,           // CHOSEN: a third timed-out turn in a row loses the match
+    TIMEOUTS_TO_LOSE: 3,           // CHOSEN: a third timed-out turn in the match loses it (counted for the whole
+                                   // match, never reset by a shot: two timeouts and a tap could stall a table forever)
   };
 
   // Who owns a ball: 'solids' 1-7, 'stripes' 9-15.
@@ -65,7 +66,6 @@
     for (var i = 0; i < pots.length; i++) if (pots[i].n === 8) eight = pots[i];
     st.shots++;
     st.broken = true;
-    st.timeouts[side] = 0;
 
     // Fouls, the first that applies.
     var foul = null;
@@ -127,14 +127,13 @@
     return out;
   }
 
-  /* The shot clock ran out: a foul, the other player gets the cue ball in hand, and the third in a row in a match
-     loses it. */
+  /* The shot clock ran out: a foul, the other player gets the cue ball in hand, and the third in a match loses it. */
   function timeout(stIn) {
     var st = JSON.parse(JSON.stringify(stIn));
     var side = st.turn, opp = 1 - side;
     st.timeouts[side] = (st.timeouts[side] || 0) + 1;
     var out = { st: st, foul: 'time', keep: false, msg: foulText('time'), over: null, respot8: false, pots: [] };
-    if (st.timeouts[side] >= RULES.TIMEOUTS_TO_LOSE) return end(out, opp, 'ran out of time ' + RULES.TIMEOUTS_TO_LOSE + ' turns in a row');
+    if (st.timeouts[side] >= RULES.TIMEOUTS_TO_LOSE) return end(out, opp, 'ran out of time ' + RULES.TIMEOUTS_TO_LOSE + ' times');
     st.turn = opp;
     st.inHand = st.broken ? RULES.FOUL_IN_HAND : RULES.BREAK_IN_HAND;
     return out;

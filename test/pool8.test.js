@@ -12,7 +12,7 @@
    then the rules, Miniclip 8 Ball Pool's (docs/pool8-reference.md): every foul
    gives the other player the cue ball in hand, the first legal pot after the
    break names the groups, the 8 wins only last, in the called pocket and
-   without a foul, and three timed-out turns in a row lose; and the room: only
+   without a foul, and three timed-out turns in a match lose; and the room: only
    the shooter shoots, junk is refused without throwing, a cue ball in hand goes
    only where it may, and two bots play a match to a result. */
 
@@ -128,13 +128,14 @@ test('a win settles once, to the shooter who potted the 8 in the called pocket, 
   const { room } = paidMatch(lob, 1);
   lateTable(room, 0, { clearMine: true, eightX: 900 });
   aiming(room, 1000);
+  room.aimError = () => 0;            // an exact shot: the server's hair of aim error off for the proof
   // Straight down the long axis into the right-hand rail: the 8 heads for the middle of the foot cushion, so aim
   // it at the bottom right corner instead.
   const e = room.balls[8], pk = Sim.POCKETS[5];
   const dx = pk.x - e.x, dy = pk.y - e.y, d = Math.hypot(dx, dy);
   const gx = e.x - dx / d * 2 * P8.R, gy = e.y - dy / d * 2 * P8.R;
   const c = room.balls[0];
-  const ok = room.shoot(idOf(room, 0), { a: Math.atan2(gy - c.y, gx - c.x), p: 0.55, call: 5 }, 1000);
+  const ok = room.shoot(idOf(room, 0), { a: Math.atan2(gy - c.y, gx - c.x), p: 0.75, call: 5 }, 1000);
   assert.ok(ok, 'the shot was taken');
   assert.strictEqual(room.state, 'settling', 'decided, held while it rolls out');
   assert.strictEqual(settled.length, 0, 'nothing paid before the hold');
@@ -270,7 +271,7 @@ test('on the 8, hitting a group ball first is a foul', () => {
   assert.strictEqual(v.over, null);
 });
 
-test('running out of time is a foul with ball in hand; the third in a row loses; a shot resets the count', () => {
+test('running out of time is a foul with ball in hand, and the third in the match loses: shots between do not reset it', () => {
   let s = st();
   let v = Rules.timeout(s);
   assert.strictEqual(v.foul, 'time');
@@ -278,12 +279,47 @@ test('running out of time is a foul with ball in hand; the third in a row loses;
   assert.strictEqual(v.st.inHand, 'table');
   s = Object.assign(v.st, { turn: 0 });
   v = Rules.timeout(s); s = Object.assign(v.st, { turn: 0 });
-  v = Rules.judge(s, full(), r0(), null);
-  assert.strictEqual(v.st.timeouts[0], 0, 'a shot resets it');
+  // A tap between them (a foul of its own) does not wipe the count: two timeouts and a tap cannot stall a table.
+  v = Rules.judge(s, full(), r0({ first: null, railAfter: false }), null);
+  assert.strictEqual(v.st.timeouts[0], 2, 'still two');
   s = Object.assign(v.st, { turn: 0 });
-  for (let i = 0; i < 2; i++) { v = Rules.timeout(s); s = Object.assign(v.st, { turn: 0 }); }
   v = Rules.timeout(s);
   assert.strictEqual(v.over.winner, 1);
+  assert.match(v.over.why, /3 times/);
+});
+
+test('a shot that arrives after the clock ran out is refused: the turn is timed out', () => {
+  const room = freeRoom();
+  const shooter = idOf(room, room.rules.turn);
+  assert.strictEqual(room.shoot(shooter, { a: 0, p: 0.5 }, room.phaseEndsAt + 1), false);
+  assert.strictEqual(room.state, 'aiming');
+  room.tick(room.phaseEndsAt + 1);
+  assert.strictEqual(room.rules.timeouts[1 - room.rules.turn], 1, 'counted as the timeout it was');
+});
+
+test('every shot leaves with a hair of the server\'s own aim error, never more than a fraction of a degree', () => {
+  const room = freeRoom();
+  const errs = [];
+  for (let i = 0; i < 400; i++) errs.push(Math.abs(room.aimError(1)) * 180 / Math.PI);
+  assert.ok(errs.some(e => e > 0.01), 'there is some');
+  assert.ok(Math.max(...errs) < 0.8, 'and it stays tiny: ' + Math.max(...errs).toFixed(3));
+});
+
+test('a restart in the result hold pays the result: one owed row to the winner for the pot less the cut, none to the loser', () => {
+  const { lob, settled } = lobby();
+  const { room } = paidMatch(lob, 1);
+  room.tick(P8R.VS_MS + 10);
+  room.pending = { winner: 1, why: 'potted the 8' };
+  room.state = 'settling';
+  room.phaseEndsAt = Date.now() + 99999;
+  const winnerWallet = room.players.get(room.socketOfSide(1)).wallet;
+  const rows = lob.shutdownSettle('shutdown');
+  assert.strictEqual(rows.length, 1, JSON.stringify(rows));
+  assert.strictEqual(rows[0].wallet, winnerWallet);
+  assert.strictEqual(rows[0].micro, 1800000);
+  assert.match(rows[0].key, /^agowed:[0-9a-f-]{36}$/);
+  assert.strictEqual(settled.length, 0, 'nothing paid twice: the owed row is the payment');
+  assert.strictEqual(lob.shutdownSettle('shutdown').length, 0, 'and never twice');
 });
 
 /* ── the room ──────────────────────────────────────────────────────────── */

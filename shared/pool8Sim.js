@@ -17,19 +17,23 @@
 
   var P8 = {
     L: 1000,              // play field length (x)
-    W: 518.6,             // play field width (y): 419 / 808 of the length in Owen's screenshot
-    R: 14.9,              // ball radius: 12.05 px on the 808 px field in Owen's screenshot
-    VMAX: 2600,           // cue ball speed at full power, units/s
-    POWER_EXP: 1,         // speed = VMAX * power^POWER_EXP
-    SLIDE_DECEL: 700,     // sliding friction (mu_s * g), units/s^2
-    ROLL_DECEL: 60,       // rolling resistance (mu_r * g), units/s^2
-    SPIN_DECEL: 9,        // side (z) spin decay, rad/s per second per (1/R)... see stepBall
-    E_BALL: 0.94,         // ball to ball restitution
-    E_CUSHION: 0.78,      // cushion restitution
-    MU_CUSHION: 0.18,     // cushion grip on a sliding contact (english off the rail)
+    W: 500,               // play field width (y): MEASURED 424.5 of 849.5 px, 2:1
+    R: 15,                // ball radius: MEASURED 12.75 px on the 849.5 px field
+    VMAX: 2055,           // cue ball speed at full power: MEASURED 1730-1760 px/s at the longest pull seen
+    POWER_EXP: 1.25,      // speed = VMAX * power^1.25: MEASURED, launch speed = 0.72 x drag^1.25 (px/s, px)
+    SLIDE_DECEL: 783,     // sliding friction: MEASURED 665 px/s^2 (it rolls from 5/7 of the launch speed)
+    ROLL_DECEL: 43.6,     // rolling: MEASURED 37 px/s^2
+    SPIN_DECEL: 9,        // side (z) spin decay: CHOSEN (spin could not be measured), see stepBall
+    E_BALL: 0.9,          // ball to ball: MEASURED 0.84-0.94 (a full hit leaves the cue ball 6-16% of its speed)
+    E_CUSHION: [[0, 0.2], [33, 0.24], [59, 0.25], [86, 0.42], [135, 0.52], [327, 0.65], [1013, 0.745], [1766, 0.79]],
+                          // cushion restitution by the speed into it (units/s): MEASURED, frame tracks
+    T_CUSHION: 0.8,       // speed kept along the cushion: MEASURED 0.70-0.88, mean 0.80
+    MU_CUSHION: 0.18,     // how far side spin grips the rail (english off a cushion): CHOSEN
     TIP_MAX: 0.5,         // the furthest the cue tip can strike from centre, in radii
-    CORNER_MOUTH: 2.2,    // corner pocket mouth, jaw tip to jaw tip, in ball diameters
-    SIDE_MOUTH: 2.0,      // side pocket mouth, in ball diameters
+    CORNER_MOUTH: 1.67,   // corner pocket mouth, jaw tip to jaw tip, in ball diameters: MEASURED 42.7 px
+    SIDE_MOUTH: 2.01,     // side pocket mouth: MEASURED 51.3 px
+    CORNER_HOLE: [16.5, 30.4],  // corner hole: centre past the nose corner on each axis, radius: MEASURED
+    SIDE_HOLE: [27.7, 24.8],    // side hole: centre past the nose line, radius: MEASURED
     FOOT_X: 0.75,         // rack apex (foot spot), fraction of L
     HEAD_X: 0.25,         // the baulk line the breaker places the cue ball behind, fraction of L
     STEP: 1 / 1000,       // physics step, s
@@ -48,13 +52,13 @@
     var s = P8.SIDE_MOUTH * D / 2;                // half the side mouth
     var deep = 3 * D;                             // how far the jaws run back from the field
     POCKETS.length = 0; SEGS.length = 0;
-    var cr = P8.CORNER_MOUTH * D / 2;             // drop radius: half the mouth
-    var off = cr * 0.55;                          // drop centre past the corner point, along the diagonal
+    // A ball drops once its centre is over the hole (the holes as measured).
+    var off = P8.CORNER_HOLE[0], cr = P8.CORNER_HOLE[1], so = P8.SIDE_HOLE[0], sr = P8.SIDE_HOLE[1];
     POCKETS.push({ x: -off, y: -off, r: cr, kind: 'corner' });
-    POCKETS.push({ x: L / 2, y: -s * 0.9, r: s, kind: 'side' });
+    POCKETS.push({ x: L / 2, y: -so, r: sr, kind: 'side' });
     POCKETS.push({ x: L + off, y: -off, r: cr, kind: 'corner' });
     POCKETS.push({ x: -off, y: W + off, r: cr, kind: 'corner' });
-    POCKETS.push({ x: L / 2, y: W + s * 0.9, r: s, kind: 'side' });
+    POCKETS.push({ x: L / 2, y: W + so, r: sr, kind: 'side' });
     POCKETS.push({ x: L + off, y: W + off, r: cr, kind: 'corner' });
     function seg(ax, ay, bx, by) { SEGS.push({ ax: ax, ay: ay, bx: bx, by: by }); }
     // Rails.
@@ -76,18 +80,31 @@
   // 1..7 solids, 8 the black, 9..15 stripes.
   function groupOf(n) { return n >= 1 && n <= 7 ? 'solids' : n >= 9 && n <= 15 ? 'stripes' : n === 8 ? 'eight' : 'cue'; }
 
-  /* The rack: a triangle with its apex on the foot spot, pointing at the breaker. RACK_ORDER is row by row from the
-     apex; the 8 is in the middle of the third row and the two back corners are one solid and one stripe, as the
-     rules of 8 ball rack it. */
+  /* The rack: a triangle with its apex on the foot spot, pointing at the breaker, row by row from the apex. The
+     reference deals it at random every game (MEASURED: four racks, four apex balls) with the 8 in the middle of the
+     third row and one solid and one stripe in the back corners, so that is what rackOrder deals; rng is the
+     server's Math.random (the order is sent, never re-dealt on a screen). RACK_ORDER is a fixed one for tests. */
   var RACK_ORDER = [1, 9, 2, 10, 8, 3, 11, 7, 14, 4, 5, 13, 15, 6, 12];
-  function newRack() {
+  function rackOrder(rng) {
+    var r = typeof rng === 'function' ? rng : Math.random;
+    var shuffle = function (a) { for (var i = a.length - 1; i > 0; i--) { var j = Math.floor(r() * (i + 1)); var t = a[i]; a[i] = a[j]; a[j] = t; } return a; };
+    var solids = shuffle([1, 2, 3, 4, 5, 6, 7]), stripes = shuffle([9, 10, 11, 12, 13, 14, 15]);
+    var back = r() < 0.5 ? [solids.pop(), stripes.pop()] : [stripes.pop(), solids.pop()];
+    var rest = shuffle(solids.concat(stripes));
+    // Slots 0..14 row by row: 4 is the middle of row 3, 10 and 14 the back corners.
+    var out = [];
+    for (var k = 0; k < 15; k++) out.push(k === 4 ? 8 : k === 10 ? back[0] : k === 14 ? back[1] : rest.pop());
+    return out;
+  }
+  function newRack(order) {
+    var ORDER = Array.isArray(order) && order.length === 15 ? order : RACK_ORDER;
     var R = P8.R, gap = 0.02;
     var dx = (2 * R + gap) * Math.sqrt(3) / 2, dy = R + gap / 2;
     var balls = [{ n: 0, x: P8.HEAD_X * P8.L, y: P8.W / 2, on: true }];
     var k = 0;
     for (var row = 0; row < 5; row++) {
       for (var i = 0; i <= row; i++) {
-        balls.push({ n: RACK_ORDER[k++], x: P8.FOOT_X * P8.L + row * dx, y: P8.W / 2 + (2 * i - row) * dy, on: true });
+        balls.push({ n: ORDER[k++], x: P8.FOOT_X * P8.L + row * dx, y: P8.W / 2 + (2 * i - row) * dy, on: true });
       }
     }
     balls.sort(function (a, b) { return a.n - b.n; });
@@ -322,19 +339,37 @@
     if (!b.moving) { b.vx = b.vy = b.wx = b.wy = 0; b.wz = 0; }
   }
 
-  /* A cushion hit. n points from the cushion into the table and vn (< 0) is the speed into it. The normal speed
-     comes back at E_CUSHION; along the cushion the contact point's slip (speed along the rail less the side spin's
-     surface speed) is gripped, up to MU_CUSHION of the impact, which is what makes english change the angle. */
+  /* A cushion hit. n points from the cushion into the table and vn (< 0) is the speed into it. MEASURED on the
+     reference: the speed across the rail comes back at a restitution that grows with the speed of the hit
+     (E_CUSHION), and 0.8 of the speed along it is kept (T_CUSHION). The ball's roll turns with it (CHOSEN: a
+     rolling ball leaves the rail rolling, a stunned one stunned, a drawing one still drawing), and side spin grips
+     the rail up to MU_CUSHION of the impact, which is what makes english change the angle (CHOSEN: the reference's
+     spin could not be measured). */
+  function cushionE(v) {
+    var t = P8.E_CUSHION;
+    if (typeof t === 'number') return t;
+    if (v <= t[0][0]) return t[0][1];
+    for (var i = 1; i < t.length; i++) if (v <= t[i][0]) return t[i - 1][1] + (t[i][1] - t[i - 1][1]) * (v - t[i - 1][0]) / (t[i][0] - t[i - 1][0]);
+    return t[t.length - 1][1];
+  }
   function cushion(b, nx, ny, vn) {
-    var R = P8.R, e = P8.E_CUSHION;
-    b.vx -= (1 + e) * vn * nx; b.vy -= (1 + e) * vn * ny;
+    var R = P8.R, e = cushionE(-vn), T = P8.T_CUSHION;
     var tx = -ny, ty = nx;
     var vt = b.vx * tx + b.vy * ty;
-    var slip = vt - R * b.wz;
-    var J = -slip / 3.5, cap = P8.MU_CUSHION * (1 + e) * -vn;
-    if (J > cap) J = cap; else if (J < -cap) J = -cap;
-    b.vx += J * tx; b.vy += J * ty;
-    b.wz += -2.5 * J / R;
+    // The roll as a speed (the speed it would roll at), turned the same way as the velocity.
+    var sx = R * b.wy, sy = -R * b.wx;
+    var sn = -e * (sx * nx + sy * ny), st = T * (sx * tx + sy * ty);
+    var nvn = -e * vn, nvt = T * vt;
+    b.vx = nvn * nx + nvt * tx; b.vy = nvn * ny + nvt * ty;
+    sx = sn * nx + st * tx; sy = sn * ny + st * ty;
+    b.wy = sx / R; b.wx = -sy / R;
+    // English: side spin grips the rail and bends the way out.
+    if (b.wz !== 0) {
+      var J = R * b.wz / 3.5, cap = P8.MU_CUSHION * (1 + e) * -vn;
+      if (J > cap) J = cap; else if (J < -cap) J = -cap;
+      b.vx += J * tx; b.vy += J * ty;
+      b.wz -= 2.5 * J / R;
+    }
     b.moving = true;
   }
 
@@ -367,7 +402,7 @@
   }
 
   build();
-  var Sim = { P8: P8, POCKETS: POCKETS, SEGS: SEGS, RACK_ORDER: RACK_ORDER, groupOf: groupOf, newRack: newRack,
+  var Sim = { P8: P8, POCKETS: POCKETS, SEGS: SEGS, RACK_ORDER: RACK_ORDER, rackOrder: rackOrder, groupOf: groupOf, newRack: newRack,
               placeOk: placeOk, aimGuide: aimGuide, simulate: simulate, indexTape: indexTape, posAt: posAt,
               configure: configure };
   if (typeof module === 'object' && module.exports) module.exports = Sim;

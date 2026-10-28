@@ -15,6 +15,7 @@ const { Pool8Lobby } = require('./Pool8Lobby'); // 8 Ball Pool, a turn-based due
 const { AirHockeyLobby } = require('./AirHockeyLobby'); // Air Hockey, the same queue and money (shared/ahSim.js)
 const { RooftopLobby } = require('./RooftopLobby');       // Rooftop Snipers, the same queue and money (shared/rtSim.js)
 const crossyWire = require('./crossy/crossyWire');        // Crossy Road, a duel on one seeded map (server/crossy)
+const P8Looks = require('../shared/pool8Looks'); // its free looks (a cloth and a cue), chosen in the lobby's Customize
 const { BattleshipLobby } = require('./BattleshipLobby'); // the two-grid duel
 const { SwimLobby } = require('./swim/SwimLobby');       // the traffic race (Swim, shared/swimSim.js)
 const SWIM_NAME = require('../shared/swimSim').NAME;     // its player-facing name, kept in one place
@@ -2080,7 +2081,7 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
         + (kept.ok ? 'It stays closed across restarts and deploys until you press Open.'
           : 'The close could not be saved (' + kept.why + '), so it lasts only until the next restart.'));
     }
-    /* Paid 8 Ball Pool's door (hs:paid:off / hs:paid:on), the same contract and the same saved switch as the two
+    /* Paid 8 Ball Pool's door (p8:paid:off / p8:paid:on), the same contract and the same saved switch as the two
        above. */
     case 'p8:paid:off':
     case 'p8:paid:on': {
@@ -2941,7 +2942,7 @@ let hsPaidOpen = !hsPaidSwitch.closedAtBoot().closed;
 const crossy = crossyWire.create({ io, koSend, trackEarning, sweepRake, houseCut: KO_HOUSE_CUT, region: REGION,
   createPaidSwitchStore, journalDir: path.dirname(agJournal.file) });
 if (!hsPaidOpen) console.warn("[HS] paid door CLOSED at boot: the owner's hs:paid:off outlived the restart");
-/* Paid 8 Ball Pool: P8_PAID_ON is the build switch (paid rungs exist at all), hs:paid:off the owner's door on top
+/* Paid 8 Ball Pool: P8_PAID_ON is the build switch (paid rungs exist at all), p8:paid:off the owner's door on top
    of it, saved like the other two. */
 const P8_PAID_ON = true;
 const p8PaidSwitch = createPaidSwitchStore({
@@ -2949,7 +2950,7 @@ const p8PaidSwitch = createPaidSwitchStore({
   tag: '[P8]', what: 'paid 8 Ball Pool',
 });
 let p8PaidOpen = !p8PaidSwitch.closedAtBoot().closed;
-if (!p8PaidOpen) console.warn("[P8] paid door CLOSED at boot: the owner's hs:paid:off outlived the restart");
+if (!p8PaidOpen) console.warn("[P8] paid door CLOSED at boot: the owner's p8:paid:off outlived the restart");
 /* Paid Air Hockey: AH_PAID_ON is the build switch (paid rungs exist at all), hs:paid:off the owner's door on top
    of it, saved like the other two. */
 const AH_PAID_ON = true;
@@ -5688,6 +5689,10 @@ io.on('connection', (socket) => {
       /* The door shut (ko:paid:off) while this stake row's claim was in flight: not seated, so
          enterPaid refunds it once through the row. */
       if (entry && entry.stakeSig && !(HS_PAID_ON && hsPaidOpen)) return false;
+      /* Seated at a running table while this stake row's claim was in flight (a second tab racing the first): not
+         seated twice, so enterPaid refunds this one through its row (8 Ball Pool's Opus review 2026-10-28). */
+      const sat = headSoccerLobby.roomOf(socket.id);
+      if (sat && sat.state !== 'over') return false;
       let worth = 0, rung = 0, paid, payTo = null;
       if (entry) {
         worth = entry.worth;
@@ -5785,7 +5790,7 @@ io.on('connection', (socket) => {
      A turn-based duel. The queue and the paid door are Knockout's, line for line (the handler below is Head
      Soccer's with p8: names); the room plays every shot through on the server and the client only says how it
      aimed (Pool8Room.shoot checks all of it). */
-  on('p8:queue', ({ name, wallet, stake, entryToken, shop, skinPass, resume } = {}) => {
+  on('p8:queue', ({ name, wallet, stake, entryToken, shop, skinPass, resume, look } = {}) => {
     if (!socketRL(socket, 'p8q', 1000)) return;
     if (ops.get().maintenance) { socket.emit('maintenance', ops.get()); return; }
     /* Already at a table that is still being played: a second seat from the same socket would leave the first table
@@ -5818,7 +5823,7 @@ io.on('connection', (socket) => {
     const skin = skinPasses.wornFrom('pool8', {
       shop: typeof shop === 'string' ? shop : null,
       skinPass: typeof skinPass === 'string' ? skinPass : null,
-    });
+    }) || (P8Looks.byId(look) ? look : null);   // else a free look, only one on shared/pool8Looks.js (cosmetic)
 
     /* A PAID SEAT IS PROVED, NOT CLAIMED. The stake is whatever the server
        recorded when it verified the on-chain transfer and minted a one-time
@@ -5834,6 +5839,10 @@ io.on('connection', (socket) => {
       /* The door shut (ko:paid:off) while this stake row's claim was in flight: not seated, so
          enterPaid refunds it once through the row. */
       if (entry && entry.stakeSig && !(P8_PAID_ON && p8PaidOpen)) return false;
+      /* Seated at a running table while this stake row's claim was in flight (a second tab racing the first): not
+         seated twice, so enterPaid refunds this one through its row (Opus review 2026-10-28). */
+      const sat = pool8Lobby.roomOf(socket.id);
+      if (sat && sat.state !== 'over') return false;
       let worth = 0, rung = 0, paid, payTo = null;
       if (entry) {
         worth = entry.worth;

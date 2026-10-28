@@ -370,11 +370,48 @@
     ctx.restore();
   }
 
+  /* ── 8 Ball Pool: a corner of cloth, the cue ball and the cue drawing back and striking, in a look's colours
+     (k.cloth and k.cue from shared/pool8Looks.js; {} is the game's own look). Not a Shop game (nothing is sold for
+     it yet), so the lobby's Customize draws it through paintWith only. ─────── */
+  var P8_CLOTH = { hi: '#97c6d9', mid: '#6090b0', lo: '#2d4866' }, P8_CUE = { shaft: '#d8b27a', butt: '#5a2a14', joint: '#1b1b1b' };
+  function paintPool8(cv, k, t, big, bare) {
+    var ctx = cv.getContext('2d'), w = cv.width, h = cv.height;
+    var cl = k.cloth || P8_CLOTH, cu = k.cue || P8_CUE;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    if (bare) ctx.clearRect(0, 0, w, h);
+    else { ctx.fillStyle = '#1a2033'; ctx.fillRect(0, 0, w, h); }
+    var m = Math.min(w, h) * 0.08, rw = w - 2 * m, rh = h - 2 * m, r = Math.min(rw, rh) * 0.12;
+    ctx.beginPath();
+    ctx.moveTo(m + r, m); ctx.arcTo(m + rw, m, m + rw, m + rh, r); ctx.arcTo(m + rw, m + rh, m, m + rh, r);
+    ctx.arcTo(m, m + rh, m, m, r); ctx.arcTo(m, m, m + rw, m, r); ctx.closePath();
+    ctx.fillStyle = '#6b2118'; ctx.fill();
+    var p = m + Math.min(rw, rh) * 0.07;
+    var g = ctx.createRadialGradient(w / 2, h / 2, 2, w / 2, h / 2, Math.max(w, h) * 0.6);
+    g.addColorStop(0, cl.hi); g.addColorStop(0.55, cl.mid); g.addColorStop(1, cl.lo);
+    ctx.fillStyle = g; ctx.fillRect(p, p, w - 2 * p, h - 2 * p);
+    var br = Math.min(w, h) * 0.085, bx = w * 0.62, by = h * 0.52;
+    ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.arc(bx + br * 0.25, by + br * 0.3, br, 0, Math.PI * 2); ctx.fill();
+    var bg = ctx.createRadialGradient(bx - br * 0.35, by - br * 0.4, br * 0.1, bx, by, br);
+    bg.addColorStop(0, '#ffffff'); bg.addColorStop(1, '#b9b6ad');
+    ctx.fillStyle = bg; ctx.beginPath(); ctx.arc(bx, by, br, 0, Math.PI * 2); ctx.fill();
+    // The cue: drawn back and through, on a loop.
+    var ph = (t % 2) / 2, back = ph < 0.7 ? Math.sin(ph / 0.7 * Math.PI / 2) : 1 - (ph - 0.7) / 0.3 * 1.15;
+    var a = Math.PI * 0.86, ux = Math.cos(a), uy = Math.sin(a), len = Math.max(w, h) * 0.9;
+    var x0 = bx + ux * (br * 1.25 + back * br * 1.6), y0 = by + uy * (br * 1.25 + back * br * 1.6);
+    var lw = Math.max(2, br * 0.42);
+    ctx.lineCap = 'round';
+    var seg = function (fa, fb, wd, col) {
+      ctx.strokeStyle = col; ctx.lineWidth = wd; ctx.beginPath();
+      ctx.moveTo(x0 + ux * len * fa, y0 + uy * len * fa); ctx.lineTo(x0 + ux * len * fb, y0 + uy * len * fb); ctx.stroke();
+    };
+    seg(0, 0.03, lw, '#f4f1e6'); seg(0.03, 0.6, lw * 1.1, cu.shaft); seg(0.6, 0.64, lw * 1.3, cu.joint); seg(0.64, 1, lw * 1.55, cu.butt);
+  }
+
   var PAINT = { snake: paintSnake, airhockey: paintAirhockey, agar: paintAgar, paper: paintPaper, chomp: paintChomp, knockout: paintKnockout,
-    battleship: paintBattleship, omgshooter: paintShooter, tanks: paintTanks };
+    battleship: paintBattleship, omgshooter: paintShooter, tanks: paintTanks, pool8: paintPool8 };
   /* Which previews move. The rest are painted once per size, which keeps a
      page of forty-odd canvases off the frame budget. */
-  var MOVES = { snake: 1, paper: 1, chomp: 1, omgshooter: 1, tanks: 1, airhockey: 1 };
+  var MOVES = { snake: 1, paper: 1, chomp: 1, omgshooter: 1, tanks: 1, airhockey: 1, pool8: 1 };
 
   /* skinId 'default' is the game's free look (each game's `def`). bare draws
      the piece alone on a clear canvas, for Customize's dark chooser. */

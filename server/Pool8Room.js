@@ -18,6 +18,7 @@
    figures), the bot's neutral id and the watcher room. What is new here is only
    the game. */
 
+const crypto = require('crypto');
 const { KnockoutRoom } = require('./KnockoutRoom');
 const Sim = require('../shared/pool8Sim');
 const Rules = require('../shared/pool8Rules');
@@ -27,7 +28,7 @@ let nextId = 1;
 
 const P8R = {
   VS_MS: 3000,           // the two player cards before the break (CHOSEN, see docs/pool8-reference.md)
-  SHOT_MS: 30000,        // the shot clock per turn
+  SHOT_MS: 25000,        // the shot clock per turn: MEASURED, the reference's timer ring runs out in about 25 s
   ROLL_PAD_MS: 400,      // after the tape's last ball stops, before the next turn opens
   WIN_HOLD_MS: 2500,     // the final shot's result sits on screen this long before the result card
 };
@@ -62,7 +63,8 @@ class Pool8Room extends KnockoutRoom {
   start(now) {
     if (this.players.size < 2) return false;
     const t = typeof now === 'number' ? now : Date.now();
-    this.balls = Sim.newRack();
+    // A rack dealt at random, as the reference deals it (shared/pool8Sim.js rackOrder).
+    this.balls = Sim.newRack(Sim.rackOrder());
     // Who breaks is a coin toss.
     this.rules = Rules.newState(Math.random() < 0.5 ? 0 : 1);
     this.state = 'countdown';
@@ -119,9 +121,10 @@ class Pool8Room extends KnockoutRoom {
   shoot(socketId, msg, now) {
     const t = typeof now === 'number' ? now : Date.now();
     if (this.state !== 'aiming' || !msg || typeof msg !== 'object') return false;
+    if (t > this.phaseEndsAt) return false;      // the clock ran out first: the next tick times the turn out
     const side = this.sideOfSocket(socketId);
     if (side === null || side !== this.rules.turn) return false;
-    const a = fin(msg.a, NaN);
+    let a = fin(msg.a, NaN);
     if (!Number.isFinite(a) || Math.abs(a) > 100) return false;
     const p = clamp(fin(msg.p, 0), 0, 1);
     if (p < 0.01) return false;
@@ -151,6 +154,11 @@ class Pool8Room extends KnockoutRoom {
       call = c >= 0 && c <= 5 ? c : null;
     }
 
+    /* THE CUE IS NEVER PERFECT. The page runs the same physics, so a modified client could search shots offline on the
+       positions it is sent and play the one it found to the last digit (Opus review 2026-10-28). Every shot leaves
+       here with a hair of error of the server's own, from crypto: about 0.05 degrees on a soft shot and 0.15 at
+       full power (CHOSEN: far under what a hand can aim, so play feels the same). */
+    a += this.aimError(p);
     const before = this.balls.map(b => ({ n: b.n, x: b.x, y: b.y, on: b.on }));
     const r = Sim.simulate(before, { a, p, sx, sy });
     const v = Rules.judge(this.rules, before, r, call);
@@ -177,6 +185,9 @@ class Pool8Room extends KnockoutRoom {
     return true;
   }
 
+  // The server's own aim error for a shot of power p, in radians (a test proving an exact shot sets it to 0).
+  aimError(p) { return gauss() * (0.05 + 0.1 * p) * Math.PI / 180; }
+
   timedOut(t) {
     const v = Rules.timeout(this.rules);
     this.rules = v.st;
@@ -198,13 +209,10 @@ class Pool8Room extends KnockoutRoom {
 
   decideNow() {
     if (this.state === 'over' || !this.pending) return;
-    const id = this.socketOfSide(this.pending.winner);
-    if (id) this.finish(id, this.pending.why);
-    else {
-      // The winner's seat is empty (they left on the result): the seat still won it.
-      const seat = this.seats[this.pending.winner];
-      this.finish(seat ? seat.id : null, this.pending.why);
-    }
+    /* removePlayer decides BEFORE it removes anybody, so the winner is always still seated here. finish() pays only a
+       seated player, so a winner somehow gone is settled as no winner (each seat its own stake back) rather than
+       paying a refund to the loser alone (both reviews 2026-10-28). */
+    this.finish(this.socketOfSide(this.pending.winner) || null, this.pending.why);
   }
 
   /* The result's extras (never money): the groups, and each seat's group balls potted, the card's score. */
@@ -269,6 +277,12 @@ class Pool8Room extends KnockoutRoom {
   watchSnapshot(now) {
     return this.watchState(this.publicState(now));
   }
+}
+
+// A standard normal draw from crypto (Box-Muller).
+function gauss() {
+  const u = (crypto.randomInt(1, 2 ** 31) / 2 ** 31), v = crypto.randomInt(0, 2 ** 31) / 2 ** 31;
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
 }
 
 // The balls on the wire: [n, x*10, y*10, on] flat.
