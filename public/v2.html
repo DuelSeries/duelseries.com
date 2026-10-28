@@ -597,12 +597,14 @@ h2{font-size:31px;font-weight:700;letter-spacing:-1.1px;line-height:1.1}
 .nb:hover{background:var(--bone);color:var(--ink)}
 /* Sit in the gutter beside the cards. Without room for the gutter they move
    onto the artwork and pick up a shadow to stay legible. The room is what
-   the 212px sidebar leaves: the column (1080, or 1380 from 1500px wide) plus
-   two 24px overhangs needs 1340px of window, and 1640px once the column
+   the 256px sidebar leaves: the column (1080, or 1380 from 1500px wide) plus
+   two 24px overhangs needs 1384px of window, and 1684px once the column
    widens. The old 1200px cut-off ignored the sidebar, so a 1280 laptop had
-   both arrows half off-screen and the page scrolled sideways 24px. */
+   both arrows half off-screen and the page scrolled sideways 24px; the
+   1340/1640 cut-offs were sized for the old 212px sidebar and left a 1366
+   laptop scrolling 9px sideways (site sweep 2026-10-28). */
 .nb.l{left:-56px} .nb.r{right:-56px}
-@media(max-width:1339px),(min-width:1500px) and (max-width:1639px){
+@media(max-width:1383px),(min-width:1500px) and (max-width:1683px){
   .nb{box-shadow:0 4px 16px rgba(0,0,0,.6);background:rgba(31,27,21,.94);
     backdrop-filter:blur(6px)}
   .nb.l{left:-8px} .nb.r{right:-8px}
@@ -1130,7 +1132,8 @@ body.ingame>.howveil,body.ingame>.meveil,body.ingame>.apscreen,body.ingame>.bshe
   transform:skewX(-18deg);animation:gosheenw .75s cubic-bezier(.3,.6,.3,1) .05s 1 both;
   pointer-events:none}
 .evgo:disabled::after{display:none}
-@media(prefers-reduced-motion:reduce){.evgo::after{animation:none;display:none}}
+/* Re-stated for everyone, like the ticker: Owen's PC reports reduced motion, and this effect was invisible to him (site sweep 2026-10-28). */
+@media(prefers-reduced-motion:reduce){.evgo::after{animation-duration:.75s!important}}
 .evart{width:40px;height:40px;border-radius:10px;object-fit:cover;object-position:50% 20%;flex:none;
   transition:filter .15s,opacity .15s}
 /* The last ten minutes: Join breathes. Nothing else on the screen does. */
@@ -1165,7 +1168,9 @@ body.ingame>.howveil,body.ingame>.meveil,body.ingame>.apscreen,body.ingame>.bshe
   font-size:13px;font-weight:600;color:var(--tx3);padding:11px 12px;   /* 40px to tap */
   transition:color .15s}
 .evhow:hover{color:var(--tx)}
-@media (prefers-reduced-motion:reduce){#ev-pcap.live::before,.evgo.hot{animation:none}}
+/* Re-stated for everyone, like the ticker: Owen's PC reports reduced motion, and this effect was invisible to him (site sweep 2026-10-28). */
+@media (prefers-reduced-motion:reduce){#ev-pcap.live::before{animation-duration:1.8s!important;animation-iteration-count:infinite!important}
+  .evgo.hot{animation-duration:2.2s!important;animation-iteration-count:infinite!important}}
 /* One column everywhere, the podium on top and the battle royale under it
    (Owen, 2026-10-16: on a PC the card went below the podium, centred, the
    same order as a phone). Join and Spectate are pinned to the bottom of the
@@ -1208,6 +1213,14 @@ body.ingame>.howveil,body.ingame>.meveil,body.ingame>.apscreen,body.ingame>.bshe
   .evclock b{font-size:58px}
   .evclock i{font-size:40px}
   .evbar{margin:6px 0 -24px;background:linear-gradient(rgba(23,20,15,0),var(--s1) 26%)}
+}
+/* A 768-tall laptop (1366x768): at full height the pinned Join bar sat on top of
+   the countdown until you scrolled (site sweep 2026-10-28). Shorter plinths keep
+   the same order of heights and bring the whole clock above the bar. */
+@media(min-width:761px) and (max-height:820px){
+  .p1 .pblock{height:136px}
+  .p2 .pblock{height:96px}
+  .p3 .pblock{height:72px}
 }
 .note b{color:var(--tx2);font-weight:600}
 .lnk{color:var(--tx2);text-decoration:underline;text-underline-offset:2px}
@@ -1384,6 +1397,13 @@ body.ingame>.howveil,body.ingame>.meveil,body.ingame>.apscreen,body.ingame>.bshe
 .seg button{padding:6px 12px;border-radius:var(--rf);font-size:13px;font-weight:600;color:var(--tx2);white-space:nowrap;transition:background .15s,color .15s}
 .seg button[aria-pressed="true"]{background:var(--bone);color:var(--ink)}
 .seg button:focus-visible{outline:2px solid var(--bone);outline-offset:2px}
+/* Fingers: switches, segment buttons and the game screen's Back were 26-30px tall on a phone.
+   The hit area grows, the drawing does not (site sweep 2026-10-28). */
+@media(pointer:coarse){
+  .sw::before{content:"";position:absolute;inset:-9px -6px}
+  .seg button{padding:10px 14px}
+  #detail .back{padding-bottom:12px;margin-bottom:-12px}
+}
 /* Settings' Sound group: the volume slider sits where a switch would. */
 .vol{flex:none;width:min(170px,42vw);height:26px;margin:0;accent-color:var(--bone);cursor:pointer}
 .vol:disabled{opacity:.4;cursor:default}
@@ -1815,7 +1835,8 @@ body.no-foot footer{display:none}
   transform:skewX(-18deg);animation:gosheenw .75s cubic-bezier(.3,.6,.3,1) .05s 1 both;
   pointer-events:none}
 @keyframes gosheenw{from{left:-60%}to{left:120%}}
-@media(prefers-reduced-motion:reduce){.go::after{animation:none;display:none}}
+/* Re-stated for everyone, like the ticker: Owen's PC reports reduced motion, and this effect was invisible to him (site sweep 2026-10-28). */
+@media(prefers-reduced-motion:reduce){.go::after{animation-duration:.75s!important}}
 .go .golock{display:none;flex:none}
 .go.paid{background:linear-gradient(180deg,#ffd98a 0%,#f5b545 46%,#e0941f 100%);
   color:#271703;font-weight:700;
@@ -1827,7 +1848,7 @@ body.no-foot footer{display:none}
   background:linear-gradient(100deg,transparent,rgba(255,255,255,.55),transparent);
   transform:skewX(-18deg);animation:gosheen .75s cubic-bezier(.3,.6,.3,1) .05s 1 both}
 @keyframes gosheen{from{left:-60%}to{left:120%}}
-@media(prefers-reduced-motion:reduce){.go.paid::after{animation:none;display:none}}
+@media(prefers-reduced-motion:reduce){.go.paid::after{animation-duration:.75s!important}}
 /* Locked: a game that is not open yet keeps the button, shut, with a padlock. */
 .go.lock,.go.lock:hover{background:var(--s2);color:var(--tx3);box-shadow:none;
   transform:none;cursor:not-allowed}
@@ -3159,7 +3180,7 @@ body.scr-anim { overflow-x:hidden }
          picks a change up at once (public/js/slx/slxQuality.js). -->
     <section class="panel" aria-labelledby="set-gfx-h">
       <h3 class="sh" id="set-gfx-h">Graphics</h3>
-      <div class="swrow gfxrow"><div><b id="set-gfx-l">Quality</b><span>Low turns off the food glow in slither so big fights stay smooth on slower PCs.</span></div>
+      <div class="swrow gfxrow"><div><b id="set-gfx-l">Quality</b><span>Low turns off the food glow in Slither.io so big fights stay smooth on slower devices.</span></div>
         <div class="seg" id="set-gfx" role="group" aria-labelledby="set-gfx-l">
           <button type="button" data-q="1" aria-pressed="true" onclick="setGfx(this)">High (default)</button>
           <button type="button" data-q="0" aria-pressed="false" onclick="setGfx(this)">Low (faster)</button>
@@ -4980,8 +5001,8 @@ window.repaintAll=repaintAll;
    played yet. */
 const REAL_WINS=[];
 
-const NAMES=['PEPIK','hashim','degenmonkey','qesku','tungsahur','ZachXBT',
- 'dddickk','wenmoon','noodlearm','grasshopper','lilbogdan','sn4kepit','vorpal',
+const NAMES=['PEPIK','hashim','degenmonkey','qesku','tungsahur','quietfox',
+ 'driftwood','wenmoon','noodlearm','grasshopper','lilbogdan','sn4kepit','vorpal',
  'mikoto','bagholder','0xhydra','pixelmaw','tinyfangs','coilcoil','nomnom',
  'slithy','pogface','cashcow','ghostbyte'];
 /* Most wins are small and the occasional one is large, because a row of
@@ -5037,6 +5058,7 @@ function drawTicker(){
 
 function open_(id){
   const from=SCREENS.map(s=>document.getElementById(s)).find(screenShown);
+  navHome();
   /* Flipping from one game's screen to the next (swipe.js) keeps the screen
      it was first reached from, so Back still returns there. */
   if(!(from&&from.id==='detail'))_cameFrom=(from&&from.id==='allgames')?'allgames':'home';
@@ -5160,7 +5182,11 @@ function closeHow(){document.getElementById('howveil').classList.remove('on');sh
    localStorage key from its own start card, so a gun picked in one round is
    still the gun you start the next one with.
 */
-function goHome(dir){showScreen('home',dir);jumpToTop()}
+/* Home, All games and a game's screen all belong to the Home tab, so reaching
+   one without go() (a sidebar game row, Back, the logo) must light Home: the
+   sidebar kept the last tab lit otherwise (site sweep 2026-10-28). */
+function navHome(){if(route!=='play'){route='play';drawNav();}}
+function goHome(dir){navHome();showScreen('home',dir);jumpToTop()}
 /* The grid is built on open rather than at load: it is the same thirteen cards
    the rail already holds, and building both up front doubles the artwork on a
    screen most visits never reach. */
@@ -5194,7 +5220,7 @@ function spectateFromDetail(){
   V2Play.spectate(cur.id,null,st>0?st:0);
 }
 
-function goBack(){showScreen(_cameFrom);jumpToTop()}
+function goBack(){navHome();showScreen(_cameFrom);jumpToTop()}
 
 /* Every buy-in on screen at once. With nine rungs this had to be a stepper
    with a row of dots, which meant paging through amounts to find out what was

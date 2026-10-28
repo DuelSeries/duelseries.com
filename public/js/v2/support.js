@@ -33,6 +33,7 @@
     '.sup-x{margin-left:auto;border:0;background:var(--s2,#1f1b15);color:var(--tx2,#a89c8a);width:30px;height:30px;border-radius:8px;' +
       'font:400 17px/1 var(--f,inherit);cursor:pointer;transition:background .15s,color .15s}' +
     '.sup-x:hover{background:var(--s3,#282219);color:var(--tx,#f5f1e8)}' +
+    '@media(pointer:coarse){.sup-x{width:40px;height:40px}}' +
     '.sup-sub{margin:6px 0 14px;font-size:13.5px;color:var(--tx3,#8d8171)}' +
     /* the address is the point of the panel: big enough to read off and type in */
     '.sup-addr{display:flex;align-items:center;gap:10px;min-height:54px;padding:0 6px 0 14px;background:var(--bg,#100e0b);' +

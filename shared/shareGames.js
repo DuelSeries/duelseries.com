@@ -31,6 +31,13 @@
       blurb: 'Two snipers on one wobbly roof. Knock the other one off first. Free 1v1 in your browser.' }),
     Object.freeze({ slug: 'crossy', game: 'crossy', name: 'Crossy Road', accent: '#82ce54', image: '/og/crossy-card.jpg',
       blurb: 'Hop the same roads, rivers and rails as your friend. The first one hit loses. Free 1v1 in your browser.' }),
+    // Added by the site sweep (2026-10-28): these three were in the lobby with no invite link or end-screen Share.
+    Object.freeze({ slug: 'headsoccer', game: 'headsoccer', name: 'Head Soccer', accent: '#7fd36b', image: '/og/headsoccer-card.jpg',
+      blurb: 'One on one, oversized heads, and a ball that rarely goes where you meant it to. Free 1v1 in your browser.' }),
+    Object.freeze({ slug: 'swim', game: 'swim', name: 'Swim', accent: '#8fd06a', image: '/og/swim-card.jpg',
+      blurb: 'Weave through endless traffic. Touch a car, or fall 200 m behind, and you lose. Free 1v1 in your browser.' }),
+    Object.freeze({ slug: 'pool', game: 'pool8', name: 'Pool', accent: '#3fae6f', image: '/og/pool8-card.jpg',
+      blurb: 'Break, call your pocket, and sink the eight before they do. Free 1v1 in your browser.' }),
   ]);
   var HOME = Object.freeze({
     title: 'DuelSeries: free multiplayer browser games',

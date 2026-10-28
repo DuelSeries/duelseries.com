@@ -2515,6 +2515,13 @@ if (process.env.NODE_ENV === 'production') {
   app.get(DEV_ONLY_PAGES, (_req, res) => res.status(404).sendFile(path.join(__dirname, '../public/404.html')));
 }
 
+/* The legal pages by their clean names: every link in the site says .html, but a
+   typed or shared /terms was a 404 (site sweep 2026-10-28). A redirect, not a
+   second copy, so each page keeps one address. */
+for (const p of ['terms', 'privacy', 'responsible-play']) {
+  app.get('/' + p, (_req, res) => res.redirect(301, '/' + p + '.html'));
+}
+
 app.use(express.static(path.join(__dirname, '../public')));
 app.use('/shared', express.static(path.join(__dirname, '../shared')));
 

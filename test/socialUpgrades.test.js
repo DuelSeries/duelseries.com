@@ -314,7 +314,7 @@ test('preview: the sample players never leave the browser', () => {
   const soc = read('public/js/v2/social.js');
   assert.ok(/let p = \(pv && pv\.profile\(name\)\) \|\| PROFILES\.get\(name\);/.test(soc),
     'a sample profile is made here, never fetched');
-  assert.ok(/'<span class="lb-tag p-tag">' \+ PV\(\)\.tag \+ '<\/span> sample player'/.test(soc) &&
+  assert.ok(/'<span class="lb-tag p-tag">' \+ PV\(\)\.tag \+ '<\/span> player'/.test(soc) &&
     /'<span class="lb-tag">' \+ P\(\)\.tag \+ '<\/span>'/.test(lead), 'tagged Sample on screen');
   // Sample figures are never marked LIVE for visitors: the board heading and Global player winnings.
   // Only the browser that opened ?leaderboard=preview (liveLook) sees LIVE (Owen, 2026-10-26).

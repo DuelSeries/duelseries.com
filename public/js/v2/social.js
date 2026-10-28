@@ -278,7 +278,7 @@
     el('p-name').textContent = p.name;
     const rank = knownRank(p.name);
     el('p-sub').innerHTML = (rank ? 'Rank <span class="num">' + rank + '</span>' : '') +
-      (p.preview ? (rank ? ', ' : '') + '<span class="lb-tag p-tag">' + PV().tag + '</span> sample player' : '');
+      (p.preview ? (rank ? ', ' : '') + '<span class="lb-tag p-tag">' + PV().tag + '</span> player' : '');
     el('p-net').textContent = money(p.totalEarnings);
     el('p-tiles').innerHTML = winRateTile(p.winRate) + [
       ['Games played', String(p.gamesPlayed || 0)],
