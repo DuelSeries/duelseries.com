@@ -119,9 +119,8 @@
     NEXT_AFTER: 3,              // S: Gamemanger.wrap_scene: the next round 3 s after it
     END_AFTER: 3,               // S: Gamemanger.game_over: 2 s then 1 s more before the game-over menu
     SLOW_TO: 0.1, SLOW_FOR: 2, SLOW_RAMP: 0.4,   // S: Gamemanger.round_over, SloMo.slow_down: to 0.1, for 2 s, 0.4 s each way
-    SLOW_LAG: 0.05,             // C: our slow motion has always run 3 frames (0.05 s) past the reference's 2 s, which
-                                //    puts our point and next round 3 frames after its (doc: Measured); kept so the
-                                //    2026-10-28 rewrite changes no timing. 0 would land them on the reference's frames.
+    SLOW_LAG: 0,                // M: with no extra time the point and the next round land on the measured +212 / +272
+                                //    frames after a fall (0.05 put them 3 frames late)
     READY_MS: 10000,            // C: the first round waits for both to press jump (S: ReadyUpManager); online it
                                 //    also starts by itself after 10 s so nobody can hold a table hostage
     FLIP_GAP: 50,               // S: Gamemanger.check_flip hysteresis

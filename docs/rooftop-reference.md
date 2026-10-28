@@ -152,7 +152,7 @@ and each player tracked by the pixels of its team colour. At 1024 x 600 and zoom
 | Jump (one tap) | leaves the roof 2 frames after the key, peak 161 px at frames 43-44, 83 frames in the air; holding the key gives the same jump | peak 160.5 at frame 41 after the press is applied, 84 frames |
 | Shot, gun held K frames | only K = 18 and 19 hit at 500 px apart | only 18 (83 degrees) and 19 hit |
 | K = 18 hit | slides 169 px at about 336 px/s and stops at frame 58, tilt within 3 degrees | 160 px, stops at frame 59, tilt 1 degree |
-| A fall | point and score +212 frames, next round +272 (slow motion 1 to 0.1 in 17 frames, held to frame 96, back by frame 120) | +215 and +275 |
+| A fall | point and score +212 frames, next round +272 (slow motion 1 to 0.1 in 17 frames, held to frame 96, back by frame 120) | +212 and +272 |
 
 Gaps: a K = 19 hit in the reference spins the player about 7 degrees a frame and flips it; ours was not compared frame
 by frame. The point and next-round timings are 3 frames (50 ms) later than the reference's, all of it from `RT.SLOW_LAG` (CHOSEN).
