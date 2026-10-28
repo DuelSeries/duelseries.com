@@ -2943,7 +2943,7 @@ const crossy = crossyWire.create({ io, koSend, trackEarning, sweepRake, houseCut
 if (!hsPaidOpen) console.warn("[HS] paid door CLOSED at boot: the owner's hs:paid:off outlived the restart");
 /* Paid 8 Ball Pool: P8_PAID_ON is the build switch (paid rungs exist at all), hs:paid:off the owner's door on top
    of it, saved like the other two. */
-const P8_PAID_ON = false;   // off until the money reviews pass (docs/pool8-reference.md, "Paid")
+const P8_PAID_ON = true;
 const p8PaidSwitch = createPaidSwitchStore({
   file: process.env.P8_PAID_SWITCH_PATH || path.join(path.dirname(agJournal.file), 'p8-paid-switch.json'),
   tag: '[P8]', what: 'paid 8 Ball Pool',

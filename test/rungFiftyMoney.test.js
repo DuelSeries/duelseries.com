@@ -74,6 +74,7 @@ let port, ledgerDb, REVENUE;
 let hsLobby = null;    // the real index.js's Head Soccer lobby, caught when it starts (the sudden-death proofs drive its room)
 let rtLobby = null;    // the same for Rooftop Snipers (its fifth-fall and time-up proofs drive its room)
 let ahLobby = null;    // the same for Air Hockey (its seventh-goal and sudden-death proofs drive its room)
+let p8Lobby = null;    // and 8 Ball Pool's (the 8-ball proof sets up its table)
 let landed = 0.5;
 let payer = 'Payer0';
 let sigN = 0;
@@ -102,6 +103,9 @@ test.before(async () => {
   const { AirHockeyLobby } = require(path.join(ROOT, 'server', 'AirHockeyLobby.js'));
   const ahStart = AirHockeyLobby.prototype.start;
   AirHockeyLobby.prototype.start = function () { ahLobby = this; return ahStart.apply(this, arguments); };
+  const { Pool8Lobby } = require(path.join(ROOT, 'server', 'Pool8Lobby.js'));
+  const p8Start = Pool8Lobby.prototype.start;
+  Pool8Lobby.prototype.start = function () { p8Lobby = this; return p8Start.apply(this, arguments); };
   try {
     ({ ledgerDb } = require(path.join(ROOT, 'scripts', 'dev-local.js')));
   } finally {
@@ -223,7 +227,7 @@ async function duel(game, pre) {
   b.s.emit(game + ':queue', { name: 'b', stake: 0.5000000005, entryToken: tokB });
   /* With A already waiting, B is matched on the spot and is never sent a queued of its own: being matched with A IS
      the proof it went in at the rung itself, not the number it sent. */
-  const started = game === 'ko' ? 'ko:start' : game === 'hs' ? 'hs:start' : game === 'rt' ? 'rt:start' : game === 'ah' ? 'ah:start' : 'bs:state';
+  const started = game === 'ko' ? 'ko:start' : game === 'hs' ? 'hs:start' : game === 'rt' ? 'rt:start' : game === 'ah' ? 'ah:start' : game === 'p8' ? 'p8:start' : 'bs:state';
   assert.ok(await until(() => a.has(started) && b.has(started), 8000), 'matched: ' + JSON.stringify(b.got.map((g) => g[0])));
   const st = b.has(started)[1];
   if (st && st.stake !== undefined) assert.strictEqual(st.stake, 0.5, 'a table at the rung itself');
@@ -261,6 +265,67 @@ test('Battleship at $0.50: the same split through its own lobby', async () => {
 
 test('Head Soccer at $0.50: the same split through its own lobby (the Knockout queue and room underneath)', async () => {
   await duel('hs', 'Hs');
+});
+
+test('8 Ball Pool at $0.50: the same split through its own lobby (the Knockout queue and room underneath)', async () => {
+  await duel('p8', 'Pq');
+});
+
+/* 8 Ball Pool decided at the table at $0.50: the shooter's 8 in the called pocket, played through on the real server
+   from the shot message, pays that seat 90 percent of the pot once the balls stop; the 8 in the wrong pocket pays
+   the other seat. Neither pays before the shot has rolled out. */
+async function p8Eight(pre, rightPocket) {
+  const A = wallet(pre + 'A'), B = wallet(pre + 'B');
+  const revBefore = sentTo(REVENUE).length;
+  const tokA = await stake(0.5, A);
+  const tokB = await stake(0.5, B);
+  const a = await connect(), b = await connect();
+  await new Promise((r) => setTimeout(r, 1100));   // the queue's own rate limit
+  a.s.emit('p8:queue', { name: 'a', stake: 0.5, entryToken: tokA });
+  assert.ok(await until(() => a.has('p8:queued')));
+  b.s.emit('p8:queue', { name: 'b', stake: 0.5, entryToken: tokB });
+  assert.ok(await until(() => a.has('p8:start') && b.has('p8:start'), 8000), 'matched');
+  assert.ok(p8Lobby, 'the lobby was caught at boot');
+  const room = [...p8Lobby.rooms.values()].find((r) => r.players.has(a.s.id));
+  assert.ok(room, 'their room');
+  assert.ok(await until(() => room.state === 'aiming', 8000), 'the first turn opened');
+  const Sim = require(path.join(ROOT, 'shared', 'pool8Sim.js'));
+  const Rules = require(path.join(ROOT, 'shared', 'pool8Rules.js'));
+  const { P8 } = Sim;
+  // A's turn, A's group cleared, only the 8 and one of B's balls left.
+  const sideA = room.players.get(a.s.id).side;
+  room.balls = Sim.newRack().map((x) => Object.assign(x, { on: false }));
+  Object.assign(room.balls[0], { on: true, x: 600, y: P8.W / 2 });
+  Object.assign(room.balls[8], { on: true, x: 900, y: P8.W / 2 });
+  Object.assign(room.balls[sideA === 0 ? 9 : 1], { on: true, x: 200, y: P8.W - 60 });
+  room.rules = Rules.newState(sideA);
+  room.rules.broken = true; room.rules.inHand = null;
+  room.rules.groups = sideA === 0 ? ['solids', 'stripes'] : ['stripes', 'solids'];
+  // The ghost ball that sends the 8 into the bottom right corner.
+  const e = room.balls[8], pk = Sim.POCKETS[5];
+  const dx = pk.x - e.x, dy = pk.y - e.y, d = Math.hypot(dx, dy);
+  const gx = e.x - dx / d * 2 * P8.R, gy = e.y - dy / d * 2 * P8.R;
+  const c = room.balls[0];
+  a.s.emit('p8:shot', { a: Math.atan2(gy - c.y, gx - c.x), p: 0.55, call: rightPocket ? 5 : 2 });
+  assert.ok(await until(() => a.has('p8:shot') && b.has('p8:shot'), 4000), 'both screens get the tape');
+  const shot = a.has('p8:shot')[1];
+  assert.ok(shot.over, 'the shot decided it: ' + JSON.stringify({ foul: shot.foul, pots: shot.pots }));
+  assert.deepStrictEqual(sentTo(A).concat(sentTo(B)), [], 'nothing paid while the balls roll');
+  const winner = rightPocket ? A : B, loser = rightPocket ? B : A;
+  await until(() => sentTo(winner).length && sentTo(REVENUE).length > revBefore, shot.tape.dur + 9000);
+  assert.deepStrictEqual(sentTo(winner), [900000], 'the winner is paid 90 percent of the 1.00 pot');
+  assert.deepStrictEqual(sentTo(REVENUE).slice(revBefore), [100000], 'the house keeps 10 percent');
+  assert.deepStrictEqual(sentTo(loser), [], 'the other seat is paid nothing');
+  assert.strictEqual(depositsBy([A, B]), 1000000);
+  for (const x of [a, b]) x.s.close();
+}
+
+test('8 Ball Pool at $0.50: the 8 in the called pocket pays its shooter 900000 and the house 100000', async () => {
+  await p8Eight('PoolWin', true);
+});
+
+test('8 Ball Pool at $0.50: the 8 in a pocket that was not called pays the other seat', async () => {
+  await p8Eight('PoolLoss', false);
 });
 
 /* Head Soccer's sudden death at $0.50 (Owen 2026-10-27): level at 0:00 is one minute of golden goal. A goal in it
