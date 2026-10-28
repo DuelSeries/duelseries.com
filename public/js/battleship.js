@@ -1464,7 +1464,10 @@ function fitBoards() {
   const side = window.matchMedia('(orientation: landscape)').matches;
   const cols = (placing || !side) ? 1 : 2;
   const rows = (placing || side) ? 1 : 2;
-  const avail = window.innerHeight - h($('top')) - dockH - titles * rows - 24;
+  // The stage's own top padding too: without it the column ran 7 px past a 768-tall laptop and cut the dock's
+  // "5 to place" line (site sweep 2026-10-28).
+  const stagePad = parseFloat(getComputedStyle($('stage')).paddingTop) || 0;
+  const avail = window.innerHeight - h($('top')) - dockH - titles * rows - 24 - stagePad;
   const byHeight = Math.floor(avail / rows);
   const byWidth = Math.floor((window.innerWidth - railW - 24) / cols) - 8;
   const max = Math.max(140, Math.min(byHeight, byWidth));
