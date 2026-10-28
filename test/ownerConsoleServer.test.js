@@ -170,26 +170,6 @@ test('state v2, maintenance and the paid Knockout door across a restart, bots:se
   assert.strictEqual(r.status, 200, r.body);
   assert.strictEqual(gameOf(r.json.state, 'pool8').paid.open, true);
   assert.strictEqual((await doors(one.port)).pool8, true, 'and p8:paid:on opens it again');
-  /* Each from an address of its own (behind the proxy), so these twelve do not spend the signature limiter's
-     minute that the rest of this test counts on. */
-  let xff = 0;
-  const actFrom = (port, action) => new Promise((res, rej) => {
-    const body = JSON.stringify(ownerProof(action, {}));
-    const q = http.request(`http://localhost:${port}/api/owner/do`, { method: 'POST', headers: { 'Content-Type': 'application/json',
-      'Content-Length': Buffer.byteLength(body), 'X-Forwarded-For': '10.77.0.' + (++xff) } }, (x) => {
-      let d = ''; x.on('data', (c) => d += c); x.on('end', () => res({ status: x.statusCode, body: d }));
-    });
-    q.on('error', rej);
-    q.end(body);
-  });
-  for (const [g, key] of [['headsoccer', 'hs'], ['rooftop', 'rt'], ['airhockey', 'ah'], ['crossy', 'cr'], ['swim', 'sw'], ['battleship', 'bs']]) {
-    r = await actFrom(one.port, key + ':paid:off');
-    assert.strictEqual(r.status, 200, key + ' ' + r.body);
-    assert.strictEqual((await doors(one.port))[g], false, key + ':paid:off shuts ' + g + ' in the lobby feed');
-    r = await actFrom(one.port, key + ':paid:on');
-    assert.strictEqual(r.status, 200, key + ' ' + r.body);
-    assert.strictEqual((await doors(one.port))[g], true, key + ':paid:on opens it again');
-  }
   assert.strictEqual(gameOf(s, 'agar').rungs[0].room, 'ag_na_s0');
   assert.strictEqual(gameOf(s, 'paper').rungs[0].room, 'paper_na_s0');
   for (const k of ['safe', 'reason', 'people', 'paidPeople', 'moneyInPlay', 'floor', 'pending', 'duels']) assert.ok(k in s.drain, k);
@@ -291,5 +271,27 @@ test('state v2, maintenance and the paid Knockout door across a restart, bots:se
   assert.deepStrictEqual([s.drain.pendingEntries, s.drain.safe], [1, false], 'the token was not spent, and the drain still counts it');
   r = await act(two.port, 'ko:paid:on', {});
   assert.deepStrictEqual([r.status, gameOf(r.json.state, 'knockout').paid.open, gameOf(r.json.state, 'knockout').paid.saved], [200, true, false]);
+  assert.strictEqual((await doors(two.port)).knockout, true, 'ko:paid:on opens Knockout in the lobby feed again');
+  /* Every other duel's door, off and on, reaches the lobby feed. On the restarted server, after the battle royale
+     checks above it on the first one (their timing counts on nothing slow before them), each from an address of
+     its own (behind the proxy) so these twelve do not spend the signature limiter's minute. */
+  let xff = 0;
+  const actFrom = (port, action) => new Promise((res, rej) => {
+    const body = JSON.stringify(ownerProof(action, {}));
+    const q = http.request(`http://localhost:${port}/api/owner/do`, { method: 'POST', headers: { 'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(body), 'X-Forwarded-For': '10.77.0.' + (++xff) } }, (x) => {
+      let d = ''; x.on('data', (c) => d += c); x.on('end', () => res({ status: x.statusCode, body: d }));
+    });
+    q.on('error', rej);
+    q.end(body);
+  });
+  for (const [g, key] of [['headsoccer', 'hs'], ['rooftop', 'rt'], ['airhockey', 'ah'], ['crossy', 'cr'], ['swim', 'sw'], ['battleship', 'bs']]) {
+    r = await actFrom(two.port, key + ':paid:off');
+    assert.strictEqual(r.status, 200, key + ' ' + r.body);
+    assert.strictEqual((await doors(two.port))[g], false, key + ':paid:off shuts ' + g + ' in the lobby feed');
+    r = await actFrom(two.port, key + ':paid:on');
+    assert.strictEqual(r.status, 200, key + ' ' + r.body);
+    assert.strictEqual((await doors(two.port))[g], true, key + ':paid:on opens it again');
+  }
   assert.ok(!/TypeError|ReferenceError|is not a function/.test(one.out.stderr + two.out.stderr), 'no wiring error\n' + two.out.stderr.slice(-800));
 });

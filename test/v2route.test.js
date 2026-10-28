@@ -512,8 +512,10 @@ function stepsHarness({ last, ladder = true, open = [0, 0.5, 1], doors = null } 
   win.window = win;
   vm.createContext(win);
   vm.runInContext(html.slice(a, b) + 'const G=id=>GAMES.find(x=>x.id===id);\n' +
-    'this.t={pick(id){refreshSteps(id);si=defaultStep();return {stake:STEPS[si],off:[...STEPS_OFF]};}};', win);
-  return { pick: id => JSON.parse(JSON.stringify(win.t.pick(id))), stored: () => m.get('duelseries_last_stake') };
+    'this.t={pick(id){refreshSteps(id);si=defaultStep();return {stake:STEPS[si],off:[...STEPS_OFF]};},' +
+    'open(id){refreshSteps(id);si=stepFor(id);return STEPS[si];},press(id,v){refreshSteps(id);PICKED[id]=v;}};', win);
+  return { pick: id => JSON.parse(JSON.stringify(win.t.pick(id))), stored: () => m.get('duelseries_last_stake'),
+           open: id => win.t.open(id), press: (id, v) => win.t.press(id, v) };
 }
 
 test('a remembered rung the ladder no longer has lands on Free, never on $0.50', () => {
@@ -540,8 +542,15 @@ test('a paid duel opens its $0.50 and $1 only while the server says its paid doo
   assert.deepEqual(ko, { stake: 0, off: [0.5, 1] }, 'no door in the answer: Free selected, $0.50 and $1.00 struck through');
   assert.deepEqual(stepsHarness({ last: 0.5, doors: { knockout: false } }).pick('knockout'), { stake: 0, off: [0.5, 1] },
     'the owner\'s ko:paid:off: struck through');
-  assert.deepEqual(stepsHarness({ last: 0.5, doors: { knockout: true } }).pick('knockout'), { stake: 0.5, off: [] },
-    'door open: both paid rungs live, and the remembered $0.50 comes back');
+  assert.deepEqual(stepsHarness({ last: 0.5, doors: { knockout: true } }).pick('knockout').off, [],
+    'door open: both paid rungs live');
+  /* The card itself (open_ -> stepFor): a paid duel opens on Free whatever rung is remembered from any game, and
+     only a rung pressed on its own card this visit comes back (review: one silent tap from a stake otherwise). */
+  const card = stepsHarness({ last: 1, doors: { knockout: true } });
+  assert.equal(card.open('knockout'), 0, 'a remembered $1 does not preselect a paid duel rung');
+  assert.equal(card.open('snake'), 1, 'the arenas keep their remembered rung, as before');
+  card.press('knockout', 0.5);
+  assert.equal(card.open('knockout'), 0.5, 'a rung pressed on this card this visit comes back');
   assert.deepEqual(stepsHarness({ doors: { knockout: true } }).pick('knockout'), { stake: 0, off: [] },
     'a first visit still opens on Free: a paid rung is always picked on purpose');
   assert.deepEqual(stepsHarness({ last: 1, doors: { battleship: true } }).pick('knockout'), { stake: 0, off: [0.5, 1] },

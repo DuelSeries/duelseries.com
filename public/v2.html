@@ -3696,6 +3696,12 @@ function stepFor(id){
     const i=STEPS.findIndex(s=>Math.abs(s-v)<1e-9);
     if(i>=0&&!STEPS_OFF.has(STEPS[i]))return i;
   }
+  /* A paid duel opens on Free unless a rung was pressed on its own card this
+     visit (above). The remembered rung is one for every game, so a $1 played
+     in Paper or yesterday would otherwise come up as "Play $1.00" here, one
+     silent tap from a stake on a game nobody picked it for (review). */
+  const g=G(id);
+  if(g&&g.paid&&g.duel){const f=STEPS.indexOf(0);return f>=0?f:0}
   return defaultStep();
 }
 let si=3, cur=null, order=GAMES.slice();
@@ -5348,7 +5354,15 @@ function startFromDetail(){
   const st=Number(STEPS[si]);
   if(cur.built&&cur.duel&&cur.paid&&st>0){
     if(STEPS_OFF.has(STEPS[si]))return;   // struck through, so its button is disabled; the belt to that brace
-    V2Play.launch(cur.id,{stake:st});return;
+    /* The doors are read fresh first: on this screen the board's poll waits
+       for home and only the push keeps them, so a door shut a moment ago
+       (with the push down) would take a stake its queue then refuses
+       (review). Staked only if this card and rung are still the ones picked;
+       launch() reads the fresh door. */
+    const id=cur.id;
+    const go=()=>{if(cur&&cur.id===id&&Number(STEPS[si])===st)V2Play.launch(id,{stake:st})};
+    if(window.V2Board&&typeof V2Board.load==='function')Promise.resolve(V2Board.load()).then(go,go);else go();
+    return;
   }
   /* A built duel's Free and a solo run both open their own page at Free, and
      both name the room rather than letting the buy-in ladder pick one. */

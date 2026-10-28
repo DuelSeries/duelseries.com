@@ -102,31 +102,53 @@ test('a paid round opens its own page with the entry, and a Free click after it 
   }
 });
 
+test('a Free duel after a paid one is remembered as Free, so no card comes back on a paid rung', async () => {
+  for (const game of DUELS) {
+    const h = lobbyHarness([], { paidDoors: ALL_OPEN });
+    await h.win.V2Board.load();
+    const kept = [];
+    h.win.rememberStake = (v) => kept.push(v);
+    h.win.V2Play.launch(game, { stake: 1 });
+    await assert.rejects(h.pending(), /no server here/);
+    h.win.V2Play.launch(game, { lobbyType: 'free' });
+    assert.deepStrictEqual(kept, [1, 0], game + ': $1, then Free, leaves Free remembered');
+  }
+});
+
 /* startFromDetail, cut from v2.html as the page runs it, against a stub launch. */
-function detail(cur, STEPS, si, off) {
+async function detail(cur, STEPS, si, off, between) {
   const html = fs.readFileSync(path.join(ROOT, 'public/v2.html'), 'utf8');
   const a = html.indexOf('function startFromDetail(){');
   const b = html.indexOf('/* Spectate: the table at the chosen rung');
   assert.ok(a > -1 && b > a, 'startFromDetail is where this test cuts it');
   const calls = [];
+  let loads = 0;
   const win = { cur, STEPS, si, STEPS_OFF: new Set(off),
-    V2Play: { launch: (g, sel) => calls.push([g, sel]), playChosen: () => calls.push(['chosen']) } };
+    V2Play: { launch: (g, sel) => calls.push([g, sel]), playChosen: () => calls.push(['chosen']) },
+    V2Board: { load: async () => { loads++; } } };
+  win.window = win;
   vm.createContext(win);
-  vm.runInContext('var cur=this.cur,STEPS=this.STEPS,si=this.si,STEPS_OFF=this.STEPS_OFF,V2Play=this.V2Play;\n' +
-    html.slice(a, b) + '\nstartFromDetail();', win);
-  return plain(calls);
+  vm.runInContext('var cur=this.cur,STEPS=this.STEPS,si=this.si,STEPS_OFF=this.STEPS_OFF,V2Play=this.V2Play,V2Board=this.V2Board;\n' +
+    html.slice(a, b) + '\nthis.set=(k,v)=>{if(k==="si")si=v;else cur=v};startFromDetail();', win);
+  if (between) between(win.set);         // the player moves before the fresh board answers
+  await new Promise((r) => setTimeout(r, 0));
+  return { calls: plain(calls), loads };
 }
 
-test('Play on a paid duel\'s open rung stakes that rung; Free, a shut rung and the free-only games stay free', () => {
+test('Play on a paid duel\'s open rung stakes that rung after a fresh board; Free, a shut rung and the free-only games stay free', async () => {
   const ko = { id: 'knockout', duel: 1, built: 1, paid: 1 };
-  assert.deepStrictEqual(detail(ko, [0, 0.5, 1], 1, []), [['knockout', { stake: 0.5 }]], '$0.50');
-  assert.deepStrictEqual(detail(ko, [0, 0.5, 1], 2, []), [['knockout', { stake: 1 }]], '$1');
-  assert.deepStrictEqual(detail(ko, [0, 0.5, 1], 0, []), [['knockout', { lobbyType: 'free' }]], 'Free');
-  assert.deepStrictEqual(detail(ko, [0, 0.5, 1], 1, [0.5, 1]), [], 'a struck rung starts nothing');
+  assert.deepStrictEqual(await detail(ko, [0, 0.5, 1], 1, []), { calls: [['knockout', { stake: 0.5 }]], loads: 1 }, '$0.50, doors read first');
+  assert.deepStrictEqual(await detail(ko, [0, 0.5, 1], 2, []), { calls: [['knockout', { stake: 1 }]], loads: 1 }, '$1');
+  assert.deepStrictEqual((await detail(ko, [0, 0.5, 1], 0, [])).calls, [['knockout', { lobbyType: 'free' }]], 'Free');
+  assert.deepStrictEqual(await detail(ko, [0, 0.5, 1], 1, [0.5, 1]), { calls: [], loads: 0 }, 'a struck rung starts nothing');
+  assert.deepStrictEqual((await detail(ko, [0, 0.5, 1], 2, [], (set) => set('si', 1))).calls, [],
+    'the rung changed before the board answered: the $1 is not staked');
+  assert.deepStrictEqual((await detail(ko, [0, 0.5, 1], 2, [], (set) => set('cur', { id: 'battleship', duel: 1, built: 1, paid: 1 }))).calls, [],
+    'another card opened before the board answered: nothing staked');
   const tanks = { id: 'tanks', duel: 1, built: 1, freeOnly: 1 };
-  assert.deepStrictEqual(detail(tanks, [0, 0.5, 1], 1, []), [['tanks', { lobbyType: 'free' }]], 'a free-only duel is Free');
-  assert.deepStrictEqual(detail({ id: 'snake', ladder: 1 }, [0, 0.5, 1], 1, []), [['chosen']], 'the arenas keep their own path');
-  assert.deepStrictEqual(detail({ id: 'stumble', soon: 1 }, [0, 0.5, 1], 1, []), [], 'a game that is not open starts nothing');
+  assert.deepStrictEqual((await detail(tanks, [0, 0.5, 1], 1, [])).calls, [['tanks', { lobbyType: 'free' }]], 'a free-only duel is Free');
+  assert.deepStrictEqual((await detail({ id: 'snake', ladder: 1 }, [0, 0.5, 1], 1, [])).calls, [['chosen']], 'the arenas keep their own path');
+  assert.deepStrictEqual((await detail({ id: 'stumble', soon: 1 }, [0, 0.5, 1], 1, [])).calls, [], 'a game that is not open starts nothing');
 });
 
 test('the eight paid duels are the lobby\'s paid:1 duels, and each one has a page the widget opens', () => {

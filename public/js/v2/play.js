@@ -523,7 +523,10 @@
          this path returned before the remember below — so playing a free table
          and coming back landed you on the cheapest paid one instead of where
          you left off. */
-      if (hasStake && window.rememberStake) window.rememberStake(Number(sel.stake));
+      /* A duel's Free names no stake ({ lobbyType: 'free' }) and is remembered as Free too: the lobby keeps one
+         rung for every game, and a paid duel round remembers its rung (below), so without this a $1 Knockout and
+         then any number of Free ones left the next card on "Play $1.00", one silent tap from a stake (review). */
+      if (window.rememberStake) window.rememberStake(hasStake ? Number(sel.stake) : 0);
       try { sessionStorage.setItem('playerName', name); } catch (_) {}
       /* A guest carries no identity: none left in this tab from an earlier signed-in visit. */
       if (guest) for (const k of ['googleId', 'walletAddress']) { try { sessionStorage.removeItem(k); } catch (_) {} }
