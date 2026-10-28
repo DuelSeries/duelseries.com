@@ -24,6 +24,17 @@ const socket = io();
 // The ping and FPS readout every game shares (public/js/shared/dsPerfHud.js), timed on this socket.
 if (window.DSPerfHud) window.DSPerfHud.mount({ socket });
 const SOUND = window.SwimSound || { play() {}, frame() {}, stop() {} };
+/* The car and paint you picked in Customize (shared/swimLooks.js), sent with sw:queue so the other player and
+   the watchers see them. Looks only: the server keeps listed ids alone and the step never reads them. The
+   engine is not read here: only you hear it (swimSound.js). */
+const LOOKS = window.DS_SWIM_LOOKS || null;
+function myLook() {
+  let car = null, colour = null;
+  try { car = localStorage.getItem(LOOKS ? LOOKS.CAR_KEY : ''); colour = localStorage.getItem(LOOKS ? LOOKS.PAINT_KEY : ''); } catch (_) {}
+  return LOOKS ? LOOKS.clean({ car, colour }) : { car: 'supercar', colour: 'gold' };
+}
+function lookOf(p) { return LOOKS ? LOOKS.clean(p) : { car: 'supercar', colour: 'gold' }; }
+function paintHex(id) { const c = LOOKS && LOOKS.paintById(id); return c ? c.hex : '#e8b84a'; }
 const NAME = S.NAME;
 const R = 1024;                      // ticks of input and state kept for replay
 
@@ -135,7 +146,13 @@ function newRace(m, side) {
     rows: [null, null], disp: [null, null], seen: [0, 0], slowing: [false, false],
     crashed: false, closes: 0, topV: 0, startedAt: 0, follow: 0, countShown: -1,
     corrections: 0, scrapeWas: 0,
+    /* Each seat's car and paint, by seat (the server's cleaned ids), drawn by the scene. */
+    looks: [0, 1].map(s => lookOf((m.players || []).find(q => q.side === s))),
+    /* The start line and the engine: revs shown, the engine's counts already acted on, lift-offs seen. */
+    rev: 0, seenUp: 0, seenDown: 0, seenPops: 0, lifting: [false, false],
   };
+  if (scene && scene.setLooks) scene.setLooks(r.looks.map(l => ({ car: l.car, paint: paintHex(l.colour) })));
+  if (window.SwimSound && SwimSound.state) { const st = SwimSound.state(); r.seenUp = st.up; r.seenDown = st.down; r.seenPops = st.pops; }
   if (r.me) r.hist[0] = S.copyCar(r.me);
   for (const row of m.p || []) takeRow(r, row);
   if (clock.off === null && Number.isFinite(m.now)) clock.off = m.now - performance.now();
@@ -157,7 +174,14 @@ function takeRow(r, row) {
   /* Brake lights for a car we only hear about: lit while it loses more than SLOWING m/s a second
      between two rows. That is the brake pedal (22) or the barrier, not easing off the gas (3.2) or a
      boost bleeding off (4), so it lights when ours would. */
-  if (prev && row[1] > prev[1]) r.slowing[side] = (prev[4] - row[4]) / ((row[1] - prev[1]) * S.DT) > SLOWING;
+  if (prev && row[1] > prev[1]) {
+    const decel = (prev[4] - row[4]) / ((row[1] - prev[1]) * S.DT);
+    r.slowing[side] = decel > SLOWING;
+    /* A car we only hear about lifting off at speed: a short run of exhaust flames on it (looks only). */
+    const lift = decel > 2 && row[4] > 30 && !!row[6];
+    if (lift && !r.lifting[side] && side !== r.side && scene && scene.backfire) scene.backfire(side, 3);
+    r.lifting[side] = lift;
+  }
   r.rows[side] = row;
   if (side === r.side) reconcile(r, row);
 }
@@ -268,6 +292,12 @@ function frame(now) {
   if (r && (r.state === 'countdown' || r.state === 'racing' || r.state === 'over')) {
     tickF = tickNow();
     if (r.state === 'countdown') countdown(r, tickF);
+    /* The start line: holding gas revs the engine (out of gear, speed 0). Nothing is sent and the car does
+       not move: drive() only runs from GO, and every car starts tick 0 the same. */
+    const revving = r.state === 'countdown' && !!r.me;
+    const gasHeld = revving && controls().pedal > 0;
+    r.rev += ((gasHeld ? 1 : 0) - r.rev) * (1 - Math.exp(-dt / (gasHeld ? 0.22 : 0.35)));
+    r.revving = revving; r.gasHeld = gasHeld;
     if (r.state === 'countdown' && tickF >= 0) { r.state = 'racing'; r.startedAt = performance.now(); }
     if (r.state === 'racing' && r.me) drive(r);
     if (r.me) {
@@ -303,11 +333,47 @@ function frame(now) {
     idleZ += 26 * dt;
     follow = { z: idleZ, x: S.laneX(1), v: 26, vx: 0, alive: true };
   }
-  if (scene) scene.frame({ follow, other, followSide, traffic: r ? r.traffic : EMPTY, tick: tickF, dt, steer });
-  SOUND.frame({ on: !!(r && r.state === 'racing' && follow && follow.alive), v: follow ? follow.v : 0, pedal: r ? r.pedal : 0 });
+  const revving = !!(r && r.revving && r.state === 'countdown');
+  SOUND.frame({ on: !!(r && ((r.state === 'racing' && follow && follow.alive) || revving)), v: revving ? 0 : follow ? follow.v : 0,
+    pedal: revving ? (r.gasHeld ? 1 : 0) : r ? r.pedal : 0, rev: revving });
+  const st = SOUND.state ? SOUND.state() : null;
+  if (r && r.me && st) engineMoments(r, st);
+  if (scene) scene.frame({ follow, other, followSide, traffic: r ? r.traffic : EMPTY, tick: tickF, dt, steer,
+    rev: revving ? r.rev : 0 });
+  if (r) tach(r, st, follow);
   publish(r, follow, other);
 }
 const EMPTY = new S.Traffic();
+
+/* Shifts and backfire, as the engine is heard (SwimSound.state counts them): the car lurches on an upshift,
+   dips softly on a downshift, and a flame flashes at its pipes with each bang. All looks: the race's speed is
+   only ever what the step says. */
+function engineMoments(r, st) {
+  if (st.up !== r.seenUp) { if (scene && scene.shift && r.state === 'racing') scene.shift(1); r.seenUp = st.up; }
+  if (st.down !== r.seenDown) { if (scene && scene.shift && r.state === 'racing') scene.shift(-1); r.seenDown = st.down; }
+  if (st.pops !== r.seenPops) {
+    const n = Math.min(3, st.pops - r.seenPops);
+    if (scene && scene.backfire && n > 0) for (let i = 0; i < n; i++) scene.backfire(r.side, 0);
+    r.seenPops = st.pops;
+  }
+}
+/* The tach under the speed and the gear beside it: big on the start line (the rev counter), a slim bar in the
+   race. N on the start line; hidden when no engine is running (sound blocked) or when watching. */
+let tachWas = -1, gearWas = '', revWas = null;
+function tach(r, st, f) {
+  const mine = !!r.me;
+  const revving = mine && r.state === 'countdown';
+  if (revving !== revWas) { $('dash').classList.toggle('revving', revving); $('dash').classList.toggle('mine', mine); revWas = revving; }
+  let k = 0;
+  if (mine) {
+    if (st && st.rev > 0) k = Math.max(0, Math.min(1, (st.rev - 0.1) / 0.85));   // the engine's own rpm, idle at the left
+    else k = revving ? r.rev : Math.max(0, Math.min(1, (f ? f.v : 0) / 97));
+  }
+  const q = Math.round(k * 100);
+  if (q !== tachWas) { tachWas = q; $('tachFill').style.width = q + '%'; $('tach').classList.toggle('red', q >= 88); }
+  const g = !mine ? '' : revving ? 'N' : st && st.gear > 0 ? String(st.gear) : '';
+  if (g !== gearWas) { gearWas = g; const el = $('gearNum'); el.textContent = g; el.hidden = !g; }
+}
 
 /* A car we only hear about, carried forward from its last row to tick `at`
    and eased onto that line so a new row never makes it jump. */
@@ -378,6 +444,8 @@ function publish(r, f, o) {
       gap: f && o ? f.z - o.z : null, closes: r ? r.closes : 0, corrections: r ? r.corrections : 0,
       cars: r ? r.traffic.size : 0, fps: avg > 0 ? Math.round(1 / avg) : 0, rtt: Math.round(clock.rtt || 0),
       scene: scene ? scene.info() : null,
+      looks: r ? r.looks : null, rev: r ? Math.round(r.rev * 1000) / 1000 : 0,
+      engine: SOUND.state ? Object.assign({}, SOUND.state()) : null,
       names: r ? r.names.slice() : [], watch: watchMatch ? { id: watchMatch.id, index: watchMatch.index, count: watchMatch.count } : null,
     };
   } catch (_) {}
@@ -512,7 +580,9 @@ function queue(token, resume) {
   waitPaid = myStake > 0;
   $('waitCancel').textContent = waitPaid ? 'Cancel and refund' : 'Back to the lobby';
   if (!resume) startWait(WAIT_MS); else paintWait();
-  socket.emit('sw:queue', { name: myName, wallet: myWallet, stake: myStake, entryToken: token || myEntryToken, resume: resume || undefined, v: S.VERSION });
+  const look = myLook();
+  socket.emit('sw:queue', { name: myName, wallet: myWallet, stake: myStake, entryToken: token || myEntryToken, resume: resume || undefined, v: S.VERSION,
+    car: look.car, colour: look.colour });
   myEntryToken = null;
   try { sessionStorage.removeItem('entryToken'); } catch (_) {}
 }

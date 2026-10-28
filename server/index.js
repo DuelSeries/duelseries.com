@@ -6425,7 +6425,7 @@ io.on('connection', (socket) => {
      several ticks a packet so a dropped one costs nothing); the server runs both cars against the
      traffic and decides everything (SwimRoom). Queueing, paying and refunding are bs:queue's line for
      line, with Swim's own door (consumePaidEntryAtStake(..., 'swim')) and off switch (sw:paid:off). */
-  on('sw:queue', ({ name, wallet, stake, entryToken, resume, v } = {}) => {
+  on('sw:queue', ({ name, wallet, stake, entryToken, resume, v, car, colour } = {}) => {
     if (!socketRL(socket, 'swq', 1000)) return;
     if (ops.get().maintenance) { socket.emit('maintenance', ops.get()); return; }
     /* A page from before a deploy runs an older step: turned away before anything is spent (an unused token refunds itself). */
@@ -6465,7 +6465,8 @@ io.on('connection', (socket) => {
       let took;
       try {
         took = swimLobby.enqueue(socket, sanitizeName(name),
-          worth > 0 ? payTo : (strOr(wallet, null) || socket._walletAddress || null), rung, worth, undefined, paid, null);
+          worth > 0 ? payTo : (strOr(wallet, null) || socket._walletAddress || null), rung, worth, undefined, paid, null,
+          { car, colour });   // looks only, cleaned by SwimLooks.clean in the lobby and the room
       } catch (e) {
         console.error('[SW] queue threw:', e && e.stack ? e.stack : e);
         took = swimLobby.holds(socket.id);

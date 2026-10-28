@@ -478,12 +478,13 @@
   }
 
   /* ── Swim ────────────────────────────────────────────────────────────── */
-  /* No Shop section: Customize's three free engines (shared/swimLooks.js), drawn through paintWith with
-     { engine: id }; no id is the car's own, the V12. The car is the game's one car, the gold coupe with the big
-     rear wing (public/js/swim/swimScene.js, the gold side's paint), side on and facing right. The three engines
-     share the car, so the engine's badge on the door is what tells them apart, with its tail pipes under the
-     wing: two big ones for the V8, four slim ones for the V12, one fat one for the turbo four. Drawn in a 102 by
-     40 unit box scaled to fit, so the badge reads in the 56 px Customize bar and the 104 px reel alike. */
+  /* No Shop section: Customize's three cars, three paints and three engines (shared/swimLooks.js), drawn
+     through paintWith with { car, colour, engine }; anything missing is the default (the supercar, gold, the
+     V12). Each car is the game's own model (public/js/swim/swimScene.js) side on and facing right: the supercar
+     with its big rear wing, the muscle car with its long scooped hood and set-back cabin, the hot hatch tall and
+     boxy. The engine's badge sits on the door, with its tail pipes under the bumper: two big ones for the V8,
+     four slim ones for the V12, one fat one for the turbo four. Drawn in a 102 by 40 unit box scaled to fit, so
+     the badge reads in the 56 px Customize bar and the 104 px reel alike. */
   var SW = { gold: '#e8b84a', hi: '#ffd27e', low: '#9a6d1e', glass: '#1b2532', tyre: '#141518', hub: '#8d929b',
     trim: '#202228', tail: '#ff2a1c', head: '#fff2d4', ink: '#141820' };
   var SW_PIPES = { v8: [[27.3, 1.8], [29.5, 1.8]], v12: [[26.9, 0.9], [28.1, 0.9], [29.3, 0.9], [30.5, 0.9]], turbo4: [[27.5, 2.9]] };
@@ -492,10 +493,19 @@
     for (var i = 2; i < pts.length; i += 2) ctx.lineTo(pts[i], pts[i + 1]);
     ctx.closePath(); ctx.fillStyle = fill; ctx.fill();
   }
+  /* A paint's lit top and shaded foot: mixed toward white or black. */
+  function swMix(hex, to, k) {
+    var n = parseInt(hex.slice(1), 16), r = n >> 16 & 255, g = n >> 8 & 255, b = n & 255;
+    r = Math.round(r + (to - r) * k); g = Math.round(g + (to - g) * k); b = Math.round(b + (to - b) * k);
+    return 'rgb(' + r + ',' + g + ',' + b + ')';
+  }
   function paintSwim(cv, k, t, big, bare) {
     var ctx = cv.getContext('2d'), w = cv.width, h = cv.height;
     var L = root.DS_SWIM_LOOKS, e = L ? (L.byId(k && k.engine) || L.byId(L.DEFAULT)) : null;
     var id = e ? e.id : 'v12', badge = e ? e.badge : 'V12';
+    var car = L && L.carById(k && k.car) ? k.car : 'supercar';
+    var pc = L ? (L.paintById(k && k.colour) || L.paintById(L.DEFAULT_PAINT)) : null;
+    var base = pc ? pc.hex : SW.gold, PH = swMix(base, 255, 0.35), PL = swMix(base, 0, 0.42);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, w, h);
     if (!bare) { ctx.fillStyle = '#1c1942'; ctx.fillRect(0, 0, w, h); }
@@ -510,25 +520,45 @@
       ctx.fillStyle = SW.trim; ctx.fillRect(-1.4, P[i][0], 6, P[i][1]);
       ctx.fillStyle = '#6b6f76'; ctx.fillRect(-1.4, P[i][0], 0.7, P[i][1]);
     }
-    // wing struts
-    ctx.fillStyle = SW.trim; ctx.fillRect(9, 8.6, 1.4, 9.6); ctx.fillRect(15, 8.6, 1.4, 9.6);
-    // body, lit from above
-    var g = ctx.createLinearGradient(0, 16, 0, 31);
-    g.addColorStop(0, SW.hi); g.addColorStop(0.45, SW.gold); g.addColorStop(1, SW.low);
-    swPoly(ctx, [3, 31, 2.5, 22, 5, 18.6, 27, 17.2, 70, 18.4, 88, 21.2, 97, 24, 99.5, 27, 98.5, 31], g);
-    // cabin, its glass and the pillar between the windows
-    swPoly(ctx, [25, 17.6, 37, 9.6, 57, 8.6, 73, 18.8], SW.gold);
-    swPoly(ctx, [30, 16.9, 39.5, 10.8, 55.5, 10.1, 67.5, 17.9], SW.glass);
-    swPoly(ctx, [48.4, 10.3, 50.6, 10.2, 51.6, 18, 49.2, 17.9], SW.gold);
+    var g = ctx.createLinearGradient(0, car === 'hatch' ? 6 : 16, 0, 31);
+    g.addColorStop(0, PH); g.addColorStop(0.45, base); g.addColorStop(1, PL);
     ctx.strokeStyle = 'rgba(255,255,255,.2)'; ctx.lineWidth = 0.8;
-    ctx.beginPath(); ctx.moveTo(41.5, 11.6); ctx.lineTo(35.5, 15.8); ctx.stroke();
-    // the wing, with its end plate
-    swPoly(ctx, [-0.6, 6.2, 22.4, 6.7, 22.4, 9.3, 0, 9.6], SW.low);
-    ctx.fillStyle = SW.hi; ctx.fillRect(-0.6, 6.2, 23, 0.7);
-    ctx.fillStyle = SW.trim; ctx.fillRect(-0.4, 5.2, 2.2, 6);
-    // lamps and the sill
-    swPoly(ctx, [2.4, 20.4, 4.4, 19.6, 4.4, 23.4, 2.6, 23.4], SW.tail);
-    swPoly(ctx, [92.6, 23, 97.4, 24.4, 96.8, 25.8, 92.2, 24.6], SW.head);
+    if (car === 'muscle') {
+      // a slab body with a flat nose, the cabin set back, a scoop on the long hood and a ducktail
+      swPoly(ctx, [2, 31, 2, 21, 4, 19.4, 30, 19, 60, 18.6, 96, 19.2, 99.5, 20.6, 99.5, 31], g);
+      swPoly(ctx, [29, 19.2, 38, 10.4, 52, 10.1, 62, 18.8], base);
+      swPoly(ctx, [33.5, 18.4, 40, 11.7, 51, 11.5, 57.6, 18.2], SW.glass);
+      swPoly(ctx, [45.4, 11.6, 47.4, 11.6, 47.8, 18.4, 45.6, 18.4], base);
+      ctx.beginPath(); ctx.moveTo(42, 12.6); ctx.lineTo(37, 16.6); ctx.stroke();
+      swPoly(ctx, [70, 18.7, 72, 16.4, 80, 16.4, 81.5, 18.8], SW.trim);
+      swPoly(ctx, [1.4, 18.6, 7, 18.2, 7, 19.8, 1.6, 20.4], PL);
+      swPoly(ctx, [2, 20.6, 4.2, 20.6, 4.2, 23.6, 2, 23.6], SW.tail);
+      swPoly(ctx, [97, 20.8, 99.6, 21.2, 99.6, 23.6, 97, 23.4], SW.head);
+    } else if (car === 'hatch') {
+      // short hood, a tall cabin, a raked hatch under a roof spoiler
+      swPoly(ctx, [3.5, 31, 3.5, 17.5, 72, 16.8, 92, 18.6, 98.5, 22, 99, 31], g);
+      swPoly(ctx, [4, 17.6, 15, 5.6, 50, 5, 72, 16.9], g);
+      swPoly(ctx, [9.6, 16.2, 17, 7.4, 49, 7, 66.4, 16.4], SW.glass);
+      swPoly(ctx, [9.4, 16.4, 16.8, 7.2, 22, 7.1, 22.6, 16.4], base);
+      swPoly(ctx, [38, 7.1, 40.4, 7.1, 40.8, 16.4, 38.4, 16.4], base);
+      ctx.beginPath(); ctx.moveTo(52, 8.8); ctx.lineTo(46, 14.6); ctx.stroke();
+      swPoly(ctx, [12, 4.6, 25, 4.2, 25, 5.8, 12.6, 6.8], PL);
+      swPoly(ctx, [3.4, 19, 5.8, 19, 5.8, 22.6, 3.4, 22.6], SW.tail);
+      swPoly(ctx, [92.8, 19.2, 98, 21.4, 97.6, 22.9, 92.6, 20.8], SW.head);
+    } else {
+      // the supercar: wing struts, a low wedge, the cabin forward, the big wing
+      ctx.fillStyle = SW.trim; ctx.fillRect(9, 8.6, 1.4, 9.6); ctx.fillRect(15, 8.6, 1.4, 9.6);
+      swPoly(ctx, [3, 31, 2.5, 22, 5, 18.6, 27, 17.2, 70, 18.4, 88, 21.2, 97, 24, 99.5, 27, 98.5, 31], g);
+      swPoly(ctx, [25, 17.6, 37, 9.6, 57, 8.6, 73, 18.8], base);
+      swPoly(ctx, [30, 16.9, 39.5, 10.8, 55.5, 10.1, 67.5, 17.9], SW.glass);
+      swPoly(ctx, [48.4, 10.3, 50.6, 10.2, 51.6, 18, 49.2, 17.9], base);
+      ctx.beginPath(); ctx.moveTo(41.5, 11.6); ctx.lineTo(35.5, 15.8); ctx.stroke();
+      swPoly(ctx, [-0.6, 6.2, 22.4, 6.7, 22.4, 9.3, 0, 9.6], PL);
+      ctx.fillStyle = PH; ctx.fillRect(-0.6, 6.2, 23, 0.7);
+      ctx.fillStyle = SW.trim; ctx.fillRect(-0.4, 5.2, 2.2, 6);
+      swPoly(ctx, [2.4, 20.4, 4.4, 19.6, 4.4, 23.4, 2.6, 23.4], SW.tail);
+      swPoly(ctx, [92.6, 23, 97.4, 24.4, 96.8, 25.8, 92.2, 24.6], SW.head);
+    }
     ctx.strokeStyle = SW.trim; ctx.lineWidth = 1.3;
     ctx.beginPath(); ctx.moveTo(29, 30.4); ctx.lineTo(71, 30.6); ctx.stroke();
     // wheel arches (cut at the body's foot), then the wheels
@@ -560,7 +590,7 @@
     ctx.lineTo(bx + r, by + bh); ctx.quadraticCurveTo(bx, by + bh, bx, by + bh - r);
     ctx.lineTo(bx, by + r); ctx.quadraticCurveTo(bx, by, bx + r, by); ctx.closePath();
     ctx.fillStyle = SW.ink; ctx.fill();
-    ctx.fillStyle = SW.hi; ctx.fillText(badge, 50, by + bh / 2 + 0.4);
+    ctx.fillStyle = PH; ctx.fillText(badge, 50, by + bh / 2 + 0.4);
     ctx.restore();
   }
 

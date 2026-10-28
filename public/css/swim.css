@@ -75,6 +75,18 @@ html, body {
 .spd b { font-family: var(--fm); font-size: 46px; font-weight: 600; letter-spacing: -1px; font-variant-numeric: tabular-nums; min-width: 3ch; text-align: right; }
 .spd span { font-size: 13px; color: var(--tx2); font-weight: 600; }
 .dist { margin-top: -2px; font-family: var(--fm); font-size: 12px; color: var(--tx2); }
+/* The gear beside the speed, and the tach under it: the rev counter on the start line (tall, labelled by the N),
+   a slim bar once the race is on. Only for your own car. */
+.spd .gear { align-self: center; min-width: 1.6em; padding: 2px 6px; border-radius: 6px; font-style: normal;
+  font-family: var(--fm); font-size: 15px; font-weight: 600; color: #141820; background: rgba(255,255,255,0.88); text-shadow: none; }
+.spd .gear[hidden] { display: none; }
+.tach { width: 132px; height: 8px; margin: 1px auto 2px; border-radius: 3px; background: rgba(255,255,255,0.16); overflow: hidden;
+  opacity: 0; transform: scaleY(0.375); transform-origin: center; transition: transform .25s ease, opacity .35s ease; }
+#dash.mine .tach { opacity: 0.7; }
+#dash.revving .tach { transform: scaleY(1); opacity: 1; }
+.tach i { display: block; height: 100%; width: 0;
+  background: linear-gradient(90deg, #7fe0a6 0%, #f3d36b 70%, #ff5a3c 100%); background-size: 132px 100%; }
+.tach.red i { filter: brightness(1.25); }
 
 /* ── a close pass ────────────────────────────────────────────────────────── */
 #close {

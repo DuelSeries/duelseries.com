@@ -27,6 +27,7 @@
 const { SwimRoom } = require('./SwimRoom');
 const { refundBound } = require('../stakeRules');
 const { pickName } = require('../botNames');
+const SwimLooks = require('../../shared/swimLooks');
 const duelQueue = require('../duelQueue');
 const { FREE_WAIT_MS, PAID_WAIT_MS, PAID_GIVE_UP_MS } = duelQueue;
 const BOT_AFTER_MS = FREE_WAIT_MS;
@@ -72,7 +73,8 @@ class SwimLobby {
   stop() { if (this.timer) { clearInterval(this.timer); this.timer = null; } }
 
   /* ── the queue (KnockoutLobby.enqueue, the same contract) ───────────────── */
-  enqueue(socket, name, wallet, stake, worth, now, paid, skin) {
+  /* look: { car, colour } as sent; kept only through SwimLooks.clean (listed ids, else the defaults). */
+  enqueue(socket, name, wallet, stake, worth, now, paid, skin, look) {
     /* Already in a race: one seat per socket (Fable review 2026-10-27). Not taken, so a paid caller
        refunds it through the stake row (enterPaid), and the race in progress is left alone. */
     if (this.roomOf(socket.id)) return false;
@@ -88,6 +90,7 @@ class SwimLobby {
       worth: Number(worth) > 0 ? Number(worth) : 0,
       paid: Number(paid) > 0 ? Number(paid) : undefined,
       skin: typeof skin === 'string' && skin ? skin : null,
+      look: SwimLooks.clean(look),
     });
     this.pump(typeof now === 'number' ? now : undefined);
     const mine = this.queue.find(e => e.socket.id === socket.id);
@@ -278,7 +281,7 @@ class SwimLobby {
       room.state = 'over';            // its tick stops; no result was decided, so none is sent
       console.log('[SW] pairing ' + seat.name + ' with ' + entry.name + ' instead of a bot');
       return { socket: seat.socket, name: seat.name, wallet: seat.wallet,
-               since: Date.now(), stake: 0, worth: 0, fromRoom: room.id, skin: seat.skin || null };
+               since: Date.now(), stake: 0, worth: 0, fromRoom: room.id, skin: seat.skin || null, look: seat.look };
     }
     return null;
   }
@@ -288,7 +291,7 @@ class SwimLobby {
     room.stake = entries.length ? (entries[0].stake || 0) : 0;
     room.onSettled = this.onSettled || null;
     for (const e of entries) {
-      room.addPlayer(e.socket, e.name, e.wallet, e.worth, e.paid, e.skin);
+      room.addPlayer(e.socket, e.name, e.wallet, e.worth, e.paid, e.skin, e.look);
       this.bySocket.set(e.socket.id, room.id);
     }
     /* A paid room can never be given a bot, whatever the caller asked for. */

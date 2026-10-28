@@ -162,9 +162,18 @@ function litMaterial(params) {
   return m;
 }
 
-/* ── the players' car: a low wedge with a wing ───────────────────────────
-   Front is -z. Paint parts are white (the material carries the colour). */
-function buildPlayerCar() {
+/* ── the players' cars: three of our own, picked in Customize ────────────
+   Front is -z. Paint parts are white (the material carries the colour).
+   LOOKS ONLY: all three are drawn on the same footprint (about 4.3 m long,
+   1.8 m wide) and race on the same hitbox and handling, because nothing in
+   shared/swimSim.js reads a look; the server keeps only the listed ids
+   (shared/swimLooks.js). They share the lamp anchors the indicators, brake
+   lamps and exhaust flames are built on (tail lights at y 0.70 on the tail,
+   pipes at x 0.42, y 0.36), so every lamp lands on every car. Original
+   shapes, no maker's design, no badges.
+
+   The supercar: a low wedge with a wing (the gold car Swim always had). */
+function buildSupercar() {
   const P = 0xffffff, paint = new Mesher(), det = new Mesher();
   paint.part(1.80, 1.74, -2.08, 2.10, -1.22, 2.14, 0.30, 0.80, P, 0);      // body, long sloped nose
   paint.part(1.76, 1.66, 0.55, 2.13, 0.95, 2.08, 0.80, 0.92, P, 0);        // rear deck
@@ -188,6 +197,73 @@ function buildPlayerCar() {
   det.part(1.66, 1.70, 1.86, 2.12, 1.90, 2.17, 0.24, 0.44, C.trim, 0);     // diffuser
   det.box(0, 0.53, 2.125, 0.40, 0.10, 0.04, C.plate, 0.3);                 // plate
   det.part(1.74, 1.70, -2.18, -1.90, -2.14, -1.90, 0.24, 0.34, C.trim, 0); // splitter
+  return { paint: paint.build(), det: det.build() };
+}
+
+/* The muscle car: a long hood with a scoop, the cabin set well back, a short
+   ducktail, wide hips and a flat nose. */
+function buildMuscle() {
+  const P = 0xffffff, paint = new Mesher(), det = new Mesher();
+  paint.part(1.82, 1.80, -2.14, 2.13, -2.10, 2.11, 0.30, 0.80, P, 0);      // body, a slab with a flat nose
+  paint.part(0.66, 0.54, -1.98, -0.70, -1.90, -0.76, 0.80, 0.87, P, 0);    // power dome down the hood
+  paint.part(1.76, 1.72, 0.78, 2.11, 0.86, 2.09, 0.80, 0.88, P, 0);        // rear deck
+  paint.part(1.70, 1.70, 1.96, 2.13, 2.02, 2.15, 0.88, 0.95, P, 0);        // ducktail
+  paint.part(1.26, 1.18, 0.02, 0.86, 0.08, 0.80, 1.14, 1.19, P, 0);        // roof, set back
+  for (const s of [-1, 1]) {
+    paint.box(s * 0.865, 0.50, -1.38, 0.11, 0.34, 0.98, P, 0);             // front haunch
+    paint.box(s * 0.875, 0.52, 1.30, 0.13, 0.38, 1.08, P, 0);              // rear haunch, wider
+    paint.box(s * 0.92, 0.90, -0.42, 0.14, 0.08, 0.16, P, 0);              // mirrors
+  }
+  det.part(1.62, 1.22, -0.52, 1.30, 0.02, 0.84, 0.80, 1.14, C.glass, 0);   // glasshouse, fastback rake
+  det.part(0.40, 0.30, -1.56, -1.06, -1.46, -1.12, 0.87, 0.95, C.trim, 0); // hood scoop
+  det.box(0, 0.58, -2.15, 1.34, 0.22, 0.04, C.trim, 0);                    // grille, full width
+  det.part(1.84, 1.84, -2.22, -2.06, -2.22, -2.06, 0.26, 0.40, C.trim, 0); // front bumper
+  det.part(1.84, 1.84, 2.06, 2.20, 2.06, 2.20, 0.26, 0.42, C.trim, 0);     // rear bumper
+  for (const s of [-1, 1]) {
+    det.box(s * 0.66, 0.60, -2.17, 0.22, 0.15, 0.04, C.head, 1);           // headlights in the grille
+    det.box(s * 0.56, 0.70, 2.13, 0.52, 0.11, 0.08, C.tail, 1);            // tail lights
+    det.box(s * 0.42, 0.36, 2.21, 0.20, 0.10, 0.06, 0x2b2b30, 0);          // big twin pipes
+    det.box(s * 0.92, 0.35, 0, 0.05, 0.10, 1.7, C.trim, 0);                // sills
+    for (const z of [-1.40, 1.30]) {
+      const r = z > 0 ? 0.36 : 0.34;
+      det.cylX(s * 0.80, r, z, r, 0.30, 10, C.tyre);
+      det.cylX(s * 0.955, r, z, r * 0.6, 0.02, 10, C.hub);
+    }
+  }
+  det.box(0, 0.70, 2.135, 0.62, 0.11, 0.06, C.tail, 0.85);                 // tail lights run the full width
+  det.box(0, 0.53, 2.125, 0.40, 0.10, 0.04, C.plate, 0.3);                 // plate
+  return { paint: paint.build(), det: det.build() };
+}
+
+/* The hot hatch: short hood, a tall cabin, a raked hatch glass under a roof
+   spoiler, and boxy arches. */
+function buildHatch() {
+  const P = 0xffffff, paint = new Mesher(), det = new Mesher();
+  paint.part(1.80, 1.76, -2.06, 2.08, -1.92, 2.08, 0.30, 0.88, P, 0);      // body
+  paint.part(1.72, 1.64, -1.92, -0.92, -1.86, -0.88, 0.88, 0.94, P, 0);    // short hood
+  paint.part(1.52, 1.46, -0.30, 1.42, -0.26, 1.38, 1.36, 1.42, P, 0);      // roof
+  paint.part(1.46, 1.42, 1.26, 1.60, 1.32, 1.66, 1.40, 1.47, P, 0);        // roof spoiler
+  for (const s of [-1, 1]) {
+    paint.box(s * 0.865, 0.50, -1.36, 0.11, 0.36, 0.92, P, 0);             // front arch
+    paint.box(s * 0.865, 0.51, 1.34, 0.11, 0.36, 0.92, P, 0);              // rear arch
+    paint.box(s * 0.93, 0.90, -0.56, 0.14, 0.09, 0.16, P, 0);              // mirrors
+  }
+  det.part(1.68, 1.50, -0.90, 2.04, -0.30, 1.44, 0.92, 1.36, C.glass, 0);  // glasshouse, steep screen, raked hatch
+  det.box(0, 0.62, -2.07, 1.10, 0.18, 0.04, C.trim, 0);                    // grille
+  det.part(1.82, 1.82, -2.12, -1.98, -2.12, -1.98, 0.26, 0.42, C.trim, 0); // front bumper
+  det.part(1.70, 1.70, 2.04, 2.16, 2.04, 2.16, 0.26, 0.40, C.trim, 0);     // rear bumper
+  det.box(0, 0.70, 2.125, 0.62, 0.11, 0.04, C.trim, 0);                    // tail panel (the third lamp lights on it)
+  for (const s of [-1, 1]) {
+    det.box(s * 0.62, 0.76, -1.95, 0.34, 0.12, 0.10, C.head, 1);           // headlights
+    det.box(s * 0.56, 0.70, 2.11, 0.52, 0.13, 0.08, C.tail, 1);            // tail lights
+    det.box(s * 0.42, 0.36, 2.19, 0.16, 0.10, 0.05, 0x2b2b30, 0);          // pipes
+    det.box(s * 0.91, 0.35, 0, 0.05, 0.10, 1.8, C.trim, 0);                // sills
+    for (const z of [-1.36, 1.34]) {
+      det.cylX(s * 0.79, 0.33, z, 0.33, 0.27, 10, C.tyre);
+      det.cylX(s * 0.93, 0.33, z, 0.21, 0.02, 10, C.hub);
+    }
+  }
+  det.box(0, 0.53, 2.125, 0.40, 0.10, 0.04, C.plate, 0.3);                 // plate
   return { paint: paint.build(), det: det.build() };
 }
 
@@ -672,8 +748,25 @@ export function createScene(canvasEl, opts = {}) {
   scene.add(shadows);
 
   /* the two players' cars: solid when followed, a ghost (they pass through each other) when not */
-  const pg = buildPlayerCar();
-  keep(pg.paint); keep(pg.det);
+  const MODELS = { supercar: buildSupercar(), muscle: buildMuscle(), hatch: buildHatch() };
+  for (const k in MODELS) { keep(MODELS[k].paint); keep(MODELS[k].det); }
+  const pg = MODELS.supercar;
+  const sidePaint = SIDE_PAINT.slice();      // each seat's paint, from setLooks
+  /* Exhaust flames for the backfire: glowing quads at the pipes, facing back, one mesh per car, shown and
+     scaled only for a moment after each bang (backfire). */
+  const flameGeo = (() => {
+    const p = [], uv = [];
+    for (const [cx, cy, cz, w, h] of [[-0.42, 0.37, 2.32, 0.62, 0.42], [0.42, 0.37, 2.32, 0.62, 0.42],
+                                      [-0.42, 0.37, 2.30, 0.28, 0.2], [0.42, 0.37, 2.30, 0.28, 0.2]]) {
+      const x0 = cx - w / 2, x1 = cx + w / 2, y0 = cy - h / 2, y1 = cy + h / 2;
+      p.push(x0, y0, cz, x1, y0, cz, x1, y1, cz, x0, y0, cz, x1, y1, cz, x0, y1, cz);
+      uv.push(0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(p, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    return keep(g);
+  })();
   const detSolid = keep(litMaterial({}));
   const detGhost = keep(litMaterial({ transparent: true, opacity: 0.45 }));
 
@@ -735,10 +828,15 @@ export function createScene(canvasEl, opts = {}) {
     const ind = [lampSet(indGeo[0], amberLamp, amberHalo), lampSet(indGeo[1], amberLamp, amberHalo)];
     const brake = lampSet(brakeGeo, brakeLamp, brakeHalo);
     group.add(ind[0], ind[1], brake);
+    const flameMat = keep(new THREE.MeshBasicMaterial({ color: 0xff8a2a, map: lampGlow, transparent: true, opacity: 1, depthWrite: false,
+      blending: THREE.AdditiveBlending, toneMapped: false, side: THREE.DoubleSide }));
+    const flame = new THREE.Mesh(flameGeo, flameMat);
+    flame.frustumCulled = false; flame.renderOrder = 5; flame.visible = false;
+    group.add(flame);
     group.visible = false;
     scene.add(group);
-    return { side, group, paint, det, solid, ghost, ind, brake, roll: 0, pitch: 0, acc: 0, lastV: -1, lastVx: 0,
-             blinkSide: 0, blinkT: 0, blinkHold: 0 };
+    return { side, group, paint, det, solid, ghost, ind, brake, flame, flameMat, roll: 0, pitch: 0, acc: 0, lastV: -1, lastVx: 0,
+             blinkSide: 0, blinkT: 0, blinkHold: 0, flameT: 0, flameLeft: 0, flameNext: 0 };
   });
 
   /* Traffic lamps (Owen 2026-10-28): a car about to change lane flashes its
@@ -828,7 +926,7 @@ export function createScene(canvasEl, opts = {}) {
   /* ── state ───────────────────────────────────────────────────────── */
   /* Numbers that change every frame live on one object: V8 keeps its double
      fields in place, where a closure `let` would box a new number each write. */
-  const K = { time: 0, fov: 62, camX: 0, lookX: 0, camRoll: 0, camOffZ: 0, lastZ0: NaN, nmT: 0,
+  const K = { time: 0, fov: 62, camX: 0, lookX: 0, camRoll: 0, camOffZ: 0, lastZ0: NaN, nmT: 0, rev: 0, lurchT: 9, lurchDir: 1,
     crashT: 0, crashYaw: 0, crashW: 0, shakeCrash: 0, lastFollowV: 30, slowEma: 1 / 60, adaptCool: 2 };
   let cssW = 1, cssH = 1, dpr = 1, dprDrop = 0, snap = true;
   let lastSide = -1, nmSide = 0, nmPending = null;
@@ -864,8 +962,20 @@ export function createScene(canvasEl, opts = {}) {
     car.roll += (rollT * 0.055 - car.roll) * ease(dt, 8);
     car.pitch += (clamp(car.acc * 0.0035, -0.07, 0.04) - car.pitch) * ease(dt, 8);
     const sp = clamp01((v * 3.6 - 100) / 180);
-    g.position.set(st.x, 0.006 * Math.sin(K.time * 23 + car.side) * sp, -(st.z - z0));
-    g.rotation.set(car.pitch, -Math.atan2(vx, Math.max(v, 8)) * 0.85, car.roll);
+    /* Looks only (the step never sees them): revving on the start line squats the tail and rocks the body on
+       its mounts; a shift dips the nose as the drive cuts, then squats and surges for about 0.3 s. */
+    let dPitch = 0, dRoll = 0, dY = 0;
+    if (!ghost) {
+      const rv = K.rev;
+      if (rv > 0.001) {
+        dPitch += 0.024 * rv;
+        dRoll += 0.009 * rv * Math.sin(K.time * 38);
+        dY += 0.006 * rv * Math.sin(K.time * 61);
+      }
+      dPitch += lurchPitch();
+    }
+    g.position.set(st.x, 0.006 * Math.sin(K.time * 23 + car.side) * sp + dY, -(st.z - z0));
+    g.rotation.set(car.pitch + dPitch, -Math.atan2(vx, Math.max(v, 8)) * 0.85, car.roll + dRoll);
     if (ghost && st.alive === false) { g.rotation.y = 0.6; g.rotation.z = 0; }   // the other car has crashed: show it skewed
     if (crashOn && car.side === crashSide && !ghost) {
       const t = K.crashT;
@@ -891,6 +1001,26 @@ export function createScene(canvasEl, opts = {}) {
     car.ind[0].visible = lit && car.blinkSide < 0;
     car.ind[1].visible = lit && car.blinkSide > 0;
     car.brake.visible = alive && !!st.brake;
+    /* Backfire: each bang a short flame at the pipes; a remote car's run is spaced out here. */
+    if (car.flameLeft > 0) {
+      car.flameNext -= dt;
+      if (car.flameNext <= 0) { car.flameLeft--; car.flameT = 0.09 + rand() * 0.05; car.flameNext = 0.12 + rand() * 0.22; }
+    }
+    if (car.flameT > 0 && alive) {
+      car.flameT -= dt;
+      const k = clamp01(car.flameT / 0.1);
+      car.flame.visible = true;
+      car.flameMat.opacity = (ghost ? 0.6 : 1) * (0.45 + 0.55 * k) * (0.8 + 0.2 * rand());   // a flicker, no resizing
+    } else car.flame.visible = false;
+  }
+  /* The shift lurch: a nose dip as the drive cuts (first 0.09 s), then the squat and surge to 0.3 s. A
+     downshift is a softer dip. */
+  function lurchPitch() {
+    const t = K.lurchT;
+    if (t >= 0.32) return 0;
+    const dip = t < 0.09 ? Math.sin(Math.PI * t / 0.09) : 0;
+    const surge = t > 0.06 ? Math.sin(Math.PI * clamp01((t - 0.06) / 0.26)) : 0;
+    return K.lurchDir > 0 ? -0.014 * dip + 0.03 * surge : -0.012 * (dip + surge * 0.5);
   }
 
   /* Send only the used front of an instance buffer, through one range object
@@ -929,7 +1059,7 @@ export function createScene(canvasEl, opts = {}) {
     }
     crashDir = ix >= 0 ? 1 : -1;
     K.crashW = (iz >= 0 ? 1 : -1) * crashDir * (4.2 + rand() * 2.2);
-    const v = Math.max(K.lastFollowV, 12), paint = SIDE_PAINT[side];
+    const v = Math.max(K.lastFollowV, 12), paint = sidePaint[side];
     partsAlive = 0;
     for (let i = 0; i < PARTS; i++) {
       const spark = i < 40;
@@ -1040,6 +1170,8 @@ export function createScene(canvasEl, opts = {}) {
     if (dt > 0.1) dt = 0.1;
     K.time += dt;
     const fol = f.follow, oth = f.other || null, side = f.followSide === 1 ? 1 : 0;
+    K.rev = clamp01(+f.rev || 0);
+    K.lurchT += dt;
     const tick = +f.tick || 0, traffic = f.traffic || null;
     const z0 = +fol.z || 0;
     if (side !== lastSide) {
@@ -1175,7 +1307,11 @@ export function createScene(canvasEl, opts = {}) {
     }
     camera.fov = K.fov;
     camera.updateProjectionMatrix();
-    camera.position.set(K.camX + jx - nm * nmSide * 0.1, ch + jy, K.camOffZ + cb);
+    /* A shift: the camera dips with the nose, then is pulled back a touch as the car surges. */
+    const lt = K.lurchT, lk = K.lurchDir > 0 ? 1 : 0.4;
+    const camDip = lt < 0.12 ? 0.05 * lk * Math.sin(Math.PI * lt / 0.12) : 0;
+    const camPull = lt < 0.34 ? 0.2 * lk * Math.sin(Math.PI * clamp01((lt - 0.05) / 0.29)) : 0;
+    camera.position.set(K.camX + jx - nm * nmSide * 0.1, ch + jy - camDip, K.camOffZ + cb + camPull);
     camera.lookAt(K.lookX + jx * 0.5, 0.65 - 0.25 * port, K.camOffZ - la);
     camera.rotateZ(-K.camRoll * 0.022);
     snap = false;
@@ -1220,14 +1356,37 @@ export function createScene(canvasEl, opts = {}) {
     frame,
     nearMiss(side) { nmPending = side === 1 || side === -1 ? side : 0; },
     crash() { crashPending = true; },
+    /* Each seat's look, by seat: [{ car: 'supercar' | 'muscle' | 'hatch', paint: '#rrggbb' }, ...]. Swaps the
+       model and the paint, nothing else (looks never reach the step). */
+    setLooks(list) {
+      for (const car of cars) {
+        const l = list && list[car.side];
+        const m = (l && MODELS[l.car]) || MODELS.supercar;
+        car.paint.geometry = m.paint; car.det.geometry = m.det;
+        const hex = l && typeof l.paint === 'string' && /^#[0-9a-f]{6}$/i.test(l.paint) ? parseInt(l.paint.slice(1), 16) : SIDE_PAINT[car.side];
+        sidePaint[car.side] = hex;
+        car.solid.color.setHex(hex); car.solid.emissive.setHex(hex).multiplyScalar(0.12);
+        car.ghost.color.setHex(hex); car.ghost.emissive.setHex(hex).multiplyScalar(0.2);
+      }
+    },
+    /* A gear change heard on the car being followed: 1 up (the lurch), -1 down (a softer dip). */
+    shift(dir) { K.lurchT = 0; K.lurchDir = dir > 0 ? 1 : -1; },
+    /* A backfire on a seat's car: n 0 is one flame now (your own car, on each bang heard), else a run of n. */
+    backfire(side, n) {
+      const car = cars[side === 1 ? 1 : 0];
+      if (!n) { car.flameT = 0.09 + rand() * 0.05; return; }
+      car.flameLeft = Math.min(7, n); car.flameNext = 0;
+    },
     reset() {
       clearCrash();
       K.nmT = 0; nmPending = null; snap = true;
-      for (const c of cars) { c.lastV = -1; c.roll = c.pitch = c.acc = 0; c.blinkSide = 0; c.blinkHold = 0; }
+      for (const c of cars) { c.lastV = -1; c.roll = c.pitch = c.acc = 0; c.blinkSide = 0; c.blinkHold = 0; c.flameT = 0; c.flameLeft = 0; }
+      K.rev = 0; K.lurchT = 9;
     },
     info() {
       const r = renderer.info;
-      return { calls: r.render.calls, triangles: r.render.triangles, dpr, programs: r.programs ? r.programs.length : 0, geometries: r.memory.geometries, textures: r.memory.textures };
+      return { looks: cars.map(c => ({ car: Object.keys(MODELS).find(k => MODELS[k].paint === c.paint.geometry), paint: '#' + c.solid.color.getHexString() })),
+               calls: r.render.calls, triangles: r.render.triangles, dpr, programs: r.programs ? r.programs.length : 0, geometries: r.memory.geometries, textures: r.memory.textures };
     },
     dispose() {
       for (const d of disposables) if (d && d.dispose) d.dispose();

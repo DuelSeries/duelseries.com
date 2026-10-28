@@ -922,3 +922,74 @@ test('both seats running out of grace together is a draw that refunds both, not 
   assert.deepStrictEqual(settles[0].seats.map(s => s.wallet).sort(), ['WA', 'WB']);
   assert.strictEqual(lobby.rooms.size, 0);
 });
+
+/* ── looks (Owen 2026-10-28): three cars, three paints, shown to the other seat and the watchers ──── */
+const SwimLooks = require('../shared/swimLooks');
+
+test('looks: anything not listed falls back to the defaults, and nothing sent in is echoed', () => {
+  assert.deepStrictEqual(SwimLooks.clean({ car: 'muscle', colour: 'teal' }), { car: 'muscle', colour: 'teal' });
+  for (const junk of [null, undefined, 7, 'muscle', [], { car: 'limo', colour: '#ff00ff' }, { car: '__proto__', colour: 'constructor' },
+    { car: { toString: () => 'muscle' }, colour: ['gold'] }, { car: 'Muscle', colour: ' gold' }]) {
+    assert.deepStrictEqual(SwimLooks.clean(junk), { car: 'supercar', colour: 'gold' }, JSON.stringify(junk));
+  }
+  const sent = { car: 'hatch', colour: 'crimson', extra: '<script>' };
+  const kept = SwimLooks.clean(sent);
+  assert.notStrictEqual(kept, sent);
+  assert.deepStrictEqual(Object.keys(kept), ['car', 'colour'], 'only the two ids, never other fields');
+  assert.deepStrictEqual(SwimLooks.CARS.map(c => c.id), ['muscle', 'supercar', 'hatch']);
+  assert.deepStrictEqual(SwimLooks.PAINTS.map(c => c.id), ['gold', 'crimson', 'teal']);
+  const { room } = bareRoom();
+  room.addPlayer(sock('x'), 'X', null, 0, 0, null, { car: 'tank', colour: 'rainbow' });
+  assert.deepStrictEqual(room.bySide(0).look, { car: 'supercar', colour: 'gold' });
+});
+
+test('looks: each seat\'s car and paint ride in sw:start players and the watcher state, by seat', () => {
+  const { room, io } = bareRoom();
+  room.addPlayer(sock('a'), 'Ann', null, 0, 0, null, { car: 'muscle', colour: 'crimson' });
+  room.addPlayer(sock('b'), 'Bob', null, 0, 0, null, { car: 'hatch', colour: 'nope' });
+  room.start(1000);
+  const start = io.sent.find(m => m.ev === 'sw:start').p;
+  const bySide = (ps) => ps.slice().sort((x, y) => x.side - y.side).map(q => [q.car, q.colour]);
+  assert.deepStrictEqual(bySide(start.players), [['muscle', 'crimson'], ['hatch', 'gold']]);
+  const w = room.watchSnapshot(Date.now());
+  assert.deepStrictEqual(bySide(w.players), [['muscle', 'crimson'], ['hatch', 'gold']]);
+  assert.ok(w.players.every(p => !('id' in p)), 'watchers get seats, never ids');
+  // Through the lobby too: a queued look reaches the room's seats.
+  const { lobby } = lobbyWith();
+  const p1 = sock(), p2 = sock();
+  lobby.enqueue(p1, 'P1', null, 0, 0, 1, undefined, null, { car: 'hatch', colour: 'teal' });
+  lobby.enqueue(p2, 'P2', null, 0, 0, 2, undefined, null, { car: 'evil', colour: 'teal' });
+  const r = lobby.rooms.get(lobby.bySocket.get(p1.id));
+  assert.ok(r, 'the two were seated');
+  assert.deepStrictEqual(r.players.get(p1.id).look, { car: 'hatch', colour: 'teal' });
+  assert.deepStrictEqual(r.players.get(p2.id).look, { car: 'supercar', colour: 'teal' });
+});
+
+test('looks never touch the race: three different looks step bit for bit like default looks', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'shared', 'swimSim.js'), 'utf8');
+  assert.ok(!/swimLooks|SWIM_LOOKS|\.look|\.colour|supercar|muscle/.test(src), 'nothing in the step reads a look');
+  const runWith = (looks) => {
+    const io = fakeIo();
+    const room = new SwimRoom(io);
+    room.io = io;
+    room.seed = 0x1234abcd; room.spawner = new Spawner(room.seed);
+    room.addPlayer(sock('a'), 'Ann', null, 0, 0, null, looks[0]);
+    room.addPlayer(sock('b'), 'Bob', null, 0, 0, null, looks[1]);
+    room.start(1000);
+    room.tick(room.goAt);
+    const rows = [];
+    for (let t = 1; t <= 900 && room.state === 'racing'; t++) {
+      const steerA = Math.sin(t / 37), steerB = Math.cos(t / 23);
+      room.input('a', { t: t - 1, k: [S.packInput(steerA, t % 200 < 150 ? 1 : 0)] });
+      room.input('b', { t: t - 1, k: [S.packInput(steerB, t % 170 < 120 ? 1 : -1)] });
+      room.tick(at(room, t));
+      if (t % 30 === 0) rows.push(JSON.stringify(room.carRows()));
+    }
+    return { rows, cars: [0, 1].map(s => JSON.stringify(room.bySide(s).car)), state: room.state, winner: room.winner };
+  };
+  const plain = runWith([undefined, undefined]);
+  const dressed = runWith([{ car: 'muscle', colour: 'crimson' }, { car: 'hatch', colour: 'teal' }]);
+  assert.ok(plain.rows.length >= 5);
+  assert.deepStrictEqual(dressed, plain);
+});
+

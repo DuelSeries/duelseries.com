@@ -9,10 +9,16 @@
      your crash   g.death           their crash / win / lose  g.kill, g.win, g.lose
      losing the gap  g.warn
 
-   swimMain.js calls SwimSound.play(name) for those and SwimSound.frame({ v, pedal, on })
+   swimMain.js calls SwimSound.play(name) for those and SwimSound.frame({ v, pedal, on, rev })
    every animation frame: v is the car being followed (m/s), pedal is -1 brake,
-   0 cruise, 1 gas, and on is false off the road (countdown, crash, result card),
-   which fades the engine out.
+   0 cruise, 1 gas, and on is false off the road (crash, result card, watching),
+   which fades the engine out. rev is true on the start line (your own car in the
+   countdown): the engine is out of gear and the gas only revs it, speed 0.
+
+   SwimSound.state() is what the engine is doing, for the HUD and the scene: its
+   gear (0 on the start line or with no engine running), rpm as a share of the
+   redline, and running counts of upshifts, downshifts and backfire bangs, each
+   counted when it is heard (one object, reused).
 
    THE ENGINE is the one picked in Customize (shared/swimLooks.js, kept under
    duel.swim.engine), read each time a race starts; nothing or anything unknown
@@ -45,6 +51,15 @@
 
   let ctx = null, bus = null, gain = -1, eng = null, engId = '', was = false, offAt = 0, ease = 0, lastT = 0;
   let scrapeAt = 0;
+  /* Engine moments waiting to be heard: kind (1 up, 2 down, 3 pop) and audio time, in a small ring. */
+  const evK = new Uint8Array(32), evT = new Float64Array(32);
+  let evH = 0, evN = 0;
+  const ST = { gear: 0, rev: 0, up: 0, down: 0, pops: 0 };
+  function onEngine(k, t) {
+    if (evN >= 32) return;
+    const i = (evH + evN) % 32;
+    evK[i] = k === 'up' ? 1 : k === 'down' ? 2 : 3; evT[i] = t; evN++;
+  }
 
   /* The engine for this race: the Customize pick, else the car's own. */
   function chosen() {
@@ -80,11 +95,13 @@
     if (eng && engId === id) { offAt = 0; return; }
     if (eng) eng.stop();
     try { eng = E.make(ctx, id, bus); engId = id; } catch (_) { eng = null; engId = ''; return; }
+    if (eng.listen) eng.listen(onEngine);
+    evN = 0;
     lastT = ctx.currentTime; offAt = 0;
   }
   function release() {
     if (eng) eng.stop();
-    eng = null; engId = ''; offAt = 0; ease = 0;
+    eng = null; engId = ''; offAt = 0; ease = 0; evN = 0; ST.gear = 0; ST.rev = 0;
   }
 
   function frame(f) {
@@ -97,7 +114,18 @@
     if (on) ease = Math.max(0, Number(f.v) || 0);
     else ease *= Math.exp(-dt / 0.6);      // off the road the revs drop away under the fade
     const pedal = on ? Math.max(-1, Math.min(1, Number(f.pedal) || 0)) : 0;
-    eng.set({ speed: ease, throttle: !on ? 0 : pedal > 0 ? 1 : pedal < 0 ? -1 : CRUISE });
+    const rev = on && !!f.rev;
+    if (rev) ease = 0;                     // the start line: the car is still, only the revs move
+    eng.set({ speed: ease, throttle: !on ? 0 : rev ? (pedal > 0 ? 1 : 0) : pedal > 0 ? 1 : pedal < 0 ? -1 : CRUISE, rev });
+    /* What is heard by now is counted; a suspended context (a held page) moves nothing, so no gear is shown. */
+    while (evN > 0 && evT[evH] <= t + 0.012) {
+      const k = evK[evH];
+      if (k === 1) ST.up++; else if (k === 2) ST.down++; else ST.pops++;
+      evH = (evH + 1) % 32; evN--;
+    }
+    const live = ctx.state === 'running';
+    ST.gear = live && eng.gear ? eng.gear() : 0;
+    ST.rev = live && eng.rev ? eng.rev() : 0;
     const lv = on && !(doc && doc.hidden) ? level() * VOL : 0;
     setGain(lv, lv > 0 ? 0.08 : on ? 0.03 : 0.3);   // a mute is at once; the end of a race fades
     if (on) offAt = 0;
@@ -127,5 +155,5 @@
   const idle = root.requestIdleCallback ? (fn) => root.requestIdleCallback(fn, { timeout: 4000 }) : (fn) => setTimeout(fn, 1500);
   idle(() => { try { if (context() && E.prepare) E.prepare(ctx, chosen()); } catch (_) {} });
 
-  root.SwimSound = { play, frame, stop, engine: () => engId };
+  root.SwimSound = { play, frame, stop, engine: () => engId, state: () => ST };
 })(window);

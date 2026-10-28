@@ -48,6 +48,7 @@ const { SwimBot } = require('./swimBot');
 const { refundBound } = require('../stakeRules');
 const { duelMoney } = require('../duelMoney');
 const { newResumeKey } = require('../duelQueue');
+const SwimLooks = require('../../shared/swimLooks');
 
 const LAG_MAX = 15;            // ticks (250 ms) a person's car may trail the server clock
 const LEAD_MAX = 20;           // inputs for ticks further ahead of the clock than this are ignored
@@ -100,7 +101,9 @@ class SwimRoom {
 
   /* ── seats ──────────────────────────────────────────────────────────────── */
 
-  addPlayer(socket, name, wallet, worth, paid, skin) {
+  /* look: the car and paint the others see, cleaned here again (SwimLooks.clean: listed ids, else the
+     defaults). Looks only: nothing in shared/swimSim.js reads it, so every car races the same. */
+  addPlayer(socket, name, wallet, worth, paid, skin, look) {
     if (this.players.size >= 2) return false;
     const side = this.players.size;
     const car = S.newCar(side);
@@ -108,6 +111,7 @@ class SwimRoom {
       socket, name: name || 'Player', wallet: wallet || null, side,
       paid: Number(paid) > 0 ? Number(paid) : undefined,
       skin: typeof skin === 'string' && skin ? skin : null,
+      look: SwimLooks.clean(look),
       car,
       codes: new Int16Array(HIST).fill(-1),     // the input for tick t, at t % HIST (-1: not heard)
       codeTick: new Int32Array(HIST).fill(-1),
@@ -131,6 +135,9 @@ class SwimRoom {
     if (!this.addPlayer(botSocket, name, null)) return false;
     const seat = this.players.get(botSocket.id);
     seat.bot = new SwimBot(S.rng(this.seed ^ 0x5bd1e995));
+    /* The bot wears one of the listed looks, chosen by the room's seed (a look only, it changes no step). */
+    const k = this.seed >>> 0;
+    seat.look = SwimLooks.clean({ car: SwimLooks.CARS[k % 3].id, colour: SwimLooks.PAINTS[(k >>> 3) % 3].id });
     this.bot = { id: botSocket.id };
     return true;
   }
@@ -277,6 +284,7 @@ class SwimRoom {
       pot: this.pot(),
       players: [...this.players.entries()].map(([id, p]) => ({
         id: this.publicId(id), side: p.side, name: p.name, skin: p.skin || null,
+        car: p.look.car, colour: p.look.colour,
       })),
       cars: this.traffic.all(),
       p: this.carRows(),
@@ -496,7 +504,7 @@ class SwimRoom {
   watchState(ps) {
     return {
       id: ps.id, state: ps.state, goIn: ps.goIn, goAt: ps.goAt, now: ps.now, tick: ps.tick, stake: ps.stake, pot: ps.pot,
-      players: (ps.players || []).map(q => ({ side: q.side, name: q.name, skin: q.skin || null })),
+      players: (ps.players || []).map(q => ({ side: q.side, name: q.name, skin: q.skin || null, car: q.car, colour: q.colour })),
       cars: ps.cars, p: ps.p,
     };
   }

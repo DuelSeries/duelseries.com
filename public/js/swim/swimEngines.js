@@ -11,11 +11,21 @@
       make(ctx, id, dest) -> engine
     }
 
-  engine.set({ speed, throttle }, at)
+  engine.set({ speed, throttle, rev }, at)
       Call once per animation frame.
       speed     metres per second, 0 to about 97 (350 km/h)
       throttle  -1 brake, 0 lift off, 1 gas (values in between work too)
+      rev       true on the start line: out of gear, the gas only revs it (speed is 0)
       at        optional AudioContext time to schedule for; defaults to ctx.currentTime
+  engine.gear()     the gear it is in (1 up), 0 on the start line (neutral)
+  engine.rev()      rpm as a share of the redline, 0 to about 1
+  engine.listen(fn) fn(kind, t, big) for 'up' and 'down' (a shift, on the beat it is heard) and 'pop'
+                    (a backfire bang, at its audio time t), so the page can lurch the car and light a flame
+  BACKFIRE: lifting off from high revs (in a race or revving on the start line) always fires a run of bangs,
+  3 at about half the redline up to 7 at the redline, over about a second, scheduled a frame ahead at a time
+  so nothing later cancels them.
+  SHIFTS: each engine shifts in its own voice (shift.style): the V8 a heavy clunk and a burble, the V12 a
+  quick crisp blip, the turbo four a blow-off pssh every upshift; a downshift is a softer blip.
   engine.stop()     fade out and release every node
   engine.out        the engine's output GainNode
 
@@ -59,8 +69,8 @@
       gas: [0.7, 1400, 0.8],
       intake: [0.4, 180, 0.9, 0.9],
       wail: null,
-      pops: { rate: 16, decay: 0.8, win: 2.0, big: 0.35, level: 0.9 },
-      shift: { cut: 0.3, dur: 0.11, clunk: 0.3, pop: 0.25 },
+      pops: { rate: 16, decay: 0.8, win: 2.0, big: 0.35, level: 1.0 },
+      shift: { cut: 0.3, dur: 0.11, clunk: 0.45, pop: 0.25, style: 'burble' },
       turbo: null,
       trim: 0.358
     },
@@ -80,8 +90,8 @@
       gas: [0.45, 3000, 0.7],
       intake: [0.5, 400, 1.4, 1.0],
       wail: { mult: 12, bp: 24, q: 2.5, level: 0.4 },
-      pops: { rate: 5, decay: 0.5, win: 1.0, big: 0.2, level: 0.5 },
-      shift: { cut: 0.4, dur: 0.07, clunk: 0.2, pop: 0.35 },
+      pops: { rate: 5, decay: 0.5, win: 1.0, big: 0.2, level: 0.8 },
+      shift: { cut: 0.4, dur: 0.07, clunk: 0.25, pop: 0.35, style: 'blip' },
       turbo: null,
       trim: 0.5
     },
@@ -100,8 +110,8 @@
       gas: [0.8, 2000, 0.8],
       intake: [0.6, 300, 1.2, 0.9],
       wail: null,
-      pops: { rate: 7, decay: 0.6, win: 1.2, big: 0.25, level: 0.6 },
-      shift: { cut: 0.25, dur: 0.1, clunk: 0.3, pop: 0.15 },
+      pops: { rate: 7, decay: 0.6, win: 1.2, big: 0.25, level: 0.85 },
+      shift: { cut: 0.25, dur: 0.1, clunk: 0.3, pop: 0.15, style: 'pssh' },
       turbo: { lo: 2400, hi: 6400, level: 0.05, bov: 0.55 },
       trim: 0.288
     }
@@ -504,6 +514,18 @@
     var ratios = gearRatios(d), RL = d.redline, P = d.pops;
     var rpm = d.idle, gear = 1, gasF = 0, gasS = 0, load = 0.3, boost = 0, prevGas = 0;
     var liftT = -99, shiftT = -99, bovT = -99, lastT = 0, started = false, dead = false;
+    var listener = null, neutral = false, wasNeutral = false;
+    /* The backfire run waiting to be heard: audio times and big or not, scheduled a frame ahead at a time. */
+    var bfT = new Float64Array(8), bfBig = new Uint8Array(8), bfN = 0, bfI = 0, bfScale = 1;
+    function fire(k, t, big) { if (listener) { try { listener(k, t, !!big); } catch (_) {} } }
+    function backfire(now, f) {
+      var n = Math.round(3 + 4 * clamp01((f - 0.5) / 0.42)), at = now + 0.05;
+      bfN = n; bfI = 0; bfScale = 0.9 + 0.35 * clamp01((f - 0.5) / 0.42);
+      for (var i = 0; i < n; i++) {
+        bfT[i] = at; bfBig[i] = i === 0 || Math.random() < 0.3 + 0.4 * f ? 1 : 0;
+        at += (0.95 / n) * (0.6 + 0.8 * Math.random());
+      }
+    }
 
     function pop(t, big, scale) {
       var a = (big ? 0.75 + 0.25 * Math.random() : 0.2 + 0.25 * Math.random()) * scale;
@@ -519,7 +541,7 @@
     function clunk(t, k) {
       var g = clAmp.gain;
       hold(g, t);
-      g.linearRampToValueAtTime(d.shift.clunk * k, t + 0.002);
+      g.linearRampToValueAtTime(Math.min(0.6, d.shift.clunk * k), t + 0.002);
       g.setTargetAtTime(0, t + 0.002, 0.02);
     }
 
@@ -541,15 +563,25 @@
       hold(g, t);
       g.setTargetAtTime(d.shift.cut, t, 0.008);
       g.setTargetAtTime(1, t + d.shift.dur, 0.03);
-      clunk(t, 1);
-      if (d.shift.pop && gasF > 0.5) pop(t + d.shift.dur * 0.4, false, d.shift.pop * 2);
-      if (T && boost > 0.35) { bov(t, boost * 0.7); boost *= 0.55; }
+      var st = d.shift.style;
+      if (st === 'burble') {                 // V8: a heavy clunk, then the pipes burble through the gap
+        clunk(t, 1.3);
+        pop(t + d.shift.dur * 0.35, true, 0.55); pop(t + d.shift.dur * 0.8, false, 0.7);
+      } else if (st === 'blip') {            // V12: quick and crisp, one sharp crack
+        clunk(t, 0.8);
+        pop(t + d.shift.dur * 0.4, false, d.shift.pop * 2.4);
+      } else {                               // turbo four: the blow-off valve every time
+        clunk(t, 1);
+        if (T) { bov(t, Math.max(boost, 0.65)); boost *= 0.55; }
+      }
+      fire('up', t);
     }
 
     function downshift(t, braking) {
       shiftT = t;
-      clunk(t, 0.6);
+      clunk(t, 0.5);                         // softer than an upshift
       if (braking && Math.random() < 0.6) pop(t + 0.03, Math.random() < 0.4, 0.6);
+      fire('down', t);
     }
 
     function set(s, at) {
@@ -573,16 +605,31 @@
       if (prevGas > 0.5 && gas <= 0.5) {
         liftT = now;
         if (T && boost > 0.3) bov(now, boost);
+        if (rpm / RL > 0.45) backfire(now, rpm / RL);
       }
       prevGas = gas;
 
+      /* On the start line: out of gear, the gas only revs it (the race has not started, the car is still). */
+      neutral = !!s.rev;
+      if (neutral) {
+        gear = 1;
+        var free = d.idle + gasF * (RL * 0.93 - d.idle);
+        rpm += (free - rpm) * (1 - Math.exp(-dt / (free > rpm ? 0.09 : 0.16)));
+      }
+
       // Gear choice from speed, with hysteresis.
-      var since = now - shiftT, wheelNow = v * ratios[gear - 1];
+      var since = now - shiftT, wheelNow = neutral ? 0 : v * ratios[gear - 1];
+      var leaving = wasNeutral && !neutral;
+      wasNeutral = neutral;
       var braking = brake > 0.1;
       var up = braking ? RL * 0.97 : RL * (0.62 + 0.35 * gasS);
       var down = braking ? RL * 0.5 : RL * (0.3 + 0.16 * gasS);
       var gap = wheelNow > RL ? 0.08 : (braking ? 0.18 : 0.25);
-      if (since > gap) {
+      if (leaving) {
+        // off the start line at the race's rolling speed: straight into the gear that speed is in, no shifts heard
+        gear = 1;
+        while (gear < d.gears && v * ratios[gear - 1] > up) gear++;
+      } else if (!neutral && since > gap) {
         if (gear < d.gears && wheelNow > up) { gear++; upshift(now); }
         else if (gear > 1 && wheelNow < down && v * ratios[gear - 2] < Math.min(up, RL * 0.92)) { gear--; downshift(now, braking); }
       }
@@ -595,7 +642,8 @@
       if (target < d.idle) target = d.idle;
       if (target > RL * 1.01) target = RL * 1.01;
       var tau = now - shiftT < 0.15 ? 0.045 : (target > rpm ? 0.1 : 0.14);
-      if (first && v > 0) {
+      if (neutral) { /* rpm was set above */ }
+      else if (first && v > 0) {
         // joining a car that is already moving: the gear that speed would be in, at once
         while (gear < d.gears && v * ratios[gear - 1] > up) gear++;
         target = Math.max(d.idle, Math.min(RL * 1.01, v * ratios[gear - 1]));
@@ -625,13 +673,13 @@
         A.put(sTa, T.level * Math.pow(boost, 1.5) * (0.35 + 0.65 * gasF), 0.05);
       }
 
-      // Overrun pops after a lift, thinning out over a second or two.
-      if (gas <= 0.5 && f > 0.33) {
-        var ago = now - liftT;
-        if (ago < P.win) {
-          var rate = P.rate * Math.exp(-ago / P.decay) * f;
-          if (Math.random() < rate * dt) pop(now + Math.random() * dt, Math.random() < P.big, 1);
-        }
+      // The backfire run after a lift: each bang scheduled when it is under a frame away. Back on the gas ends it.
+      if (gas > 0.5) bfI = bfN;
+      while (bfI < bfN && bfT[bfI] <= now + 0.05) {
+        var bt = Math.max(bfT[bfI], now), big = bfBig[bfI] === 1;
+        pop(bt, big, bfScale * (big ? 1.25 : 1));
+        fire('pop', bt, big);
+        bfI++;
       }
 
       roadSet(A, R, v);
@@ -643,7 +691,10 @@
       fadeOut(ctx, K, out);
     }
 
-    return { id: d.id, set: set, stop: stop, out: out };
+    return { id: d.id, set: set, stop: stop, out: out,
+      gear: function () { return neutral ? 0 : gear; },
+      rev: function () { return rpm / RL; },
+      listen: function (fn) { listener = typeof fn === 'function' ? fn : null; } };
   }
 
   /* The heavy part of make() (the noise loops and the engine's waves), done ahead so a race never waits for it. */
