@@ -93,7 +93,11 @@ const ROOM_TUNING = Object.freeze({
   // watchers in one room cost 12 to 16 ms of a 40 ms tick, 3,000 cost 51 ms.
   WATCHERS_PER_SLOT: chosen(1, 'watcher seats per player slot: L39 watchers beside the L39 players; a socket past ' +
     'that watches another room, or is refused and closed'),
+  // A free room's newcomer is out of every bot's view this long (_thinkBots): measured live 2026-10-28, a hunter bot
+  // split onto a guest 1.24 s after its clear spawn. 3 s is a few of the bots' think intervals and enough to steer away.
+  NEWCOMER_MS: chosen(3000, 'ms a free newcomer is hidden from the bots after spawning'),
 });
+const NEWCOMER_MS = ROOM_TUNING.NEWCOMER_MS.value;
 const MAX_STEPS_PER_WAKE = ROOM_TUNING.MAX_STEPS_PER_WAKE.value;
 const EMERGENCY_FAIL_TICKS = ROOM_TUNING.EMERGENCY_FAIL_TICKS.value;
 const WATCHERS_PER_SLOT = ROOM_TUNING.WATCHERS_PER_SLOT.value;
@@ -651,6 +655,7 @@ class AgRoom {
     const pt = this.sim.findSpawnPoint(size, AG_MONEY.SPAWN_CLEAR.value, tries) || this.sim.findSpawnPoint(size, 0, tries);
     this.sim.spawn(seat.pid, nm, pt);
     seat.diagSpawn = { tick: this.sim.tick(), x: pt ? pt.x : null, y: pt ? pt.y : null, cells: null };
+    seat.newTick = this.sim.tick();
     return 'ok';
   }
 
@@ -868,6 +873,18 @@ class AgRoom {
     const tick = this.sim.tick();
     const border = this.sim.border();
     const T = agBots.BOT_TUNING;
+    /* A free room's newcomer is out of every bot's sight for its first NEWCOMER_MS. Measured on the live site
+       (2026-10-28, the [AG] spawn death line): a free guest spawned 500 clear of every cell that could eat it was
+       eaten 1.24 s later by a hunter bot's split piece (size 76 against 32, born 240 ms before, still flying), the
+       bot having seen the newcomer and split onto it. A person is now always given a moment to move first; other
+       people can still go for them, and paid rooms keep their own shield. */
+    let fresh = null;
+    if (!this.money) {
+      const within = NEWCOMER_MS / this.sim.laws.L1.value;
+      for (const s of this.seats.values()) {
+        if (s.newTick !== undefined && tick - s.newTick < within) (fresh || (fresh = new Set())).add(s.pid);
+      }
+    }
     for (const bot of this.bots.values()) {
       if (!bot.brain.wantsThink(tick)) continue;
       const info = this.sim.playerInfo(bot.pid);
@@ -886,6 +903,7 @@ class AgRoom {
       const reach = T.SENSE_BASE.value + T.SENSE_PER_SIZE.value * biggest + biggest;
       const cells = [];
       this.sim.forEachCellInRect(minX - reach, minY - reach, maxX + reach, maxY + reach, (c) => {
+        if (fresh !== null && c.kind === 'player' && fresh.has(c.owner)) return;
         cells.push({ id: c.id, owner: c.kind === 'ejected' ? c.ejectedBy : c.owner, x: c.x, y: c.y, size: c.size,
           kind: c.kind });
       });

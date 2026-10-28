@@ -13,6 +13,10 @@
 // shared pool (server/botNames.js) instead of the old 20 words, still ONE rng draw a name. db46aab with its parent's
 // agBots.js still hashed c83904de.. and 2aa3ce50.., and db46aab hashes the same as origin/main 9e7662f, so the names
 // are the only change to what the free room sends.
+// Re-pinned 2026-10-28 for the newcomer rule (server/ag/agRoom.js NEWCOMER_MS): a free person is out of every
+// bot's view for 3 s after spawning, after the live site showed a hunter bot splitting onto a guest 1.24 s after its
+// clear spawn. With NEWCOMER_MS set to 0 both runs still hashed 97a6b328.. and 603dc806.., so the bots' view of a
+// newcomer is the only change.
 const test = require('node:test');
 const assert = require('node:assert');
 const crypto = require('crypto');
@@ -63,9 +67,9 @@ function run(laws, shippableOnly, ticks) {
 }
 
 test('the free room sends exactly what it sent before paid agar.io (FIXTURE laws, 3000 ticks)', () => {
-  assert.deepStrictEqual(run(FIXTURE, false, 3000), { hash: '97a6b3281530eefe4a4d16aa4954d0c4', bots: 46, tick: 3000 });
+  assert.deepStrictEqual(run(FIXTURE, false, 3000), { hash: 'ac39bfbf95fea7690e80651ac01815cf', bots: 46, tick: 3000 });
 });
 
 test('the free room sends exactly what it sent before paid agar.io (the real laws, 1500 ticks)', () => {
-  assert.deepStrictEqual(run(LAWS, true, 1500), { hash: '603dc806ac0dee1ef50ff77f653d71df', bots: 50, tick: 1500 });
+  assert.deepStrictEqual(run(LAWS, true, 1500), { hash: 'eef5d72567aa138048447d5d7b8e53be', bots: 50, tick: 1500 });
 });
