@@ -39,6 +39,7 @@ const GAMES = Object.freeze({
   swim: require('../shared/swimSim').NAME,
   headsoccer: 'Head Soccer',
   pool8: '8 Ball Pool',
+  airhockey: 'Air Hockey',
 });
 
 function dollars(n) {

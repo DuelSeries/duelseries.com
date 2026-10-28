@@ -12,6 +12,7 @@ const { TanksLobby } = require('./TanksLobby');   // the artillery duel
 const { KnockoutLobby } = require('./KnockoutLobby'); // the shrinking-disc duel
 const { HeadSoccerLobby } = require('./HeadSoccerLobby'); // Head Soccer, a real-time duel on Knockout's queue and money
 const { Pool8Lobby } = require('./Pool8Lobby'); // 8 Ball Pool, a turn-based duel on Knockout's queue and money
+const { AirHockeyLobby } = require('./AirHockeyLobby'); // Air Hockey, the same queue and money (shared/ahSim.js)
 const { BattleshipLobby } = require('./BattleshipLobby'); // the two-grid duel
 const { SwimLobby } = require('./swim/SwimLobby');       // the traffic race (Swim, shared/swimSim.js)
 const SWIM_NAME = require('../shared/swimSim').NAME;     // its player-facing name, kept in one place
@@ -1441,7 +1442,7 @@ app.use('/api/owner', (req, res, next) => { res.set('Cache-Control', 'no-store')
    their stakes in the lobbies' queues and tables, not in a room ALL_ROOMS
    lists, so "Safe to restart" used to be said with a paid duel seated or a
    paid seat waiting for an opponent (console audit finding C). */
-const duelStatusNow = () => ops.duelStatus([knockoutLobby, battleshipLobby, swimLobby, headSoccerLobby, pool8Lobby]);
+const duelStatusNow = () => ops.duelStatus([knockoutLobby, battleshipLobby, swimLobby, headSoccerLobby, pool8Lobby, airHockeyLobby]);
 const drainNow = () => ops.drainStatus(ALL_ROOMS(), entryStore.pending(), duelStatusNow(), brDrainWhy());
 
 /* A room's name in words, for the owner console. `na_free` and `ag_na_s0#1`
@@ -1516,7 +1517,7 @@ function consoleStake(r) {
    sl:paid:off is on. The old fixed tiers and a drained old free rung are
    counted only while somebody is still in one. The duels are read only. Rows
    go in the lobby's game order: slither.io, Paper.io, agar.io, then the duels. */
-function consoleGames(ko, bs, sw, hs, p8) {
+function consoleGames(ko, bs, sw, hs, p8, ah) {
   const snakeRungs = [];
   for (const e of ladder.rooms.values()) if (e && e.game === 'snake' && e.room) snakeRungs.push(e.room);
   const oldFree = snakeRungs.filter((r) => consoleStake(r) === 0);
@@ -1550,6 +1551,9 @@ function consoleGames(ko, bs, sw, hs, p8) {
     { id: 'pool8', name: '8 Ball Pool', duel: true,
       paid: ownerConsole.paidDoor({ enabled: P8_PAID_ON, open: P8_PAID_ON && p8PaidOpen, stopping: false }, p8PaidSwitch.saved(), 'p8:paid'),
       rungs: ownerConsole.duelRows(p8) },
+    { id: 'airhockey', name: 'Air Hockey', duel: true,
+      paid: ownerConsole.paidDoor({ enabled: AH_PAID_ON, open: AH_PAID_ON && ahPaidOpen, stopping: false }, ahPaidSwitch.saved(), 'ah:paid'),
+      rungs: ownerConsole.duelRows(ah) },
   ];
 }
 
@@ -1630,7 +1634,8 @@ function opsSnapshot(req, signed) {
   const sw = ops.duelStatus([swimLobby]);
   const hs = ops.duelStatus([headSoccerLobby]);
   const p8 = ops.duelStatus([pool8Lobby]);
-  let bots = ko.botTables + bs.botTables + sw.botTables + hs.botTables + p8.botTables;
+  const ah = ops.duelStatus([airHockeyLobby]);
+  let bots = ko.botTables + bs.botTables + sw.botTables + hs.botTables + p8.botTables + ah.botTables;
   for (const r of all) bots += Number(r.botCount) || 0;
   const m = ops.get();
   const rooms = all.map(r => ({
@@ -1671,7 +1676,7 @@ function opsSnapshot(req, signed) {
     drain: drainNow(),
     escrow: consoleEscrow(),
     bots,
-    games: consoleGames(ko, bs, sw, hs, p8),
+    games: consoleGames(ko, bs, sw, hs, p8, ah),
     battleRoyale: ownerConsole.brState(br, { engine: brOnSl() ? 'sl' : 'old', room: brRoomNow(), now }),
     smooth: consoleSmooth(),
     /* Paid snake on the new engine's door, for the owner page's readout: built
@@ -2079,6 +2084,21 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
         + (kept.ok ? 'It stays closed across restarts and deploys until you press Open.'
           : 'The close could not be saved (' + kept.why + '), so it lasts only until the next restart.'));
     }
+    /* Paid Air Hockey's door (hs:paid:off / hs:paid:on), the same contract and the same saved switch as the two
+       above. */
+    case 'ah:paid:off':
+    case 'ah:paid:on': {
+      const on = action === 'ah:paid:on';
+      ahPaidOpen = on;
+      const kept = ahPaidSwitch.save(on);
+      console.warn('[AH] owner console: paid door ' + (on ? 'OPEN' : 'CLOSED')
+        + (kept.ok ? (on ? '' : ' (saved)') : ' (NOT saved: ' + kept.why + ')'));
+      if (on) return done('Paid Air Hockey open.' + (kept.ok ? ''
+        : ' The saved close could not be cleared (' + kept.why + '), so the next restart opens it closed again.'));
+      return done('Paid Air Hockey closed to new players. Seated and queued players finish. '
+        + (kept.ok ? 'It stays closed across restarts and deploys until you press Open.'
+          : 'The close could not be saved (' + kept.why + '), so it lasts only until the next restart.'));
+    }
     case 'ko:paid:on':
     case 'bs:paid:on': {
       const ko = action === 'ko:paid:on';
@@ -2390,6 +2410,7 @@ app.get('/battleship', (_req, res) => res.sendFile(path.join(__dirname, '../publ
 app.get('/swim', (_req, res) => res.sendFile(path.join(__dirname, '../public/swim.html')));
 app.get('/headsoccer', (_req, res) => res.sendFile(path.join(__dirname, '../public/headsoccer.html')));
 app.get('/pool8', (_req, res) => res.sendFile(path.join(__dirname, '../public/pool8.html')));
+app.get('/airhockey', (_req, res) => res.sendFile(path.join(__dirname, '../public/airhockey.html')));
 app.get(['/shooter', '/shooter.html'], gamePage('omgshooter', 'shooter.html'));
 app.get('/paper', (_req, res) => res.sendFile(path.join(__dirname, '../public/paper.html')));
 app.get('/paper-arena', (_req, res) => res.sendFile(path.join(__dirname, '../public/paper-arena.html')));
@@ -2675,6 +2696,40 @@ pool8Lobby.onRefund = ({ wallet, name, amount, why }) => {
   koSend(wallet, amount, name, 'pool8 refund');
 };
 
+/* Air Hockey settles exactly the way Knockout and Battleship do: the room (a KnockoutRoom underneath) decides who
+   won, once; this pays the winner the pot less the same 10% cut, or hands every seat its own stake back on a draw.
+   Keyed by room id so nothing pays twice. */
+const airHockeyLobby = new AirHockeyLobby(io);
+const _ahPaid = new Set();
+airHockeyLobby.onSettled = ({ roomId, winnerId, why, pot, seats }) => {
+  if (!roomId || !(pot > 0) || _ahPaid.has(roomId)) return;
+  _ahPaid.add(roomId);
+  const winner = seats.find(s => s.id === winnerId) || null;
+  if (!winner || !winner.wallet) {
+    for (const s of seats) {
+      if (!(s.worth > 0) || !s.wallet) continue;
+      koSend(s.wallet, s.refund, s.name, 'airhockey refund (' + (why || 'no winner') + ')');
+    }
+    console.log('[AH] ' + roomId + ' refunded ' + pot.toFixed(2) + ' — ' + (why || 'no winner'));
+    return;
+  }
+  const cut = pot * KO_HOUSE_CUT;
+  const prize = pot - cut;
+  trackEarning({
+    source: 'game_rake', game: 'airhockey', amountUsdc: cut,
+    wallet: winner.wallet, name: winner.name, lobbyType: 'airhockey', region: REGION,
+  });
+  sweepRake(cut, 'airhockey');
+  koSend(winner.wallet, prize, winner.name, 'airhockey ' + roomId);
+  console.log('[AH] ' + roomId + ' pot ' + pot.toFixed(2) + ' -> ' + winner.name
+    + ' ' + prize.toFixed(2) + ' (cut ' + cut.toFixed(2) + ')');
+};
+airHockeyLobby.onRefund = ({ wallet, name, amount, why }) => {
+  if (!wallet || !(amount > 0)) return;
+  console.log('[AH] refunding ' + amount.toFixed(2) + ' to ' + name + ' — ' + why);
+  koSend(wallet, amount, name, 'airhockey refund');
+};
+
 /* A stake handed back because a paid table never found an opponent. Same
    one-time guarantee: the lobby marks the entry refunded before calling. */
 knockoutLobby.onRefund = ({ wallet, name, amount, why }) => {
@@ -2831,6 +2886,15 @@ const p8PaidSwitch = createPaidSwitchStore({
 });
 let p8PaidOpen = !p8PaidSwitch.closedAtBoot().closed;
 if (!p8PaidOpen) console.warn("[P8] paid door CLOSED at boot: the owner's hs:paid:off outlived the restart");
+/* Paid Air Hockey: AH_PAID_ON is the build switch (paid rungs exist at all), hs:paid:off the owner's door on top
+   of it, saved like the other two. */
+const AH_PAID_ON = false;
+const ahPaidSwitch = createPaidSwitchStore({
+  file: process.env.AH_PAID_SWITCH_PATH || path.join(path.dirname(agJournal.file), 'ah-paid-switch.json'),
+  tag: '[AH]', what: 'paid Air Hockey',
+});
+let ahPaidOpen = !ahPaidSwitch.closedAtBoot().closed;
+if (!ahPaidOpen) console.warn("[AH] paid door CLOSED at boot: the owner's hs:paid:off outlived the restart");
 let koPaidOpen = !koPaidSwitch.closedAtBoot().closed;
 let bsPaidOpen = !bsPaidSwitch.closedAtBoot().closed;
 const swPaidSwitch = createPaidSwitchStore({
@@ -3527,8 +3591,9 @@ battleshipLobby.journal = agJournal;
 swimLobby.journal = agJournal;
 headSoccerLobby.journal = agJournal;
 pool8Lobby.journal = agJournal;
+airHockeyLobby.journal = agJournal;
 const paidShutdownDirs = [AG_PAID_ON ? agArenas : null, slPaid, PAPER_PAID ? paperArenas : null,
-  CHOMP_PAID_ON ? chompArenas : null, knockoutLobby, battleshipLobby, swimLobby, headSoccerLobby, pool8Lobby];
+  CHOMP_PAID_ON ? chompArenas : null, knockoutLobby, battleshipLobby, swimLobby, headSoccerLobby, pool8Lobby, airHockeyLobby];
 if (paidShutdownDirs.some(Boolean)) {
   const paidAll = slPaidBoot.composePaidShutdown(paidShutdownDirs);
   agShutdown.installAgShutdown({
@@ -3640,6 +3705,7 @@ for (const rgn of [REGION]) {
   swimLobby.start();
   headSoccerLobby.start();
   pool8Lobby.start();
+  airHockeyLobby.start();
 }
 
 /* ─── The live board ──────────────────────────────────────────────────────────
@@ -3776,6 +3842,7 @@ function liveExtras() {
   if (typeof swimLobby !== 'undefined' && swimLobby) duelRows('swim', swimLobby, swPaidOpen);
   if (typeof headSoccerLobby !== 'undefined' && headSoccerLobby) duelRows('headsoccer', headSoccerLobby, HS_PAID_ON && hsPaidOpen);
   if (typeof pool8Lobby !== 'undefined' && pool8Lobby) duelRows('pool8', pool8Lobby, P8_PAID_ON && p8PaidOpen);
+  if (typeof airHockeyLobby !== 'undefined' && airHockeyLobby) duelRows('airhockey', airHockeyLobby, AH_PAID_ON && ahPaidOpen);
   return out;
 }
 
@@ -3869,6 +3936,7 @@ function liveGameCounts() {
     battleship: typeof battleshipLobby !== 'undefined' ? battleshipLobby : null,
     headsoccer: typeof headSoccerLobby !== 'undefined' ? headSoccerLobby : null,
     pool8: typeof pool8Lobby !== 'undefined' ? pool8Lobby : null,
+    airhockey: typeof airHockeyLobby !== 'undefined' ? airHockeyLobby : null,
     paper: paperArenas,
     chomp: CHOMP_IN_LOBBY ? chompArenas : null,
     swim: SWIM_IN_LOBBY && typeof swimLobby !== 'undefined' ? swimLobby : null,
@@ -5784,6 +5852,151 @@ io.on('connection', (socket) => {
     try { pool8Lobby.unwatch(socket.id); } catch (e) { console.error('[P8] unwatch failed:', e.message); }
   });
 
+  /* ── Air Hockey ──────────────────────────────────────────────────────────
+     A real-time duel. The queue and the paid door are Knockout's, line for line (the handler below is that one
+     with hs: names); the room runs the physics and the client only says where it is pointing, a few samples stamped with the steps
+     they are for (AirHockeyRoom.setInput clamps all of it). */
+  on('ah:queue', ({ name, wallet, stake, entryToken, shop, skinPass, resume } = {}) => {
+    if (!socketRL(socket, 'ahq', 1000)) return;
+    if (ops.get().maintenance) { socket.emit('maintenance', ops.get()); return; }
+    /* Already at a table that is still being played: a second seat from the same socket would leave the first table
+       with a seat nobody can leave or reach (Fable review 2026-10-27). Refused before any token is touched. */
+    const seated = airHockeyLobby.roomOf(socket.id);
+    if (seated && seated.state !== 'over') { socket.emit('ah:refused', { why: 'You are in a match already.' }); return; }
+
+    /* A RECONNECT WHILE WAITING takes its seat back by the key only that seat was sent
+       (server/duelQueue.js resumeSeat): the same place, minute and stake, no new token. A paid seat
+       the old socket's drop already refunded is told so, rather than refused as unpaid. Anything
+       else falls through to an ordinary queue. */
+    const back = airHockeyLobby.resume(socket, resume);
+    if (back && back.resumed) {
+      const e = back.resumed;
+      if (e.worth > 0 && e.wallet) socket._walletAddress = e.wallet;
+      socket.emit('ah:queued', {
+        waitingMs: Date.now() - e.since, stake: e.stake, worth: e.worth, resumeKey: e.resumeKey,
+        waitMs: e.stake > 0 ? AirHockeyLobby.PAID_WAIT_MS : AirHockeyLobby.FREE_WAIT_MS,
+        botAfterMs: e.stake > 0 ? 0 : AirHockeyLobby.FREE_WAIT_MS,
+        paidWaitMs: e.stake > 0 ? AirHockeyLobby.PAID_WAIT_MS : 0,
+      });
+      return;
+    }
+    if (back && back.refunded) { socket.emit('ah:unqueued', { refunded: true, why: 'connection dropped' }); return; }
+
+    /* A BOUGHT SKIN IS PROVED, NOT CLAIMED, the same as a stake. The page names a skin and sends the lobby's skin
+       pass (docs/skin-purchases.md); the seat wears it only when the pass is genuine, unexpired and lists
+       airhockey:<skin>, else null (the free look). Strings only, and decided once here for the free and paid seat
+       alike: the room just carries the answer, so both players and every watcher are shown what the server chose. */
+    const skin = skinPasses.wornFrom('airhockey', {
+      shop: typeof shop === 'string' ? shop : null,
+      skinPass: typeof skinPass === 'string' ? skinPass : null,
+    });
+
+    /* A PAID SEAT IS PROVED, NOT CLAIMED. The stake is whatever the server
+       recorded when it verified the on-chain transfer and minted a one-time
+       token; nothing the client says about what it paid is read. A seat with no
+       valid token is a free seat, and a client asking for a paid table without
+       one is refused rather than quietly seated for nothing. */
+    // A number or a string only: Number() on a client-built object can throw.
+    const wants = (typeof stake === 'number' || typeof stake === 'string') ? Number(stake) || 0 : 0;
+    /* The ladder's own number, never the client's. The queue is keyed by the rung, so 0.5000000005
+       (inside the token's 1e-9 match) used to open a bucket of its own that never matched. */
+    const want = wants > 0 ? rungOf(wants) : 0;
+    const seat = (entry) => {
+      /* The door shut (ko:paid:off) while this stake row's claim was in flight: not seated, so
+         enterPaid refunds it once through the row. */
+      if (entry && entry.stakeSig && !(AH_PAID_ON && ahPaidOpen)) return false;
+      let worth = 0, rung = 0, paid, payTo = null;
+      if (entry) {
+        worth = entry.worth;
+        rung = want;
+        paid = entry.paid;               // what landed: bounds a refund (stakeRules.refundBound)
+        payTo = entry.walletAddress || null;
+        if (entry.walletAddress) socket._walletAddress = entry.walletAddress;
+      }
+
+      /* A paid seat's prize or refund goes to the wallet that paid (from the token), never to
+         a wallet the client names; a free seat pays nothing, so its name is only a label. */
+      /* NOTHING IS LEFT HOLDING NOTHING (the token-to-queue gap). The stake row is claimed by now, so
+         a seat the queue did not take must say so (false), and enterPaid refunds it through the row,
+         once. enqueue says false only while stopping for a restart, having touched nothing; a throw
+         that left the seat nowhere is the same answer. A match that could not start is refunded by
+         the lobby itself (startMatch), so it is taken, never refunded twice. */
+      let took;
+      try {
+        took = airHockeyLobby.enqueue(socket, sanitizeName(name),
+          worth > 0 ? payTo : (strOr(wallet, null) || socket._walletAddress || null), rung, worth, undefined, paid, skin);
+      } catch (e) {
+        console.error('[AH] queue threw:', e && e.stack ? e.stack : e);
+        took = airHockeyLobby.holds(socket.id);
+      }
+      if (took === false) {
+        if (!entry) socket.emit('ah:refused', { why: 'the game is restarting for an update, try again in a minute' });
+        return false;
+      }
+      /* Only while still waiting: a seat matched on the spot already has its ko:start, and a
+         queued after it would put the wait card back over the match. */
+      const waited = airHockeyLobby.queuedFor(socket.id);
+      if (waited !== null) {
+        socket.emit('ah:queued', {
+          waitingMs: waited,
+          stake: rung, worth,
+          resumeKey: airHockeyLobby.resumeKeyOf(socket.id),   // to this socket only: a reconnect's proof
+          /* The countdown the screen shows: a minute, then a bot on a free table; a paid
+             one keeps looking past it (and Cancel refunds at once). */
+          waitMs: rung > 0 ? AirHockeyLobby.PAID_WAIT_MS : AirHockeyLobby.FREE_WAIT_MS,
+          botAfterMs: rung > 0 ? 0 : AirHockeyLobby.FREE_WAIT_MS,
+          paidWaitMs: rung > 0 ? AirHockeyLobby.PAID_WAIT_MS : 0,
+        });
+      }
+      // After the queue holds the seat (never between the token and it): joinAlerts never throws.
+      joinAlerts.joined({ game: 'airhockey', stake: rung, name: sanitizeName(name), wallet: payTo, queued: true });
+    };
+    if (!(wants > 0)) return seat(null);
+    // Off the ladder (the retired 0.1 too): refused before the token is touched, so it stays unspent.
+    if (!want) { socket.emit('ah:refused', { why: RETIRED_BUYIN }); return; }
+    // The owner's paid door (ko:paid:off), before the token is touched: the player keeps it, and
+    // an entry nobody uses refunds itself when it expires.
+    if (!AH_PAID_ON || !ahPaidOpen) { socket.emit('ah:refused', { why: DUEL_PAID_CLOSED }); return; }
+    // A paid seat is queued only once its stake row is claimed (enterPaid, STATUS item 7a).
+    enterPaid(socket, 'airhockey', consumePaidEntryAtStake(entryToken, want, 'airhockey'), seat, (why) => {
+      socket.emit('ah:refused', { why: ENTRY_REFUSED[why] || 'that buy-in was not paid for' });
+    });
+  });
+
+  on('ah:unqueue', () => airHockeyLobby.leave(socket.id));   // leave(): a paid seat is refunded, once
+
+  on('ah:in', (msg) => {
+    /* Every message carries the last few pointer samples, so dropping one loses nothing; the page sends one a frame
+       (60 a second) and a flood past 40 in half a second is dropped. */
+    const nowIn = Date.now();
+    if (!socket._ahIn || nowIn - socket._ahIn.at > 500) socket._ahIn = { at: nowIn, n: 0 };
+    if (++socket._ahIn.n > 40) return;
+    const room = airHockeyLobby.roomOf(socket.id);
+    try { if (room) room.setInput(socket.id, msg); } catch (e) { console.error('[AH] input refused:', e.message); }
+  });
+
+  on('ah:leave', () => airHockeyLobby.leave(socket.id));
+
+  on('ah:chat', ({ text } = {}) => {
+    const room = airHockeyLobby.roomOf(socket.id);
+    if (!room) return;
+    const r = room.chat(socket.id, text, chatGuard, Date.now());
+    if (!r.ok && r.note) socket.emit('ah:chatnote', { text: r.note });
+  });
+
+  on('ah:watch', (msg) => {
+    try {
+      if (!socketRL(socket, 'ahwatch', 100)) return;
+      const after = msg && typeof msg.after === 'string' && msg.after.length <= 40 ? msg.after : null;
+      const stake = msg && typeof msg.stake === 'number' && isStake(msg.stake) ? msg.stake : undefined;
+      const dir = msg && msg.dir === 'prev' ? 'prev' : 'next';
+      airHockeyLobby.watch(socket, { after, stake, dir });
+    } catch (e) { console.error('[AH] watch failed:', e.message); }
+  });
+  on('ah:unwatch', () => {
+    try { airHockeyLobby.unwatch(socket.id); } catch (e) { console.error('[AH] unwatch failed:', e.message); }
+  });
+
   /* ── Battleship ───────────────────────────────────────────────────────────
      The client sends a fleet layout and, on its turn, one square. Everything
      else — whether that square holds a ship, whose turn it is next, and who has
@@ -6109,12 +6322,14 @@ io.on('connection', (socket) => {
     battleshipLobby.leave(socket.id);
     headSoccerLobby.leave(socket.id);
     pool8Lobby.leave(socket.id);
+    airHockeyLobby.leave(socket.id);
     knockoutLobby.unwatch(socket.id);            // a watcher holds no seat, only a place on the list
     battleshipLobby.unwatch(socket.id);
     swimLobby.drop(socket.id);                   // a Swim seat mid-race is held 5 s for its reconnect
     swimLobby.unwatch(socket.id);
     headSoccerLobby.unwatch(socket.id);
     pool8Lobby.unwatch(socket.id);
+    airHockeyLobby.unwatch(socket.id);
     endShooter(socket.id);
     paper.drop(socket.id);                       // a Paper seat enters its 5 s grace
     console.log(`[-] Disconnected: ${socket.id}`);

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>Air Hockey · DuelSeries</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- Archivo's heavy italics are the GOAL, Go and score lettering on the canvas; Plex Mono is the clock. -->
+<link href="https://fonts.googleapis.com/css2?family=Archivo:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,800;1,900&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/airhockey.css">
+</head>
+<body>
+
+<!-- The whole match: the table, the two mallets, the puck, the scores, the
+     clock and the pause button. One canvas, because the pointer is read in
+     the same world units the physics uses (shared/ahSim.js). -->
+<canvas id="table"></canvas>
+
+<!-- Watching somebody else's match: what happened, in a line over the table.
+     Lobby, previous and next are the shared Spectate bar (dsWatchBar.js). -->
+<div id="watchLine" role="status" hidden></div>
+
+<!-- Waiting for somebody. Honest about the bot rather than quietly substituting
+     one: you should know who you are playing. The same card, and the same words,
+     as Knockout's. -->
+<div id="wait">
+  <div class="waitCard">
+    <div class="waitSpin" aria-hidden="true"></div>
+    <b id="waitMain">Looking for an opponent</b>
+    <span id="waitSub">Free table. Nothing staked.</span>
+    <button type="button" id="waitCancel">Back to the lobby</button>
+  </div>
+</div>
+
+<!-- Said when the opponent is the bot a free table gets when nobody joins. -->
+<div id="botNote" role="status" hidden>Playing a bot</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="/shared/shopSkins.js"></script>
+<script src="/shared/ahSim.js"></script>
+<!-- The result card every DuelSeries game ends on. -->
+<script src="/js/shared/dsEnd.js"></script>
+<script src="/js/shared/dsChat.js"></script>
+<!-- The pause button's question (an online match cannot pause: it offers the way out). -->
+<script src="/js/shared/dsDialog.js"></script>
+<script src="/js/dsSfx.js"></script><script src="/js/dsSfxGame.js"></script><script src="/js/airhockeySound.js"></script>
+<!-- The Spectate controls every game shares: Lobby, previous and next, and the empty table. -->
+<script src="/js/shared/dsEmptyArena.js"></script>
+<script src="/js/shared/dsWatchBar.js"></script>
+<script src="/js/airhockey/ahArt.js"></script>
+<script src="/shared/duelWait.js"></script>
+<script src="/js/airhockey.js"></script>
+</body>
+</html>

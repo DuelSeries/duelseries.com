@@ -80,6 +80,7 @@ const GAME_LABELS = Object.freeze({
   swim: require('../../shared/swimSim').NAME,
   headsoccer: 'Head Soccer',
   pool8: '8 Ball Pool',
+  airhockey: 'Air Hockey',
 });
 function gameLabel(g) {
   const k = String(g || '').toLowerCase();

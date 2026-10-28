@@ -3458,6 +3458,11 @@ const GAMES=[
     played through on the server. P8_PAID_ON in server/index.js, the owner's p8:paid:off on top. */
  {id:'pool8',name:'8 Ball Pool',c:['#16241c','#3fae6f'],type:'m',duel:1,built:1,paid:1,isNew:1,
   d:'Break, call your pocket, and sink the eight before they do.'},
+ /* Air Hockey (server/AirHockeyLobby.js, page /airhockey), a duel on Knockout's queue like Head Soccer: Free plays
+    a labelled bot after the countdown, and play.js OWN_PAGE opens it straight in the game frame. Free only until its
+    paid rungs open (AH_PAID_ON in server/index.js). Ours, with no reference game (docs/airhockey-design.md). */
+ {id:'airhockey',name:'Air Hockey',c:['#141c2c','#4ea6f0'],type:'m',duel:1,built:1,freeOnly:1,isNew:1,
+  d:'One puck, two mallets, and a goal at each end. First to seven.'},
  /* Built, and free while it is new: no ladder, no lobby list, its own page,
     and none of the money path involved in it. `solo` is what says so. */
  {id:'omgshooter',name:'Awesome Tanks',c:['#1d2016','#a8bd63'],type:'p',built:1,solo:1,
@@ -3499,8 +3504,6 @@ const GAMES=[
     (that id is Awesome Tanks). */
  {id:'omgshoot2',name:'OMG Shooter',c:['#1d2016','#e8a040'],type:'p',soon:1,
   d:'Little guys, big guns, and everybody shooting everybody.'},
- {id:'airhockey',name:'Air Hockey',c:['#141c2c','#4ea6f0'],type:'m',soon:1,duel:1,
-  d:'One puck, two mallets, and a goal at each end.'},
  {id:'crossy',name:'Crossy Road',c:['#16201a','#82ce54'],type:'p',soon:1,
   d:'Hop across roads and rivers, and do not stop for long.'},
 ];

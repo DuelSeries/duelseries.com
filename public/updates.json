@@ -32,6 +32,17 @@
       "image": { "src": "/updates/support-panel.webp", "alt": "The Support box with the email address, Copy, Open in Gmail and Ask on Discord" }
     },
     {
+      "id": "2026-10-28-air-hockey",
+      "date": "2026-10-28",
+      "tag": "new",
+      "title": "New game: Air Hockey",
+      "body": "A one on one air hockey duel on a neon rink. Your goal is always at the bottom. First to 7 wins.\n\nOn PC your mallet follows the mouse. On a phone, drag anywhere and the mallet stays just above your finger so you can always see it. Hit the puck while your mallet is moving to fire it, and use the side walls for bank shots.\n\nKeep the puck on your side for 7 seconds and it goes to the other player.",
+      "image": {
+        "src": "/updates/air-hockey-arrives.webp",
+        "alt": "An Air Hockey match on the neon rink with GOAL across the table"
+      }
+    },
+    {
       "id": "2026-10-27-pc-sidebar",
       "date": "2026-10-27",
       "tag": "new",

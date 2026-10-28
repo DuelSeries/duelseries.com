@@ -467,7 +467,7 @@
        the whole hand-off the page reads, so a Free seat can never open on a
        token or a stake left over from an earlier paid one. */
     const OWN_PAGE = { tanks: '/tanks', omgshooter: '/shooter', knockout: '/knockout', battleship: '/battleship',
-      chomp: '/chomp', swim: '/swim', headsoccer: '/headsoccer', pool8: '/pool8' };
+      chomp: '/chomp', swim: '/swim', headsoccer: '/headsoccer', pool8: '/pool8', airhockey: '/airhockey' };
     /* A PAID SEAT NEVER TAKES THIS SHORTCUT. The shortcut exists for games with
        no money in them; routing a real buy-in down it would open the table with
        no stake taken and no entry token, which the server would then refuse.
@@ -560,7 +560,7 @@
      Free on /sl, Paper's, agar.io's and Chomp's stake 0 table, and the Free (bot) seat of Knockout, Battleship and Head Soccer. Never a
      paid rung, never the battle royale (its prize needs a wallet), never the old snake engine's free tier. */
   const GUEST_TABLES = { paper: '/paper-arena', agar: '/ag' };
-  const GUEST_DUELS = { knockout: 1, battleship: 1, swim: 1, headsoccer: 1, pool8: 1 };
+  const GUEST_DUELS = { knockout: 1, battleship: 1, swim: 1, headsoccer: 1, pool8: 1, airhockey: 1 };
   function guestFree(game, sel) {
     if (!sel) return false;
     if (sel.stake !== undefined && sel.stake !== null) {
@@ -701,7 +701,7 @@
      their own flag, spectateOnly, which their pages already read. */
   const WATCH_KEY = 'dsWatch';
   const WATCH_PAGE = { snake: '/sl', paper: '/paper-arena', knockout: '/knockout', battleship: '/battleship',
-    chomp: '/chomp', swim: '/swim', headsoccer: '/headsoccer', pool8: '/pool8' };
+    chomp: '/chomp', swim: '/swim', headsoccer: '/headsoccer', pool8: '/pool8', airhockey: '/airhockey' };
   const MONEY_KEYS = ['entryToken', 'entrySol', 'stake', 'slPaidLaunch', 'slxPaidCut', 'slBr', 'spectateOnly',
     'chompPaidLaunch'];
   /* The paid rung a Spectate watches (Owen, 2026-10-15: Spectate on $0.50 and
