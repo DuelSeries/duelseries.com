@@ -109,6 +109,13 @@
     fg.addColorStop(0, K.hi); fg.addColorStop(0.45, K.mid); fg.addColorStop(0.85, K.lo); fg.addColorStop(1, K.corner);
     g.fillStyle = fg;
     g.fillRect(inX, inY, inW, inH);
+    // The cloth's grain (the reference's felt is visibly textured): fixed speckle, the same every paint.
+    let seed = 12345;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    for (let i = 0; i < 9000; i++) {
+      g.fillStyle = rnd() < 0.5 ? 'rgba(255,255,255,0.045)' : 'rgba(0,0,0,0.06)';
+      g.fillRect(inX + rnd() * inW, inY + rnd() * inH, 1.4, 1.4);
+    }
 
     // The cushions: blue bevels along each rail, cut away at the pocket mouths (the rail segments of pool8Sim).
     g.save();
@@ -186,13 +193,14 @@
   const glyphs = {};
   const LIGHT = norm([-0.42, -0.58, 0.7]);
   const HALF = norm([LIGHT[0], LIGHT[1], LIGHT[2] + 1]);
-  const DISC = Math.cos(0.43);
+  // The number disc: about 0.6 of the ball's radius across, as big as the reference's (side by side, 2026-10-28).
+  const DISC_A = 0.64, DISC = Math.cos(DISC_A), DISC_S = Math.sin(DISC_A);
   function glyph(n) {
     if (glyphs[n]) return glyphs[n];
     const SZ = 48, c = mk(SZ, SZ), g = c.getContext('2d');
     g.fillStyle = '#fff'; g.fillRect(0, 0, SZ, SZ);
     g.fillStyle = '#111';
-    g.font = '800 ' + (n > 9 ? 25 : 29) + 'px Archivo, Arial, sans-serif';
+    g.font = '900 ' + (n > 9 ? 27 : 33) + 'px Archivo, Arial, sans-serif';
     g.textAlign = 'center'; g.textBaseline = 'middle';
     g.fillText(String(n), SZ / 2, SZ / 2 + 2);
     if (n === 6 || n === 9) g.fillRect(SZ / 2 - 7, SZ / 2 + 14, 14, 2.5);
@@ -236,7 +244,7 @@
         else { R0 = col[0]; G0 = col[1]; B0 = col[2]; }
         if (gl && Math.abs(bz) > DISC) {
           const sgn = bz > 0 ? 1 : -1;
-          const gx = (bx * sgn / Math.sin(0.43) * 0.5 + 0.5) * gl.S, gy = (by / Math.sin(0.43) * 0.5 + 0.5) * gl.S;
+          const gx = (bx * sgn / DISC_S * 0.5 + 0.5) * gl.S, gy = (by / DISC_S * 0.5 + 0.5) * gl.S;
           const gi = ((Math.min(gl.S - 1, Math.max(0, gy | 0))) * gl.S + Math.min(gl.S - 1, Math.max(0, gx | 0))) * 4;
           R0 = gl.d[gi]; G0 = gl.d[gi + 1]; B0 = gl.d[gi + 2];
         }
@@ -260,6 +268,9 @@
     const c = paintBall(b, pr);
     if (alpha !== undefined) g.globalAlpha = alpha;
     g.drawImage(c, x * s - c.width / 2, y * s - c.height / 2);
+    // The thin dark outline every ball has on the reference (its cue ball: 23 px of cream, 25 with the outline).
+    g.beginPath(); g.arc(x * s, y * s, pr, 0, Math.PI * 2);
+    g.lineWidth = Math.max(0.8, s * 1.1); g.strokeStyle = 'rgba(0,0,0,0.45)'; g.stroke();
     g.globalAlpha = 1;
   }
   function drawShadow(g, x, y, s) {
