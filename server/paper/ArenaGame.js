@@ -34,6 +34,17 @@ const COIN_TRAIL_MAX = 25;
 const COIN_DANGER = 0.6;
 const WALL_SAFE = 0.82;
 const WALL_PANIC = 0.97;
+// Bot personality (_wrapBot, Owen 2026-10-28 "make them like proper bots"): each bot's own skill offset, drawn once
+// from the arena rng in place of the stock +-0.1. The stock skill is level + offset, and it sets the bot's greed (loop
+// size), aggro (chasing), safety and def, so the spread gives every bot its own loop sizes and boldness. The free
+// arena's level starts at 0.1 for a new person (stock startBotLevel), where every stock bot drew loops of a few dozen
+// units and never chased; measured with scripts/paperBotSim.js.
+const BOT_SKILL_LO = 0.15;
+const BOT_SKILL_HI = 0.6;
+// Bot home exits (_exitInland): leave home through a base vertex at least this far inside the wall, and not one it is
+// already sitting on (EXIT_MIN_DIST).
+const EXIT_WALL_GAP = 60;
+const EXIT_MIN_DIST = 30;
 const SHRINK_VETO_MS = 250;
 
 const NOOP_HOOKS = {
@@ -769,11 +780,13 @@ class ArenaGame extends P.Game {
   _wrapBot(bot) {
     const stock = bot.update;
     const game = this;
+    bot.jitter = BOT_SKILL_LO + this.rng() * (BOT_SKILL_HI - BOT_SKILL_LO);
     bot.update = function (dtMs) {
       game._prey = game.nearestHuman(this);
       try {
         return stock.call(this, dtMs);
       } finally {
+        game._exitInland(this);
         game._seekCoin(this);
         game._steerFromWall(this);
         game._prey = null;
@@ -786,8 +799,13 @@ class ArenaGame extends P.Game {
   // wide map; a paid arena's wall follows the head count and can be small. After the stock brain picks its target, a
   // point WALL_LOOK ahead along that heading is checked: past WALL_SAFE of the radius the target bends toward the
   // middle, more the deeper it is, and fully inward past WALL_PANIC.
+  // Only while the bot is out with a trail (Owen 2026-10-28 "a lot of them just spin in circles"): at home it has no
+  // trail the wall could fold it onto, and bending there fought the stock exit states, which re-aim at the same exit
+  // point every tick ('cut' leaves straight away from the middle, toward the wall). The bot circled inside its own
+  // base for good: 61% of all bot time in a 1 person + bots arena, 1% without the bend at home.
   _steerFromWall(bot) {
     if (!bot || bot.death || !bot.target || !bot.position || !this.border) return;
+    if (bot.in === bot.base) return;
     const c = this.border.center;
     const R = this.border.radius;
     if (!(R > 0)) return;
@@ -803,9 +821,8 @@ class ArenaGame extends P.Game {
     const ly = py + dy * WALL_LOOK - c.y;
     const reach = Math.hypot(lx, ly) / R;
     if (reach <= WALL_SAFE) return;
-    // inward: home to its own base while it is out with a trail (turning to the middle would cross that trail), else
-    // to the middle
-    const home = bot.in !== bot.base && bot.baseNearestPoint ? bot.baseNearestPoint : c;
+    // inward: home to its own base (turning to the middle would cross its trail), the middle if it has no outline yet
+    const home = bot.baseNearestPoint || c;
     let ix = home.x - px;
     let iy = home.y - py;
     const il = Math.hypot(ix, iy) || 1;
@@ -819,6 +836,44 @@ class ArenaGame extends P.Game {
     ny /= nl;
     bot.target = new P.Vec2(px + nx * 50, py + ny * 50);
     this.stats.wallSteers = (this.stats.wallSteers || 0) + 1;
+  }
+
+  // Home exits off the wall. The stock exit states leave home straight away from the middle ('cut') or through a
+  // random base vertex ('exit'); from a base by the wall that starts the trail on the wall, and the stock loop then
+  // slides along the wall onto its own trail: 45 of 57 wall deaths in the sim. When the exit the stock state keeps in
+  // its context lies within EXIT_WALL_GAP of the wall, it is swapped, once and in that context, for the nearest base
+  // vertex inland of that gap, so the state keeps steering there itself (a per-tick bend fought it, see above).
+  _exitInland(bot) {
+    if (!bot || bot.death || bot.in !== bot.base || !bot.fsm || !this.border) return;
+    if (bot.fsm.state !== 'cut' && bot.fsm.state !== 'exit') return;
+    const ctx = bot.fsm.context;
+    const ex = ctx && ctx.exitPoint;
+    if (!ex) return;
+    const c = this.border.center;
+    const R = this.border.radius;
+    if (R - ex.distance(c) >= EXIT_WALL_GAP) return;
+    let best = null;
+    let bestD = Infinity;
+    let far = null;
+    let farGap = -Infinity;
+    for (const seg of bot.base.polygon.segments) {
+      const v = seg.start;
+      const gap = R - v.distance(c);
+      if (gap > farGap) {
+        farGap = gap;
+        far = v;
+      }
+      if (gap < EXIT_WALL_GAP) continue;
+      const d = v.distanceSq(bot.position);
+      if (d > EXIT_MIN_DIST * EXIT_MIN_DIST && d < bestD) {
+        bestD = d;
+        best = v;
+      }
+    }
+    const pick = best || far;
+    if (!pick) return;
+    ctx.exitPoint = pick;
+    bot.target = pick;
   }
 
   // Coin sense (Owen 2026-10-17: bots go for dropped money like real players). Only when it is reasonably safe: the
