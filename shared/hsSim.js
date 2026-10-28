@@ -73,6 +73,8 @@
     START_Y: 1082.2,                 // S: Game height - floor sprite height (377 px / .45): dropped onto the pitch
     DROP_Y: 576,                     // S: ball setStart(.3 * Game height)
     DROP_VX_PER_GOAL: 5,             // S: moveRight((left score - right score) * Game.scale(5))
+    CONCEDE_DROP_X: 250,             // OURS (Owen 2026-10-28): after a goal the ball drops 250 into the conceder's half
+    CONCEDE_ROLL: 100,               //    drifting 100 u/s toward him: it reaches him (idle) at 2.37 s, as play starts
     // The match (logic.Timer and GameplayHandler, S).
     MATCH_MS: 120000,                // OURS (Owen 2026-10-27): one 2-minute match, no half time, the board counts
                                      //    down 2:00 to 0:00 (the reference plays 60 s shown as 90 minutes, with a half)
@@ -207,8 +209,11 @@
              tick: 0, freezeMs: 0 };
   }
 
-  // Back to the kick-off spots with a new ball dropping from the middle (S: startGame). Presses carry over.
-  function kickoff(m) {
+  // Back to the kick-off spots with a new ball (S: startGame). Presses carry over. `conceded` (0 or 1): the seat
+  // that just let a goal in, given by the room. OURS (Owen 2026-10-28): that seat gets the ball, dropped on its half
+  // rolling its way. Without one (the match's first kick-off, a golden goal called at a level whistle) it is theirs:
+  // from the middle, drifting toward the side behind at 5 u/s a goal.
+  function kickoff(m, conceded) {
     for (var s = 0; s < 2; s++) {
       var o = m.p[s], q = newPlayer(s);
       q.held = o.held; q.jumps = o.jumps; q.kicks = o.kicks; q.powers = o.powers;
@@ -216,7 +221,10 @@
       m.p[s] = q;
     }
     m.ball = newBall();
-    m.ball.vx = (m.score[0] - m.score[1]) * HS.DROP_VX_PER_GOAL;
+    if (conceded === 0 || conceded === 1) {
+      var toward = conceded === 0 ? -1 : 1;
+      m.ball.x = toward * HS.CONCEDE_DROP_X; m.ball.vx = toward * HS.CONCEDE_ROLL;
+    } else m.ball.vx = (m.score[0] - m.score[1]) * HS.DROP_VX_PER_GOAL;
   }
 
   // ── a player's controls (S: PlayerControls.update / Player.moveLeft, moveRight, jump, kick) ─────────────────

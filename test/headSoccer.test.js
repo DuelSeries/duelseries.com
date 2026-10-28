@@ -611,19 +611,47 @@ test('a player on either goal roof can always jump off it, every spot, every lan
   }
 });
 
-/* Kick-off after a goal (Owen 2026-10-28: "favour whoever conceded, just like the game"). The reference's
-   GameplayHandler.startGame drops the ball from the middle at .3 of the height with
-   ball.setStart(..., ((score[0] - score[1]) * Game.scale(5), 0)): a sideways drift of 5 units/s per goal of lead,
-   toward the side that is BEHIND, whoever scored last; the first kick-off (0-0) is neutral. Pinned as theirs. */
-test('kick-off: neutral at 0-0, after a goal the ball drifts toward the side behind (S: startGame)', () => {
+/* Kick-off after a goal. Theirs (S: GameplayHandler.startGame): the ball from the middle at .3 of the height with
+   ball.setStart(..., ((score[0] - score[1]) * Game.scale(5), 0)), a 5 u/s drift toward the side behind. OURS (Owen
+   2026-10-28): after a goal the ball goes to the seat that let it in, dropped 250 into its half rolling 100 u/s its
+   way, so that player reaches it first; the match's first kick-off stays their neutral middle drop. */
+test('kick-off: neutral at the start; after a goal the ball goes to whoever conceded, both sides', () => {
   const m = Sim.newMatch();
   assert.deepStrictEqual([m.ball.x, m.ball.y, m.ball.vx, m.ball.vy], [0, HS.DROP_Y, 0, 0], 'the first kick-off is neutral');
-  for (const [score, toward] of [[[1, 0], 1], [[0, 1], -1], [[3, 1], 1], [[1, 1], 0]]) {
-    m.score = score.slice();
-    Sim.kickoff(m);
-    assert.strictEqual(m.ball.vx, (score[0] - score[1]) * HS.DROP_VX_PER_GOAL, 'drift for ' + score);
-    for (let i = 0; i < 90; i++) Sim.step(m, null, HS.STEP, false, false);
-    const side = Math.abs(m.ball.x) < 0.5 ? 0 : Math.sign(m.ball.x);
-    assert.strictEqual(side, toward, score + ': lands toward the side behind (' + m.ball.x.toFixed(2) + ')');
+  Sim.kickoff(m);
+  assert.deepStrictEqual([m.ball.x, m.ball.vx], [0, 0], 'no conceder (a level whistle): the middle, level score, no drift');
+  for (const conceded of [0, 1]) {
+    for (const race of [false, true]) {
+      const k = Sim.newMatch(), toward = conceded ? 1 : -1;
+      k.score = conceded ? [1, 0] : [0, 1];
+      Sim.kickoff(k, conceded);
+      assert.ok(k.ball.x * toward > 0 && k.ball.vx * toward > 0, 'dropped on the conceder half, rolling his way');
+      // Nobody moves through the 2.4 s count (input off); then, in the race, both run at the ball.
+      const inp = IDLE();
+      let first = -1, goals = 0;
+      for (let i = 0; i < 144 + 240; i++) {
+        const play = i >= 144;
+        if (play && race) for (const s of [0, 1]) inp[s].held = k.ball.x > k.p[s].x + 5 ? Sim.IN.RIGHT : k.ball.x < k.p[s].x - 5 ? Sim.IN.LEFT : 0;
+        if (Sim.step(k, inp, HS.STEP, true, play).some(e => e.e === 'goal')) goals++;
+        if (first < 0 && (k.ball.touch >> 10) & 3) first = 0;
+        if (first < 0 && (k.ball.touch >> 12) & 3) first = 1;
+      }
+      assert.strictEqual(first, conceded, 'seat ' + conceded + ' conceded and touches it first' + (race ? ' (race)' : ''));
+      if (!race) assert.strictEqual(goals, 0, 'left alone it never rolls into a goal');
+    }
   }
+  // Through the room: the goal records who let it in, the kick-off after the break uses it once.
+  const room = new HeadSoccerRoom(io);
+  room.addPlayer(sock('A'), 'A', null);
+  room.addPlayer(sock('B'), 'B', null);
+  room.start(0);
+  let t = run(room, 0, HS.COUNTDOWN_MS + 100);
+  Object.assign(room.match.ball, { x: -HS.GOAL_LINE_X + 0.5, y: HS.SHELF_Y - HS.BALL_R, vx: -60, vy: 0 });
+  room.stepOnce(t);
+  assert.deepStrictEqual(room.match.score, [0, 1]);
+  room.kickoffCount(t);
+  assert.deepStrictEqual([room.match.ball.x, room.match.ball.vx], [-HS.CONCEDE_DROP_X, -HS.CONCEDE_ROLL], 'to seat 0, who conceded');
+  assert.strictEqual(room.lastSnap.b[0], -HS.CONCEDE_DROP_X * 10, 'and the page gets it in the kick-off snapshot');
+  room.kickoffCount(t);
+  assert.strictEqual(room.match.ball.x, 0, 'used once: a later kick-off with no goal before it is neutral');
 });

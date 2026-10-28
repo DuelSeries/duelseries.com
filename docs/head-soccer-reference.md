@@ -124,6 +124,10 @@ Their players are caricatures of real footballers. Ours are our own cartoon char
 
 ## Ours versus theirs (deliberate)
 
+- **Kick-off after a goal (Owen 2026-10-28, a deliberate DuelSeries change):** the ball drops 250 into the half of the
+  seat that conceded, rolling 100 u/s toward it, so that player reaches it first (HS.CONCEDE_DROP_X / CONCEDE_ROLL);
+  the first kick-off stays neutral. Theirs (S: GameplayHandler.startGame, ball.setStart): always from the middle at
+  .3 of the height, drifting (left score - right score) x 5 u/s toward the side behind, about 5 units off centre.
 - **The clock (Owen 2026-10-27):** one 2-minute match, the board counting DOWN 2:00 to 0:00 in the same digits, no half
   time (theirs: 60 s shown as 00:00 to 90:00 with a half at 45:00).
 - **Golden goal lasts one minute (Owen 2026-10-27):** level at 0:00 is golden goal, the next goal wins, with the board

@@ -85,6 +85,7 @@ class HeadSoccerRoom extends KnockoutRoom {
     if (this.players.size < 2) return false;
     const t = typeof now === 'number' ? now : Date.now();
     this.match = Sim.newMatch();
+    this.conceded = -1;
     this.goldenCalled = false;
     this.state = 'countdown';
     this.phaseEndsAt = t + HS.COUNTDOWN_MS;
@@ -103,7 +104,10 @@ class HeadSoccerRoom extends KnockoutRoom {
 
   // Back to the spots and the countdown (S: GameplayHandler.kickoff / goldenGoalKickoff).
   kickoffCount(t) {
-    Sim.kickoff(this.match);
+    // After a goal the ball goes to the side that let it in (OURS, Owen 2026-10-28); used once, so a golden goal called
+    // at a level whistle with no goal before it starts neutral.
+    Sim.kickoff(this.match, this.conceded);
+    this.conceded = -1;
     this.state = 'kickoff';
     this.phaseEndsAt = t + HS.COUNTDOWN_MS;
     this.broadcast('hs:count', { ms: HS.COUNTDOWN_MS, score: this.match.score.slice(), msLeft: Math.round(this.match.msLeft) });
@@ -143,6 +147,7 @@ class HeadSoccerRoom extends KnockoutRoom {
     for (const e of ev) {
       if (e.e === 'goal' && live) {
         this.turn++;
+        this.conceded = 1 - e.s;
         this.state = 'goal';
         this.phaseEndsAt = t + HS.GOAL_PAUSE_MS;
         this.broadcast('hs:goal', { s: e.s, score: this.match.score.slice() });
