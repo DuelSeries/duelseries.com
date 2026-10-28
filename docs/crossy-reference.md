@@ -97,9 +97,11 @@ tall x 1/2/3 long. Lily 0.5 x 0.125. Train: front 4.875, five middles 4.5 apart,
 ## CHOSEN for the duel (not in the reference; Owen picked the format)
 * Both players run the same seeded map at the same time. Chunk rarity and lane speed use the lane's own row minus 18
   (the row the player stood on when the reference made it), so the map is the same for both and for the server.
-* Each screen follows its own hopper exactly like the reference; the rival is drawn at 45% opacity with a name tag.
+* Each screen follows its own hopper exactly like the reference; the rival is a whole character with a name tag
+  (Owen 2026-10-28), and you pass through each other.
 * Each player has their own eagle clock (5 s, as the reference).
-* First one hit, drowned, carried off or taken by the eagle loses. Both on the same tick: draw, both refunded.
+* First one hit, drowned, carried off or taken by the eagle loses. Both on the same tick: more coins wins (Owen
+  2026-10-28), equal coins is a draw, both refunded.
 * Pressure ramp: every vehicle, log and train spawn speed is multiplied by 1.0 for the first 45 s of the match,
   then +1.2% per second, capped at 2.0x (reached at 128 s). Measured with the bot-vs-bot harness.
 * Safety stop: 5 minutes, then the one further ahead wins; level = draw.
@@ -111,3 +113,12 @@ tall x 1/2/3 long. Lily 0.5 x 0.125. Train: front 4.875, five middles 4.5 apart,
 * The free-table bot (server/crossy/crossyBot.js) looks three moves ahead and reacts every 2 to 5 ticks; alone it lasts
   30 s median, 65 s p90 (`node scripts/crossyBotSim.js`).
 * Netcode: each seat runs on its own timeline (Swim's), hops stamped with their tick, 250 ms lag allowance.
+
+## Paid (reviewed 2026-10-28, Fable and Opus)
+Fixed from the reviews: a leave or dropped connection is judged on both timelines first (the leaver's hopper stands
+still from that tick; the stayer gets 0.5 s to reach it) so leaving never turns a locked-in loss into a refund or a
+win; the lag floor never trails the clock by more than 0.5 s however slowly the server ticks; nobody is stepped past
+the 5 minute stop; a room that throws ends as a draw with refunds instead of taking the server down.
+Known and left (for Owen): the seed is public, so a scripted client could play the map perfectly (true of any
+deterministic duel; the stakes are $0.50 and $1); the rival's row reaches a deliberately lagging client up to 0.25 s
+early; no reconnect grace (a dropped connection forfeits, like Head Soccer).

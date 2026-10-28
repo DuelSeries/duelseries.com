@@ -18,6 +18,7 @@
 const path = require('path');
 const { CrossyLobby } = require('./CrossyLobby');
 const S = require('../../shared/crossySim');
+const LOOKS = require('../../shared/crossyLooks');
 
 /* deps (from index.js): io, koSend, trackEarning, sweepRake, houseCut, region, createPaidSwitchStore, journalDir. */
 function create(deps) {
@@ -56,7 +57,7 @@ function create(deps) {
 
   /* Paid Crossy Road: PAID_ON is the build switch (paid rungs exist at all), cr:paid:off the owner's door on top of
      it, saved across restarts like hs:paid:off. */
-  const PAID_ON = false;   // off until the Fable and Opus money reviews pass (docs/crossy-reference.md)
+  const PAID_ON = true;
   const paidSwitch = deps.createPaidSwitchStore({
     file: process.env.CR_PAID_SWITCH_PATH || path.join(deps.journalDir, 'cr-paid-switch.json'),
     tag: '[CR]', what: 'paid Crossy Road',
@@ -85,7 +86,7 @@ function create(deps) {
 
   /* The sockets. `h` is index.js's own helpers (see the call there). */
   function sockets(socket, on, h) {
-    on('cr:queue', ({ name, wallet, stake, entryToken, resume, v } = {}) => {
+    on('cr:queue', ({ name, wallet, stake, entryToken, resume, v, look } = {}) => {
       if (!h.socketRL(socket, 'crq', 1000)) return;
       if (h.ops.get().maintenance) { socket.emit('maintenance', h.ops.get()); return; }
       // A page running another version of the step would predict a different game from the one judged here.
@@ -129,7 +130,8 @@ function create(deps) {
         let took;
         try {
           took = lobby.enqueue(socket, h.sanitizeName(name),
-            worth > 0 ? payTo : (h.strOr(wallet, null) || socket._walletAddress || null), rung, worth, undefined, paid, null);
+            worth > 0 ? payTo : (h.strOr(wallet, null) || socket._walletAddress || null), rung, worth, undefined, paid,
+            LOOKS.byId(look) ? look : null);   // a listed free critter only (shared/crossyLooks.js); none = the seat's own
         } catch (e) {
           console.error('[CR] queue threw:', e && e.stack ? e.stack : e);
           took = lobby.holds(socket.id);

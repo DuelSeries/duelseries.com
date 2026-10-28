@@ -407,11 +407,30 @@
     seg(0, 0.03, lw, '#f4f1e6'); seg(0.03, 0.6, lw * 1.1, cu.shaft); seg(0.6, 0.64, lw * 1.3, cu.joint); seg(0.64, 1, lw * 1.55, cu.butt);
   }
 
-  var PAINT = { snake: paintSnake, airhockey: paintAirhockey, agar: paintAgar, paper: paintPaper, chomp: paintChomp, knockout: paintKnockout,
+  /* Crossy Road: the critter as a voxel block seen the game's way (top, front, right face), hopping on the spot. Not a
+     Shop game (nothing is sold for it yet), so Customize draws it through paintWith only, { col } of a look. */
+  function paintCrossy(cv, k, t, big, bare) {
+    var ctx = cv.getContext('2d'), w = cv.width, h = cv.height;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    if (bare) ctx.clearRect(0, 0, w, h); else { ctx.fillStyle = '#9bc846'; ctx.fillRect(0, 0, w, h); }
+    var s = Math.min(w, h) * 0.34, hop = Math.max(0, Math.sin((t % 0.9) / 0.9 * Math.PI)) * s * 0.25;
+    var cx = w / 2 - s * 0.15, top = h / 2 - s * 0.55 - hop, col = k.col || '#62c84a';
+    var dx = s * 0.45, dy = s * 0.3;
+    ctx.fillStyle = 'rgba(0,0,0,0.18)'; ctx.fillRect(cx - s / 2 + dx * 0.4, h / 2 + s * 0.62, s + dx, dy * 0.6);
+    ctx.fillStyle = mix(col, '#ffffff', 0.12);                          // top
+    ctx.beginPath(); ctx.moveTo(cx - s / 2, top); ctx.lineTo(cx + s / 2, top); ctx.lineTo(cx + s / 2 + dx, top - dy); ctx.lineTo(cx - s / 2 + dx, top - dy); ctx.fill();
+    ctx.fillStyle = col; ctx.fillRect(cx - s / 2, top, s, s * 1.1);    // front
+    ctx.fillStyle = mix(col, '#1a1340', 0.45);                          // right
+    ctx.beginPath(); ctx.moveTo(cx + s / 2, top); ctx.lineTo(cx + s / 2 + dx, top - dy); ctx.lineTo(cx + s / 2 + dx, top - dy + s * 1.1); ctx.lineTo(cx + s / 2, top + s * 1.1); ctx.fill();
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(cx - s * 0.32, top + s * 0.28, s * 0.22, s * 0.24); ctx.fillRect(cx + s * 0.1, top + s * 0.28, s * 0.22, s * 0.24);
+    ctx.fillStyle = '#15201a'; ctx.fillRect(cx - s * 0.25, top + s * 0.34, s * 0.1, s * 0.14); ctx.fillRect(cx + s * 0.17, top + s * 0.34, s * 0.1, s * 0.14);
+  }
+
+  var PAINT = { crossy: paintCrossy, snake: paintSnake, airhockey: paintAirhockey, agar: paintAgar, paper: paintPaper, chomp: paintChomp, knockout: paintKnockout,
     battleship: paintBattleship, omgshooter: paintShooter, tanks: paintTanks, pool8: paintPool8 };
   /* Which previews move. The rest are painted once per size, which keeps a
      page of forty-odd canvases off the frame budget. */
-  var MOVES = { snake: 1, paper: 1, chomp: 1, omgshooter: 1, tanks: 1, airhockey: 1, pool8: 1 };
+  var MOVES = { snake: 1, paper: 1, chomp: 1, omgshooter: 1, tanks: 1, airhockey: 1, pool8: 1, crossy: 1 };
 
   /* skinId 'default' is the game's free look (each game's `def`). bare draws
      the piece alone on a clear canvas, for Customize's dark chooser. */

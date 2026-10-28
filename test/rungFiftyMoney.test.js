@@ -203,19 +203,20 @@ test('slither.io at $0.50: 500000 in, a held cash-out pays 450000 to the player 
   c.s.close();
 });
 
-async function duel(game, pre) {
+async function duel(game, pre, extra) {
+  const x = extra || {};
   const A = wallet(pre + 'A'), B = wallet(pre + 'B'), Q = wallet(pre + 'Q');
   const revBefore = sentTo(REVENUE).length;
   const tokA = await stake(0.5, A);
   const tokB = await stake(0.5, B);
   const a = await connect(), b = await connect();
   // A stale $0.10 seat is refused, and the $0.50 token it carried is not spent.
-  a.s.emit(game + ':queue', { name: 'a', stake: 0.1, entryToken: tokA });
+  a.s.emit(game + ':queue', Object.assign({ name: 'a', stake: 0.1, entryToken: tokA }, x));
   const no = await until(() => a.has(game + ':refused'));
   assert.ok(no && /no longer offered/.test(no[1].why), game + ' $0.10 refused as a retired buy-in');
   assert.ok(!a.has(game + ':queued'));
   await new Promise((r) => setTimeout(r, 1100));   // the queue's own rate limit
-  a.s.emit(game + ':queue', { name: 'a', stake: 0.5, entryToken: tokA });
+  a.s.emit(game + ':queue', Object.assign({ name: 'a', stake: 0.5, entryToken: tokA }, x));
   /* A is waiting before B arrives. Sent together, the two stake-row claims could settle in either order, and B
      seated first left A matched on the spot with no queued at all (the assert below then failed on a run that had
      nothing wrong with its money). */
@@ -224,10 +225,10 @@ async function duel(game, pre) {
   assert.deepStrictEqual([qa[1].stake, qa[1].worth], [0.5, 0.5]);
   // B names the rung with float noise inside the token's 1e-9 match. It is queued at the ladder's own
   // 0.5, so it is matched with A (keyed by the client's number, it sat in a bucket of its own).
-  b.s.emit(game + ':queue', { name: 'b', stake: 0.5000000005, entryToken: tokB });
+  b.s.emit(game + ':queue', Object.assign({ name: 'b', stake: 0.5000000005, entryToken: tokB }, x));
   /* With A already waiting, B is matched on the spot and is never sent a queued of its own: being matched with A IS
      the proof it went in at the rung itself, not the number it sent. */
-  const started = game === 'ko' ? 'ko:start' : game === 'hs' ? 'hs:start' : game === 'rt' ? 'rt:start' : game === 'ah' ? 'ah:start' : game === 'p8' ? 'p8:start' : 'bs:state';
+  const started = game === 'ko' ? 'ko:start' : game === 'hs' ? 'hs:start' : game === 'rt' ? 'rt:start' : game === 'ah' ? 'ah:start' : game === 'p8' ? 'p8:start' : game === 'cr' ? 'cr:start' : 'bs:state';
   assert.ok(await until(() => a.has(started) && b.has(started), 8000), 'matched: ' + JSON.stringify(b.got.map((g) => g[0])));
   const st = b.has(started)[1];
   if (st && st.stake !== undefined) assert.strictEqual(st.stake, 0.5, 'a table at the rung itself');
@@ -241,7 +242,7 @@ async function duel(game, pre) {
   // A paid seat that backs out of the queue gets its 0.50 back, once.
   const tokQ = await stake(0.5, Q);
   const q = await connect();
-  q.s.emit(game + ':queue', { name: 'q', stake: 0.5, entryToken: tokQ });
+  q.s.emit(game + ':queue', Object.assign({ name: 'q', stake: 0.5, entryToken: tokQ }, x));
   assert.ok(await until(() => q.has(game + ':queued')));
   q.s.emit(game + ':unqueue');
   await until(() => sentTo(Q).length);
@@ -499,6 +500,68 @@ test('Air Hockey at $0.50: the seventh goal pays its scorer 900000 and the house
 
 test('Air Hockey at $0.50: still level after the sudden-death minute is a draw, each seat refunded 500000', async () => {
   await ahMoney('AhDraw', 'draw');
+});
+
+test('Crossy Road at $0.50: the same split through its own lobby (the Knockout queue and room underneath)', async () => {
+  await duel('cr', 'Cr', { v: require(path.join(ROOT, 'shared', 'crossySim.js')).VERSION });
+});
+
+/* Crossy Road at $0.50, decided by the game itself on the real server. Nobody hops, so the eagle takes both on the
+   same tick (its 5 s): a draw, each seat refunded its whole stake. Or A hops forward twice (two seconds of eagle
+   bought back) and B stands still: B is taken first and A is paid. */
+async function crossyEnding(pre, ending) {
+  const S = require(path.join(ROOT, 'shared', 'crossySim.js'));
+  const A = wallet(pre + 'A'), B = wallet(pre + 'B');
+  const revBefore = sentTo(REVENUE).length;
+  const tokA = await stake(0.5, A);
+  const tokB = await stake(0.5, B);
+  const a = await connect(), b = await connect();
+  await new Promise((r) => setTimeout(r, 1100));   // the queue's own rate limit
+  a.s.emit('cr:queue', { name: 'a', stake: 0.5, entryToken: tokA, v: S.VERSION });
+  assert.ok(await until(() => a.has('cr:queued')));
+  b.s.emit('cr:queue', { name: 'b', stake: 0.5, entryToken: tokB, v: S.VERSION });
+  assert.ok(await until(() => a.has('cr:start') && b.has('cr:start'), 8000), 'matched');
+  const st = a.has('cr:start')[1];
+  assert.strictEqual(st.stake, 0.5);
+  const tickNow = () => Math.floor((Date.now() - st.goAt) / S.TICK_MS);
+  assert.ok(await until(() => tickNow() > 2, 6000), 'go');
+  // Both pages say how far their timelines have got, the way the page does; A hops forward twice early on.
+  let hops = ending === 'win' ? [30, 45] : [];
+  const beat = setInterval(() => {
+    const t = tickNow();
+    const due = hops.filter((k) => k <= t + 3);
+    hops = hops.filter((k) => k > t + 3);
+    a.s.emit('cr:in', { t: t + 3, h: due.map((k) => [Math.max(k, t + 1), S.IN.FWD]) });
+    b.s.emit('cr:in', { t: t + 3 });
+  }, 50);
+  try {
+    if (ending === 'draw') {
+      await until(() => sentTo(A).length && sentTo(B).length, 12000);
+      await new Promise((r) => setTimeout(r, 300));
+      assert.deepStrictEqual(sentTo(A), [500000], 'both taken on the same tick: A has its whole stake back');
+      assert.deepStrictEqual(sentTo(B), [500000], 'and B its own');
+      assert.deepStrictEqual(sentTo(REVENUE).slice(revBefore), [], 'no rake on a draw');
+      assert.ok(await until(() => a.has('cr:over')), 'the result reached the screen');
+      assert.strictEqual(a.has('cr:over')[1].why, 'both out');
+    } else {
+      await until(() => sentTo(A).length && sentTo(REVENUE).length > revBefore, 12000);
+      assert.deepStrictEqual(sentTo(A), [900000], 'the one the eagle took second is paid 90 percent of the 1.00 pot');
+      assert.deepStrictEqual(sentTo(REVENUE).slice(revBefore), [100000], 'the house keeps 10 percent');
+      assert.deepStrictEqual(sentTo(B), [], 'the one taken first is paid nothing');
+      assert.ok(await until(() => a.has('cr:over')), 'the result reached the screen');
+      assert.strictEqual(a.has('cr:over')[1].why, 'taken by the eagle');
+    }
+  } finally { clearInterval(beat); }
+  assert.strictEqual(depositsBy([A, B]), 1000000);
+  for (const s of [a, b]) s.s.close();
+}
+
+test('Crossy Road at $0.50: both taken by the eagle on the same tick is a draw, each seat refunded 500000', async () => {
+  await crossyEnding('CrDraw', 'draw');
+});
+
+test('Crossy Road at $0.50: the one taken first loses; the other is paid 900000 and the house 100000', async () => {
+  await crossyEnding('CrWin', 'win');
 });
 
 test('every payout this run is accounted for: nothing paid that did not land', () => {

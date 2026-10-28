@@ -104,6 +104,9 @@ const down = new Set();
 const canPlay = () => !WATCH && match && phase === 'playing' && mySeat >= 0 && mine && mine.alive;
 function press(m) {
   if (!canPlay()) return;
+  /* Stamped with the clock's tick now, not the last frame's: a slow frame must not make a hop look older than it
+     is (the server only takes hops for ticks it has not stepped). */
+  catchUp();
   const t = mine.tick;                 // the next tick my hopper steps: the press is read on it
   presses.set(t, m);
   hinted = true;
@@ -181,6 +184,9 @@ function startMatch(m) {
   if (m.vsBot && mySeat >= 0) names[1 - mySeat] = cut(names[1 - mySeat] || 'Opponent', 12) + ' (bot)';
   // The server's clock now = its `now` plus the trip here.
   const offset = (Number(m.now) || Date.now()) + oneWay() - performance.now();
+  const looks = [null, null];
+  for (const p of players) if ((p.side === 0 || p.side === 1) && typeof p.skin === 'string') looks[p.side] = p.skin;
+  view.setLooks(looks);
   match = { id: m.id, seed: m.seed >>> 0, vsBot: !!m.vsBot, players, names, stake: m.stake, pot: m.pot, goAt: Number(m.goAt) || 0, offset };
   world = new Sim.World(match.seed);
   view.setWorld(world);
@@ -215,6 +221,9 @@ function same(a, b) {
     && a.pend === b.pend && a.log === b.log && a.water === b.water && Math.abs(a.eagle - b.eagle) < 1e-6;
 }
 function check(s) {
+  // The server already has this tick and the page not yet (a slow frame): step there first, then compare.
+  let n = 0;
+  while (mine.tick < s.tick && mine.alive && n++ < 240) stepMine();
   const mineAt = hist[s.tick & 255];
   if (mineAt && mineAt.tick === s.tick && same(mineAt, s)) return;
   if (!mineAt || mineAt.tick !== s.tick) { if (s.tick <= mine.tick) return; }
@@ -225,6 +234,27 @@ function check(s) {
   mine.got = got;
   corrections++;
   while (mine.tick < target && mine.alive) stepMine();
+}
+/* Step my hopper to the clock's tick now, with the sounds of what happened on the way. */
+function catchUp() {
+  if (!mine || phase !== 'playing') return;
+  const target = Math.floor(Math.max(0, matchFt()));
+  let n = 0;
+  while (mine.tick < target && mine.alive && n++ < 240) {
+    const o = stepMine();
+    if (o.hopped) { if (SND) SND.play('cr.hop', { rate: mine.hops % 2 ? 1 : 1.06 }); }
+    if (o.coin) { if (SND) SND.play('cr.coin'); view.takeCoin(mine.r); }
+    if (!mine.alive) {
+      mine.diedAt = performance.now();
+      deadAt[mySeat] = deadAt[mySeat] || mine.diedAt;
+      if (SND) SND.play(mine.death === 'water' || mine.death === 'log' ? 'cr.splash' : mine.death === 'eagle' ? 'cr.eagle' : 'cr.squash');
+    }
+  }
+}
+// The free critter picked in the lobby's Customize (shared/crossyLooks.js), or none (the seat's own).
+function myLook() {
+  try { const L = window.DS_CROSSY_LOOKS, id = localStorage.getItem(L ? L.KEY : 'duel.crossy.skin'); return L && L.byId(id) ? id : undefined; }
+  catch (_) { return undefined; }
 }
 function stepMine() {
   const t = mine.tick;
@@ -327,7 +357,7 @@ function queue(token, resume) {
   if (!resume) startWait(WAIT_MS); else paintWait();
   socket.emit('cr:queue', {
     name: myName, wallet: myWallet, stake: myStake, entryToken: token || myEntryToken,
-    resume: resume || undefined, v: Sim.VERSION,
+    resume: resume || undefined, v: Sim.VERSION, look: myLook(),
   });
   myEntryToken = null;   // one use only
   try { sessionStorage.removeItem('entryToken'); } catch (_) {}
@@ -371,7 +401,8 @@ function paintOver() {
   }
   const deaths = Array.isArray(m.deaths) ? m.deaths : [];
   if (m.why === 'opponent left') card.notes.push('They left the match.');
-  else if (m.why === 'both out') card.notes.push('You were both out on the same moment.');
+  else if (m.why === 'both out') card.notes.push('You were both out on the same moment, with the same coins.');
+  else if (m.why === 'more coins') card.notes.push('You were both out on the same moment: more coins wins.');
   else if (m.why === 'time') card.notes.push('Five minutes up: the one further along wins.');
   else if (won === true && deaths[1 - s]) card.notes.push('They were ' + (DEATH_WORDS[deaths[1 - s]] || 'out') + '.');
   else if (won === false && deaths[s]) card.notes.push('You were ' + (DEATH_WORDS[deaths[s]] || 'out') + '.');
@@ -712,18 +743,7 @@ function frame(now) {
   const ft = Math.max(0, ftNow);
   // My hopper, stepped to the server's tick now (hops are read on the tick they were pressed for).
   if (mine && phase === 'playing') {
-    const target = Math.floor(ft);
-    let n = 0;
-    while (mine.tick < target && mine.alive && n++ < 240) {
-      const o = stepMine();
-      if (o.hopped) { if (SND) SND.play('cr.hop', { rate: mine.hops % 2 ? 1 : 1.06 }); }
-      if (o.coin) { if (SND) SND.play('cr.coin'); view.takeCoin(mine.r); }
-      if (!mine.alive) {
-        mine.diedAt = performance.now();
-        deadAt[mySeat] = deadAt[mySeat] || mine.diedAt;
-        if (SND) SND.play(mine.death === 'water' || mine.death === 'log' ? 'cr.splash' : mine.death === 'eagle' ? 'cr.eagle' : 'cr.squash');
-      }
-    }
+    catchUp();
     // Where my hopper's timeline has got to, a few times a second (never past what has been stepped).
     if (now - lastBeat > 50 && mine.tick - 1 > sentT && phase === 'playing') {
       sentT = mine.tick - 1;
@@ -754,7 +774,8 @@ function frame(now) {
       if (!h || (!seen[s] && s !== mySeat)) { view.hideHopper(s); continue; }
       const bb = Sim.bodyAt(world, h, ft);
       const mineNow = s === mySeat;
-      view.drawHopper(s, bb, mineNow && faceOnly ? faceOnly : h.face, mySeat >= 0 && !mineNow, mineNow && hold && !!faceOnly, deadInfo(h, s), dt);
+      // The rival is a whole character on the same map (Owen 2026-10-28); you pass through each other.
+      view.drawHopper(s, bb, mineNow && faceOnly ? faceOnly : h.face, false, mineNow && hold && !!faceOnly, deadInfo(h, s), dt);
     }
     const dead = deadInfo(fh, focusSeat);
     view.drawEagle(!!dead && dead.type === 'eagle', fh.x, -fh.r, dead ? dead.age : 0);

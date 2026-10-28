@@ -223,6 +223,20 @@ function signalGeo(on) {
    Both about 0.5 wide, 0.7 deep and 0.95 tall (the hopper's size), facing -z. */
 function critterGeo(kind) {
   const L = [];
+  if (kind === 'pebble') {
+    // Pebble: a round grey stone with a cap of moss, two bright eyes and stubby feet.
+    const s = 0x9aa3ad, s2 = 0x7b848f, moss = 0x6fbf4a, moss2 = 0x4f9a33;
+    L.push(B(0, 0.1, 0, 0.54, 0.5, 0.58, s, { side: s2 }));
+    L.push(B(0, 0.6, 0, 0.44, 0.14, 0.48, s, { side: s2 }));
+    L.push(B(0, 0.74, 0.02, 0.36, 0.08, 0.4, moss, { side: moss2 }));
+    L.push(B(-0.08, 0.82, 0.06, 0.12, 0.06, 0.12, moss, { side: moss2 }));
+    L.push(B(-0.12, 0.42, -0.3, 0.13, 0.13, 0.03, 0xffffff), B(0.12, 0.42, -0.3, 0.13, 0.13, 0.03, 0xffffff));
+    L.push(B(-0.1, 0.44, -0.32, 0.06, 0.07, 0.02, 0x111820), B(0.14, 0.44, -0.32, 0.06, 0.07, 0.02, 0x111820));
+    L.push(B(-0.14, 0, -0.04, 0.16, 0.1, 0.2, s2), B(0.14, 0, -0.04, 0.16, 0.1, 0.2, s2));
+    return boxes(L);
+  }
+  if (kind === 'bloop') kind = 1;
+  if (kind === 'sprout') kind = 0;
   if (kind === 0) {
     const g = 0x62c84a, g2 = 0x48a838, belly = 0xd8f2a8;
     L.push(B(0, 0.1, 0, 0.5, 0.62, 0.56, g, { side: g2 }));
@@ -462,6 +476,18 @@ export function createScene(canvas) {
     c.sh.position.set(b.x + 0.475 + Math.max(0, y - ground) * 0.5, ground + 0.004, b.z);
     c.sh.material = SHADOW_MAT;
   }
+  // Each seat's look (shared/crossyLooks.js ids; null = the seat's own: Sprout, Bloop).
+  function setLooks(ids) {
+    for (let k = 0; k < 2; k++) {
+      const id = ids && ids[k] ? ids[k] : k;
+      const c = crit[k];
+      if (c.look === id) continue;
+      c.look = id;
+      const g = critterGeo(id);
+      c.solid.geometry = g;
+      c.ghost.geometry = g;
+    }
+  }
   function hideHopper(k) { crit[k].holder.visible = false; crit[k].sh.visible = false; }
 
   /* The eagle swoops from 20 ahead at 30 units a second (the reference's), takes the hopper and flies on. */
@@ -538,6 +564,6 @@ export function createScene(canvas) {
     renderer.render(scene, camera);
   }
 
-  return { renderer, scene, camera, resize, follow, render, setWorld, drawHopper, hideHopper, drawEagle, takeCoin, resetCoins,
+  return { renderer, scene, camera, resize, follow, render, setWorld, drawHopper, hideHopper, drawEagle, takeCoin, resetCoins, setLooks,
     size: () => ({ w: W, h: H }) };
 }

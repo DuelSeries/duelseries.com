@@ -19,7 +19,8 @@
    arriving, their hopper is moved on with nothing pressed once it is LAG_MAX
    ticks behind, so a stalled connection cannot hold the match up or buy time.
    The two are only ever compared on ticks BOTH timelines have reached: the
-   first tick on which one died decides it, and both on that tick is a draw.
+   first tick on which one died decides it. Both on that tick: more coins wins
+   (Owen 2026-10-28), equal coins is a draw.
 
    WHAT THE SCREENS ARE SENT.
      cr:start  once: the seed, when it goes on the server's clock, the seats
@@ -39,6 +40,7 @@ const LEAD_MAX = 20;           // hops for ticks further ahead of the clock than
 const SNAP_EVERY = 3;          // ticks between cr:s (20 a second)
 const HIST = 1024;             // ticks of presses kept per seat, far more than LAG_MAX
 const MAX_HOPS_MSG = 8;        // hops one message may carry
+const LEAVE_WAIT_TICKS = LAG_MAX * 2;   // how long a seat that left is kept for a death still to be judged (0.5 s)
 const isBotId = (id) => typeof id === 'string' && id.startsWith('bot_');
 
 let nextId = 1;
@@ -89,7 +91,7 @@ class CrossyRoom extends KnockoutRoom {
      moves their own hopper. */
   input(socketId, msg) {
     const p = this.players.get(socketId);
-    if (!p || p.cr.bot || this.state !== 'playing' || !p.cr.h.alive) return false;
+    if (!p || p.cr.bot || p.cr.left || this.state !== 'playing' || !p.cr.h.alive) return false;
     if (!msg || typeof msg !== 'object') return false;
     const t = msg.t, hops = msg.h;
     if (!Number.isInteger(t) || t < 0 || t > this.clock + LEAD_MAX) return false;
@@ -115,10 +117,10 @@ class CrossyRoom extends KnockoutRoom {
   advance(p) {
     const c = p.cr, h = c.h;
     if (c.bot) {
-      while (h.tick < this.clock && h.alive) S.step(this.world, h, c.bot.input(this.world, h));
+      while (h.tick < Math.min(this.clock, S.DUEL.MAX_TICKS + 1) && h.alive) S.step(this.world, h, c.bot.input(this.world, h));
       return;
     }
-    const upTo = Math.min(this.clock, Math.max(c.heard + 1, this.floor - LAG_MAX));
+    const upTo = Math.min(this.clock, Math.max(c.heard + 1, this.floor - LAG_MAX), S.DUEL.MAX_TICKS + 1);
     while (h.tick < upTo && h.alive) S.step(this.world, h, this.pressFor(c, h.tick));
   }
 
@@ -133,21 +135,34 @@ class CrossyRoom extends KnockoutRoom {
     const first = Math.min(crash(ha), crash(hb));
     if (first < Infinity && first <= Math.min(known(ha), known(hb))) {
       this.endTick = first;
-      if (crash(ha) === crash(hb)) this.finish(null, 'both out');
-      else this.finish(this.seats[crash(ha) === first ? 1 : 0].id, why(crash(ha) === first ? ha : hb));
+      if (crash(ha) === crash(hb)) {
+        // Both out on the same tick: the coins decide it (Owen 2026-10-28); level coins is a draw.
+        if (ha.coins === hb.coins) this.finish(null, 'both out');
+        else this.finish(this.seats[ha.coins > hb.coins ? 0 : 1].id, 'more coins');
+      } else this.finish(this.seats[crash(ha) === first ? 1 : 0].id, why(crash(ha) === first ? ha : hb));
       return true;
     }
     // The safety stop: five minutes with both still going, the one further ahead wins, level is a draw.
     if (Math.min(known(ha), known(hb)) >= S.DUEL.MAX_TICKS) {
       this.endTick = S.DUEL.MAX_TICKS;
-      const sa = S.score(ha), sb = S.score(hb);
+      const sa = S.score(ha) * 1e6 + ha.coins, sb = S.score(hb) * 1e6 + hb.coins;   // further along, then coins
       this.finish(sa === sb ? null : this.seats[sa > sb ? 0 : 1].id, 'time');
       return true;
     }
     return false;
   }
 
+  /* One room's error must never take the server down with every other game on it (Opus review 2026-10-28): the
+     room is ended as a draw, each seat refunded its own stake. */
   tick(now) {
+    try { this.tickInner(now); }
+    catch (e) {
+      console.error('[CR] room ' + this.id + ' failed, refunding: ' + (e && e.stack ? e.stack : e));
+      try { this.finish(null, 'error'); } catch (_) {}
+    }
+  }
+
+  tickInner(now) {
     const t = typeof now === 'number' ? now : Date.now();
     if (this.state === 'countdown') {
       if (t < this.goAt) return;
@@ -159,11 +174,16 @@ class CrossyRoom extends KnockoutRoom {
     if (clock <= this.clock && this.clock > 0) return;
     const from = this.clock;
     this.clock = Math.max(this.clock, clock);
-    this.floor = Math.min(this.clock, this.floor + 2);
+    /* At most two ticks a call, so after a stall the inputs that were sent in time are read first (Swim's); but never
+       more than 2 x LAG_MAX behind the clock, so a slow event loop cannot let a silent seat trail without limit (Opus
+       review 2026-10-28). */
+    this.floor = Math.min(this.clock, Math.max(this.floor + 2, this.clock - 2 * LAG_MAX));
     const a = this.bySide(0), b = this.bySide(1);
     if (a) this.advance(a);
     if (b) this.advance(b);
     if (this.judge()) return;
+    this.leftCheck();
+    if (this.state !== 'playing') return;
     if (a && b) {
       this.turn = Math.max(S.score(a.cr.h), S.score(b.cr.h));
       this.world.forget(Math.min(a.cr.h.r, b.cr.h.r) - 12);
@@ -188,21 +208,45 @@ class CrossyRoom extends KnockoutRoom {
     if (this.watchers > 0) { try { const w = this.io.to(this.watchRoomName); (w.volatile || w).emit('cr:s', msg); } catch (_) {} }
   }
 
-  /* Walking out ends it and the one still here wins it (KnockoutRoom), unless their hopper had already died on a
-     tick the judging had not reached yet (their own timeline ran ahead): then both are out, a draw that hands both
-     seats their own stake back, settled while the leaver still has a seat (Swim's rule, netcode review 2026-10-27). */
+  /* WALKING OUT (or a dropped connection) never changes what the timelines have already decided (Fable review
+     2026-10-28). The leaver sends nothing more, so their hopper is stepped to the clock at once with what they had
+     sent; if either seat's death is then decided, it is judged and settled as decided, both seats still present.
+     Otherwise the seat is kept (its hopper stands still from here) and the match is judged as the stayer's hops arrive,
+     for at most LEAVE_WAIT_TICKS; then the stayer is stepped to that moment with what it had sent and judged again,
+     and only if both are still alive does walking out end it with the one still here winning (KnockoutRoom). Nobody
+     can turn a locked-in loss into a refund, or a win, by leaving (Fable and Opus reviews 2026-10-28). */
   removePlayer(socketId) {
-    if (!this.players.has(socketId)) return;
-    if (this.state === 'countdown' || this.state === 'playing') {
-      const rest = [...this.players.keys()].filter(id => id !== socketId);
-      const stay = rest.length === 1 ? this.players.get(rest[0]) : null;
-      if (stay && !stay.cr.h.alive) {
-        this.finish(null, 'both out');
-        this.players.delete(socketId);
-        return;
-      }
+    const p = this.players.get(socketId);
+    if (!p) return;
+    if (this.state === 'playing' && !p.cr.left) {
+      p.cr.left = true;
+      p.cr.heard = Math.min(p.cr.heard, this.clock);     // nothing more counts from the seat that left
+      const h = p.cr.h;
+      while (h.tick < this.clock && h.alive) S.step(this.world, h, this.pressFor(p.cr, h.tick));
+      if (this.judge()) { this.players.delete(socketId); return; }
+      this.leftAt = this.clock; this.leftId = socketId;
+      return;
     }
-    super.removePlayer(socketId);
+    if (this.state !== 'playing' || !this.leftId) super.removePlayer(socketId);
+  }
+
+  /* A seat that left with a death still to be judged: judged as the timelines arrive, or after the wait the old rule
+     (the leaver loses) if the stayer's timeline never got there. */
+  leftCheck() {
+    if (!this.leftId || this.state !== 'playing') return;
+    if (this.clock - this.leftAt < LEAVE_WAIT_TICKS) return;
+    const id = this.leftId;
+    this.leftId = null;
+    // The stayer, stepped to the moment that matters with what it sent: the leave, or the leaver's death if later.
+    const leaver = this.players.get(id);
+    for (const q of this.players.values()) {
+      if (q === leaver || q.cr.bot) continue;
+      const until = Math.min(this.clock, Math.max(this.leftAt, leaver && !leaver.cr.h.alive ? leaver.cr.h.deadTick + 1 : 0));
+      while (q.cr.h.tick < until && q.cr.h.alive) S.step(this.world, q.cr.h, this.pressFor(q.cr, q.cr.h.tick));
+    }
+    if (this.judge()) return;
+    if (leaver) leaver.cr.left = false;
+    super.removePlayer(id);
   }
 
   decideNow() { this.judge(); }

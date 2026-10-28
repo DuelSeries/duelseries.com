@@ -65,8 +65,8 @@ test('every game shows the bar, built or not (BACKLOG 2.2: one layout for every 
   assert.ok(close.includes('if(save&&s&&s.locked){if(s.sale)openBuy(s);return}'), 'Save on a locked skin never saves; Unlock opens the sheet');
   assert.ok(close.includes('if(save&&cur&&SAVED[cur.id]&&s){'), 'and only a game that keeps a skin stores one');
   const saved = html.slice(html.indexOf('const SAVED={'), html.indexOf('const wornIn='));
-  assert.deepStrictEqual([...saved.matchAll(/^ {2}(\w+):\{worn:/gm)].map((m) => m[1]), ['snake', 'agar', 'chomp', 'airhockey'],
-    'slither.io, agar.io, Pac-Man (chomp) and Air Hockey keep a free skin; every game keeps a paid one it owns');
+  assert.deepStrictEqual([...saved.matchAll(/^ {2}(\w+):\{worn:/gm)].map((m) => m[1]), ['snake', 'agar', 'chomp', 'airhockey', 'crossy'],
+    'slither.io, agar.io, Pac-Man (chomp) Air Hockey and Crossy Road keep a free skin; every game keeps a paid one it owns');
   assert.ok(saved.includes("['paper','knockout','battleship','omgshooter','tanks'].forEach"), 'every other game wears an owned paid skin');
   const meta = html.slice(html.indexOf('function lookMeta'), html.indexOf('function lookMeta') + 900);
   assert.ok(meta.includes('btn.disabled=!!(s.locked&&!s.sale)'), 'Unlock is shut only where nothing is sold');

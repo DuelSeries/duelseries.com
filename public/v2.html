@@ -3366,6 +3366,7 @@ body.scr-anim { overflow-x:hidden }
 <script src="/shared/chompSkins.js"></script>
 <script src="/shared/ahSkins.js"></script>
 <script src="/shared/pool8Looks.js"></script>
+<script src="/shared/crossyLooks.js"></script>
 <script src="/shared/shopSkins.js"></script>
 <script src="/js/battleshipArt.js"></script>
 <script src="/js/v2/shopArt.js"></script>
@@ -4114,6 +4115,13 @@ const P8_LOOKS=(P8L?P8L.LOOKS:[]).map(s=>({id:'p8:'+s.id,game:'pool8',p8:s,name:
 let p8LookId='';
 try{p8LookId=String(localStorage.getItem(P8L?P8L.KEY:'')||'').trim()}catch(_){}
 if(!P8_LOOKS.some(s=>s.p8.id===p8LookId))p8LookId='';
+/* Crossy Road keeps one of its free critters (shared/crossyLooks.js) the same way, under duel.crossy.skin, sent by
+   /crossy with cr:queue and checked by its server (server/crossy/crossyWire.js). */
+const CRL=window.DS_CROSSY_LOOKS;
+const CR_LOOKS=(CRL?CRL.SKINS:[]).map(s=>({id:'cr:'+s.id,game:'crossy',cr:s,name:s.name,col:s.col}));
+let crSkinId='';
+try{crSkinId=String(localStorage.getItem(CRL?CRL.KEY:'')||'').trim()}catch(_){}
+if(!CR_LOOKS.some(s=>s.cr.id===crSkinId))crSkinId='';
 /* What a game keeps: how to read the skin being worn, and how to store a new
    one (null is the game's free look: a random colour in both). */
 /* A paid skin (docs/skin-purchases.md) is worn through DSSkins (public/js/v2/skinBuy.js): its id under
@@ -4138,6 +4146,9 @@ const SAVED={
   airhockey:{worn:()=>AH_LOOKS.find(s=>s.ah.id===ahSkinId)||null,
     put:s=>{if(s&&s.shop)return;ahSkinId=s&&s.ah?s.ah.id:'';
       try{if(ahSkinId)localStorage.setItem(AHS.KEY,ahSkinId);else localStorage.removeItem(AHS.KEY)}catch(_){}}},
+  crossy:{worn:()=>CR_LOOKS.find(s=>s.cr.id===crSkinId)||null,
+    put:s=>{crSkinId=s&&s.cr?s.cr.id:'';
+      try{if(crSkinId)localStorage.setItem(CRL.KEY,crSkinId);else localStorage.removeItem(CRL.KEY)}catch(_){}}},
 };
 SAVED.pool8={worn:()=>P8_LOOKS.find(s=>s.p8.id===p8LookId)||null,
   put:s=>{p8LookId=s&&s.p8?s.p8.id:'';
@@ -4158,7 +4169,7 @@ function lookList(g){
   }):[];
   /* Every free skin first, then every paid one: one run of each. */
   const free=g.look?LOOKS
-    :[{id:'default',game:g.id,name:g.id==='pool8'?'Classic blue':S.defaultName(g.id)}].concat(g.id==='agar'?AG_LOOKS:g.id==='chomp'?CH_LOOKS:g.id==='airhockey'?AH_LOOKS:g.id==='pool8'?P8_LOOKS:[]);
+    :[{id:'default',game:g.id,name:g.id==='pool8'?'Classic blue':g.id==='crossy'?'Sprout':S.defaultName(g.id)}].concat(g.id==='agar'?AG_LOOKS:g.id==='chomp'?CH_LOOKS:g.id==='airhockey'?AH_LOOKS:g.id==='pool8'?P8_LOOKS:g.id==='crossy'?CR_LOOKS:[]);
   return free.concat(paid);
 }
 let LK=[];   /* what the open chooser lists, from lookList */
@@ -4201,11 +4212,13 @@ function paintLook(cv){
   /* Any game but slither.io: its own piece, drawn alone, from shopArt. */
   if(key==='mini'&&cur&&!cur.look){
     if(window.V2Shop){if(cur.id==='pool8')V2Shop.paintWith(cv,cur.id,s&&s.p8?s.p8:{},lookT,false,true);
+      else if(cur.id==='crossy')V2Shop.paintWith(cv,cur.id,{col:s&&s.cr?s.col:'#62c84a'},lookT,false,true);
       else if(s&&(s.ag||s.ch||s.ah))V2Shop.paintWith(cv,cur.id,{col:s.col},lookT,false,true);
       else V2Shop.paint(cv,cur.id,s&&s.shop?s.shop.id:'default',lookT,false,true)}
     return}
   if(s&&s.game&&s.game!=='snake'){
     if(s.game==='pool8')V2Shop.paintWith(cv,s.game,s.p8||{},lookT,false,true);
+    else if(s.game==='crossy')V2Shop.paintWith(cv,s.game,{col:s.cr?s.col:'#62c84a'},lookT,false,true);
     else if(s.ag||s.ch||s.ah)V2Shop.paintWith(cv,s.game,{col:s.col},lookT,false,true);
     else V2Shop.paint(cv,s.game,s.shop?s.shop.id:'default',lookT,false,true);
     return}

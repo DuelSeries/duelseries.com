@@ -215,6 +215,21 @@ test('both out on the same tick is a draw, and settles once', () => {
   assert.ok(over[0].p.money && over[0].p.money.refunded);
 });
 
+test('both out on the same tick with more coins wins (Owen 2026-10-28)', () => {
+  const { room, settles } = duel(1000);
+  room.tick(at(room, 0));
+  room.players.get('b').cr.h.coins = 2;
+  room.players.get('a').cr.h.coins = 1;
+  for (let t = 1; t <= 320 && room.state === 'playing'; t++) {
+    room.input('a', { t: t - 1 }); room.input('b', { t: t - 1 });
+    room.tick(at(room, t));
+  }
+  assert.strictEqual(room.winner, 'b');
+  assert.strictEqual(room.overWhy, 'more coins');
+  assert.strictEqual(settles.length, 1);
+  assert.strictEqual(settles[0].winnerId, 'b');
+});
+
 test('a stalled seat is moved on with nothing pressed once it is LAG_MAX behind; late hops are not replayed into the past', () => {
   const { room } = duel(1000);
   room.tick(at(room, 0));
@@ -241,19 +256,69 @@ test('hops are checked: only whole ticks, only moves 1-4, never ahead of the clo
   assert.strictEqual(room.input('zz', { t: 6 }), false, 'not a seat');
 });
 
-test('walking out forfeits to the one who stayed; if the one who stayed was already out, it is a draw', () => {
+test('walking out forfeits to the one who stayed, while both are still alive', () => {
   const a = duel(1000);
   a.room.tick(at(a.room, 0));
+  for (let t = 1; t <= 10; t++) { a.room.input('a', { t: t - 1 }); a.room.input('b', { t: t - 1 }); a.room.tick(at(a.room, t)); }
   a.room.removePlayer('a');
+  assert.strictEqual(a.settles.length, 0, 'the stayer gets a moment to reach the leave on its own timeline');
+  assert.strictEqual(a.room.input('a', { t: 11, h: [[11, IN.FWD]] }), false, 'nothing more from the seat that left');
+  for (let t = 11; t <= 60 && a.room.state === 'playing'; t++) { a.room.input('b', { t: t - 1 }); a.room.tick(at(a.room, t)); }
   assert.strictEqual(a.room.winner, 'b');
+  assert.strictEqual(a.room.overWhy, 'opponent left');
   assert.strictEqual(a.settles[0].winnerId, 'b');
-  const b = duel(1000);
-  b.room.tick(at(b.room, 0));
-  b.room.players.get('b').cr.h.alive = false;
-  b.room.players.get('b').cr.h.deadTick = 5;
-  b.room.removePlayer('a');
-  assert.strictEqual(b.room.winner, null);
-  assert.strictEqual(b.settles[0].winnerId, null);
+});
+
+test('a slow event loop cannot let a silent seat trail without limit (Opus review 2026-10-28)', () => {
+  // A sends nothing (the eagle takes it at 300); B hops on time and dies later. Ticked at 20 Hz, A is still judged.
+  const { room } = duel(1000);
+  room.tick(at(room, 0));
+  for (let t = 3; t <= 420 && room.state === 'playing'; t += 3) {
+    room.input('b', { t: t - 1, h: (t - 3) % 30 === 0 && t < 330 ? [[t - 1, IN.FWD]] : [] });
+    room.tick(at(room, t));
+  }
+  assert.strictEqual(room.state, 'over');
+  assert.strictEqual(room.winner, 'b');
+  assert.strictEqual(room.overWhy, 'taken by the eagle');
+});
+
+test('a room that throws ends as a draw with refunds, and takes nothing else down', () => {
+  const { room, settles } = duel(1000);
+  room.tick(at(room, 0));
+  room.tickInner = () => { throw new Error('boom'); };
+  room.tick(at(room, 5));
+  assert.strictEqual(room.state, 'over');
+  assert.strictEqual(settles[0].winnerId, null);
+});
+
+test('leaving never undoes a death the timelines decide (Fable review 2026-10-28)', () => {
+  // B is taken by the eagle at tick 300; A has been hopping forward but its timeline trails. A leaves at once:
+  // stepped to the clock with what it sent, A is alive past 300, so B was out first and A is paid.
+  const x = duel(1000);
+  x.room.tick(at(x.room, 0));
+  for (let t = 1; t <= 305; t++) {
+    if (t < 280) x.room.input('a', { t: t - 1, h: (t - 1) % 30 === 0 ? [[t - 1, IN.FWD]] : [] });
+    x.room.input('b', { t: t - 1 });
+    x.room.tick(at(x.room, t));
+  }
+  assert.strictEqual(x.room.state, 'playing', 'not judged yet: A trails');
+  x.room.removePlayer('a');
+  assert.strictEqual(x.room.winner, 'a');
+  assert.strictEqual(x.settles[0].winnerId, 'a');
+  // A is out (eagle at 300) ahead of B's timeline, then leaves: B is judged as its hops arrive, alive past 300, wins.
+  const y = duel(1000);
+  y.room.tick(at(y.room, 0));
+  for (let t = 1; t <= 310; t++) {
+    y.room.input('a', { t: t - 1 });
+    if (t < 250) y.room.input('b', { t: t - 1, h: (t - 1) % 30 === 0 ? [[t - 1, IN.FWD]] : [] });
+    y.room.tick(at(y.room, t));
+  }
+  assert.ok(!y.room.players.get('a').cr.h.alive);
+  y.room.removePlayer('a');
+  assert.strictEqual(y.settles.length, 0, 'kept until the timeline of B gets there');
+  for (let t = 311; t <= 330 && y.room.state === 'playing'; t++) { y.room.input('b', { t: t - 1 }); y.room.tick(at(y.room, t)); }
+  assert.strictEqual(y.room.winner, 'b');
+  assert.strictEqual(y.settles.length, 1);
 });
 
 test('the safety stop: five minutes, further along wins', () => {
@@ -314,6 +379,11 @@ test('two paid people at the same rung meet; the pot is both stakes; leaving mid
   lobby.tick(room.goAt + 100);
   lobby.leave(a.id);
   lobby.leave(a.id);
+  // The one who stayed is given a moment to reach the leave on its own timeline, then wins it.
+  for (let ms = 120; ms < 1200 && settles.length === 0; ms += 17) {
+    room.input(b.id, { t: Math.max(0, Math.floor(ms / S.TICK_MS) - 1) });
+    lobby.tick(room.goAt + ms);
+  }
   assert.strictEqual(settles.length, 1);
   assert.strictEqual(settles[0].winnerId, b.id);
 });
