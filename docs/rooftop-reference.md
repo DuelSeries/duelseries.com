@@ -31,6 +31,7 @@ fill it without smoothing. x grows right from the middle of the roof, y grows do
 | Gravity on a player | 98 x 7 = 686 px/s^2 | P default_gravity 98; T Character.gravity_scale 7 |
 | Damping | linear 0.1/s, angular 1.0/s | P defaults; T Character.linear_damp -0.9 (negative means "use the default") |
 | Player body | box 36 x 128 centred 36 above the origin (origin 28 above the soles), mass 1, inertia 2769.3 | T Character CollisionShape2D extents (18, 64) at (0, -36); E update_inertias (box m(w^2+h^2)/12 + m d^2) |
+| Its arm | its own body, mass 0.05, gravity_scale 1, pinned 58 above the origin: the two move as one 1.05 body that falls at (686 + 0.05 x 98) / 1.05 = 658, so a jump launches at 476 and a shot's 400 moves it 381; the arm adds 0.05 x 58^2 = 168 to the turning inertia | T Character PinJoint2D/RigidBody2D; M: the jump fits g 658 exactly |
 | Player material | friction 0.5, bounce 0.15 | T PlayerPhysMat |
 | Roof | static box (0.245, 651.08) half (640, 700): top at y -48.92, edges at x +-640 | T MapNormal MainBuilding |
 | Roof material | friction 1, bounce 0 (Godot default) | E; combined friction = min, bounce = sum clamped (E combine_friction / combine_bounce) |
@@ -86,7 +87,7 @@ reference's are lookalikes of famous characters and none of them is copied.
 
 - **Ties on the same step**: the lower body loses (the reference checks red first, which would favour blue in a paid match).
 - **One standard rifle** for everyone in plain rounds (the reference gives some characters their own gun with a different muzzle offset; a paid duel must be the same for both seats).
-- **The arm's own body** (mass 0.05 on a pin joint) is drawn as a damped pendulum and not simulated against the player: at 5% of the player's mass its pull is negligible.
+- **The arm's own body** (mass 0.05 on a pin joint) is folded into the player as one rigid 1.05 body (its weight and its mass at the pin), and drawn as a damped pendulum, rather than solved as a second body on a joint. This is what matches the measured jump.
 - **The ready-up wait** also ends by itself after 10 s online, so nobody can hold a table hostage.
 - **Shot timing over the network**: the shooter's screen says how many ticks the button was held and the server uses that, capped at what it saw plus 15 ticks, so the aim you see is the aim you get.
 - **Round modifiers not built yet** play as the plain choice when rolled (the label then shows only what is in play). Built: Strong Snipers, Rocket Launchers, Slippery, Athlete. Not yet: the four other maps, Tomahawks, Civilians, Beach Balls.
@@ -96,4 +97,17 @@ reference's are lookalikes of famous characters and none of them is copied.
 
 ## Measured on the real build (M)
 
-Filled in from the headless frame-stepped run (scratchpad `ref/measure/report.md`); see below.
+The real build was served locally (it refuses other hosts), run in headless Chrome with requestAnimationFrame and the
+clock under our control, one physics tick per step (checked: nothing moves without a step), keys sent between steps,
+and each player tracked by the pixels of its team colour. At 1024 x 600 and zoom 1, world = screen - (512, 450) + camera.
+
+| Thing | Reference (measured) | Ours (same inputs) |
+|---|---|---|
+| Drop from y -200 onto the roof | lands frame 38, bounces 1.75 px, rests at y -77 by frame 50 | lands 38, rests at -76.85 |
+| Jump (one tap) | leaves the roof 2 frames after the key, peak 161 px at frames 43-44, 83 frames in the air; holding the key gives the same jump | peak 160.5 at frame 41 after the press is applied, 84 frames |
+| Shot, gun held K frames | only K = 18 and 19 hit at 500 px apart | only 18 (83 degrees) and 19 hit |
+| K = 18 hit | slides 169 px at about 336 px/s and stops at frame 58, tilt within 3 degrees | 160 px, stops at frame 59, tilt 1 degree |
+| A fall | point and score +212 frames, next round +272 (slow motion 1 to 0.1 in 17 frames, held to frame 96, back by frame 120) | +215 and +275 |
+
+Gaps: a K = 19 hit in the reference spins the player about 7 degrees a frame and flips it; ours was not compared frame
+by frame. The point and next-round timings are 3 frames (50 ms) later than the reference's.

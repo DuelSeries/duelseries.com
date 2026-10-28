@@ -273,20 +273,20 @@ test('a player dropped on the roof comes to rest standing on it', () => {
   }
 });
 
-test('a jump is the reference one: 500 up, about 170 high, and only near the ground (its 20 px foot rays)', () => {
+test('a jump is the reference one: 500 into the body and its arm (476 up), 161 high, 83 frames up, only near the ground', () => {
   const m = Sim.newMatch(4);
   for (let i = 0; i < 240; i++) Sim.tick(m, null);
   Sim.begin(m);
   const y0 = m.p[0].body.y;
   Sim.tick(m, [{ j: 1 }, null]);
-  assert.ok(Math.abs(m.p[0].body.vy + RT.JUMP) < 1, 'the impulse is 500 up');
+  assert.ok(Math.abs(m.p[0].body.vy + RT.JUMP / (RT.MASS + RT.ARM_MASS)) < 1, 'the impulse is 500 up on 1.05');
   let top = y0;
   for (let i = 0; i < 15; i++) { Sim.tick(m, [{ j: 1 }, null]); top = Math.min(top, m.p[0].body.y); }
   for (let i = 0; i < 15; i++) { Sim.tick(m, [{ j: 2 }, null]); top = Math.min(top, m.p[0].body.y); }
   assert.strictEqual(m.p[0].nj, 2, 'the second press was taken');
   assert.ok(m.p[0].body.vy > -RT.JUMP + 100, 'but did nothing in the air');
   for (let i = 0; i < 60; i++) { Sim.tick(m, [{ j: 2 }, null]); top = Math.min(top, m.p[0].body.y); }
-  assert.ok(y0 - top > 150 && y0 - top < 190, 'apex ' + (y0 - top));
+  assert.ok(Math.abs(y0 - top - 161) < 3, 'apex ' + (y0 - top) + ' (measured on the real build: 161)');
 });
 
 test('a level shot knocks the other player back', () => {

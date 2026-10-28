@@ -72,6 +72,7 @@ const until = async (fn, ms = 6000) => {
 
 let port, ledgerDb, REVENUE;
 let hsLobby = null;    // the real index.js's Head Soccer lobby, caught when it starts (the sudden-death proofs drive its room)
+let rtLobby = null;    // the same for Rooftop Snipers (its fifth-fall and time-up proofs drive its room)
 let landed = 0.5;
 let payer = 'Payer0';
 let sigN = 0;
@@ -94,6 +95,9 @@ test.before(async () => {
   const { HeadSoccerLobby } = require(path.join(ROOT, 'server', 'HeadSoccerLobby.js'));
   const hsStart = HeadSoccerLobby.prototype.start;
   HeadSoccerLobby.prototype.start = function () { hsLobby = this; return hsStart.apply(this, arguments); };
+  const { RooftopLobby } = require(path.join(ROOT, 'server', 'RooftopLobby.js'));
+  const rtStart = RooftopLobby.prototype.start;
+  RooftopLobby.prototype.start = function () { rtLobby = this; return rtStart.apply(this, arguments); };
   try {
     ({ ledgerDb } = require(path.join(ROOT, 'scripts', 'dev-local.js')));
   } finally {
@@ -215,7 +219,7 @@ async function duel(game, pre) {
   b.s.emit(game + ':queue', { name: 'b', stake: 0.5000000005, entryToken: tokB });
   /* With A already waiting, B is matched on the spot and is never sent a queued of its own: being matched with A IS
      the proof it went in at the rung itself, not the number it sent. */
-  const started = game === 'ko' ? 'ko:start' : game === 'hs' ? 'hs:start' : 'bs:state';
+  const started = game === 'ko' ? 'ko:start' : game === 'hs' ? 'hs:start' : game === 'rt' ? 'rt:start' : 'bs:state';
   assert.ok(await until(() => a.has(started) && b.has(started), 8000), 'matched: ' + JSON.stringify(b.got.map((g) => g[0])));
   const st = b.has(started)[1];
   if (st && st.stake !== undefined) assert.strictEqual(st.stake, 0.5, 'a table at the rung itself');
@@ -309,6 +313,64 @@ test('Head Soccer at $0.50: a golden goal after 0:00 pays its scorer 900000 and 
 
 test('Head Soccer at $0.50: still level after the golden minute is a draw, each seat refunded 500000', async () => {
   await hsSuddenDeath('HsDraw', 'draw');
+});
+
+test('Rooftop Snipers at $0.50: the same split through its own lobby (the Knockout queue and room underneath)', async () => {
+  await duel('rt', 'Rt');
+});
+
+/* Rooftop Snipers at $0.50 through the real server: the fifth fall pays its side once the hold is over; a paid table's
+   ten minutes running out level is a draw, each seat refunded its whole stake (shared/rtSim.js, server/RooftopRoom.js). */
+async function rtEnding(pre, ending) {
+  const A = wallet(pre + 'A'), B = wallet(pre + 'B');
+  const revBefore = sentTo(REVENUE).length;
+  const tokA = await stake(0.5, A);
+  const tokB = await stake(0.5, B);
+  const a = await connect(), b = await connect();
+  await new Promise((r) => setTimeout(r, 1100));   // the queue's own rate limit
+  a.s.emit('rt:queue', { name: 'a', stake: 0.5, entryToken: tokA });
+  assert.ok(await until(() => a.has('rt:queued')));
+  b.s.emit('rt:queue', { name: 'b', stake: 0.5, entryToken: tokB });
+  assert.ok(await until(() => a.has('rt:start') && b.has('rt:start'), 8000), 'matched');
+  assert.ok(rtLobby, 'the lobby was caught at boot');
+  const room = [...rtLobby.rooms.values()].find((r) => r.players.has(a.s.id));
+  assert.ok(room, 'their room');
+  // Both ready up (a jump press each), and the first round starts.
+  a.s.emit('rt:in', { s: 1, j: 1, d: 0, r: 0, n: 0 });
+  b.s.emit('rt:in', { s: 1, j: 1, d: 0, r: 0, n: 0 });
+  assert.ok(await until(() => room.state === 'playing', 6000), 'started: ' + room.state);
+  const sideA = room.players.get(a.s.id).side;
+  if (ending === 'fifth') {
+    // A's side one point from five, and the other player carried over the death line: the fall decides it.
+    const sc = [0, 0]; sc[sideA] = 4; room.match.score = sc;
+    const other = room.match.p[1 - sideA].body;
+    other.x = (sideA === 0 ? 1 : -1) * 700; other.y = 80; other.vy = 50;
+    assert.ok(await until(() => room.state === 'settling', 2000), 'decided at the fall');
+    assert.deepStrictEqual(sentTo(A).concat(sentTo(B)), [], 'nothing paid until the hold is over');
+    await until(() => sentTo(A).length && sentTo(REVENUE).length > revBefore, 20000);
+    assert.deepStrictEqual(sentTo(A), [900000], 'the fifth fall pays its side 90 percent of the 1.00 pot');
+    assert.deepStrictEqual(sentTo(REVENUE).slice(revBefore), [100000], 'the house keeps 10 percent');
+    assert.deepStrictEqual(sentTo(B), [], 'the other seat is paid nothing');
+  } else {
+    // Level when the ten minutes run out (the room's own clock, moved back): each seat gets its own stake back.
+    room.match.score = [2, 2];
+    room.playSince -= 10 * 60 * 1000;
+    await until(() => sentTo(A).length && sentTo(B).length, 10000);
+    await new Promise((r) => setTimeout(r, 300));
+    assert.deepStrictEqual(sentTo(A), [500000], 'a draw hands A its whole stake back');
+    assert.deepStrictEqual(sentTo(B), [500000], 'and B its own');
+    assert.deepStrictEqual(sentTo(REVENUE).slice(revBefore), [], 'no rake on a draw');
+  }
+  assert.strictEqual(depositsBy([A, B]), 1000000);
+  for (const s of [a, b]) s.s.close();
+}
+
+test('Rooftop Snipers at $0.50: the fifth fall pays its side 900000 and the house 100000', async () => {
+  await rtEnding('RtFive', 'fifth');
+});
+
+test('Rooftop Snipers at $0.50: level when the ten minutes run out is a draw, each seat refunded 500000', async () => {
+  await rtEnding('RtTime', 'time');
 });
 
 test('every payout this run is accounted for: nothing paid that did not land', () => {

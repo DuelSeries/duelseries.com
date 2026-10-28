@@ -2960,7 +2960,7 @@ const ahPaidSwitch = createPaidSwitchStore({
 let ahPaidOpen = !ahPaidSwitch.closedAtBoot().closed;
 if (!ahPaidOpen) console.warn("[AH] paid door CLOSED at boot: the owner's hs:paid:off outlived the restart");
 /* Paid Rooftop Snipers: RT_PAID_ON is the build switch, rt:paid:off the owner's door on top of it, saved the same. */
-const RT_PAID_ON = false;   // on once the money reviews are in (the night of 2026-10-28)
+const RT_PAID_ON = true;    // on 2026-10-28 after the Fable + Opus money reviews (every finding fixed, with tests)
 const rtPaidSwitch = createPaidSwitchStore({
   file: process.env.RT_PAID_SWITCH_PATH || path.join(path.dirname(agJournal.file), 'rt-paid-switch.json'),
   tag: '[RT]', what: 'paid Rooftop Snipers',

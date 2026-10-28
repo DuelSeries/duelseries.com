@@ -30,6 +30,11 @@
     // The player (T: Character.tscn + Player.tscn).
     BOX_HX: 18, BOX_HY: 64, BOX_OY: -36,   // RectangleShape2D extents (18, 64) at (0, -36)
     MASS: 1,                    // RigidBody2D default mass
+    /* The arm is its own RigidBody2D (T: Character PinJoint2D/RigidBody2D, mass 0.05, gravity_scale 1) pinned 58 above
+       the origin, so the player and its arm move as one 1.05 body: a 500 jump launches at 476 and they fall at
+       (686 + 0.05 x 98) / 1.05 = 658. M (frame-stepped on the real build): the jump fits g 658 and launch 452-476,
+       peak 161, 83 frames in the air, which the player alone (686, 500) misses by 5%. */
+    ARM_MASS: 0.05, ARM_GS: 1,
     FRICTION: 0.5, BOUNCE: 0.15,           // PhysicsMaterial "PlayerPhysMat"
     SLIP_FRICTION: 0.25,        // S: GameInfo.slip_amount (the Slippery round)
     JUMP: 500,                  // T: Player.jump_power 500 (the script's default 600 is overridden)
@@ -111,11 +116,14 @@
   }
   function playerBody(x, y, fr) {
     var b = boxBody(x, y, RT.BOX_HX, RT.BOX_HY, 0, RT.BOX_OY, fr, RT.BOUNCE);
-    b.dyn = true; b.first = true; b.gs = 7;               // E: first_integration skips forces once; T: gravity_scale 7
-    // E: Body2DSW.update_inertias: the box's own moment (m * (w^2 + h^2) / 12) + m * offset^2
+    var M = RT.MASS + RT.ARM_MASS;
+    b.dyn = true; b.first = true;                         // E: first_integration skips forces once
+    b.gs = (RT.MASS * 7 + RT.ARM_MASS * RT.ARM_GS) / M;   // T: gravity_scale 7 on the body, 1 on its arm, one weight
+    // E: Body2DSW.update_inertias: the box's own moment (m * (w^2 + h^2) / 12) + m * offset^2, plus the arm's mass at
+    // its pin (it turns freely on the pin, so only the pin's distance counts for the player's turning)
     var w = 2 * RT.BOX_HX, h = 2 * RT.BOX_HY;
-    var I = RT.MASS * (w * w + h * h) / 12 + RT.MASS * (RT.BOX_OY * RT.BOX_OY);
-    b.im = 1 / RT.MASS; b.ii = 1 / I;
+    var I = RT.MASS * (w * w + h * h) / 12 + RT.MASS * (RT.BOX_OY * RT.BOX_OY) + RT.ARM_MASS * RT.PIN_Y * RT.PIN_Y;
+    b.im = 1 / M; b.ii = 1 / I;
     return b;
   }
 
