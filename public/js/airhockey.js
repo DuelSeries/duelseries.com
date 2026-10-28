@@ -172,6 +172,10 @@ const hist = [];
 let lastHistT = -1, sentT = -1;
 const inputs = [null, null];
 const oppIn = { x: 0, y: 0 };
+/* A free table's bot: where its hand is heading and how fast (snapshot bw). Its target is walked there step by step
+   in the replay, the way server/ahBot.js walks it, so its swings are predicted rather than discovered a trip later. */
+let botWant = null;
+const botT = { x: 0, y: 0 };
 
 /* What gets drawn: the predicted (or interpolated) bodies plus their eased corrections. */
 const rm = [{ x: 0, y: 0, vx: 0, vy: 0 }, { x: 0, y: 0, vx: 0, vy: 0 }];
@@ -358,6 +362,7 @@ function onSnap(s) {
   if (typeof s.c === 'number' && s.c >= 0) { clockC = s.c; clockAt = t; }
   sdC = typeof s.sd === 'number' && s.sd >= 0 ? s.sd : -1;
   stall = Array.isArray(s.sl) ? s.sl : null;
+  botWant = Array.isArray(s.bw) && s.bw.length === 4 && s.bw[0] === 1 - mySeat ? { x: +s.bw[1], y: +s.bw[2], sp: +s.bw[3] } : null;
   if (typeof s.st === 'string') setPhase(s.st, t);
   baseK = k; baseAt = t; baseFresh = true; haveBase = true;
   if (WATCH) { wbuf.push({ k, pk: base.puck, m0: base.m[0], m1: base.m[1] }); if (wbuf.length > 12) wbuf.shift(); }
@@ -401,7 +406,11 @@ function stepSim() {
   }
   inputs[mySeat] = myInputFor(t);
   const o = base.m[1 - mySeat];
-  oppIn.x = o.tx; oppIn.y = o.ty;               // the other hand: still heading where it last was
+  if (botWant) {
+    const dx = botWant.x - botT.x, dy = botWant.y - botT.y, d = Math.hypot(dx, dy), mx = botWant.sp * AH.STEP;
+    if (d > mx) { botT.x += dx / d * mx; botT.y += dy / d * mx; } else { botT.x = botWant.x; botT.y = botWant.y; }
+    oppIn.x = botT.x; oppIn.y = botT.y;
+  } else { oppIn.x = o.tx; oppIn.y = o.ty; }      // the other hand: still heading where it last was
   inputs[1 - mySeat] = oppIn;
   const ev = Sim.step(sim, inputs, false);
   if (t > frontier) {
@@ -417,6 +426,7 @@ function loadBase() {
   for (let i = 0; i < 2; i++) Object.assign(sim.m[i], base.m[i]);
   Object.assign(sim.puck, base.puck);
   sim.tick = base.tick;
+  if (mySeat >= 0) { botT.x = base.m[1 - mySeat].tx; botT.y = base.m[1 - mySeat].ty; }
 }
 function bodyOf(i) { return i < 2 ? sim.m[i] : sim.puck; }
 

@@ -47,7 +47,7 @@ async function player(browser, url, name, opts) {
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   await page.addInitScript((n) => { try { sessionStorage.setItem('playerName', n); } catch (_) {} }, name);
   await page.goto(url + '/airhockey' + (LOOK ? '?look=' + LOOK : ''));
-  return { page, ctx, errors, name, opts, stats: { corr: [], corrMe: [], n: 0, frames: 0 } };
+  return { page, ctx, errors, name, opts, stats: { corr: [], corrMe: [], track: [], jumps: 0, n: 0, frames: 0, last: null } };
 }
 
 /* The hand: aim behind the puck on the line to the other goal and drive through it; wait near your goal when
@@ -81,6 +81,14 @@ async function steer(p) {
   p.stats.n++;
   p.stats.corr.push(s.corr[2]);
   p.stats.corrMe.push(s.corr[mine]);
+  // How far the mallet trails the pointer (world units), and puck jumps the motion does not explain.
+  p.stats.track.push(Math.hypot(s.me.x - s.aim.x, s.me.y - s.aim.y));
+  const now = Date.now(), L = p.stats.last;
+  if (L && s.puck.live && L.live && s.phase === 'playing') {
+    const dt = (now - L.t) / 1000, moved = Math.hypot(s.puck.x - L.x, s.puck.y - L.y);
+    if (moved > Math.hypot(s.puck.vx, s.puck.vy) * dt + 80) p.stats.jumps++;
+  }
+  p.stats.last = { t: now, x: s.puck.x, y: s.puck.y, live: s.puck.live };
   return s;
 }
 
@@ -112,7 +120,7 @@ async function steer(p) {
     const c = p.stats.corr.filter((v) => v > 0), cm = p.stats.corrMe.filter((v) => v > 0);
     const pct = (a, q) => (a.length ? a.slice().sort((x, y) => x - y)[Math.floor(a.length * q)] : 0);
     console.log(p.name, 'phase', s.phase, 'score', s.score.join('-'), 'rtt', s.rtt, 'samples', p.stats.n,
-      'puck corr >0:', c.length, 'p50', pct(c, 0.5), 'p90', pct(c, 0.9), '| my mallet corr >0:', cm.length, 'p90', pct(cm, 0.9),
+      'puck corr >0:', c.length, 'p50', pct(c, 0.5), 'p90', pct(c, 0.9), '| my mallet corr >0:', cm.length, 'p90', pct(cm, 0.9), '| mallet behind pointer p50', Math.round(pct(p.stats.track, 0.5)), 'p90', Math.round(pct(p.stats.track, 0.9)), '| puck jumps', p.stats.jumps,
       '| errors', p.errors.length ? p.errors.slice(0, 3) : 0);
   }
   await browser.close();

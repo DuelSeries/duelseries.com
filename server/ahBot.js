@@ -123,6 +123,10 @@ function drive(room, now, who) {
   const c = Sim.clampMallet(1, ai.tx, ai.ty);                  // its own frame: its half is y < H / 2
   ai.tx = c[0]; ai.ty = c[1];
   room.inputs[side] = { x: ai.tx, y: ly(ai.ty) };
+  // Where its hand is heading and how fast, in world units: the snapshot carries it so the page can move the bot's
+  // mallet the way the server will, instead of guessing it stops (AirHockeyRoom.snapshot bw).
+  const want = Sim.clampMallet(1, dx, dy);
+  ai.want = [want[0], ly(want[1]), speed];
 }
 
 module.exports = { drive, REACT_MS, railX };

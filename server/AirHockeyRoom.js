@@ -258,6 +258,13 @@ class AirHockeyRoom extends KnockoutRoom {
     };
     if (this.sudden) s.sd = Math.round(Math.max(0, AH.SUDDEN_MS - this.suddenMs));
     if (this.stall.ms >= AH.STALL_WARN_MS && this.state === 'playing') s.sl = [this.stall.side, Math.round(this.stall.ms)];
+    /* bw: the free table's bot, where its hand is heading and how fast ([seat, x, y, units/s]), so a player's page
+       predicts the bot's swings instead of seeing the puck jump when one lands. Players only (watchers interpolate). */
+    const ai = this.bot && this.bot.ai;
+    if (ai && ai.want) {
+      const bs = this.sideOfSocket(this.bot.id);
+      if (bs !== null) s.bw = [bs, Math.round(ai.want[0]), Math.round(ai.want[1]), Math.round(ai.want[2])];
+    }
     return s;
   }
 
