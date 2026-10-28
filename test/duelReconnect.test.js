@@ -344,6 +344,44 @@ test('both seats running out on the same deadline is a draw, each its own stake;
   assert.strictEqual(env.settled[0].winnerId, 'A');
 });
 
+test('crossy: both seats run out one after the other: the first to run out is the leaver, as in the other duels', () => {
+  /* Fable review 2026-10-28 of the grace: Crossy's deferred leave (a death still to be judged) was taken over by the
+     second seat's leave, and leftCheck then paid the FIRST to run out as "the one who stayed". Through the lobby's
+     expiry, 200 ms apart (inside LEAVE_WAIT): B, the second to run out, is paid, once. */
+  const env = setup('crossy', 1);
+  runTo(env, env.g.on);
+  drop(env, 'A');
+  runTo(env, env.t + 200);
+  drop(env, 'B');
+  runTo(env, env.t + GRACE + 2000);
+  assert.strictEqual(env.room.state, 'over');
+  assert.strictEqual(env.settled.length, 1, 'settled once');
+  assert.strictEqual(env.settled[0].winnerId, 'B', 'the first to run out is the leaver');
+  assert.strictEqual(env.settled[0].why, 'opponent left');
+  assert.strictEqual(env.settled[0].seats.find(s => s.id === 'B').wallet, 'WB');
+  assert.strictEqual(env.lob.rooms.size, 0, 'and the room is swept');
+
+  // The room alone: a second walk-out while the first is pending. A death the timelines decide still wins over both.
+  const env2 = setup('crossy', 1);
+  runTo(env2, env2.g.on + 500);
+  env2.room.removePlayer('A');
+  assert.strictEqual(env2.settled.length, 0, 'A is pending (both alive)');
+  runTo(env2, env2.t + 100);
+  env2.room.removePlayer('B');
+  assert.strictEqual(env2.settled.length, 1);
+  assert.strictEqual(env2.settled[0].winnerId, 'B');
+  const env3 = setup('crossy', 1);
+  runTo(env3, env3.g.on + 500);
+  env3.room.removePlayer('A');
+  env3.room.players.get('B').cr.h.eagle = CS.C.EAGLE_S + 1;   // B's standing hopper is taken on its next step
+  env3.live.delete('B');
+  runTo(env3, env3.t + 100);
+  env3.room.removePlayer('B');
+  assert.strictEqual(env3.settled.length, 1);
+  assert.strictEqual(env3.settled[0].winnerId, 'A', 'the timelines decided it: B died, A is paid');
+  assert.strictEqual(env3.settled[0].why, 'taken by the eagle');
+});
+
 test('the free bot match: a drop is held too, a resume plays on, no resume hands it to the bot with no money', () => {
   const io = fakeIo();
   const lob = new RooftopLobby(io);

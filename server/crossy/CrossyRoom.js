@@ -223,7 +223,14 @@ class CrossyRoom extends KnockoutRoom {
       p.cr.heard = Math.min(p.cr.heard, this.clock);     // nothing more counts from the seat that left
       const h = p.cr.h;
       while (h.tick < this.clock && h.alive) S.step(this.world, h, this.pressFor(p.cr, h.tick));
+      /* The other seat walked out first and its death is still to be judged (leftId): its hopper too is stepped to the
+         clock with what it sent, so a death either timeline decides still decides it. If neither does, the FIRST to walk
+         out is the leaver and this seat is paid, as in every other duel (Fable review 2026-10-28 of the reconnect grace:
+         this leave used to take over leftId, and leftCheck then paid the first leaver as "the one who stayed"). */
+      const first = this.leftId && this.leftId !== socketId ? this.players.get(this.leftId) : null;
+      if (first) { const fh = first.cr.h; while (fh.tick < this.clock && fh.alive) S.step(this.world, fh, this.pressFor(first.cr, fh.tick)); }
       if (this.judge()) { this.players.delete(socketId); return; }
+      if (first) { const id = this.leftId; this.leftId = null; super.removePlayer(id); return; }
       this.leftAt = this.clock; this.leftId = socketId;
       return;
     }
