@@ -179,7 +179,7 @@ function getAudioCtx() {
 });
 
 function playMoneySound() {
-  if (window.gameMuted) return;
+  if (window.gameMuted || (window.DSSfx && !window.DSSfx.on())) return;
   const ac = getAudioCtx();
   if (!ac) return;
   try {
@@ -202,7 +202,7 @@ function playMoneySound() {
 
 // Smooth "power-down" when YOUR snake dies — a soft sine glide downward + a low thump for weight.
 function playDeathSound() {
-  if (window.gameMuted) return;
+  if (window.gameMuted || (window.DSSfx && !window.DSSfx.on())) return;
   const ac = getAudioCtx(); if (!ac) return;
   try {
     const t = ac.currentTime;
@@ -228,7 +228,7 @@ function playDeathSound() {
 
 // Punchy zap when YOU eliminate another snake.
 function playKillSound() {
-  if (window.gameMuted) return;
+  if (window.gameMuted || (window.DSSfx && !window.DSSfx.on())) return;
   const ac = getAudioCtx(); if (!ac) return;
   try {
     const t = ac.currentTime;
@@ -253,7 +253,7 @@ function playKillSound() {
    stay identical. This one only supplies the context, the output and the
    volume the player has set. */
 function playCashoutSound() {
-  if (window.gameMuted) return;
+  if (window.gameMuted || (window.DSSfx && !window.DSSfx.on())) return;
   const ac = getAudioCtx(); if (!ac) return;
   const vol = (window.gameMasterVol ?? 1) * (window.gameSfxVol ?? 0.5);
   if (window.CashoutSound) window.CashoutSound.play(ac, ac.destination, vol);
@@ -342,7 +342,7 @@ socket.on(CONSTANTS.EVENTS.PLAYER_KILLED, () => playKillSound()); // satisfying 
 })();
 
 function playJoinSound() {
-  if (window.gameMuted) return;
+  if (window.gameMuted || (window.DSSfx && !window.DSSfx.on())) return;
   const ctx = getAudioCtx();
   if (!ctx) return;
   try {

@@ -13,7 +13,7 @@
    DSSfx.play(name, {vol, rate, pan, gap, max})   start one; false when it did not
                        (muted, hidden tab, held, too soon after itself, too many)
    DSSfx.setLevel(fn)  fn() is this page's volume (0..1), read on every play
-   DSSfx.level()       that volume now, 0 while held or hidden: a live graph follows it
+   DSSfx.level()       that volume now, 0 while held, hidden or the lobby's sound is off: a live graph follows it
    DSSfx.hold(b)       true silences and suspends everything (the lobby while a game is up)
    DSSfx.context(), DSSfx.output()   for a game's own live graph (an engine hum)
    DSSfx.playIn(ctx, dest, name, vol)   one of these sounds on someone else's context
@@ -107,6 +107,18 @@
   /* ── the engine ───────────────────────────────────────────────────────────── */
   const DEFS = {}, BUF = {}, todo = [], last = {};
   let ctx = null, out = null, level = () => 1, held = false, voices = 0, warming = false;
+  /* The lobby's sound switch (public/js/v2/sounds.js, localStorage dsSnd = '0') silences every page, the games in
+     their frames too, and a change reaches a running game at once (a storage event fires in every other same-origin
+     page and frame). A game's own mute still works on top of it: either one off is silent (Owen 2026-10-28). */
+  const lobbyOn = () => { try { return root.localStorage.getItem('dsSnd') !== '0'; } catch (_) { return true; } };
+  let allowed = lobbyOn();
+  if (typeof root.addEventListener === 'function') {
+    root.addEventListener('storage', e => {
+      if (e.key !== 'dsSnd' && e.key !== null) return;
+      allowed = lobbyOn();
+      if (out) out.gain.value = allowed ? 1 : 0;
+    });
+  }
   const now = () => (root.performance ? root.performance.now() : Date.now());
   const noop = () => {};
 
@@ -116,6 +128,7 @@
     if (!AC) return null;
     try { ctx = new AC({ latencyHint: 'interactive' }); } catch (_) { try { ctx = new AC(); } catch (__) { return null; } }
     out = ctx.createGain();
+    out.gain.value = allowed ? 1 : 0;
     out.connect(ctx.destination);
     return ctx;
   }
@@ -158,7 +171,7 @@
 
   function play(name, o) {
     o = o || {};
-    if (held || (doc && doc.hidden)) return false;
+    if (held || !allowed || (doc && doc.hidden)) return false;
     const lv = level() * (o.vol == null ? 1 : o.vol);
     if (!(lv > 0)) return false;
     const c = context();
@@ -187,7 +200,7 @@
   /* For code that brings its own context (the shared cash-out fanfare's old API). */
   const foreign = new WeakMap();
   function playIn(c, dest, name, vol) {
-    if (!c || !DEFS[name]) return false;
+    if (!c || !DEFS[name] || !allowed) return false;
     if (c === ctx) return play(name, { vol: vol });
     let m = foreign.get(c);
     if (!m) foreign.set(c, (m = {}));
@@ -212,7 +225,8 @@
   root.DSSfx = {
     define: define, play: play, playIn: playIn, hold: hold, wake: wake,
     setLevel: fn => { level = typeof fn === 'function' ? fn : () => +fn || 0; },
-    level: () => { if (held || (doc && doc.hidden)) return 0; const v = +level(); return v > 0 ? v : 0; },
+    on: () => allowed,   // the lobby's sound switch, for a page with its own context (game.js)
+    level: () => { if (held || !allowed || (doc && doc.hidden)) return 0; const v = +level(); return v > 0 ? v : 0; },
     context: () => context(), output: () => (context(), out),
     has: name => !!DEFS[name], names: () => Object.keys(DEFS), def: name => DEFS[name],
     ready: name => !!BUF[name],
