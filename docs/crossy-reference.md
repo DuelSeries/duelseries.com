@@ -33,7 +33,7 @@ shadow 80a542 = b7ec5e x 0.7.
 | Piece | Colours |
 |---|---|
 | Grass rows (alternate by row parity) | top a1cf4c / 9bc846, side 8bb639 / 84af34, earth a95555 / ba6868 |
-| Road | asphalt 3e4444, 464b4b; markings 5f6969, 6a7171 |
+| Road | top 464b4b (renders 535864, measured), sides 3e4444; markings 5f6969, 6a7171 |
 | Water | 53b7d2, 6ecfeb, foam ffffff |
 | Rail row | sleepers 663931, rails 847e87, bed 3e4444 / 464b4b |
 | Tree leaves / trunk | 9bb519, acc721 / 79473c, 6d372e |

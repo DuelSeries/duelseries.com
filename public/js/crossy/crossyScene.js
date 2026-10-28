@@ -285,7 +285,8 @@ function stripGeo(row, prev) {
     list.push([-12.5, h - 0.06, -0.5, 12.5, h, 0.5, top, { front: side, back: side }]);
     list.push([-12.5, 0, -0.5, 12.5, h - 0.06, 0.5, COL.earth, { top, side: COL.earth2 }]);
   } else if (row.kind === 'road') {
-    list.push([-12.5, 0, -0.5, 12.5, h, 0.5, COL.road, { front: COL.road2 }]);
+    // Top 464b4b, sides 3e4444: the reference's road renders 535864 on top, which is 464b4b lit (measured 2026-10-28).
+    list.push([-12.5, 0, -0.5, 12.5, h, 0.5, COL.road2, { front: COL.road, side: COL.road }]);
     // Lane marks where it meets the road before it (strip-road-1); the first road after something else has none.
     if (prev && prev.kind === 'road') for (let x = -12; x < 12.5; x += 1.5) list.push([x, h, 0.47, x + 0.7, h + 0.005, 0.53, COL.mark]);
   } else if (row.kind === 'water') {
@@ -293,7 +294,7 @@ function stripGeo(row, prev) {
     // The rapids at each edge of the playing field (the reference's at +-4.55): a strip of foam.
     for (const sx of [-1, 1]) list.push([sx * 4.55 - 0.08, 0.125, -0.5, sx * 4.55 + 0.08, 0.13, 0.5, COL.water2]);
   } else if (row.kind === 'rail') {
-    list.push([-12.5, 0, -0.5, 12.5, h, 0.5, COL.bed, { front: COL.bed2 }]);
+    list.push([-12.5, 0, -0.5, 12.5, h, 0.5, COL.bed2, { front: COL.bed, side: COL.bed }]);
     for (let x = -12.25; x < 12.5; x += 0.5) list.push([x - 0.1, h, -0.42, x + 0.1, h + 0.06, 0.42, COL.sleeper]);
     for (const z of [-0.26, 0.26]) list.push([-12.5, h + 0.06, z - 0.05, 12.5, h + 0.16, z + 0.05, COL.rail, { side: COL.postDark }]);
   }
