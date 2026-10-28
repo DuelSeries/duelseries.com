@@ -2,6 +2,13 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-10-28-8-ball-pool-paid",
+      "date": "2026-10-28",
+      "tag": "new",
+      "title": "8 Ball Pool: paid tables and new looks",
+      "body": "8 Ball Pool now has $0.50 and $1 tables next to the free ones. A paid table always seats a real person, never a bot.\n\nOpen Customize on the 8 Ball Pool screen to pick a cloth and cue: Tournament green, Wine red or Midnight. Your cue is the one your opponent sees.\n\nThe table plays truer too: the balls slide, roll, bounce off the cushions and drop the way they should."
+    },
+    {
       "id": "2026-10-28-air-hockey-colours-music",
       "date": "2026-10-28",
       "tag": "new",
@@ -69,7 +76,10 @@
       "tag": "fix",
       "title": "Support opens right here",
       "body": "Support, Contact and the email links no longer ask your computer to pick an app. They open a small Support box with our email address, a Copy button, Open in Gmail and the Discord.",
-      "image": { "src": "/updates/support-panel.webp", "alt": "The Support box with the email address, Copy, Open in Gmail and Ask on Discord" }
+      "image": {
+        "src": "/updates/support-panel.webp",
+        "alt": "The Support box with the email address, Copy, Open in Gmail and Ask on Discord"
+      }
     },
     {
       "id": "2026-10-27-pc-sidebar",
