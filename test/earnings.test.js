@@ -265,5 +265,45 @@ test('the payout path tells the figure, after both writes and without being able
   const routes = [];
   createEarnings({ query: null, excludeWallets: [OWNER, REV], previewExclude: [REV], config: CFG, log: quiet })
     .route({ get: (p) => routes.push(p) });
-  assert.deepStrictEqual(routes, ['/api/earnings/board', '/api/earnings', '/api/earnings/total']);
+  assert.deepStrictEqual(routes, ['/api/earnings/recent', '/api/earnings/board', '/api/earnings', '/api/earnings/total']);
+});
+
+// ── The lobby's Live wins row (/api/earnings/recent, site sweep 2026-10-28) ───────────────────────────────────
+const { RECENT_SQL, recentWins } = require('../server/earnings');
+
+test('recent wins: the strip\'s own landed rule, newest first, read only', () => {
+  const where = (s) => s.slice(s.indexOf("WHERE h.source = 'game_rake'"), s.search(/\n\s*(ORDER|GROUP) BY/));
+  assert.strictEqual(where(RECENT_SQL), where(EARNINGS_SQL));
+  assert.match(RECENT_SQL, /ORDER BY h\.created_at DESC\s+LIMIT \d+$/);
+  assert.ok(!/\b(INSERT|UPDATE|DELETE|DROP|ALTER)\b/i.test(RECENT_SQL), 'read only');
+  assert.ok(!/\$5/.test(RECENT_SQL), 'no unused parameter');
+});
+
+test('recent wins: only a name, a lobby game id and the take-home leave; never a wallet', () => {
+  const out = recentWins([
+    { wallet: A, game: 'slither', rake: '0.05', name: 'neo' },
+    { wallet: B, game: 'pool8', rake: '0.1', name: null },
+    { wallet: A, game: 'ag', rake: '0.02', name: 'neo' },
+  ]);
+  assert.deepStrictEqual(out, [
+    { name: 'neo', game: 'snake', amount: 0.45 },
+    { name: 'BBBB…ZZ22', game: 'pool8', amount: 0.9 },
+    { name: 'neo', game: 'agar', amount: 0.18 },
+  ]);
+  for (const w of out) assert.deepStrictEqual(Object.keys(w).sort(), ['amount', 'game', 'name']);
+  assert.ok(!JSON.stringify(out).includes(A) && !JSON.stringify(out).includes(B), 'no full wallet');
+  assert.strictEqual(recentWins([{ wallet: '', game: 'paper', rake: '0.1' }]), null, 'an untrustworthy set is refused');
+  assert.strictEqual(recentWins([{ wallet: A, game: 'paper', rake: '-1' }]), null);
+});
+
+test('recent wins: the public exclusions (owner and revenue), never the preview\'s, and ok:false without a database', async () => {
+  const q = fakeQuery([{ wallet: A, game: 'paper', rake: '0.1', name: 'neo' }]);
+  const e = createEarnings({ query: q, excludeWallets: [OWNER, REV], previewExclude: [REV], config: CFG, log: quiet });
+  const r = await e.recentList();
+  assert.deepStrictEqual(r, { ok: true, wins: [{ name: 'neo', game: 'paper', amount: 0.9 }] });
+  assert.strictEqual(q.calls[0].sql, RECENT_SQL);
+  assert.deepStrictEqual(q.calls[0].params[1].slice().sort(), [OWNER, REV].sort());
+  assert.strictEqual(q.calls[0].params.length, 4);
+  const none = createEarnings({ config: CFG, log: quiet });
+  assert.deepStrictEqual(await none.recentList(), { ok: false, wins: [] });
 });

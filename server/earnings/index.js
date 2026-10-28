@@ -74,6 +74,31 @@ function earningsParams(exclude, timeZone) {
   return [SINCE, exclude.slice(), LANDED.windowS, LANDED.tolMicro / 1e6, timeZone];
 }
 
+/* The lobby's "Live wins" row (site sweep 2026-10-28): the most recent landed paid payouts, one row each, newest
+   first. The strip's own FROM and WHERE, cut out of EARNINGS_SQL, so a win counts here exactly when it counts in
+   the strip: landed, never the owner, the revenue wallet or a C_TOP_EXCLUDE test wallet, and never a bot (bots
+   have no wallet and make no rake row). Only $1..$4: the time zone is the grouping's, not the filter's.
+   What leaves the server per win is the display name (or the short wallet the board shows), the lobby's game id
+   and the take-home amount. No wallet, no time, no signature. */
+const RECENT_N = 20;
+const RECENT_SQL = `SELECT h.player_wallet AS wallet,
+       COALESCE(h.game, '') AS game,
+       h.amount_usdc::text AS rake,
+       a.name AS name
+${EARNINGS_SQL.slice(EARNINGS_SQL.indexOf('  FROM house_revenue h'), EARNINGS_SQL.indexOf('\n GROUP BY'))}
+ ORDER BY h.created_at DESC
+ LIMIT ${RECENT_N}`;
+function recentParams(exclude) {
+  return earningsParams(exclude, 'UTC').slice(0, 4);
+}
+// house_revenue.game to the lobby's GAMES id (its card art and name); anything else is not a lobby game and is dropped.
+const LOBBY_GAME = Object.freeze({ slither: 'snake', snake: 'snake', ag: 'agar', agar: 'agar' });
+function lobbyGame(g) {
+  const k = String(g || '').toLowerCase();
+  if (LOBBY_GAME[k]) return LOBBY_GAME[k];
+  return /^[a-z0-9]{2,16}$/.test(k) ? k : '';
+}
+
 const GAME_LABELS = Object.freeze({
   slither: 'Slither.io', snake: 'Slither.io', agar: 'Agar.io', ag: 'Agar.io', paper: 'Paper.io',
   knockout: 'Knockout', battleship: 'Battleship', tanks: 'Awesome Tanks', shooter: 'OMG Shooter',
@@ -162,6 +187,21 @@ function summarize(rows) {
   };
 }
 
+/* Rows from RECENT_SQL to the public list. Pure. Null for a row set that cannot be trusted. */
+function recentWins(rows) {
+  if (!Array.isArray(rows)) return null;
+  const out = [];
+  for (const r of rows) {
+    if (!r || typeof r.wallet !== 'string' || !r.wallet) return null;
+    const micro = toMicro(r.rake);
+    if (!(micro > 0)) return null;
+    const game = lobbyGame(r.game);
+    if (!game) continue;
+    out.push({ name: displayName(r.name, r.wallet), game, amount: takeHome(micro) });
+  }
+  return out;
+}
+
 /* The owner console's hide, kept in a small file so it outlives a restart and a
    deploy (server/data/ is gitignored and kept by the deploy). Present = hidden.
    A file that exists but cannot be read counts as hidden. */
@@ -215,14 +255,17 @@ function createEarnings({ query, excludeWallets, previewExclude, switchFile = nu
   const sw = createHideSwitch({ file: switchFile, fsx, log });
   const stats = { reads: 0, fails: 0 };
 
-  function cache(ex) {
+  // kind: the strip's grouped read (default), or the Live wins row's recent list.
+  function cache(ex, kind) {
+    const recent = kind === 'recent';
     let value = null, at = 0, inFlight = null, pokeTimer = null;
     function refresh() {
       if (inFlight) return inFlight;
       inFlight = (async () => {
         try {
-          const res = await query(EARNINGS_SQL, earningsParams(ex, config.TIME_ZONE));
-          const v = summarize(res && res.rows);
+          const res = recent ? await query(RECENT_SQL, recentParams(ex))
+            : await query(EARNINGS_SQL, earningsParams(ex, config.TIME_ZONE));
+          const v = recent ? recentWins(res && res.rows) : summarize(res && res.rows);
           if (!v) { stats.fails++; log.warn('[EARN] unusable rows, keeping the last value'); return value; }
           stats.reads++;
           value = v;
@@ -256,6 +299,7 @@ function createEarnings({ query, excludeWallets, previewExclude, switchFile = nu
   }
   const pub = typeof query === 'function' ? cache(exclude) : null;
   const pre = typeof query === 'function' ? cache(pExclude) : null;
+  const rec = typeof query === 'function' ? cache(exclude, 'recent') : null;   // never the preview's owner
 
   const OFF = Object.freeze({ on: false });
   function shown() { return !!config.SHOW && !sw.hidden(); }
@@ -294,7 +338,25 @@ function createEarnings({ query, excludeWallets, previewExclude, switchFile = nu
     return { ok: true, top: v.periods.all.top.map((r, i) => ({ rank: i + 1, ...r })) };
   }
 
+  /* The Live wins row: {ok:true, wins:[{name, game, amount}]} newest first, or ok:false (no database or a failed
+     first read), which the lobby treats like no wins: its Sample row. Like the board, not behind the strip's
+     switch. */
+  async function recentList() {
+    if (!rec) return { ok: false, wins: [] };
+    const v = await rec();
+    if (!v) return { ok: false, wins: [] };
+    return { ok: true, wins: v.map((w) => ({ name: w.name, game: w.game, amount: w.amount })) };
+  }
+
   function route(app) {
+    app.get('/api/earnings/recent', async (req, res) => {
+      res.set('Cache-Control', 'no-store');
+      try {
+        res.json(await recentList());
+      } catch (e) {
+        res.json({ ok: false, wins: [] });
+      }
+    });
     app.get('/api/earnings/board', async (req, res) => {
       res.set('Cache-Control', 'no-store');
       try {
@@ -324,6 +386,7 @@ function createEarnings({ query, excludeWallets, previewExclude, switchFile = nu
   function poke() {
     if (pub) pub.poke();
     if (pre) pre.poke();
+    if (rec) rec.poke();
   }
 
   return {
@@ -331,6 +394,7 @@ function createEarnings({ query, excludeWallets, previewExclude, switchFile = nu
     figure,
     poke,
     board,
+    recentList,
     route,
     hidden: () => sw.hidden(),
     shown,
@@ -347,4 +411,7 @@ module.exports = {
   gameLabel,
   EARNINGS_SQL,
   earningsParams,
+  RECENT_SQL,
+  recentParams,
+  recentWins,
 };

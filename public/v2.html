@@ -5108,9 +5108,10 @@ window.repaintAll=repaintAll;
    advertise a game nobody can play. Today that means every line is
    slither.io; the moment another game loses its `soon` flag its wins start
    appearing here on their own. */
-/* Real results, when the server has any. Empty right now because nobody has
-   played yet. */
-const REAL_WINS=[];
+/* Real results: the most recent landed paid payouts from /api/earnings/recent (server/earnings, the strip's own
+   landed rule, never the owner, test wallets or bots), filled by loadRealWins below. Empty until a real player
+   cashes out, and then the row shows only these. */
+let REAL_WINS=[];
 
 const NAMES=['PEPIK','hashim','degenmonkey','qesku','tungsahur','quietfox',
  'driftwood','wenmoon','noodlearm','grasshopper','lilbogdan','sn4kepit','vorpal',
@@ -5132,9 +5133,10 @@ function madeUpAmount(){
    wins can only ever name a game that is actually playable. */
 const MIN_TICKER=14;
 let WINS_REAL=false;
-const WINS=(()=>{
+function buildWins(){
   const live=REAL_WINS.filter(w=>{const g=G(w.g); return g&&!g.soon});
-  if(live.length){WINS_REAL=true;return live;}
+  WINS_REAL=live.length>0;
+  if(live.length)return live;
   const playable=GAMES.filter(g=>!g.soon);
   if(!playable.length)return live;
   const pool=NAMES.slice(), out=[];
@@ -5144,18 +5146,35 @@ const WINS=(()=>{
               amt:madeUpAmount()});
   }
   return out;
-})();
+}
+let WINS=buildWins();
+/* Asked on load and every two minutes; the row is redrawn only when the list changed. A failed read keeps what
+   is showing. */
+let _realKey='[]';
+function loadRealWins(){
+  fetch('/api/earnings/recent',{cache:'no-store'}).then(r=>r.json()).then(d=>{
+    if(!d||d.ok!==true||!Array.isArray(d.wins))return;
+    const next=d.wins.filter(w=>w&&typeof w.name==='string'&&typeof w.game==='string'&&Number(w.amount)>0)
+      .map(w=>({who:w.name.slice(0,24),g:w.game,amt:Number(w.amount)}));
+    const key=JSON.stringify(next); if(key===_realKey)return;
+    _realKey=key; REAL_WINS=next; WINS=buildWins(); drawTicker();
+  }).catch(()=>{});
+}
+setInterval(loadRealWins,120000);
 
 const TK_RANK='<svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true"><path d="M6 .8 11.2 6 6 11.2.8 6Z" fill="#c9915a"/><path d="M6 .8 11.2 6H.8Z" fill="#e8b47c"/></svg>';
 let tkTimer=0;
+// Real names are player input: escaped before they go into the row's HTML.
+const tkEsc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
 function drawTicker(){
   const run=document.getElementById('tkrun');
   const tag=document.querySelector('.tickerwrap.top .ltag');
   if(tag&&!WINS_REAL&&!tag.classList.contains('sample')){tag.classList.add('sample');tag.textContent='Sample wins';}
+  if(tag&&WINS_REAL&&tag.classList.contains('sample')){tag.classList.remove('sample');tag.innerHTML='<span class="dot"></span>Live wins';}
   clearInterval(tkTimer); run.classList.remove('cards'); run.style.transform=''; run.style.transition='';
   /* Twice over, so the card that leaves on the right is never the one coming in on the left. */
   const card=w=>`<div class="tkc"><img src="${artSrc(w.g)}" alt="${G(w.g).name}" width="64" height="66" decoding="async">
-    <div class="nm">${TK_RANK}<b>${w.who}</b></div><div class="am num">$${w.amt.toFixed(2)}</div></div>`;
+    <div class="nm">${TK_RANK}<b>${tkEsc(w.who)}</b></div><div class="am num">$${w.amt.toFixed(2)}</div></div>`;
   run.innerHTML=WINS.map(card).join('')+WINS.map(w=>card(w).replace('class="tkc"','class="tkc" aria-hidden="true"')).join('');
   run.classList.add('cards');
   tkTimer=setInterval(()=>{
@@ -6047,7 +6066,7 @@ document.getElementById('adveil').addEventListener('click',e=>{
 /* The tournament countdown is gone with the card it counted down. It ticked
    from a hardcoded 38:59 towards an event that was never going to happen. */
 
-drawNav();V2Wallet.render();drawRail();drawTicker();V2Board.start();
+drawNav();V2Wallet.render();drawRail();drawTicker();loadRealWins();V2Board.start();
 </script>
 <!-- The lobby is built: fade the loading screen out. A script of its own so
      that it still runs if the one above threw. -->
