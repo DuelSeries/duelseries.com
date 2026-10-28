@@ -564,6 +564,88 @@ test('Crossy Road at $0.50: the one taken first loses; the other is paid 900000 
   await crossyEnding('CrWin', 'win');
 });
 
+/* THE LOBBY PATH (Owen 2026-10-28). The lobby's $0.50 and $1 for a duel now start a paid table: the lobby reads the
+   game's door from /api/live (paidDoors), the wallet widget asks /api/stake-quote and /api/submit-stake by RUNG only
+   (never the game; the quote needs an escrow, so test/paidDuelLobby.test.js pins what is asked), writes the rung the server answered as the page's 'stake' and its entry as 'entryToken', and the
+   game's page queues with exactly those two. Here, for every duel, at both rungs, on the real server: the door the
+   lobby reads is open, the quote and the stake are the rung, the seat is queued at the server's rung and worth, and
+   the Cancel on the waiting card gives back exactly what landed, once. Then two tabs of one wallet at one rung: two
+   stakes, two seats that never meet, two refunds, no prize and no rake. */
+const LOBBY_DUELS = [['knockout', 'ko'], ['battleship', 'bs'], ['swim', 'sw'], ['headsoccer', 'hs'], ['pool8', 'p8'],
+  ['airhockey', 'ah'], ['rooftop', 'rt'], ['crossy', 'cr']];
+const queueExtra = (k) => (k === 'sw' ? { v: require(path.join(ROOT, 'shared', 'swimSim.js')).VERSION }
+  : k === 'cr' ? { v: require(path.join(ROOT, 'shared', 'crossySim.js')).VERSION } : {});
+
+test('the lobby path, every duel at $0.50 and $1: open door, a stake by rung, a seat at the server\'s rung, Cancel refunds it once', async () => {
+  const live = await call(port, 'GET', '/api/live');
+  assert.strictEqual(live.status, 200);
+  assert.deepStrictEqual(live.json.paidDoors, Object.fromEntries(LOBBY_DUELS.map(([g]) => [g, true])), 'every duel door open');
+  for (const [game, k] of LOBBY_DUELS) {
+    for (const rung of [0.5, 1]) {
+      const W = wallet('Lb' + k + String(rung).replace('.', ''));
+      const tok = await stake(rung, W);            // asserts the server answered the rung asked for
+      const s = await connect();
+      s.s.emit(k + ':queue', Object.assign({ name: 'lobby', wallet: W, stake: rung, entryToken: tok }, queueExtra(k)));
+      const qd = await until(() => s.has(k + ':queued') || s.has(k + ':refused'));
+      assert.ok(qd && qd[0] === k + ':queued', game + ' $' + rung + ' seated: ' + JSON.stringify(s.got.map((g) => g[0])));
+      assert.deepStrictEqual([qd[1].stake, qd[1].worth], [rung, rung], game + ' at the server\'s rung and worth');
+      s.s.emit(k + ':unqueue');
+      await until(() => sentTo(W).length);
+      await new Promise((r) => setTimeout(r, 200));
+      assert.deepStrictEqual(sentTo(W), [micro(rung)], game + ' $' + rung + ': Cancel gives back what landed, once, no rake');
+      assert.strictEqual(depositsBy([W]), micro(rung));
+      s.s.close();
+    }
+  }
+});
+
+test('the lobby path, two tabs of one wallet: two stakes, two seats that never meet, two refunds', async () => {
+  for (const [game, k] of LOBBY_DUELS) {
+    const W = wallet('Tw' + k);
+    const revBefore = sentTo(REVENUE).length;
+    const t1 = await stake(0.5, W), t2 = await stake(0.5, W);
+    assert.notStrictEqual(t1, t2, 'each tab its own entry');
+    const a = await connect(), b = await connect();
+    a.s.emit(k + ':queue', Object.assign({ name: 'tab1', wallet: W, stake: 0.5, entryToken: t1 }, queueExtra(k)));
+    assert.ok(await until(() => a.has(k + ':queued')), game + ' tab 1 queued');
+    b.s.emit(k + ':queue', Object.assign({ name: 'tab2', wallet: W, stake: 0.5, entryToken: t2 }, queueExtra(k)));
+    assert.ok(await until(() => b.has(k + ':queued')), game + ' tab 2 queued: ' + JSON.stringify(b.got.map((g) => g[0])));
+    await new Promise((r) => setTimeout(r, 400));
+    const start = (x) => x.got.some((g) => g[0] === k + ':start' || g[0] === k + ':state');
+    assert.ok(!start(a) && !start(b), game + ': one wallet is never matched with itself');
+    a.s.emit(k + ':unqueue');
+    b.s.emit(k + ':unqueue');
+    await until(() => sentTo(W).length >= 2);
+    await new Promise((r) => setTimeout(r, 200));
+    assert.deepStrictEqual(sentTo(W), [500000, 500000], game + ': each tab refunded its own 0.50, once');
+    assert.strictEqual(sentTo(REVENUE).length, revBefore, game + ': no rake on a match that never happened');
+    a.s.close(); b.s.close();
+  }
+});
+
+test('the lobby path, a spent entry buys nothing more: the same token on a second seat is refused and nothing is paid twice', async () => {
+  for (const [game, k] of LOBBY_DUELS) {
+    const W = wallet('Rp' + k);
+    const tok = await stake(0.5, W);
+    const a = await connect(), b = await connect();
+    a.s.emit(k + ':queue', Object.assign({ name: 'one', wallet: W, stake: 0.5, entryToken: tok }, queueExtra(k)));
+    assert.ok(await until(() => a.has(k + ':queued')), game + ' first seat');
+    b.s.emit(k + ':queue', Object.assign({ name: 'two', wallet: W, stake: 0.5, entryToken: tok }, queueExtra(k)));
+    assert.ok(await until(() => b.has(k + ':refused')), game + ' the replay is refused: ' + JSON.stringify(b.got.map((g) => g[0])));
+    assert.ok(!b.has(k + ':queued'), game + ' and never seated');
+    // A seat that never paid: a paid rung with no entry at all.
+    const c = await connect();
+    c.s.emit(k + ':queue', Object.assign({ name: 'none', wallet: W, stake: 0.5 }, queueExtra(k)));
+    assert.ok(await until(() => c.has(k + ':refused')), game + ' no entry, no paid seat');
+    assert.ok(!c.has(k + ':queued'));
+    a.s.emit(k + ':unqueue');
+    await until(() => sentTo(W).length);
+    await new Promise((r) => setTimeout(r, 200));
+    assert.deepStrictEqual(sentTo(W), [500000], game + ': one stake, one refund');
+    for (const x of [a, b, c]) x.s.close();
+  }
+});
+
 test('every payout this run is accounted for: nothing paid that did not land', () => {
   const inMicro = deposits.reduce((n, d) => n + d[1], 0);
   const outMicro = sent.reduce((n, s) => n + s[1], 0);

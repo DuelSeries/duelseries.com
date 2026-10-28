@@ -494,7 +494,7 @@ test('the last buy-in played is remembered, including free', () => {
 /* The lobby's own refreshSteps and defaultStep, cut out of v2.html and run against a stub board.
    BACKLOG 2.1 review: the wallet signs a stake without a prompt, so a remembered rung the ladder
    no longer has (the retired $0.10) must land on Free, never on the next paid rung ($0.50). */
-function stepsHarness({ last, ladder = true, open = [0, 0.5, 1] } = {}) {
+function stepsHarness({ last, ladder = true, open = [0, 0.5, 1], doors = null } = {}) {
   const html = v2();
   const a = html.indexOf('let STEPS=[0];');
   const b = html.indexOf('const G=id=>GAMES.find(x=>x.id===id);');
@@ -505,7 +505,8 @@ function stepsHarness({ last, ladder = true, open = [0, 0.5, 1] } = {}) {
             { id: 'tanks', duel: 1, built: 1, freeOnly: 1 }],
     localStorage: { getItem: k => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)),
                     removeItem: k => m.delete(k) },
-    V2Board: { playableStakes: () => new Set(open) },
+    V2Board: { playableStakes: () => new Set(open),
+               duelPaidOpen: g => !!(doors && Object.prototype.hasOwnProperty.call(doors, g) && doors[g] === true) },
   };
   if (ladder) win.DS_LADDER = require(path.join(ROOT, 'shared/stakeLadder.js'));
   win.window = win;
@@ -532,13 +533,21 @@ test('a remembered rung the ladder no longer has lands on Free, never on $0.50',
   assert.equal(noFile.stored(), '1', 'a $1.00 player keeps their rung through a failed load');
 });
 
-test('Knockout and Battleship strike their paid rungs through until the lobby can start a paid duel', () => {
-  /* startFromDetail opens every built duel at Free. Drawing $0.50 live over that Play button
-     promised a paid table and seated a free bot one. */
-  assert.match(v2(), /if\(cur\.built&&\(cur\.duel\|\|cur\.solo\)\)\{V2Play\.launch\(cur\.id,\{lobbyType:'free'\}\);return\}/,
-    'if this changes, open the paid rungs in refreshSteps with it');
-  const ko = stepsHarness({ last: 0.5 }).pick('knockout');
-  assert.deepEqual(ko, { stake: 0, off: [0.5, 1] }, 'Free selected, $0.50 and $1.00 struck through');
+test('a paid duel opens its $0.50 and $1 only while the server says its paid door is open', () => {
+  /* The lobby stakes a paid duel's rung through the wallet widget now (startFromDetail -> V2Play.launch with the
+     stake), so its rungs follow the game's own paid door (/api/live paidDoors), never a guess. */
+  const ko = stepsHarness({ last: 0.5, doors: {} }).pick('knockout');
+  assert.deepEqual(ko, { stake: 0, off: [0.5, 1] }, 'no door in the answer: Free selected, $0.50 and $1.00 struck through');
+  assert.deepEqual(stepsHarness({ last: 0.5, doors: { knockout: false } }).pick('knockout'), { stake: 0, off: [0.5, 1] },
+    'the owner\'s ko:paid:off: struck through');
+  assert.deepEqual(stepsHarness({ last: 0.5, doors: { knockout: true } }).pick('knockout'), { stake: 0.5, off: [] },
+    'door open: both paid rungs live, and the remembered $0.50 comes back');
+  assert.deepEqual(stepsHarness({ doors: { knockout: true } }).pick('knockout'), { stake: 0, off: [] },
+    'a first visit still opens on Free: a paid rung is always picked on purpose');
+  assert.deepEqual(stepsHarness({ last: 1, doors: { battleship: true } }).pick('knockout'), { stake: 0, off: [0.5, 1] },
+    'another game\'s open door opens nothing here');
+  assert.deepEqual(stepsHarness({ doors: { tanks: true } }).pick('tanks'), { stake: 0, off: [0.5, 1] },
+    'a free-only duel stays Free whatever the board says');
   assert.deepEqual(stepsHarness({}).pick('tanks'), { stake: 0, off: [0.5, 1] }, 'the same as Bowmasters');
   // Owen 2026-10-15: no small print. The struck rungs say it; the note under Play is gone.
   assert.ok(!/Paid tables are not open yet/.test(v2()), 'no note under Play');
@@ -1834,7 +1843,9 @@ test('a paid Paper rung goes to the widget to be staked, never straight to a pag
    refused the EU token: a stake with no seat. Knockout and Battleship had the same split. */
 test('a paid Paper, Knockout or Battleship buy-in is staked on this origin even with EU picked', async () => {
   for (const game of ['paper', 'knockout', 'battleship']) {
-    const h = lobbyHarness([]);
+    // A duel's paid rung is staked only while the board says its paid door is open (paidDoors).
+    const h = lobbyHarness([], { paidDoors: { knockout: true, battleship: true } });
+    await h.win.V2Board.load();
     h.win.localStorage.setItem('duelseries_region', 'eu');
     h.win.V2Play.launch(game, { stake: 0.5 });
     await assert.rejects(h.pending(), /no server here/);

@@ -3925,16 +3925,35 @@ function liveExtras() {
         state: paidOpen ? 'open' : 'closed' });
     }
   };
-  if (typeof knockoutLobby !== 'undefined' && knockoutLobby) duelRows('knockout', knockoutLobby, koPaidOpen);
-  if (typeof battleshipLobby !== 'undefined' && battleshipLobby) duelRows('battleship', battleshipLobby, bsPaidOpen);
+  const doors = duelPaidDoors();
+  if (typeof knockoutLobby !== 'undefined' && knockoutLobby) duelRows('knockout', knockoutLobby, doors.knockout);
+  if (typeof battleshipLobby !== 'undefined' && battleshipLobby) duelRows('battleship', battleshipLobby, doors.battleship);
   // Always listed, so the deploy check sees a human at a paid Swim table even while its card is shut.
-  if (typeof swimLobby !== 'undefined' && swimLobby) duelRows('swim', swimLobby, swPaidOpen);
-  if (typeof headSoccerLobby !== 'undefined' && headSoccerLobby) duelRows('headsoccer', headSoccerLobby, HS_PAID_ON && hsPaidOpen);
-  if (typeof pool8Lobby !== 'undefined' && pool8Lobby) duelRows('pool8', pool8Lobby, P8_PAID_ON && p8PaidOpen);
-  if (typeof airHockeyLobby !== 'undefined' && airHockeyLobby) duelRows('airhockey', airHockeyLobby, AH_PAID_ON && ahPaidOpen);
-  if (typeof rooftopLobby !== 'undefined' && rooftopLobby) duelRows('rooftop', rooftopLobby, RT_PAID_ON && rtPaidOpen);
-  if (typeof crossy !== 'undefined' && crossy) duelRows('crossy', crossy.lobby, crossy.paidOpen());
+  if (typeof swimLobby !== 'undefined' && swimLobby) duelRows('swim', swimLobby, doors.swim);
+  if (typeof headSoccerLobby !== 'undefined' && headSoccerLobby) duelRows('headsoccer', headSoccerLobby, doors.headsoccer);
+  if (typeof pool8Lobby !== 'undefined' && pool8Lobby) duelRows('pool8', pool8Lobby, doors.pool8);
+  if (typeof airHockeyLobby !== 'undefined' && airHockeyLobby) duelRows('airhockey', airHockeyLobby, doors.airhockey);
+  if (typeof rooftopLobby !== 'undefined' && rooftopLobby) duelRows('rooftop', rooftopLobby, doors.rooftop);
+  if (typeof crossy !== 'undefined' && crossy) duelRows('crossy', crossy.lobby, doors.crossy);
   return out;
+}
+
+/* Which duels' paid doors are open right now: { knockout: true, headsoccer: false, ... }, the same flags each
+   game's paid queue checks before it touches a token (ko:/bs:/sw:/hs:/p8:/ah:/rt:/cr:paid:off on top of the
+   build switch). The lobby opens a duel's $0.50 and $1 rungs only while its door here says true, so a paid
+   rung is never offered over a door that would refuse the seat. A paid row in liveExtras is listed only while
+   somebody sits at it, so the row alone cannot say this. Only booleans: nothing about who is playing. */
+function duelPaidDoors() {
+  return {
+    knockout: typeof knockoutLobby !== 'undefined' && !!knockoutLobby && koPaidOpen === true,
+    battleship: typeof battleshipLobby !== 'undefined' && !!battleshipLobby && bsPaidOpen === true,
+    swim: typeof swimLobby !== 'undefined' && !!swimLobby && swPaidOpen === true,
+    headsoccer: typeof headSoccerLobby !== 'undefined' && !!headSoccerLobby && HS_PAID_ON === true && hsPaidOpen === true,
+    pool8: typeof pool8Lobby !== 'undefined' && !!pool8Lobby && P8_PAID_ON === true && p8PaidOpen === true,
+    airhockey: typeof airHockeyLobby !== 'undefined' && !!airHockeyLobby && AH_PAID_ON === true && ahPaidOpen === true,
+    rooftop: typeof rooftopLobby !== 'undefined' && !!rooftopLobby && RT_PAID_ON === true && rtPaidOpen === true,
+    crossy: typeof crossy !== 'undefined' && !!crossy && crossy.paidOpen() === true,
+  };
 }
 
 /* WHAT THE NIGHTLY EVENT IS ACTUALLY DOING.
@@ -4128,7 +4147,8 @@ function liveSnapshot() {
     /* Card counts: every human of the game plus the bots in its rows, from these
        same rows, so a card never reads 0 above a row saying 20 playing. */
     const out = { lobbies, stakes: ALL_STAKES, extras,
-                  br: liveBattleRoyale(), counts: withBoardBots(liveGameCounts(), lobbies.concat(extras)) };
+                  br: liveBattleRoyale(), counts: withBoardBots(liveGameCounts(), lobbies.concat(extras)),
+                  paidDoors: duelPaidDoors() };
     if (unknown.length) out.unknown = unknown;
     /* The lobby's update banner and its Play gate (public/js/v2/maint.js). Only
        what players already see: the switch and its message. */
@@ -4152,7 +4172,8 @@ setInterval(() => {
   const room = io.sockets.adapter.rooms.get('live:watch');
   if (!room || !room.size) { liveSig = ''; return; }
   const s = liveSnapshot();
-  const board = { lobbies: s.lobbies, extras: s.extras, counts: s.counts, maintenance: s.maintenance };
+  const board = { lobbies: s.lobbies, extras: s.extras, counts: s.counts, maintenance: s.maintenance,
+                  paidDoors: s.paidDoors };
   const sig = JSON.stringify(board);
   if (sig === liveSig) return;
   liveSig = sig;

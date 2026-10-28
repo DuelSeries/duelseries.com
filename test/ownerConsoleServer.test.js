@@ -156,13 +156,40 @@ test('state v2, maintenance and the paid Knockout door across a restart, bots:se
   assert.strictEqual(gameOf(s, 'agar').paid.action, 'agar:paid');
   // 8 Ball Pool's paid door: a row of its own, shut and opened from the console like the others.
   assert.deepStrictEqual(gameOf(s, 'pool8').paid, { enabled: true, open: true, stopping: false, saved: false, action: 'p8:paid' });
+  /* The lobby's paid duel rungs follow these doors (/api/live paidDoors): all eight open at boot, and a door the
+     owner shuts reads false there at once, so the lobby strikes that game's $0.50 and $1 through. */
+  const DUELS = ['knockout', 'battleship', 'swim', 'headsoccer', 'pool8', 'airhockey', 'rooftop', 'crossy'];
+  const doors = async (port) => JSON.parse((await get(`http://localhost:${port}/api/live`)).body).paidDoors;
+  assert.deepStrictEqual(await doors(one.port), Object.fromEntries(DUELS.map((g) => [g, true])), 'every duel door open at boot');
   r = await act(one.port, 'p8:paid:off');
   assert.strictEqual(r.status, 200, r.body);
   assert.match(r.json.note, /Paid 8 Ball Pool closed to new players/);
   assert.deepStrictEqual([gameOf(r.json.state, 'pool8').paid.open, gameOf(r.json.state, 'pool8').paid.saved], [false, true]);
+  assert.deepStrictEqual(await doors(one.port), Object.fromEntries(DUELS.map((g) => [g, g !== 'pool8'])), 'p8:paid:off shuts pool8 alone');
   r = await act(one.port, 'p8:paid:on');
   assert.strictEqual(r.status, 200, r.body);
   assert.strictEqual(gameOf(r.json.state, 'pool8').paid.open, true);
+  assert.strictEqual((await doors(one.port)).pool8, true, 'and p8:paid:on opens it again');
+  /* Each from an address of its own (behind the proxy), so these twelve do not spend the signature limiter's
+     minute that the rest of this test counts on. */
+  let xff = 0;
+  const actFrom = (port, action) => new Promise((res, rej) => {
+    const body = JSON.stringify(ownerProof(action, {}));
+    const q = http.request(`http://localhost:${port}/api/owner/do`, { method: 'POST', headers: { 'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(body), 'X-Forwarded-For': '10.77.0.' + (++xff) } }, (x) => {
+      let d = ''; x.on('data', (c) => d += c); x.on('end', () => res({ status: x.statusCode, body: d }));
+    });
+    q.on('error', rej);
+    q.end(body);
+  });
+  for (const [g, key] of [['headsoccer', 'hs'], ['rooftop', 'rt'], ['airhockey', 'ah'], ['crossy', 'cr'], ['swim', 'sw'], ['battleship', 'bs']]) {
+    r = await actFrom(one.port, key + ':paid:off');
+    assert.strictEqual(r.status, 200, key + ' ' + r.body);
+    assert.strictEqual((await doors(one.port))[g], false, key + ':paid:off shuts ' + g + ' in the lobby feed');
+    r = await actFrom(one.port, key + ':paid:on');
+    assert.strictEqual(r.status, 200, key + ' ' + r.body);
+    assert.strictEqual((await doors(one.port))[g], true, key + ':paid:on opens it again');
+  }
   assert.strictEqual(gameOf(s, 'agar').rungs[0].room, 'ag_na_s0');
   assert.strictEqual(gameOf(s, 'paper').rungs[0].room, 'paper_na_s0');
   for (const k of ['safe', 'reason', 'people', 'paidPeople', 'moneyInPlay', 'floor', 'pending', 'duels']) assert.ok(k in s.drain, k);
@@ -230,6 +257,7 @@ test('state v2, maintenance and the paid Knockout door across a restart, bots:se
   assert.strictEqual(r.status, 200, r.body);
   assert.match(r.json.note, /stays closed across restarts/);
   assert.deepStrictEqual(gameOf(r.json.state, 'knockout').paid, { enabled: true, open: false, stopping: false, saved: true, action: 'ko:paid' });
+  assert.strictEqual((await doors(one.port)).knockout, false, 'ko:paid:off shuts Knockout in the lobby feed');
 
   // the audit names who acted and what was asked
   s = (await state(one.port)).json;
@@ -243,6 +271,7 @@ test('state v2, maintenance and the paid Knockout door across a restart, bots:se
   s = (await state(two.port)).json;
   assert.deepStrictEqual([s.open, s.maintenance.on, s.maintenance.message], [false, true, 'Deploying']);
   assert.strictEqual(gameOf(s, 'knockout').paid.open, false);
+  assert.strictEqual((await doors(two.port)).knockout, false, 'and still shut there after the restart');
   assert.match(two.out.stderr + two.out.stdout, /\[KO\] paid door CLOSED at boot/);
   r = await act(two.port, 'maintenance:off', {});
   assert.deepStrictEqual([r.status, r.json.state.open, r.json.state.maintenance.saved], [200, true, false]);

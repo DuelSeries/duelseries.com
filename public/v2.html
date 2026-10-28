@@ -3623,12 +3623,13 @@ function refreshSteps(gameId){
   STEPS=LADDER.slice();
   const g=G(gameId);
   if(g&&g.paid){
-    /* The server takes these buy-ins (ko:queue, bs:queue), but the lobby
-       cannot start a paid duel yet: startFromDetail opens every built duel at
-       Free. So the paid rungs are struck through, like Bowmasters', rather
-       than drawn live over a Play button that would seat a free bot table.
-       Open them here the day that launch passes the rung to the widget. */
-    STEPS_OFF=new Set(STEPS.filter(s=>s!==0));
+    /* A paid duel's $0.50 and $1 are open while the server says its paid door
+       is (/api/live paidDoors: ko:paid:off, hs:paid:off and the rest on top of
+       the build switch), and startFromDetail stakes the picked rung through the
+       wallet widget, the same stake the in-game Play again buys. No answer yet,
+       or a door shut, strikes them through and leaves Free. */
+    const open=!!(window.V2Board&&typeof V2Board.duelPaidOpen==='function'&&V2Board.duelPaidOpen(gameId));
+    STEPS_OFF=new Set(open?[]:STEPS.filter(s=>s!==0));
   }else if(g&&(g.freeOnly||g.solo||g.soon)){
     /* Free is the only rung this game seats today. Everything else is drawn
        struck through, which says the product offers it and this table does not
@@ -5341,9 +5342,16 @@ function startFromDetail(){
   /* A game that is not open yet: Play is shut (and disabled); this is the
      belt to that brace. */
   if(!cur||(cur.soon&&!cur.built))return;
-  /* A built duel and a solo run both open their own page at Free, and both
-     name the room rather than letting the buy-in ladder pick one: Free is the
-     only rung either has open (refreshSteps strikes the rest through). */
+  /* A paid duel on a paid rung it has open: the wallet widget stakes that
+     rung and opens the game's page with the entry (V2Play.launch never takes
+     its free shortcut for a stake). The rung is the ladder's own number. */
+  const st=Number(STEPS[si]);
+  if(cur.built&&cur.duel&&cur.paid&&st>0){
+    if(STEPS_OFF.has(STEPS[si]))return;   // struck through, so its button is disabled; the belt to that brace
+    V2Play.launch(cur.id,{stake:st});return;
+  }
+  /* A built duel's Free and a solo run both open their own page at Free, and
+     both name the room rather than letting the buy-in ladder pick one. */
   if(cur.built&&(cur.duel||cur.solo)){V2Play.launch(cur.id,{lobbyType:'free'});return}
   V2Play.playChosen();
 }

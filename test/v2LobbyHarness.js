@@ -5,6 +5,7 @@
 //
 // lobbyHarness(liveRows) -> { win, el, fetched, plays, pending }
 //   liveRows   the /api/live lobbies (null: the poll fails)
+//   opts.paidDoors  the /api/live paidDoors ({ knockout: true, ... }; left out: the answer has none)
 //   plays      every { game, sel } the widget's duel:play listener handed to the stake path
 //   pending()  that stake path's promise (the stub server refuses every quote: 'no server here')
 const assert = require('node:assert');
@@ -17,7 +18,8 @@ const ROOT = path.join(__dirname, '..');
 /* A lobby in a box: board.js and play.js as the page loads them, plus the
    widget's own launch code cut from main.jsx (the duel:play listener and
    stakeAndPlay), all on one stub window. No browser, no React, no Privy. */
-function lobbyHarness(liveRows) {
+function lobbyHarness(liveRows, opts) {
+  const o = opts || {};
   const els = {};
   const el = id => (els[id] = els[id] || {
     id, value: '', hidden: false, readOnly: true, textContent: '', innerHTML: '', src: '',
@@ -50,12 +52,14 @@ function lobbyHarness(liveRows) {
       fetched.push(String(url));
       if (url === '/api/live') {
         if (!liveRows) throw new Error('offline');
-        return { json: async () => ({ lobbies: liveRows, extras: [] }) };
+        return { json: async () => Object.assign({ lobbies: liveRows, extras: [] },
+          o.paidDoors ? { paidDoors: o.paidDoors } : {}) };
       }
       throw new Error('no server here for ' + url);
     },
     duelWallet: { authenticated: true, address: 'WALLET1' },
     rememberStake() {},
+    DS_LADDER: require(path.join(ROOT, 'shared/stakeLadder.js')),   // the lobby loads it from /shared
     crypto: require('crypto').webcrypto,   // the widget's launch nonce (launchNonce)
   };
   win.window = win;

@@ -35,6 +35,9 @@
      here, so card and rows agree), for the count on each game card. Null when
      the poll failed, so the cards hide it. */
   let COUNTS = null;
+  /* Which duels' paid doors the server has open ({ knockout: true, ... }, server duelPaidDoors). Null until an
+     answer carries it: an unknown door is a shut one, so a duel's paid rungs stay struck through. */
+  let DOORS = null;
   let timer = null;
 
   /* A failed poll keeps the last good board instead of wiping it: a wiped
@@ -57,6 +60,7 @@
     LOBBIES = Array.isArray(j.lobbies) ? j.lobbies : [];
     EXTRAS = Array.isArray(j.extras) ? j.extras : [];
     COUNTS = j.counts && typeof j.counts === 'object' ? j.counts : null;
+    DOORS = j.paidDoors && typeof j.paidDoors === 'object' ? j.paidDoors : null;
     /* The Battle Royale state rides along on the same answer: the PC sidebar's clock reads it
        (V2Event.feed) rather than asking the server again. */
     if (j.br && window.V2Event && window.V2Event.feed) window.V2Event.feed(j.br);
@@ -204,6 +208,12 @@
     return out;
   }
 
+  /* A duel's paid rungs ($0.50, $1) are open only while the server says that game's paid door is open. Its paid
+     rows are listed only while somebody sits at them, so playableStakes cannot say this for a duel. */
+  function duelPaidOpen(game) {
+    return !!(DOORS && Object.prototype.hasOwnProperty.call(DOORS, game) && DOORS[game] === true);
+  }
+
   function rowsToShow() {
     const rows = occupied().filter(listable);
     const free = LOBBIES.find(l => Number(l.stake) === 0 && l.game === 'snake');
@@ -331,7 +341,7 @@
     document.addEventListener('visibilitychange', () => { if (timer && !document.hidden) load(); });
 
   window.V2Board = { load: load, push: push, draw: draw, join: join, start: start, stop: stop, setRows: setRows,
-                     playableStakes: playableStakes, rowsToShow: rowsToShow,
+                     playableStakes: playableStakes, duelPaidOpen: duelPaidOpen, rowsToShow: rowsToShow,
                      get lobbies() { return LOBBIES; },
                      get counts() { return COUNTS; },
                      /* People in a duel's queue, every rung, for the game cards: { knockout: 1 }. */

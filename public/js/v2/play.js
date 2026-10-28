@@ -345,6 +345,11 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', slScale, { once: true });
   else slScale();
 
+  /* The duels whose $0.50 and $1 rungs stake through the wallet widget (launchStaked opens their page with the
+     entry), and the own-page games that never take money. */
+  const PAID_DUELS = { knockout: 1, battleship: 1, swim: 1, headsoccer: 1, pool8: 1, airhockey: 1, rooftop: 1, crossy: 1 };
+  const FREE_PAGES = { tanks: 1, omgshooter: 1 };
+
   /* The one door. Everything else here funnels into this.
      `sel` names the room: { stake } for a rung of the ladder, or { lobbyType }
      for one of the old fixed tiers. */
@@ -418,6 +423,26 @@
       } catch (_) { open = false; }
       if (!open) {
         say('That Chomp buy-in is not open right now. Pick one the card is offering.');
+        return;
+      }
+    }
+    /* A paid duel's $0.50 or $1: only a rung on the ladder, and only while the board says that game's paid door is
+       open (V2Board.duelPaidOpen, /api/live paidDoors). No board yet, a door shut since the card was drawn, or a
+       console call is refused here, before any wallet prompt. The server's door still refuses a seat that reaches
+       it shut, and that entry, never spent, refunds itself when it expires. A game whose page has no money in it
+       (Awesome Tanks, Bowmasters) is never staked for at all. */
+    if (hasStake && Number(sel.stake) > 0 && (PAID_DUELS[game] === 1 || FREE_PAGES[game] === 1)) {
+      let open = false;
+      try {
+        const want = Number(sel.stake);
+        const ladder = (window.DS_LADDER && Array.isArray(window.DS_LADDER.LADDER)) ? window.DS_LADDER.LADDER : [];
+        open = PAID_DUELS[game] === 1
+          && ladder.some(s => Number(s) > 0 && Math.abs(Number(s) - want) < 1e-9)
+          && !!(window.V2Board && typeof window.V2Board.duelPaidOpen === 'function' && window.V2Board.duelPaidOpen(game));
+      } catch (_) { open = false; }
+      if (!open) {
+        const nm = (window.V2_GAME_NAMES && window.V2_GAME_NAMES[game]) || 'this game';
+        say('Paid ' + nm + ' tables are not open right now. Pick one the card is offering.');
         return;
       }
     }
@@ -502,6 +527,11 @@
       try { sessionStorage.setItem('playerName', name); } catch (_) {}
       /* A guest carries no identity: none left in this tab from an earlier signed-in visit. */
       if (guest) for (const k of ['googleId', 'walletAddress']) { try { sessionStorage.removeItem(k); } catch (_) {} }
+      /* A free page never carries an entry. A paid duel's launch leaves its stake (and, if its page never queued,
+         its token) in this tab, and every duel page reads 'stake' as its buy-in: without this a Free click after a
+         paid round asked for a paid seat (refused with no token, or seated on the old token the player meant to
+         leave). A token dropped here was never spent, so it refunds itself when it expires. */
+      for (const k of ['entryToken', 'entrySol', 'stake']) { try { sessionStorage.removeItem(k); } catch (_) {} }
       /* A Free /sl page is never a paid one. /sl reads the paid hand-off
          from this tab's sessionStorage (public/js/slx/slxPaid.js), and a paid
          launch whose page never loaded, or an old-engine one, leaves a token,
