@@ -4252,7 +4252,7 @@ function lookList(g){
   }):[];
   /* Every free skin first, then every paid one: one run of each. */
   const free=g.look?LOOKS
-    :[{id:'default',game:g.id,name:g.id==='rooftop'?'Random':g.id==='pool8'?'Classic blue':g.id==='crossy'?'Sprout':S.defaultName(g.id)}].concat(g.id==='rooftop'?RT_LOOKS:g.id==='agar'?AG_LOOKS:g.id==='chomp'?CH_LOOKS:g.id==='airhockey'?AH_LOOKS:g.id==='pool8'?P8_LOOKS:g.id==='crossy'?CR_LOOKS:[]);
+    :[{id:'default',game:g.id,name:g.id==='rooftop'?'Random':g.id==='pool8'?'Classic blue':g.id==='crossy'?'Nugget':S.defaultName(g.id)}].concat(g.id==='rooftop'?RT_LOOKS:g.id==='agar'?AG_LOOKS:g.id==='chomp'?CH_LOOKS:g.id==='airhockey'?AH_LOOKS:g.id==='pool8'?P8_LOOKS:g.id==='crossy'?CR_LOOKS:[]);
   return free.concat(paid);
 }
 let LK=[];   /* what the open chooser lists, from lookList */
@@ -4297,14 +4297,14 @@ function paintLook(cv){
     /* Rooftop Snipers: its sniper from the game's own art (no look worn walks through the cast: Random). */
     if(window.V2Shop){if(cur.id==='rooftop')V2Shop.paintWith(cv,'rooftop',{look:s&&s.rt?s.rt.id:''},lookT,false,true);
       else if(cur.id==='pool8')V2Shop.paintWith(cv,cur.id,s&&s.p8?s.p8:{},lookT,false,true);
-      else if(cur.id==='crossy')V2Shop.paintWith(cv,cur.id,{col:s&&s.cr?s.col:'#62c84a'},lookT,false,true);
+      else if(cur.id==='crossy')V2Shop.paintWith(cv,cur.id,{col:s&&s.cr?s.col:'#fbd88e',id:s&&s.cr?s.cr.id:'nugget'},lookT,false,true);
       else if(s&&(s.ag||s.ch||s.ah))V2Shop.paintWith(cv,cur.id,{col:s.col},lookT,false,true);
       else V2Shop.paint(cv,cur.id,s&&s.shop?s.shop.id:'default',lookT,false,true)}
     return}
   if(s&&s.game&&s.game!=='snake'){
     if(s.game==='rooftop')V2Shop.paintWith(cv,'rooftop',{look:s.rt?s.rt.id:''},lookT,false,true);
     else if(s.game==='pool8')V2Shop.paintWith(cv,s.game,s.p8||{},lookT,false,true);
-    else if(s.game==='crossy')V2Shop.paintWith(cv,s.game,{col:s.cr?s.col:'#62c84a'},lookT,false,true);
+    else if(s.game==='crossy')V2Shop.paintWith(cv,s.game,{col:s.cr?s.col:'#fbd88e',id:s.cr?s.cr.id:'nugget'},lookT,false,true);
     else if(s.ag||s.ch||s.ah)V2Shop.paintWith(cv,s.game,{col:s.col},lookT,false,true);
     else V2Shop.paint(cv,s.game,s.shop?s.shop.id:'default',lookT,false,true);
     return}

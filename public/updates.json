@@ -2,6 +2,17 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-10-28-crossy-road-redo",
+      "date": "2026-10-28",
+      "tag": "new",
+      "title": "Crossy Road, rebuilt",
+      "body": "Crossy Road has been rebuilt to look and play like the original: the roads, rivers, rails, trees, cars, trucks and trains are all redone at the right sizes and colours, and logs and lily pads dip when you land on them.\n\nMeet Nugget, a golden hen, the new default look. Sprout, Bloop and Pebble are still free in Customize. Getting hit now flattens you, falling in the river makes a splash, and the score and coins are drawn in a new chunky style.",
+      "image": {
+        "src": "/updates/crossy-redo-hen.webp",
+        "alt": "Nugget the golden hen crossing a road in Crossy Road"
+      }
+    },
+    {
       "id": "2026-10-28-duel-buy-ins-from-lobby",
       "date": "2026-10-28",
       "tag": "new",

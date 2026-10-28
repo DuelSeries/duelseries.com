@@ -122,3 +122,41 @@ the 5 minute stop; a room that throws ends as a draw with refunds instead of tak
 Known and left (for Owen): the seed is public, so a scripted client could play the map perfectly (true of any
 deterministic duel; the stakes are $0.50 and $1); the rival's row reaches a deliberately lagging client up to 0.25 s
 early; no reconnect grace (a dropped connection forfeits, like Head Soccer).
+
+## The 2026-10-28 redo: models, deaths and HUD (measured, then built as our own)
+Owen after playing: "not a 1 to 1 replica". Every number below was read from the reference's model data (bounds and
+colour layers only, from `AssetLoader`) or its source; the models are our own boxes drawn to those envelopes.
+
+| Piece | Measured | Ours now (was) |
+|---|---|---|
+| Grass strip | earth 0-0.25, a 0.125 grass band on top; field (abs x < 4.5) a1cf4c/9bc846 over ba6868, outside 8bb639/84af34 over a95555 | same layers (was a 0.06 band, so a red earth line showed along every road) |
+| Road marks | a cell-long dash on every even cell, 0.125 deep, at the near edge when the row before is road (strip rotated PI); 6a7171 in the field, 5f6969 outside | same (was 0.7 long every 1.5, 0.06 deep) |
+| Rail strip | bed 0-0.25; sleepers 0.125 wide every unit, 0.25-0.375; two rails 0.125 wide at z +-0.3125, 0.375-0.5 | same |
+| River | 53b7d2 all across, white foam from 4.375 to 4.75 each side with a 6ecfeb fringe; rapids bubbles at x +-4.55, y 0.1475 | our own ragged foam and bubbles at those places |
+| Tree | trunk 0.375 square x 0.375; leaves 0.625 square, a dark 0.125 band then (light 0.25 + dark 0.125) per step, 9bb519 / acc721 | same rhythm (was a 0.25 trunk, 0.29 bands) |
+| Side forest | nine trees packed at 0.625, heights 1.25 / 1.625 / 2.0 only | same mix (was six trees, any height) |
+| Rock / stump | 0.75 x 0.625 x 0.75 in three steps / 0.375 cube with a cut top | our own stepped slabs at those sizes |
+| Cars | electric 1.32 x 0.84 x 0.96, sedan/purple 1.8 x 1.08 x 0.96, muscle 2.04 x 1.08 x 0.72; trim 0.12-0.24, paint 0.24-0.6, black glass 0.6-0.84, white roof | our own cars in those envelopes and layers (was lilac glass and a paint roof) |
+| Trucks | 3.0 x 1.08 x 1.32: a cab 0.72 long in front, a white box 0.36-1.32 | our own truck in that envelope |
+| Train | engine 4.875, five carriages 4.5, tail 2.5 (1.625 tall), 1.875 tall, sits at y 0.375 | our own carriages over the 32-unit hit box |
+| Signal | a 0.125 pole 1.875 tall, red and white, a 0.625 head at 1.5-1.75, two lamps that take turns | our own striped pole and head |
+| Log | 0.5 x 0.5 x length, rests at y -0.13 (top 0.37), end caps 0.125 with a ring | our own log; rests at -0.13 (was -0.005, so it floated 0.125 high) |
+| Lily | 0.5 x 0.125, rests at the lane's 0.45 less 0.15 = 0.3, turns slowly | same |
+| Log and lily dip | 0.18 down when landed on (attack 0.1, hold 0.1, release 0.1 s); the hopper dips 0.2 (0.01, 0.1, 0.17, 0.1) | same envelopes |
+
+Deaths (source, the player controller): run over = scale (1 + (1 - spread), splat + 0.05, 1) with spread falling over 1 s and
+splat over 0.1 s, turned a random +-45 deg; a sideways hop into a car ("carside") = scale (1, 1.3, splat + 0.15) carried on
+the car's side at +0.3 up and +0.6 toward the camera; a train flattens and carries the hopper (the camera follows its x
+only within +-5); drowning = y 0.5 - easeOutQuint(t) x 1.4 over 1 s with a burst of 70 blue boxes (449EFF: acceleration 1.9,
+gravity 0.3 a frame, spread 0.9, up 1.5, they stop below 0.3); the chicken's feathers on a hit = 40 flat boxes 0.1 x 0.02
+(acceleration 0.4, gravity 0.02, spread 1.6, direction (3.5, 2, -3), spin 3). Ours run the same numbers on our own boxes;
+our hen's feathers are her own colour. The start wobble: (1.1, 0.9, 1.1) while a 0.4 s envelope is up.
+
+HUD (measured at 1280 x 720): the score's glyphs are 50 px tall, 15 px from the corner, a black edge 5 px round and 10 px
+on the lower right; the coin count is 35 px tall at the top right; the pause is two white bars 10 x 28 px with an 8 px
+gap, 10 px from the right and 65 px down. On a phone the reference letterboxes to 9:16 (blue bars); ours keeps the 9:16
+width and shows more road above and below, so the world and the HUD are the same size as the reference's on a phone.
+
+Character: Nugget, our own hen (default look): golden-buff body wider than tall, a separate cream head set forward, a
+three-lobed rose comb lying front to back, a short gold beak and a red wattle, eyes on the sides, an upswept tail. Pepper
+(the same hen in blue-grey) is worn by the rival when both wear Nugget. Sprout, Bloop and Pebble stay free looks.

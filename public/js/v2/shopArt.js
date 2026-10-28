@@ -417,6 +417,28 @@
     var cx = w / 2 - s * 0.15, top = h / 2 - s * 0.55 - hop, col = k.col || '#62c84a';
     var dx = s * 0.45, dy = s * 0.3;
     ctx.fillStyle = 'rgba(0,0,0,0.18)'; ctx.fillRect(cx - s / 2 + dx * 0.4, h / 2 + s * 0.62, s + dx, dy * 0.6);
+    // One block seen from the front and a little from above and the right: x, y (its top), size, depth d, all in s.
+    function box(x, y, bw, bh, d, c) {
+      var X = cx + x * s, Y = top + y * s, Wd = bw * s, Hd = bh * s, ox = d * dx, oy = d * dy;
+      ctx.fillStyle = mix(c, '#ffffff', 0.12);
+      ctx.beginPath(); ctx.moveTo(X, Y); ctx.lineTo(X + Wd, Y); ctx.lineTo(X + Wd + ox, Y - oy); ctx.lineTo(X + ox, Y - oy); ctx.fill();
+      ctx.fillStyle = c; ctx.fillRect(X, Y, Wd, Hd);
+      ctx.fillStyle = mix(c, '#1a1340', 0.4);
+      ctx.beginPath(); ctx.moveTo(X + Wd, Y); ctx.lineTo(X + Wd + ox, Y - oy); ctx.lineTo(X + Wd + ox, Y - oy + Hd); ctx.lineTo(X + Wd, Y + Hd); ctx.fill();
+    }
+    if (k.id === 'nugget') {
+      // Nugget, our hen (public/js/crossy/crossyScene.js henGeo): the tail behind, the body, the head set forward, the comb.
+      box(-0.18, 0.12, 0.36, 0.34, 0.5, '#e9a24c');
+      box(-0.5, 0.42, 1.0, 0.72, 1, '#fbd88e');
+      box(-0.36, 0.5, 0.06, 0.4, 0.6, '#f0b85c');
+      box(-0.4, -0.12, 0.7, 0.62, 0.62, '#fff0c8');
+      box(-0.22, -0.3, 0.14, 0.2, 0.5, '#e8475e'); box(-0.06, -0.38, 0.14, 0.28, 0.5, '#c93349'); box(0.1, -0.3, 0.14, 0.2, 0.5, '#e8475e');
+      box(-0.18, 0.16, 0.24, 0.12, 0.15, '#f2a21b');
+      box(-0.12, 0.28, 0.12, 0.16, 0.05, '#e8475e');
+      ctx.fillStyle = '#241610'; ctx.fillRect(cx - s * 0.32, top + s * 0.02, s * 0.1, s * 0.12); ctx.fillRect(cx + s * 0.08, top + s * 0.02, s * 0.1, s * 0.12);
+      box(-0.3, 1.14, 0.12, 0.14, 0.3, '#f4b23a'); box(0.16, 1.14, 0.12, 0.14, 0.3, '#f4b23a');
+      return;
+    }
     ctx.fillStyle = mix(col, '#ffffff', 0.12);                          // top
     ctx.beginPath(); ctx.moveTo(cx - s / 2, top); ctx.lineTo(cx + s / 2, top); ctx.lineTo(cx + s / 2 + dx, top - dy); ctx.lineTo(cx - s / 2 + dx, top - dy); ctx.fill();
     ctx.fillStyle = col; ctx.fillRect(cx - s / 2, top, s, s * 1.1);    // front

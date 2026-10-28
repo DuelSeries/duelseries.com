@@ -52,7 +52,8 @@ html, body {
   background: transparent; border: 0; cursor: pointer;
 }
 #leave[hidden] { display: none; }
-#leave i { display: block; width: 9px; height: 28px; background: #fff; box-shadow: 3px 3px 0 #000; }
+/* The reference's pause: two white bars 10 x 28 px with an 8 px gap, 10 px from the right edge, no outline. */
+#leave i { display: block; width: 10px; height: 28px; background: #fff; }
 #leave:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 
 #watchLine {

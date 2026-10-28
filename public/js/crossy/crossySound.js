@@ -12,9 +12,10 @@
   if (!S) { root.CrossySound = { play() {} }; return; }
   const { mf } = S;
   S.define({
-    // A short springy blip, a little higher every other hop (crossyMain passes rate).
-    'cr.hop': [{ o: 'q', du: 0.3, f: [mf(76), mf(83)], d: 0.07, v: 0.05, e: 0.025, g: 0.05 },
-               { o: 's', f: [mf(88), mf(95)], d: 0.06, v: 0.05, e: 0.02, g: 0.04 }],
+    // Our cluck for every hop: a quick dropping square, a squeak on top, a breath of noise (crossyMain alternates rate).
+    'cr.hop': [{ o: 'q', du: 0.25, f: [820, 560], d: 0.045, v: 0.045, a: 0.003, e: 0.02 },
+               { o: 't', f: [1250, 700], at: 0.035, d: 0.05, v: 0.05, e: 0.03 },
+               { o: 'n', d: 0.03, v: 0.025, bp: [[1800, 1200], 1.2], e: 0.02 }],
     'cr.coin': [{ o: 'q', du: 0.5, f: mf(93), d: 0.06, v: 0.05, e: 0.03 },
                 { o: 'q', du: 0.5, f: mf(100), at: 0.06, d: 0.16, v: 0.05, e: 0.06 }],
     'cr.horn': [{ o: 'q', du: 0.45, f: 330, d: 0.22, v: 0.035, a: 0.01, e: 0.12 },

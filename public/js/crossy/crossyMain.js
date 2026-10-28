@@ -187,7 +187,7 @@ function startMatch(m) {
   const offset = (Number(m.now) || Date.now()) + oneWay() - performance.now();
   const looks = [null, null];
   for (const p of players) if ((p.side === 0 || p.side === 1) && typeof p.skin === 'string') looks[p.side] = p.skin;
-  view.setLooks(looks);
+  view.setLooks(looks, mySeat);
   match = { id: m.id, seed: m.seed >>> 0, vsBot: !!m.vsBot, players, names, stake: m.stake, pot: m.pot, goAt: Number(m.goAt) || 0, offset };
   world = new Sim.World(match.seed);
   view.setWorld(world);
@@ -669,73 +669,101 @@ function watchOver(m) {
   followOn(WATCH_OVER_MS);
 }
 
-/* ── the HUD: our own pixel lettering (5 x 7), drawn like the reference's (white, a hard black shadow) ──── */
+/* ── the HUD: our own chunky block lettering, at the reference's proportions (measured 2026-10-28 at 1280 x 720:
+   the score is 50 px tall at 15 px from the corner, its black edge 5 px round it and 10 px on the lower right; the
+   coins are 35 px tall at the top right). Our glyphs are 5 x 5 blocks of two units with every outer corner cut
+   by one unit, so they read round; the shapes are our own. ──── */
 const GLYPH = {
-  0: ['01110', '10001', '10001', '10001', '10001', '10001', '01110'], 1: ['00100', '01100', '00100', '00100', '00100', '00100', '01110'],
-  2: ['01110', '10001', '00001', '00110', '01000', '10000', '11111'], 3: ['11110', '00001', '00001', '01110', '00001', '00001', '11110'],
-  4: ['00010', '00110', '01010', '10010', '11111', '00010', '00010'], 5: ['11111', '10000', '11110', '00001', '00001', '10001', '01110'],
-  6: ['00110', '01000', '10000', '11110', '10001', '10001', '01110'], 7: ['11111', '00001', '00010', '00100', '01000', '01000', '01000'],
-  8: ['01110', '10001', '10001', '01110', '10001', '10001', '01110'], 9: ['01110', '10001', '10001', '01111', '00001', '00010', '01100'],
-  G: ['01110', '10001', '10000', '10111', '10001', '10001', '01111'], O: ['01110', '10001', '10001', '10001', '10001', '10001', '01110'],
-  '!': ['00100', '00100', '00100', '00100', '00100', '00000', '00100'],
+  0: ['.###.', '##.##', '##.##', '##.##', '.###.'], 1: ['###..', '.##..', '.##..', '.##..', '#####'],
+  2: ['####.', '...##', '.###.', '##...', '#####'], 3: ['####.', '...##', '.###.', '...##', '####.'],
+  4: ['##.##', '##.##', '#####', '...##', '...##'], 5: ['#####', '##...', '####.', '...##', '####.'],
+  6: ['.####', '##...', '####.', '##.##', '.###.'], 7: ['#####', '...##', '..##.', '.##..', '.##..'],
+  8: ['.###.', '##.##', '.###.', '##.##', '.###.'], 9: ['.###.', '##.##', '.####', '...##', '####.'],
+  G: ['.####', '##...', '##.##', '##.##', '.####'], O: ['.###.', '##.##', '##.##', '##.##', '.###.'], '!': ['##', '##', '##', '..', '##'],
 };
-function pixText(str, x, y, p, fill, align) {
-  const chars = String(str).split('');
-  const w = chars.length * 6 * p - p;
-  let cx = align === 'right' ? x - w : align === 'center' ? x - w / 2 : x;
-  for (const ch of chars) {
-    const g = GLYPH[ch];
-    if (g) for (let pass = 0; pass < 2; pass++) {
-      hx.fillStyle = pass ? fill : '#000';
-      const o = pass ? 0 : Math.max(2, Math.round(p * 0.5));
-      for (let r = 0; r < 7; r++) for (let c = 0; c < 5; c++) if (g[r][c] === '1') hx.fillRect(cx + c * p + o, y + r * p + o, p, p);
+// One glyph's unit squares (u = a unit): each block is 2 x 2 units, less a unit at every outer corner.
+const glyphCache = new Map();
+function glyphUnits(ch) {
+  if (glyphCache.has(ch)) return glyphCache.get(ch);
+  const g = GLYPH[ch], out = [];
+  if (g) {
+    const on = (r, c) => r >= 0 && r < g.length && c >= 0 && c < g[0].length && g[r][c] === '#';
+    for (let r = 0; r < g.length; r++) for (let c = 0; c < g[0].length; c++) {
+      if (!on(r, c)) continue;
+      for (const [dy, dx] of [[0, 0], [0, 1], [1, 0], [1, 1]]) {
+        const vr = dy ? 1 : -1, vc = dx ? 1 : -1;
+        if (!on(r + vr, c) && !on(r, c + vc) && !on(r + vr, c + vc)) continue;   // an outer corner: cut
+        out.push([c * 2 + dx, r * 2 + dy]);
+      }
     }
-    cx += 6 * p;
+  }
+  const v = { w: g ? g[0].length * 2 : 0, u: out };
+  glyphCache.set(ch, v);
+  return v;
+}
+function textWidth(str, u) { let w = 0; for (const ch of String(str)) w += (glyphUnits(ch).w + 2) * u; return Math.max(0, w - 2 * u); }
+// The black edge: every unit square grown by one unit round it and by one more down and to the right.
+function blockText(str, x, y, u, fill, align) {
+  const w = textWidth(str, u);
+  const x0 = Math.round(align === 'right' ? x - w : align === 'center' ? x - w / 2 : x);
+  y = Math.round(y);
+  for (let pass = 0; pass < 2; pass++) {
+    hx.fillStyle = pass ? fill : '#000';
+    let cx = x0;
+    for (const ch of String(str)) {
+      const G = glyphUnits(ch);
+      for (const [c, r] of G.u) {
+        if (pass) hx.fillRect(cx + c * u, y + r * u, u, u);
+        else hx.fillRect(cx + (c - 1) * u, y + (r - 1) * u, u * 4, u * 4);
+      }
+      cx += (G.w + 2) * u;
+    }
   }
   return w;
 }
-function coinIcon(x, y, s) {
-  hx.fillStyle = '#000'; hx.fillRect(x + 3, y + 3, s, s);
+// Our coin, s across: a square coin with a pale pip (not the reference's), with the same black edge.
+function coinIcon(x, y, s, u) {
+  hx.fillStyle = '#000'; hx.fillRect(x - u, y - u, s + 3 * u, s + 3 * u);
   hx.fillStyle = '#d99a1e'; hx.fillRect(x, y, s, s);
-  hx.fillStyle = '#ffd23f'; hx.fillRect(x + s * 0.12, y + s * 0.12, s * 0.76, s * 0.76);
-  hx.fillStyle = '#fff3a8'; hx.fillRect(x + s * 0.36, y + s * 0.36, s * 0.28, s * 0.28);
+  hx.fillStyle = '#ffd23f'; hx.fillRect(x + u, y + u, s - 2 * u, s - 2 * u);
+  hx.fillStyle = '#fff3a8'; hx.fillRect(x + s / 2 - u, y + s / 2 - u, 2 * u, 2 * u);
 }
 function drawHud(W, H, dpr) {
   hx.setTransform(dpr, 0, 0, dpr, 0, 0);
   hx.clearRect(0, 0, W, H);
   if (!match) return;
-  const u = Math.max(4, Math.round(Math.min(H, W * 0.75) * 0.0125));   // the score's pixel (9 px on a 720-high screen)
-  const top = Math.max(10, u * 1.2);
+  // 5 px on a 720-high screen (the score is 10 units, 50 px); the reference's grows on a tall phone (55 px at 695 high).
+  const u = Math.max(4, Math.min(9, Math.round(Math.min(H, W / 0.5625) / 140)));   // a tall phone counts as 9:16, as the reference letterboxes it
+  const top = 3 * u;
   const meH = mySeat >= 0 ? mine : (shown[0] && shown[1] ? (Sim.score(shown[0]) >= Sim.score(shown[1]) ? shown[0] : shown[1]) : null);
-  if (meH) pixText(Sim.score(meH), top, top, u, '#fff');
+  if (meH) blockText(Sim.score(meH), top, top, u, '#fff');
   // The rival: their name and score, small, under yours.
   if (mySeat >= 0) {
     const o = shown[1 - mySeat];
-    hx.font = '700 ' + Math.max(12, Math.round(u * 1.6)) + 'px Archivo, system-ui, sans-serif';
+    const fs = Math.max(12, Math.round(u * 2.8));
+    hx.font = '800 ' + fs + 'px Archivo, system-ui, sans-serif';
     hx.textBaseline = 'top';
-    const yy = top + u * 8.6, label = (match.names[1 - mySeat] || 'Rival') + ' ';
+    const yy = top + u * 13.5, label = (match.names[1 - mySeat] || 'Rival') + ' ';
     hx.fillStyle = '#000'; hx.fillText(label, top + 2, yy + 2);
     hx.fillStyle = '#fff'; hx.fillText(label, top, yy);
     const lw = hx.measureText(label).width;
-    pixText(o ? Sim.score(o) : 0, top + lw + 4, yy + 1, Math.max(2, Math.round(u * 0.4)), '#fff');
+    blockText(o ? Sim.score(o) : 0, top + lw + u, yy + 1, Math.max(2, Math.round(fs / 11)), '#fff');
   }
-  // Coins, top right, yellow, with our coin.
-  const cu = Math.max(3, Math.round(u * 0.7));
+  // Coins, top right: 7 units tall, yellow, then our coin.
+  const cu = u * 0.7, iconS = Math.round(u * 6);
   const coins = meH ? meH.coins : 0;
-  const iconS = cu * 7;
-  coinIcon(W - top - iconS, top, iconS);
-  pixText(coins, W - top - iconS - cu * 2, top, cu, '#ffe100', 'right');
-  // The pause button sits under the coin, which grows with the window: at a fixed 52 px it covered the coin on a
-  // 1080p screen (site sweep 2026-10-28).
-  const leaveTop = Math.round(top + iconS + 8) + 'px';
+  const right = W - 2 * u - iconS;
+  coinIcon(right, top, iconS, Math.max(2, Math.round(u * 0.7)));
+  blockText(coins, right - 3 * u, top, cu, '#ffe100', 'right');
+  // The pause button sits under the coins (the reference's: 13 units from the top).
+  const leaveTop = Math.round(top + 10 * u) + 'px';
   if (leaveTop !== lastLeaveTop) { lastLeaveTop = leaveTop; $('leave').style.top = leaveTop; }
   // The countdown, then GO.
   const ft = matchFt();
   if (phase === 'countdown' || (phase === 'playing' && ft < 40)) {
     const left = -ft / Sim.HZ;
-    const big = Math.round(u * 2.2);
     const txt = left > 0 ? String(Math.ceil(left)) : 'GO!';
-    pixText(txt, W / 2, H * 0.36, big, '#fff', 'center');
+    blockText(txt, W / 2, H * 0.3, Math.round(u * 1.6), '#fff', 'center');
   }
   // The key hint until the first hop (the reference shows its arrow keys at the bottom).
   if (!hinted && mySeat >= 0 && !overShown) {
@@ -808,17 +836,25 @@ function frame(now) {
   const focusSeat = mySeat >= 0 ? mySeat : (Sim.score(shown[0]) >= Sim.score(shown[1]) ? 0 : 1);
   const fh = shown[focusSeat];
   const d = Sim.laneTime(ft);
-  const deadInfo = (h, s) => (!h.alive ? { type: h.death, age: Math.max(0, (performance.now() - (deadAt[s] || performance.now())) / 1000) } : null);
+  // side: hit by a car while hopping sideways into its lane (the reference's "carside": carried off on its side).
+  const deadInfo = (h, s) => (!h.alive ? { type: h.death, age: Math.max(0, (performance.now() - (deadAt[s] || performance.now())) / 1000),
+    side: (h.face === IN.LEFT || h.face === IN.RIGHT) && h.deadTick - h.hopAt < 24 } : null);
+  // Riding a log or a lily: the time since it landed there (the dip), keyed by the log's id or the lily's column.
+  const landOf = (h) => {
+    if (!h.alive || (h.log < 0 && !h.lily)) return null;
+    const t = (ft - h.hopAt - Sim.C.WATER_TEST) * Sim.DT;
+    return t >= 0 && t < 0.5 ? { r: h.r, key: h.lily ? h.x : h.log, t } : null;
+  };
   if (fh) {
     const b = Sim.bodyAt(world, fh, ft);
-    view.follow(b, fh.eagle, dt, deadInfo(fh, focusSeat));
+    view.follow(b, fh.eagle, dt, deadInfo(fh, focusSeat), focusSeat);
     for (const s of [0, 1]) {
       const h = shown[s];
       if (!h || (!seen[s] && s !== mySeat)) { view.hideHopper(s); continue; }
       const bb = Sim.bodyAt(world, h, ft);
       const mineNow = s === mySeat;
       // The rival is a whole character on the same map (Owen 2026-10-28); you pass through each other.
-      view.drawHopper(s, bb, mineNow && faceOnly ? faceOnly : h.face, false, mineNow && hold && !!faceOnly, deadInfo(h, s), dt);
+      view.drawHopper(s, bb, mineNow && faceOnly ? faceOnly : h.face, false, mineNow && hold && !!faceOnly, deadInfo(h, s), dt, landOf(h), ft * Sim.DT);
     }
     const dead = deadInfo(fh, focusSeat);
     view.drawEagle(!!dead && dead.type === 'eagle', fh.x, -fh.r, dead ? dead.age : 0);
