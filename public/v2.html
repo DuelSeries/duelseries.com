@@ -5357,10 +5357,13 @@ function startFromDetail(){
     /* The doors are read fresh first: on this screen the board's poll waits
        for home and only the push keeps them, so a door shut a moment ago
        (with the push down) would take a stake its queue then refuses
-       (review). Staked only if this card and rung are still the ones picked;
-       launch() reads the fresh door. */
+       (review). Staked only if this card and rung are still the ones picked,
+       on screen; launch() reads the fresh door. */
     const id=cur.id;
-    const go=()=>{if(cur&&cur.id===id&&Number(STEPS[si])===st)V2Play.launch(id,{stake:st})};
+    const go=()=>{
+      const d=document.getElementById('detail');   // Back during the round trip: not staked from home
+      if(cur&&cur.id===id&&Number(STEPS[si])===st&&d&&screenShown(d))V2Play.launch(id,{stake:st});
+    };
     if(window.V2Board&&typeof V2Board.load==='function')Promise.resolve(V2Board.load()).then(go,go);else go();
     return;
   }

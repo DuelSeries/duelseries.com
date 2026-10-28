@@ -123,14 +123,18 @@ async function detail(cur, STEPS, si, off, between) {
   assert.ok(a > -1 && b > a, 'startFromDetail is where this test cuts it');
   const calls = [];
   let loads = 0;
+  const detailEl = { id: 'detail', shown: true };
   const win = { cur, STEPS, si, STEPS_OFF: new Set(off),
+    document: { getElementById: (x) => (x === 'detail' ? detailEl : null) },
+    screenShown: (el) => !!(el && el.shown),
     V2Play: { launch: (g, sel) => calls.push([g, sel]), playChosen: () => calls.push(['chosen']) },
     V2Board: { load: async () => { loads++; } } };
   win.window = win;
   vm.createContext(win);
   vm.runInContext('var cur=this.cur,STEPS=this.STEPS,si=this.si,STEPS_OFF=this.STEPS_OFF,V2Play=this.V2Play,V2Board=this.V2Board;\n' +
     html.slice(a, b) + '\nthis.set=(k,v)=>{if(k==="si")si=v;else cur=v};startFromDetail();', win);
-  if (between) between(win.set);         // the player moves before the fresh board answers
+  const set = (k, v) => (k === 'back' ? (detailEl.shown = false) : win.set(k, v));
+  if (between) between(set);             // the player moves (or goes Back) before the fresh board answers
   await new Promise((r) => setTimeout(r, 0));
   return { calls: plain(calls), loads };
 }
@@ -145,6 +149,8 @@ test('Play on a paid duel\'s open rung stakes that rung after a fresh board; Fre
     'the rung changed before the board answered: the $1 is not staked');
   assert.deepStrictEqual((await detail(ko, [0, 0.5, 1], 2, [], (set) => set('cur', { id: 'battleship', duel: 1, built: 1, paid: 1 }))).calls, [],
     'another card opened before the board answered: nothing staked');
+  assert.deepStrictEqual((await detail(ko, [0, 0.5, 1], 1, [], (set) => set('back'))).calls, [],
+    'Back to home before the board answered: nothing staked');
   const tanks = { id: 'tanks', duel: 1, built: 1, freeOnly: 1 };
   assert.deepStrictEqual((await detail(tanks, [0, 0.5, 1], 1, [])).calls, [['tanks', { lobbyType: 'free' }]], 'a free-only duel is Free');
   assert.deepStrictEqual((await detail({ id: 'snake', ladder: 1 }, [0, 0.5, 1], 1, [])).calls, [['chosen']], 'the arenas keep their own path');
