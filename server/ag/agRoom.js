@@ -650,6 +650,7 @@ class AgRoom {
     const tries = AG_MONEY.SPAWN_TRIES.value;
     const pt = this.sim.findSpawnPoint(size, AG_MONEY.SPAWN_CLEAR.value, tries) || this.sim.findSpawnPoint(size, 0, tries);
     this.sim.spawn(seat.pid, nm, pt);
+    seat.diagSpawn = { tick: this.sim.tick(), x: pt ? pt.x : null, y: pt ? pt.y : null, cells: null };
     return 'ok';
   }
 
@@ -762,6 +763,7 @@ class AgRoom {
     this._thinkBots();
     const ev = this.sim.step();
     for (const s of this.seats.values()) s.spawnQueued = false;
+    this._diagSpawnDeaths(ev);
     // Money after the step, in sim order (design 3.4); free holds after the eats too, so death wins a tie.
     if (this.money) this.money.afterStep(ev);
     else if (this._holders.size) this._holdDoneFree();
@@ -777,6 +779,36 @@ class AgRoom {
     this._send(ev);
     this._sendEnd = this.clock();
     this.stats.ticks++;
+  }
+
+  /* Diagnostic (2026-10-28 site sweep: free guests "Eaten by Noah" 0 to 1 s after spawning on the live site, never in
+     a fresh offline room). For 2 s after a free person's spawn, an eat of one of their cells is logged with what ate
+     it: its size against theirs, how far it was from the spawn point, whether it was a split piece in flight (its
+     owner's cell count, boost), how old the eater cell was (a bot just back on an ejected blob) and the room's age.
+     Reads only; one line per such death. */
+  _diagSpawnDeaths(ev) {
+    const now = this.sim.tick();
+    const tickMs = this.sim.laws.L1.value;
+    for (const seat of this.seats.values()) {
+      const d = seat.diagSpawn;
+      if (!d) continue;
+      if ((now - d.tick) * tickMs > 2000) { seat.diagSpawn = null; continue; }
+      const info = this.sim.playerInfo(seat.pid);
+      if (!d.cells) { if (info && info.cells.length) d.cells = info.cells.slice(); continue; }
+      for (const [eaterId, victimId] of ev.eats || []) {
+        if (d.cells.indexOf(victimId) < 0) continue;
+        const e = this.sim.getCell(eaterId);
+        const o = e && e.owner !== null ? this.sim.playerInfo(e.owner) : null;
+        const far = e && d.x !== null ? Math.round(Math.hypot(e.x - d.x, e.y - d.y)) : null;
+        console.warn('[AG] spawn death ' + JSON.stringify({ room: this.id || null, afterMs: (now - d.tick) * tickMs,
+          roomAgeS: Math.round(now * tickMs / 1000), clear: d.x !== null, eater: o ? o.name : (e ? e.kind : null),
+          eaterBot: o ? o.bot : null, eaterSize: e ? Math.round(e.size) : null, startSize: this.sim.startSize(),
+          eaterFromSpawn: far, eaterCells: o ? o.cells.length : null, eaterBoost: e ? Math.round(e.boost) : null,
+          eaterAgeMs: e ? (now - e.born) * tickMs : null }));
+        seat.diagSpawn = null;
+        break;
+      }
+    }
   }
 
   // Free hold-Q, before the step: a seat holds while it has a fresh hold message and a live cell; the first such tick
