@@ -30,7 +30,7 @@ says why it is what it is. Code: `shared/ahSim.js` (the physics, run by the serv
 - **First to 7.** Bot vs bot matches run about two minutes.
 - **Serve**: the first one goes to a random seat after a 3, 2, 1. After a goal the puck is served, still, on the spot in the middle of the half of whoever conceded (real air hockey).
 - **The 7 second rule**: a puck that stays on one half for 7 seconds is served to the other player, with a red ring round the puck counting down from 4 s. This is the real rule, and it is what stops a leader in a paid match from sitting on the puck until the clock runs out.
-- **Clock safety**: 4 minutes of play (the clock stops during goal breaks). At 0:00 the leader wins. Level at 0:00 is sudden death: one more minute where the next goal wins. Still level after it is a draw and each seat is refunded its own stake.
+- **Clock safety**: 4 minutes of play (the clock stops during goal breaks). At 0:00 the leader wins. Level at 0:00 is sudden death: one more minute where the next goal wins. Still level after it (the hard stop) is a draw and each seat is refunded its own stake. Owen's answer was "first to 7, a 4-minute safety clock, after it the next goal wins, still level at a hard stop = draw"; read with Head Soccer's precedent, "next goal wins" applies to a level match (a leader at 0:00 has already won).
 - **Leaving forfeits** (Knockout's rule, inherited). Leaving during the 2.5 s hold after the winning goal is settled by the score, never by who stayed.
 
 ## Netcode
@@ -53,9 +53,14 @@ Three looks were built (`?look=arcade`, `?look=house`, `?look=rink`): see the ju
 
 Hit feel: the puck flashes white, a ring and sparks burst from the contact point, the mallet lights, the screen shakes a little (up to 7 px, scaled by the hit; 40% under reduced motion), and a plastic clack plays louder and deeper the harder the hit. A goal lights the goal mouth in the scorer's colour up the table, shakes 11 px, slams GOAL with the scorer's name, and plays the drop into the slot and a buzzer.
 
+## Customize and music (Owen 2026-10-28)
+
+- **Customize**: the lobby's chooser lists Neon cyan (the game's own) then three free colours, Gold, Lime and Ember (`shared/ahSkins.js`, kept under `duel.airhockey.skin`). It colours YOUR mallet, its flash and the puck's trail on your own screen; the other player is always magenta, so the two mallets never look alike. Cosmetic only, nothing on the server reads it. No Shop skins yet, so Air Hockey is not in the Shop list.
+- **Music**: an original loop written for the game (118 BPM, A minor, Am F C G two bars each; kick, clap, off-beat hats, eighth-note bass, sixteenth-note arpeggio, a soft pad), synthesised live while a match is on screen and the tab is visible. The note button (under pause on PC, bottom left on a phone) turns it off; remembered under `ah.music`.
+
 ## The bot (free tables only)
 
-It sees the puck 130 ms late and guesses forward from that, so bank shots and quick changes fool it the way they fool a person. Its hand moves at 1500 units/s (2200 when it swings), well under a person's 2600. Puck on its half: it lines up behind the puck on a line to the goal (40% of the time a bank off a side rail) and drives through it, with a little miss in every swing. Puck coming at it: it slides to where the puck will cross its defending line, kept near the mouth. Otherwise it waits between the puck and its goal. Beatable with fast shots and banks; not dumb.
+It sees the puck 130 ms late and guesses forward from that, so bank shots and quick changes fool it the way they fool a person. Its hand moves at 1500 units/s (2200 when it swings), well under a person's 2600. Puck on its half: it lines up behind the puck on a line to the goal (40% of the time a bank off a side rail) and drives through it, with a little miss in every swing. Puck coming at it: it slides to where the puck will cross its defending line, kept near the mouth. Otherwise it waits between the puck and its goal. Beatable with fast shots and banks; not dumb: the same strategy with a much quicker hand (60 ms, full speed) only beats it 7 matches in 12.
 
 ## Paid
 
