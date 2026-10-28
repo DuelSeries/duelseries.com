@@ -287,6 +287,32 @@ function createGrid() {
       lo.x = x0; lo.y = y0;
       hi.x = x1; hi.y = y1;
     },
+    // A cell made since the last rebuild: last in its bucket, where a rebuild (cells in creation order) puts it.
+    add(c) {
+      const bx = idx(c.x);
+      const by = idx(c.y);
+      const k = key(bx, by);
+      let arr = buckets.get(k);
+      if (arr === undefined) { arr = []; buckets.set(k, arr); }
+      if (arr.length === 0) used.push(arr);
+      arr.push(c);
+      if (c.size > maxSize) maxSize = c.size;
+      if (bx < lo.x) lo.x = bx;
+      if (bx > hi.x) hi.x = bx;
+      if (by < lo.y) lo.y = by;
+      if (by > hi.y) hi.y = by;
+    },
+    // A cell gone since the last rebuild, from the bucket it was put in (nothing has moved since, or the next read
+    // rebuilds): the others keep their order. Bounds and maxSize may stay wider than a rebuild would make them; every
+    // reader filters by the exact geometry, so a wider search finds the same cells in the same order.
+    remove(c) {
+      const arr = buckets.get(key(idx(c.x), idx(c.y)));
+      const i = arr === undefined ? -1 : arr.indexOf(c);
+      if (i >= 0) arr.splice(i, 1);
+    },
+    raiseMax(s) {
+      if (s > maxSize) maxSize = s;
+    },
     maxSize() {
       return maxSize;
     },
@@ -376,7 +402,10 @@ function createSim(opts) {
   const growQueue = new Map(); // L32 'whileUneaten': tick -> ids of the food due to grow on that tick
   let inStep = false;
   const grid = createGrid();
-  let gridDirty = true;
+  let gridDirty = true;        // a cell moved: the next read rebuilds the grid (freshGrid)
+  const gridNew = [];          // cells made since the last read, when nothing moved
+  const gridGone = [];         // cells removed since the last read, when nothing moved
+  let gridGrew = false;        // food grew since the last read
   // Mass bookkeeping (in mass units, size^2 / 100) so a soak can prove the accounting closes:
   // live mass = created - destroyed, where every destroyed entry names its cause.
   const ledger = { created: 0, decay: 0, eject: 0, eat: 0, virus: 0, cap: 0, left: 0, trim: 0 };
@@ -438,7 +467,7 @@ function createSim(opts) {
     ev.added.push(c.id);
     // Every new non-food cell starts inside the L3 box (SIM CHOICE: random spawn points and edge blobs included).
     if (kind !== 'food') agMap.pushInside(c, border, laws);
-    gridDirty = true;
+    if (!gridDirty) gridNew.push(c);
     return c;
   }
 
@@ -464,13 +493,36 @@ function createSim(opts) {
     }
     if (cause) ledger[cause] += massOf(c.size);
     ev.removed.push(c.id);
-    gridDirty = true;
+    if (!gridDirty) gridGone.push(c);
   }
 
+  /* The grid a read sees is the one a full rebuild at that moment would make. A rebuild walks every cell (the food
+     included, which never moves), and it ran about twice a step and again after each spawn in a refill: the live
+     profile (2026-10-28) put it at 21-23 ms of every second, the largest single cost on the server every game
+     shares. Now only movement (gridDirty: moveBoosted, movePlayers, stepMap, relocate, the only places a cell's
+     x or y is written) rebuilds; cells made or removed since are applied at the next read instead, in the order a
+     rebuild would give, and maxSize is raised to cover growth (which always comes with a removal, an eat or a
+     merge, or is food growing, which stays under L.foodMax). */
   function freshGrid() {
     if (gridDirty) {
       grid.rebuild(cells);
       gridDirty = false;
+      gridGone.length = 0;
+      gridNew.length = 0;
+      gridGrew = false;
+      return grid;
+    }
+    if (gridGone.length !== 0 || gridGrew) {
+      for (const c of gridGone) grid.remove(c);
+      let m = gridGrew ? L.foodMax : 0;
+      for (const map of [playerCells, viruses, ejected]) for (const c of map.values()) if (c.size > m) m = c.size;
+      grid.raiseMax(m);
+      gridGone.length = 0;
+      gridGrew = false;
+    }
+    if (gridNew.length !== 0) {
+      for (const c of gridNew) if (!c.dead) grid.add(c);
+      gridNew.length = 0;
     }
     return grid;
   }
@@ -554,7 +606,7 @@ function createSim(opts) {
       const before = massOf(c.size);
       c.size = Math.min(c.size + L.growStep, L.foodMax);
       ledger.created += massOf(c.size) - before;
-      gridDirty = true;
+      gridGrew = true;
       scheduleGrowth(c);
     }
   }
