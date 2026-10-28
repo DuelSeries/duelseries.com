@@ -846,6 +846,7 @@ function paintOver() {
   }
   if (m.why === 'opponent left') card.notes.push('They left the match.');
   else if (m.why === 'a draw') card.notes.push('Level when the ten minutes ran out.');
+  else if (m.why === 'time up') card.notes.push('Ahead when the ten minutes ran out.');
   const paid = myStake > 0;
   const price = paid ? 'Play again ' + DSEnd.usd(Math.round(myStake * 1e6)) : 'Play again';
   const shut = !!restake && !restake.slow;

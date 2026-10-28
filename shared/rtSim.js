@@ -171,7 +171,11 @@
     var jump = m.mods[4] === 1 ? RT.JUMP_ATHLETE : RT.JUMP;
     m.power = m.mods[1] === 1 ? RT.POWER_STRONG : RT.POWER;
     m.world = normalMap();
+    var had = m.p;
     m.p = [newPlayer(0, fr, jump), newPlayer(1, fr, jump)];
+    /* The press counts run for the whole match (the room's inputs never reset), so a new round's players start
+       from the counts already applied: a fresh 0 would replay every earlier press (review 2026-10-28). */
+    if (had) for (var q = 0; q < 2; q++) { m.p[q].nj = had[q].nj; m.p[q].nd = had[q].nd; m.p[q].nr = had[q].nr; }
     m.chars = [Math.floor(rand(m) * RT.CHARS), Math.floor(rand(m) * RT.CHARS)];
     m.pairs = {};
     m.objs = [];
@@ -583,7 +587,6 @@
   // inputs[side]: running counts { j: jump presses, d: shoot presses, r: shoot releases, n: ticks the last shot was
   // held }. Each tick takes at most one of each kind that has not been applied yet, so a tap shorter than a tick
   // still counts, and the server and a client replaying the same counts agree.
-  var SLACK = 15;                // C: a shot may claim up to 0.25 s more hold than the server saw (its own lag)
   function tick(m, inputs) {
     m.ev = [];
     m.tick++;
@@ -609,8 +612,13 @@
       var inp = inputs && inputs[i];
       if (!inp) continue;
       if ((inp.d | 0) > p.nd) { p.nd++; raise(m, p); }
-      if ((inp.r | 0) > p.nr) { p.nr++; if (p.enabled) shoot(m, p, Math.min(inp.n | 0, p.held + SLACK)); }
-      if ((inp.j | 0) > p.nj) { p.nj++; want[i].j = true; }
+      /* The aim is the hold the SERVER saw, tick for tick (the arm turns from the press it applied to the release
+         it applied). A hold the client names is never believed: a modified client could otherwise fire at any
+         angle it had swept past (review 2026-10-28). */
+      if ((inp.r | 0) > p.nr) { p.nr++; if (p.enabled) shoot(m, p, p.held); }
+      /* One jump per press, and a backlog of presses is one press: several counted at once would stack impulses
+         while the feet are still near the roof (a "super jump", review 2026-10-28). */
+      if ((inp.j | 0) > p.nj) { p.nj = inp.j | 0; want[i].j = true; }
     }
     // 3. the physics step
     physics(m, dt);

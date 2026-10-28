@@ -206,14 +206,61 @@ test('inputs are clamped: counts only go up a few at a time, the hold is capped,
   assert.strictEqual(room.setInput('nobody', { j: 1 }), false);
 });
 
-test('a shot held longer than the server saw is held no longer than it saw plus a quarter second', () => {
+test('the aim is the hold the server saw: a hold the client claims is never believed', () => {
   const m = Sim.newMatch(9);
   Sim.begin(m);
   for (let i = 0; i < 90; i++) Sim.tick(m, null);
   Sim.tick(m, [{ d: 1 }, null]);                          // press: the arm starts at about -25
   const base = m.p[0].armBase;
   Sim.tick(m, [{ d: 1, r: 1, n: 38 }, null]);             // released one tick later, claiming 38 ticks
-  assert.ok(Math.abs(m.p[0].arm - Math.min(RT.ARM_MAX, base + 6 * (1 + 15))) < 1e-6, 'capped at the hold the server saw plus 15');
+  assert.ok(Math.abs(m.p[0].arm - (base + 6)) < 1e-6, 'one tick of hold, whatever was claimed');
+});
+
+test('a backlog of jump presses is one jump: no stacked "super jump"', () => {
+  const m = Sim.newMatch(4);
+  for (let i = 0; i < 240; i++) Sim.tick(m, null);
+  Sim.begin(m);
+  for (let i = 0; i < 6; i++) Sim.tick(m, [{ j: 4 }, null]);
+  assert.strictEqual(m.p[0].nj, 4);
+  assert.ok(m.p[0].body.vy > -RT.JUMP - 1, 'one impulse only: ' + m.p[0].body.vy);
+});
+
+test('a new round never replays the presses of the last one', () => {
+  const room = new RooftopRoom(io);
+  room.addPlayer(sock('A'), 'A', null);
+  room.addPlayer(sock('B'), 'B', null);
+  let t = 0;
+  room.start(t);
+  t = run(room, t, RT.READY_MS + 200);
+  const side = room.players.get('A').side;
+  room.setInput('A', { s: 1, j: 2, d: 3, r: 3 });
+  t = run(room, t, 300);
+  dropOff(room, 1 - side);
+  const shots = [];
+  const orig = room.broadcast.bind(room);
+  room.broadcast = (e, p) => { if (e === 'rt:ev') for (const x of p) if (x[0] === 'shot' || x[0] === 'jump') shots.push(x); return orig(e, p); };
+  t = run(room, t, 9000);                                 // the fall, the slow motion, the next round
+  assert.strictEqual(room.match.round, 2);
+  assert.strictEqual(shots.filter(x => x[1] === side).length, 0, 'no phantom shot or jump in the new round');
+  const p = room.match.p[side];
+  assert.deepStrictEqual([p.nj, p.nd, p.nr], [2, 3, 3], 'the counts carried over');
+});
+
+test('time up is final: a fall during the hold changes nothing, and a level score refunds', () => {
+  const { lob, settled } = lobby();
+  const { room } = paidMatch(lob, 1);
+  let t = run(room, 0, RT.READY_MS + 200);
+  room.match.score = [3, 3];
+  t = room.playSince + RooftopRoom.MATCH_MAX_MS + 50;
+  room.lastStepAt = t - 20; room.tick(t);
+  assert.strictEqual(room.state, 'settling');
+  dropOff(room, 1);                                       // blue goes over the line in the hold
+  t = run(room, t, 600);
+  assert.deepStrictEqual(room.match.score, [3, 3], 'no point is scored in the hold');
+  assert.strictEqual(room.setInput('A', { s: 9, j: 1 }), false, 'and no input is taken');
+  t = run(room, t, RooftopRoom.TIMEUP_HOLD_MS);
+  assert.strictEqual(settled.length, 1);
+  assert.strictEqual(settled[0].winnerId, null, 'the announced draw stays a draw');
 });
 
 test('a player dropped on the roof comes to rest standing on it', () => {

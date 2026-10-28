@@ -69,6 +69,7 @@ class RooftopRoom extends KnockoutRoom {
   setInput(socketId, msg) {
     const side = this.sideOfSocket(socketId);
     if (side === null || !msg || typeof msg !== 'object') return false;
+    if (this.state !== 'countdown' && this.state !== 'playing') return false;   // nothing to press once it is decided
     const inp = this.inputs[side];
     inp.j = count(msg.j, inp.j);
     inp.d = count(msg.d, inp.d);
@@ -101,7 +102,13 @@ class RooftopRoom extends KnockoutRoom {
     if (this.state === 'waiting' || this.state === 'over') return;
     if (this.state === 'settling' && t >= this.phaseEndsAt) { this.finishByScore(); return; }
     if (this.state === 'playing' && this.playSince && t - this.playSince >= MATCH_MAX_MS) {
-      // Time up: settled by the score as it stands (KnockoutRoom.removePlayer decides by it too from here on).
+      /* Time up: the score as it stands is final. Play stops here (both players disabled, the sim's rules off), so
+         nothing in the hold can change who is paid, and finishByScore / decideNow settle on this frozen score
+         (review 2026-10-28: a fall in the hold used to turn an announced draw into a payout). */
+      const m = this.match;
+      this.finalScore = m.score.slice();
+      m.phase = 'frozen';
+      for (const p of m.p) { p.enabled = false; p.raising = false; }
       this.state = 'settling';
       this.phaseEndsAt = t + TIMEUP_HOLD_MS;
       this.broadcast('rt:timeup', { score: this.match.score.slice(), holdMs: TIMEUP_HOLD_MS });
@@ -150,10 +157,10 @@ class RooftopRoom extends KnockoutRoom {
   }
 
   finishByScore() {
-    const [a, b] = this.match.score;
+    const [a, b] = this.finalScore || this.match.score;
     const bySide = (s) => { for (const [id, p] of this.players) if (p.side === s) return id; return null; };
     if (a === b) return this.finish(null, 'a draw');      // only when time ran out level: each seat refunded
-    this.finish(bySide(a > b ? 0 : 1), 'first to ' + RT.PLAY_TO);
+    this.finish(bySide(a > b ? 0 : 1), this.finalScore ? 'time up' : 'first to ' + RT.PLAY_TO);
   }
 
   /* Somebody leaving after the winning fall: the score already decided it, with both seats still here, so it is
@@ -161,7 +168,7 @@ class RooftopRoom extends KnockoutRoom {
   decideNow() { this.finishByScore(); }
 
   overExtra() {
-    return { score: this.match.score.slice() };
+    return { score: (this.finalScore || this.match.score).slice() };
   }
 
   snapshot() {
