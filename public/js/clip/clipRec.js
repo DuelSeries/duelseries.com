@@ -10,7 +10,7 @@
 
    How:
      picture  every visible canvas on the page, drawn in stacking order onto one
-              hidden canvas 30 times a second (/sl draws the world, its minimap
+              hidden canvas of at most 1280x720, 30 times a second (/sl draws the world, its minimap
               and its overlays on separate canvases), plus the mark
      encode   the browser's own H.264 and AAC encoders (WebCodecs), one key
               frame a second, kept in memory as encoded chunks; anything older
@@ -31,6 +31,21 @@
    steps aside: nothing at all (no picture, no sound, no encoding) while its tab
    is hidden or nobody has touched the game for 45 s, as in a tab left open in
    another window, and no picture while the game's own frames run late.
+
+   A smaller picture (2026-10-28): the hidden canvas was up to 1920x1080 and is
+   now at most 1280x720 (a 1080p or bigger screen records 1280x720, a 1280x800
+   window 1152x720). Nearly all of the picture's cost is the encoder taking each
+   frame, and that grows with the pixels; copying the game's canvases onto the
+   hidden one costs next to nothing. Measured in headless Chrome at 1920x1080 and
+   240 Hz, against the same page with recording off (in-page A/B on a busy 2D
+   canvas): the game's thread paid 71 ms a second more, now 39; Chrome's GPU
+   process 227, now 134. In the games themselves (same A/B, noisier) the GPU
+   process paid 337 more on Agar.io, now 214, and 344 on Paper.io, now 202.
+   960x540 or 24 a second saved nothing more measurable.
+   The rest is the sound (12 ms a second) and the frame watch above (4). The
+   graphics card's encoder is already used: no hardwareAcceleration means try it
+   first and fall back to software if it fails, where prefer-hardware would stop
+   the recorder instead (prefer-software moved 250 ms a second onto the CPU).
 
    Loaded as <script src="/js/clip/clipRec.js" data-game="slither"> after
    mp4mux.js. window.DSClip = { on, save(), offer(why) }.
@@ -57,7 +72,7 @@
   const KEEP_US = 30e6;          // what a clip holds
   const FPS = 30;
   const KEY_US = 1e6;            // a key frame each second of time, so a clip starts at most 1 s early
-  const MAX_W = 1920, MAX_H = 1080;
+  const MAX_W = 1280, MAX_H = 720;     // was 1920x1080: half the encoding cost, see "A smaller picture" above
   const OFFER_MS = 8000;
   const IDLE_MS = 45000;         // no key, click or mouse move for this long: nobody is playing this tab
   const LS_ON = 'dsClipsOn', LS_MIC = 'dsClipsMic', LS_PERF = 'dsClipPerf';

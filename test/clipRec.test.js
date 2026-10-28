@@ -139,6 +139,19 @@ test('no layout read per frame; sound is bounded without a picture', () => {
   assert.match(js, /const old = chunk\.timestamp - KEEP_US - 2e6;/);
 });
 
+/* 2026-10-28: the encoder's cost grows with the picture's pixels, so a clip is at most 1280x720 (was 1920x1080).
+   Measured at 1920x1080, 240 Hz on a busy 2D canvas: the game's thread paid 71 ms a second for recording, now 39;
+   the GPU process 227, now 134. A game's recorder leaves the encoder choice to Chrome, which tries the graphics card first and falls back
+   to software by itself (prefer-hardware has no fallback: a failing card encoder would stop the recorder). */
+test('a picture of at most 1280x720, 30 a second; Chrome picks the encoder with its own fallback', () => {
+  const js = rec();
+  assert.match(js, /const MAX_W = 1280, MAX_H = 720;/);
+  assert.match(js, /const FPS = 30;/);
+  assert.match(js, /const k = Math\.min\(1, MAX_W \/ w, MAX_H \/ h\);/, 'the game picture is scaled down to fit');
+  assert.match(js, /width: \{ max: MAX_W \}, height: \{ max: MAX_H \}/, 'and the whole-tab capture asks for no more');
+  assert.match(js, /for \(const hw of TOP \? \['prefer-hardware', ''\] : \[''\]\)/);
+});
+
 test('the lobby paints nothing under a game; the toasts and the wallet stay above it', () => {
   const html = read('public/v2.html');
   const rule = html.match(/body\.ingame>header,body\.ingame>nav,body\.ingame>main,body\.ingame>footer,\n?body\.ingame>\.howveil,body\.ingame>\.meveil,body\.ingame>\.apscreen,body\.ingame>\.bsheet\{visibility:hidden\}/);
