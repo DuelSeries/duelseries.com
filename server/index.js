@@ -144,6 +144,9 @@ const io     = new Server(server, {
      splits a polling batch to fit under it. */
   maxHttpBufferSize: 64 * 1024,
 });
+// The ping readout every game shows (public/js/shared/dsPerfHud.js) times 'ds:ping' on its own socket: answered on
+// every namespace, including /ag, /sl and /chomp made further down.
+require('./perfEcho').install(io);
 
 // Keep idle connections from nginx open longer than its upstream keep-alive, so a reused one is never cut mid-request.
 server.keepAliveTimeout = 120000;
