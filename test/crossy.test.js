@@ -6,7 +6,7 @@ const assert = require('node:assert');
 const S = require('../shared/crossySim');
 const { CrossyRoom, LAG_MAX } = require('../server/crossy/CrossyRoom');
 const { CrossyLobby } = require('../server/crossy/CrossyLobby');
-const { CrossyBot } = require('../server/crossy/crossyBot');
+const { CrossyBot, SHARP } = require('../server/crossy/crossyBot');
 const { IN } = S;
 
 const fakeIo = () => {
@@ -429,7 +429,7 @@ test('a screen\'s map made only from the lanes it was sent steps every hopper ex
       sent = Math.max(sent, hi);
       page.add(JSON.parse(JSON.stringify(out)));
     };
-    const hs = S.newHopper(), hp = S.newHopper(), bot = new CrossyBot(S.rng(k * 977));
+    const hs = S.newHopper(), hp = S.newHopper(), bot = new CrossyBot(S.rng(k * 977), SHARP);
     feed(hs.r);
     let t = 0;
     for (; t < 6000 && hs.alive; t++) {
@@ -495,7 +495,7 @@ test('the room never sends a seed or its key: cr:start and every watcher see lan
 
 test('a page back mid-match holds only the lanes near the hoppers: it never throws, and seated from the server it steps as the server does', () => {
   const server = keyedWorld(crypto.createHash('sha256').update('rejoin').digest());
-  const hs = S.newHopper(), bot = new CrossyBot(S.rng(31));
+  const hs = S.newHopper(), bot = new CrossyBot(S.rng(31), SHARP);
   for (let t = 0; t < 6000 && hs.alive && hs.r < 14; t++) S.step(server, hs, bot.input(server, hs));
   assert.ok(hs.alive && hs.r >= 14, 'the bot got past row 14: ' + hs.r);
   // What a rejoin carries (CrossyRoom.lanesNow): from 12 behind the last hopper to 24 beyond the furthest.

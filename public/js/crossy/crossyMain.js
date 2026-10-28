@@ -899,6 +899,7 @@ function placeTag(ft) {
 }
 
 /* What the match looks like right now, for a headless check. Read only. */
+window.__crView = view;      // read only, for the headless frame checks (game-refs/crossy/harness/redo/blink.js)
 window.__cr = () => ({
   phase, mySeat, lanes: world ? world.rows.size : 0, tick: mine ? mine.tick : null, ft: Math.round(matchFt()),
   me: mine ? { x: mine.x, r: mine.r, alive: mine.alive, death: mine.death, score: Sim.score(mine), coins: mine.coins, eagle: mine.eagle } : null,

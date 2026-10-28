@@ -172,3 +172,19 @@ width and shows more road above and below, so the world and the HUD are the same
 Character: Nugget, our own hen (default look): golden-buff body wider than tall, a separate cream head set forward, a
 three-lobed rose comb lying front to back, a short gold beak and a red wattle, eyes on the sides, an upswept tail. Pepper
 (the same hen in blue-grey) is worn by the rival when both wear Nugget. Sprout, Bloop and Pebble stay free looks.
+
+## The bot (free tables only), CHOSEN 2026-10-28
+Owen: the old bot was "absolutely insane, they destroy me instantly". It looked again every 2 to 5 ticks (a machine's
+33 to 83 ms) and planned three hops ahead. Now (server/crossy/crossyBot.js SKILL): it looks every 10 to 24 ticks
+(0.17 to 0.4 s), presses 5 to 10 ticks after deciding (it acts on what it saw), plans one hop ahead and checks 24 ticks of
+standing still after it, freezes on 10% of looks (unless the eagle is near) and hops forward blind on 4%. Measured alone,
+80 maps (`node scripts/crossyBotSim.js 80 solo`): lives 3.3 / 11.7 / 47.1 s (p10 / p50 / p90), score 21 at the median;
+the old one (`... 80 solo sharp`) lived 5.9 / 24.3 / 72.8 s and scored 97. Paid tables never get a bot.
+
+## Flicker (2026-10-28, Owen: "cars blink")
+Cause: faces in the same plane with different colours (z-fighting): every car's white cab pillars sat exactly on the
+black glass (10 to 12 such pairs per car), the truck's band and windscreen, the train's nose and tail windows.
+`game-refs/crossy/harness/redo/coplanar.js` counts them in the running page: now 0 on every model. A second cause: the
+reference starts a train with its nose already on screen, so it popped in; it is now drawn sliding in along the same
+line just before (the rules, where it can hit, are unchanged). `redo/blink.js` records every vehicle per frame: no
+vehicle vanishes or appears on screen any more.

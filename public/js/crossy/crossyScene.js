@@ -198,7 +198,9 @@ function carGeo(id) {
     list.push(B(0, 0.24, 0, L, 0.36, W, top, { sides: side }));
     const cab = id === 'electric' ? 0.96 : 1.08, at = id === 'electric' ? -0.06 : -0.18;
     list.push(B(at, 0.6, 0, cab, 0.24, body, COL.tyre));
-    for (const px of [at - cab / 2 + 0.06, at + cab / 2 - 0.06]) for (const pz of [-1, 1]) list.push(B(px, 0.6, pz * (body / 2 - 0.06), 0.12, 0.24, 0.12, COL.white));
+    // Pillars stand 0.004 proud of the glass: flush, the two faces fought for the same pixels and the cab flickered
+    // as the car moved (2026-10-28, Owen: "cars blink"; redo/coplanar.js found 10-12 such pairs on every car).
+    for (const px of [at - cab / 2 + 0.056, at + cab / 2 - 0.056]) for (const pz of [-1, 1]) list.push(B(px, 0.6, pz * (body / 2 - 0.056), 0.12, 0.235, 0.12, COL.white));
     list.push(B(at, 0.84, 0, cab, H - 0.84, body, COL.white));
   }
   // Lamps: two pale squares in front, two dark-red ones behind.
@@ -217,10 +219,10 @@ function truckGeo(id) {
   list.push(B(0, 0.24, 0, L, 0.12, W, side));                                   // the skirt, end to end
   list.push(B(1.14, 0.36, 0, 0.72, 0.24, W - 0.12, top, { sides: side }));       // the cab
   list.push(B(1.14, 0.6, 0, 0.72, 0.24, W - 0.24, COL.tyre));
-  list.push(B(1.38, 0.6, 0, 0.24, 0.24, W - 0.12, top, { sides: side }));
+  list.push(B(1.385, 0.6, 0, 0.25, 0.235, W - 0.12, top, { sides: side }));       // 0.01 proud of the glass (no flicker)
   list.push(B(1.14, 0.84, 0, 0.72, 0.12, W - 0.24, top, { sides: side }));
   list.push(B(-0.39, 0.36, 0, 2.22, 0.96, W, COL.boxWhite, { top: COL.white }));
-  list.push(B(-0.39, 0.72, 0, 2.22, 0.12, W + 0.01, deep));                     // our own band round the box
+  list.push(B(-0.39, 0.72, 0, 2.23, 0.12, W + 0.01, deep));                     // our own band round the box, just proud of it
   for (const sz of [-1, 1]) list.push(B(L / 2 + 0.005, 0.36, sz * 0.3, 0.01, 0.12, 0.12, COL.lamp));
   return boxes(list);
 }
@@ -236,7 +238,7 @@ function trainGeo() {
     list.push(B(cx, 0.5, 0, len, tall - 0.75, 1.0, COL.trainBlue, { side: COL.trainSky, left: COL.trainSky }));
     list.push(B(cx, tall - 0.25, 0, len - 0.25, 0.125, 0.9, COL.trainGrey));                      // the roof
     for (let w = -len / 2 + 0.5; w + 0.6 < len / 2 - (nose ? 1.4 : 0.3); w += 0.875)
-      list.push(B(cx + w + 0.3, 0.875, 0, 0.6, 0.5, 1.01, COL.trainGlass, { top: COL.trainPale }));
+      list.push(B(cx + w + 0.3, 0.875, 0, 0.6, Math.min(0.5, tall - 1.25), 1.01, COL.trainGlass, { top: COL.trainPale }));   // under the body top (the tail is lower)
     list.push(B(cx, tall - 0.125, 0, len * 0.4, 0.125, 0.5, COL.trainDark));                      // roof gear
   };
   let x = 16;
@@ -244,8 +246,8 @@ function trainGeo() {
   const e = x - 4.875 / 2;
   carriage(e, 4.875, 1.875, true);
   list.push(B(x - 0.7, 0.875, 0, 1.0, 0.5, 1.01, COL.trainPale, { top: COL.trainGrey }));
-  list.push(B(x - 0.0625, 0.5, 0, 0.125, 0.375, 0.5, COL.trainYellow));
-  list.push(B(x - 0.0625, 0.625, 0, 0.13, 0.125, 0.25, COL.lamp));
+  list.push(B(x - 0.06, 0.5, 0, 0.13, 0.375, 0.5, COL.trainYellow));            // proud of the nose, never flush (flicker)
+  list.push(B(x - 0.06, 0.625, 0, 0.14, 0.125, 0.25, COL.lamp));
   x -= 4.875 + gap;
   for (let i = 0; i < 5; i++) { carriage(x - 2.25, 4.5, 1.875, false); list.push(B(x + gap / 2, 0.45, 0, gap + 0.05, 0.2, 0.3, COL.trainDark)); x -= 4.5 + gap; }
   carriage(x - 1.25, 2.5, 1.625, false);
@@ -275,7 +277,7 @@ function logGeo(w) {
   for (const s of [-1, 1]) {
     list.push(B(s * (L / 2 - 0.0625), 0, 0, 0.125, 0.5, 0.5, COL.logEnd));
     list.push(B(s * (L / 2 + 0.003), 0.125, 0, 0.006, 0.25, 0.25, COL.logRing));
-    list.push(B(s * (L / 2 + 0.006), 0.25, -0.0625, 0.006, 0.125, 0.125, COL.logRing2));
+    list.push(B(s * (L / 2 + 0.006), 0.25, -0.0625, 0.006, 0.12, 0.12, COL.logRing2));
   }
   return boxes(list);
 }
@@ -605,11 +607,22 @@ export function createScene(canvas) {
       }
     } else if (row.kind === 'rail') {
       const tr = Sim.trainAt(row, d);
-      R.train.visible = tr.cx !== null;
-      R.trainShadow.visible = tr.cx !== null;
-      if (tr.cx !== null) {
-        R.train.position.set(tr.cx, 0.375, 0);                      // the reference's train sits at 0.375
-        R.trainShadow.position.x = tr.cx + 1.875 / 2;
+      /* Drawn from the moment its nose is 14 out (where cars come and go) until its tail is 14 out the other side. Drawn
+         only where the rules hold it (within 24 of the middle) it popped in and out with its ends on screen. */
+      let cx = null;
+      const c0 = (C.SPAWN_X * row.dir - C.TRAIN_OFFSET) * row.dir - 13.5;
+      // The one that left, and the next one coming in: the reference starts a train with its nose already on screen
+      // (x 3 or -5), so the next is drawn sliding in along the same line for the moment before (the rules are untouched).
+      for (const k of [tr.k, tr.k + 1]) {
+        if (k < 0 || k >= row.trains.length || cx !== null) continue;
+        const c = c0 + row.dir * C.TRAIN_SPEED * (d - row.trains[k]);
+        if (Math.abs(c) < C.TRAIN_HALF + 14) cx = c;
+      }
+      R.train.visible = cx !== null;
+      R.trainShadow.visible = cx !== null;
+      if (cx !== null) {
+        R.train.position.set(cx, 0.375, 0);                         // the reference's train sits at 0.375
+        R.trainShadow.position.x = cx + 1.875 / 2;
       }
       // The two lamps take turns, a third of a second each (our flash rate).
       const ph = tr.warn ? 1 + (Math.floor(d * 3) % 2) : 0;
