@@ -305,3 +305,20 @@ test('every game page loads the shared readout before its game script, mounts it
     '/sl loads it before the layer');
   assert.match(read('js/slx/slxStats.js'), /DSPerfHud\.mount\(\{ echo: slx\.echo/, 'slxStats mounts it on slx.echo');
 });
+
+// A game added later is held to it too: every page under public/ that opens a socket is a game page and loads the
+// readout, except the owner console (no game) and /sl's frozen page (it gets it through the slx tail, above).
+const NOT_GAMES = ['owner.html', 'sl.html'];
+test('every page that opens a socket (a game, including ones added later) loads the shared readout', () => {
+  const dir = path.join(ROOT, 'public');
+  const pages = fs.readdirSync(dir).filter((f) => f.endsWith('.html') && !NOT_GAMES.includes(f));
+  let games = 0;
+  for (const f of pages) {
+    const html = fs.readFileSync(path.join(dir, f), 'utf8');
+    if (!html.includes('/socket.io/socket.io.js')) continue;
+    games++;
+    assert.ok(html.includes('<script src="/js/shared/dsPerfHud.js"></script>'),
+      f + ': a game page without the shared ping and FPS readout (add the script and DSPerfHud.mount({ socket }))');
+  }
+  assert.ok(games >= Object.keys(GAME_PAGES).length, 'found ' + games + ' game pages');
+});
