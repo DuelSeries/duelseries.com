@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>8 Ball Pool · DuelSeries</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- Archivo's heavy weights are the names, the ball numbers and the messages on the canvas. -->
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/pool8.css">
+</head>
+<body>
+
+<!-- The whole match: the room, the table, the balls, the cue and its guide, the
+     power bar, the top bar with both players and the shot clock, and the
+     messages. One canvas, in the reference's own frame (docs/pool8-reference.md). -->
+<canvas id="table"></canvas>
+
+<!-- Watching somebody else's match: what happened, in a line under the bar.
+     Lobby, previous and next are the shared Spectate bar (dsWatchBar.js). -->
+<div id="watchLine" role="status" hidden></div>
+
+<!-- Waiting for somebody. The same card, and the same words, as every duel's. -->
+<div id="wait">
+  <div class="waitCard">
+    <div class="waitSpin" aria-hidden="true"></div>
+    <b id="waitMain">Looking for an opponent</b>
+    <span id="waitSub">Free table. Nothing staked.</span>
+    <button type="button" id="waitCancel">Back to the lobby</button>
+  </div>
+</div>
+
+<!-- Said when the opponent is the bot a free table gets after waiting alone. -->
+<div id="botNote" role="status" hidden>Playing a bot</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="/shared/shopSkins.js"></script>
+<script src="/shared/pool8Sim.js"></script>
+<!-- The result card every DuelSeries game ends on. -->
+<script src="/js/shared/dsEnd.js"></script>
+<script src="/js/shared/dsChat.js"></script>
+<!-- The menu button's question (an online match cannot pause: it offers the way out). -->
+<script src="/js/shared/dsDialog.js"></script>
+<script src="/js/dsSfx.js"></script><script src="/js/dsSfxGame.js"></script><script src="/js/pool8/p8Sound.js"></script>
+<!-- The Spectate controls every game shares: Lobby, previous and next, and the empty table. -->
+<script src="/js/shared/dsEmptyArena.js"></script>
+<script src="/js/shared/dsWatchBar.js"></script>
+<script src="/js/pool8/p8Art.js"></script>
+<script src="/shared/duelWait.js"></script>
+<script src="/js/pool8.js"></script>
+</body>
+</html>
