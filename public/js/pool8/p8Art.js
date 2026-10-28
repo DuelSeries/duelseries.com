@@ -302,6 +302,24 @@
     g.restore();
   }
 
+  /* The fine-aim wheel on a touch screen, at the right edge: ridges that roll as the aim turns. */
+  function drawFine(g, a, s) {
+    const x = 1030, y = 214, w = 30, h = 412;
+    g.save(); g.scale(s, s);
+    roundRect(g, x, y, w, h, 10);
+    const bg = g.createLinearGradient(x, 0, x + w, 0);
+    bg.addColorStop(0, '#22252f'); bg.addColorStop(0.5, '#4a4e5c'); bg.addColorStop(1, '#22252f');
+    g.fillStyle = bg; g.fill();
+    g.clip();
+    const off = ((a * 400) % 16 + 16) % 16;
+    g.strokeStyle = 'rgba(0,0,0,0.55)'; g.lineWidth = 2;
+    for (let yy = y - 16 + off; yy < y + h + 16; yy += 16) line(g, x + 4, yy, x + w - 4, yy);
+    const sh = g.createLinearGradient(0, y, 0, y + h);
+    sh.addColorStop(0, 'rgba(0,0,0,0.6)'); sh.addColorStop(0.2, 'rgba(0,0,0,0)'); sh.addColorStop(0.8, 'rgba(0,0,0,0)'); sh.addColorStop(1, 'rgba(0,0,0,0.6)');
+    g.fillStyle = sh; g.fillRect(x, y, w, h);
+    g.restore();
+  }
+
   /* ── the top bar ───────────────────────────────────────────────────────────
      hud: { names[2], initials[2], active (0|1|-1), timeFrac (1..0), groups[2], potted[2] (numbers),
             spin {x, y}, mid (the 8 or the group icon) } */
@@ -528,6 +546,6 @@
   }
 
   root.P8Art = { DESIGN, LAYOUT, C, k, tx, ty, fx, fy, paintTable, makeBall, roll, drawBall, drawShadow, drawCue,
-                 drawGuide, drawPower, drawBar, drawMsg, drawHint, drawVS, drawSpinPicker, drawCall, drawInHand,
+                 drawGuide, drawPower, drawFine, drawBar, drawMsg, drawHint, drawVS, drawSpinPicker, drawCall, drawInHand,
                  iconBall, GUIDE, ballColor };
 })(typeof self !== 'undefined' ? self : this);

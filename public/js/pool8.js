@@ -251,9 +251,25 @@ socket.on('p8:turn', (m) => {
   if (tape && !tape.done) { pendingTurn = m; return; }
   applyTurn(m);
 });
+/* A cue ball in hand that is not on the cloth (it went down) is put on the first free spot along the baulk line, the
+   same spot the server would choose, so there is a ball to drag. */
+function placeInHand() {
+  const c = cueBall(), P8 = Sim.P8;
+  if (!rules.inHand) return;
+  const kitchen = rules.inHand === 'kitchen';
+  if (c.on && Sim.placeOk(view, c.x, c.y, kitchen)) return;
+  const hx = P8.HEAD_X * P8.L, cy = P8.W / 2;
+  for (let k = 0; k < 24; k++) {
+    const y = cy + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * P8.R * 2.2;
+    if (Sim.placeOk(view, hx, y, kitchen)) { c.x = hx; c.y = y; c.on = true; c.potAt = -1; return; }
+  }
+  c.x = hx; c.y = cy; c.on = true; c.potAt = -1;
+}
+
 function applyTurn(m) {
   pendingTurn = null;
   setRules(m);
+  placeInHand();
   setPhase('aiming');
   opp = null;
   aim.p = 0; aim.call = null; aim.called = false; aim.spin.x = 0; aim.spin.y = 0;
@@ -314,6 +330,7 @@ function finishTape(now) {
    let go. Both: the cue ball button sets spin, a cue ball in hand is dragged where you want it, and on the 8 you
    tap the pocket you are calling. */
 const L = Art.LAYOUT;
+const COARSE = (() => { try { return matchMedia('(pointer: coarse)').matches; } catch (_) { return false; } })();
 const PULL_FULL = 230;        // design units of drag back for full power with the mouse
 function inRect(p, r, pad) { pad = pad || 0; return p.x >= r.x - pad && p.x <= r.x + r.w + pad && p.y >= r.y - pad && p.y <= r.y + r.h + pad; }
 function cueDesign() { const c = cueBall(); return { x: Art.tx(c.x), y: Art.ty(c.y) }; }
@@ -368,7 +385,7 @@ cv.addEventListener('pointerdown', (e) => {
     if (k >= 0) { aim.call = k; aim.called = true; if (SND) SND.play('tick', 1); return; }
   }
   if (touch) {
-    if (p.x > L.ret.x - 24) { drag = { kind: 'fine', id: e.pointerId, y: p.y }; cv.setPointerCapture(e.pointerId); return; }
+    if (p.x > L.ret.x + L.ret.w + 2) { drag = { kind: 'fine', id: e.pointerId, y: p.y }; cv.setPointerCapture(e.pointerId); return; }
     drag = { kind: 'turn', id: e.pointerId, at: performance.now(), x0: p.x, y0: p.y, last: Math.atan2(p.y - c.y, p.x - c.x), moved: 0 };
     cv.setPointerCapture(e.pointerId);
     return;
@@ -605,6 +622,7 @@ function draw(now) {
     }
   } else cueStart = { x: cd.x, y: cd.y };
 
+  if (COARSE) Art.drawFine(ctx, mine ? aim.a : 0, s);
   // The power bar (mine while it is my turn, theirs as they pull).
   Art.drawPower(ctx, mine ? aim.p : opp && phase === 'aiming' ? opp.p : 0, s, mine);
 
@@ -620,7 +638,7 @@ function draw(now) {
 
   // Words: the hint under the bar on my turn, the message box at the foot.
   if (mine && !spinOpen) {
-    const touch = matchMedia('(pointer: coarse)').matches;
+    const touch = COARSE;
     Art.drawHint(ctx, rules.inHand && !rules.broken ? (touch ? 'Drag the cue ball, then pull the power bar' : 'Drag the cue ball, then drag back and release')
       : touch ? 'Pull the power bar down and let go' : 'Press, drag the mouse back and release', s);
   }
