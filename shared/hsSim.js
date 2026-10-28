@@ -770,11 +770,24 @@
       back(bb, ball);
       for (i = 0; i < 2; i++) back(pb[i], m.p[i]);
       // S: onBeginContact on a player: the pitch body, or a grounded player, gives the jumps back (Player.ground).
+      // OURS (Owen 2026-10-28): so does landing on a crossbar's top. The reference's rule is the pitch only, so a
+      // player who spent both jumps getting onto a goal's roof could not jump off it ("sometimes I can't jump off
+      // the net"). Only a contact holding the player UP counts (normal within ~45 degrees of straight up), so a
+      // head hitting the bar from below or its end from the side gives nothing back.
+      var onTop = function (pl, bar) {
+        for (var j = 0; j < w.ces.length; j++) {
+          var c = w.ces[j];
+          if ((c.A === bar && c.B === pl && c.n[1] > 0.7) || (c.A === pl && c.B === bar && c.n[1] < -0.7)) return true;   // +y is up here
+        }
+        return false;
+      };
       for (i = 0; i < begun.length; i++) {
         for (k = 0; k < 2; k++) {
           var me = begun[i][k], other = begun[i][1 - k];
           if (me.tag !== 'player') continue;
-          if (other === FLOOR || (other.tag === 'player' && m.p[other.idx].ground)) { m.p[me.idx].ground = true; m.p[me.idx].jc = 0; }
+          if (other === FLOOR || (other.tag === 'player' && m.p[other.idx].ground) || (other.tag === 'bar' && onTop(me, other))) {
+            m.p[me.idx].ground = true; m.p[me.idx].jc = 0;
+          }
         }
       }
       // The sounds: a ball's first touch that came in fast enough, once per body it touched.

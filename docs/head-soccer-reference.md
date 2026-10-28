@@ -70,6 +70,11 @@ foot; a ball pinned more than 4 units into both a solid and a player is put back
 (positions only); the ball's speed is capped at HS.BALL_MAX_V 3500; a goal needs the ball's centre under the
 crossbar's underside (the goal box's top line runs inside the bar's front end).
 
+Ground on a goal roof (OURS, Owen 2026-10-28): landing on a crossbar's top (a contact holding the player up, normal
+within ~45 degrees of vertical) gives the jumps back like the pitch. Theirs does not (only the pitch body, S): M, its
+own recorded random match fz_11 step 310 lands a player on the right roof with both jumps spent and he stays
+stranded (g 0, jc 2). Ours lets him jump off every time.
+
 **Not symmetric in the reference:** its kick aims at the ball sprite's top-left corner for both players. Ours
 mirrors that corner for the right seat so neither seat kicks differently (a money duel must be fair).
 

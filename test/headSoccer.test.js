@@ -575,3 +575,38 @@ test('contact engine fuzz: random states and presses stay finite and inside the 
     }
   }
 });
+
+/* Owen 2026-10-28: "sometimes I can't jump off the net". Only the pitch gave the jumps back (the reference's rule),
+   so a player who spent both jumps getting onto a goal's roof was stranded there. Landing on a crossbar's top now
+   counts as ground. Every spot along both roofs, front edge to the net: dropped on with both jumps spent, then jump
+   after jump while pressing toward the net (which keeps him on the sloped roof). */
+test('a player on either goal roof can always jump off it, every spot, every landing', () => {
+  const topAt = (side, x) => {
+    const w = Sim.WORLD[side ? 8 : 7];
+    let k = 0;
+    for (let j = 1; j < w.n.length; j++) if (w.n[j][1] < w.n[k][1]) k = j;
+    const a = w.v[k], b = w.v[(k + 1) % w.v.length];
+    return a[1] + (b[1] - a[1]) * (x - a[0]) / (b[0] - a[0]);
+  };
+  const roofUnder = (side, p) => Math.min(topAt(side, p.x - 20), topAt(side, p.x + 20));
+  for (const side of [0, 1]) {
+    for (const ax of [1030, 1060, 1090, 1120, 1150, 1180]) {
+      const m = Sim.newMatch(), p = m.p[side], x = side ? ax : -ax;
+      Object.assign(m.p[1 - side], { x: side ? -500 : 500 });
+      Object.assign(p, { x, y: roofUnder(side, { x }) - HS.FOOT - 80, vx: 0, vy: 0, ground: false, jc: 2 });
+      const inp = IDLE();
+      inp[side].held = side ? Sim.IN.RIGHT : Sim.IN.LEFT;
+      let presses = 0, offs = 0;
+      for (let i = 0; i < 40 + 8 * 75; i++) {
+        if (i >= 40 && (i - 40) % 75 === 0) {
+          const where = (side ? 'right' : 'left') + ' roof from ' + ax + ', press ' + presses;
+          assert.ok(Math.abs(p.y + HS.FOOT - roofUnder(side, p)) < 12, where + ': standing on the roof (' + p.x.toFixed(0) + ',' + p.y.toFixed(0) + ')');
+          assert.ok(p.ground, where + ': grounded');
+          inp[side].jumps++; presses++;
+        }
+        if (Sim.step(m, inp, HS.STEP, false, true).some(e => e.e === 'jump' && e.s === side)) offs++;
+      }
+      assert.strictEqual(offs, presses, (side ? 'right' : 'left') + ' roof from ' + ax + ': every press took off');
+    }
+  }
+});
