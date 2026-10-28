@@ -1711,7 +1711,8 @@ if (WATCH) {
   document.body.classList.add('watching');
   $('wait').hidden = true;                 // the bar speaks for a watcher, from the first moment
   if (BAR) {
-    BAR.open({ game: 'battleship', stake: WATCH_STAKE, onPrev: () => step('prev'), onNext: () => step('next'), onLobby: toLobby });
+    BAR.open({ game: 'battleship', stake: WATCH_STAKE, onPrev: () => step('prev'), onNext: () => step('next'), onLobby: toLobby,
+      emptyArt: true });   // nobody playing: the card art behind the bar, not a blank page
     BAR.watching('Finding a match');
     BAR.busy(true);
   }

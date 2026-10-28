@@ -4,16 +4,19 @@
 // centre a big round previous button, a plate with just the watched player's name, and a big round next button. No
 // dot and no "3 of 12" on the plate. PC: Left arrow is previous, Right arrow and Space are next. Phones: bigger round
 // buttons, lifted clear of the games' minimaps. An empty table (nobody to follow) shows the whole map behind it
-// (public/js/shared/dsEmptyArena.js, bare) and says so on the plate, with the arrows off.
+// (public/js/shared/dsEmptyArena.js, bare) and says so on the plate, with the arrows off. A game with no map to show
+// (Knockout, Battleship, Crossy Road: emptyArt) shows its own card art instead, zoomed, blurred and darkened the way the
+// lobby's game screen does (public/v2.html .gbg), so an empty Watch never looks like a dead page (Owen 2026-10-28).
 //
 // Used by slither.io and its battle royale (public/js/slx/slxWatch.js, slxBr.js), agar.io (public/js/ag/agMain.js),
 // Paper.io (public/js/paper/mp/paperArenaMain.js), Knockout and Battleship. Each game says who it is following and
 // does the switching itself; this file never talks to a server, reads money or seats anyone.
 //
-// DSWatchBar.open({ game, stake, onPrev, onNext, onLobby, phoneLift, phoneSize, phoneRight })  shows the bar (again: updates the
+// DSWatchBar.open({ game, stake, onPrev, onNext, onLobby, phoneLift, phoneSize, phoneRight, emptyArt })  shows the bar (again: updates the
 //           handlers); 'Finding a player' on the plate until watching(name)
-//           .watching(name)   the name on the plate, arrows on, the empty map hidden
-//           .empty()          the empty table: the whole map behind, "Nobody is playing yet", arrows off
+//           .watching(name)   the name on the plate, arrows on, the empty map (or card art) hidden
+//           .empty()          the empty table: the whole map (or with emptyArt the game's card art) behind, "Nobody is
+//                             playing yet", arrows off
 //           .busy(on)         arrows off while a switch is on its way (a second press waits for it)
 //           .close()          everything hidden (the page is going back to the lobby, or playing)
 //           .shown(), .state()
@@ -23,6 +26,8 @@
   if (!doc) return;
 
   var Z = 2147480100; // above the empty map (dsEmptyArena 2147480000), under the clip recorder's card
+  var ART_Z = Z - 200; // the card art behind an empty table: over the game's own page, under the bar
+  var ART_V = 1; // public/v2.html ART_V: the card pictures' version, so a new painting is fetched fresh
   var FONT_HREF = 'https://fonts.googleapis.com/css2?family=Archivo:wght@400..700&display=swap';
   var SANS = 'Archivo,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif';
   var WORDS = {
@@ -66,7 +71,16 @@
     '.dsw-round{width:var(--dsw-size,64px);height:var(--dsw-size,64px);}',
     '.dsw-plate{min-width:0;max-width:none;flex:1;height:var(--dsw-size,64px);padding:0 14px;}',
     '.dsw-lobby{height:calc(var(--dsw-size,64px) * .66);}}',
-    '@media (prefers-reduced-motion:reduce){.dsw-round:active:not(:disabled){transform:none;}}'
+    '@media (prefers-reduced-motion:reduce){.dsw-round:active:not(:disabled){transform:none;}}',
+    // the empty table's card art (emptyArt): public/v2.html .gbg .im.still and .gbg::after, the lobby's game screen
+    '.dsw-art{position:fixed;inset:0;z-index:' + ART_Z + ';overflow:hidden;pointer-events:none;background:#100e0b;display:none;}',
+    '.dsw-art.dsw-art-on{display:block;}',
+    '.dsw-art i{position:absolute;inset:-40px;background-size:cover;background-position:center;',
+    'filter:blur(6px) brightness(.4) saturate(1.05);}',
+    '@media (orientation:portrait){.dsw-art i{background-size:auto 150%;background-position:50% 28%;}}',
+    ".dsw-art::after{content:'';position:absolute;inset:0;",
+    'background:radial-gradient(120% 80% at 50% 48%,rgba(10,9,7,.74),rgba(10,9,7,.42) 66%,rgba(10,9,7,.66)),',
+    'linear-gradient(180deg,rgba(10,9,7,.55),transparent 30%,rgba(10,9,7,.55));}'
   ].join('');
   var ICON = {
     back: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3L5 8l5 5" fill="none" stroke="currentColor" ' +
@@ -84,6 +98,7 @@
   var nextBtn = null;
   var plate = null;
   var nameEl = null;
+  var art = null;
   var opts = {};
   var on = false;
   var isEmpty = false;
@@ -187,10 +202,29 @@
   }
 
   function emptyMap(show) {
+    emptyArt(show && opts.emptyArt === true);
     var E = root.DSEmptyArena;
     if (!E) return;
     if (show) E.show({ game: opts.game, stake: opts.stake, bare: true });
     else E.hide();
+  }
+
+  // The card art behind an empty table, for the games with no map of their own to show. Made on first use only.
+  function emptyArt(show) {
+    var id = String(opts.game || '');
+    if (show && /^[a-z0-9]+$/.test(id)) {
+      if (!art) {
+        art = el('div', 'dsw-art');
+        art.setAttribute('aria-hidden', 'true');
+        art.appendChild(el('i'));
+        doc.body.appendChild(art);
+      }
+      var url = 'url("/img/games/' + id + '-card.webp?v=' + ART_V + '")';
+      if (art.firstChild.style.backgroundImage !== url) art.firstChild.style.backgroundImage = url;
+      art.classList.add('dsw-art-on');
+    } else if (art) {
+      art.classList.remove('dsw-art-on');
+    }
   }
 
   root.DSWatchBar = {
@@ -240,7 +274,7 @@
     // For headless checks: what the bar shows now.
     state: function () {
       return { on: on, empty: isEmpty, busy: isBusy, name: name, presses: presses,
-        text: nameEl ? nameEl.textContent : '' };
+        text: nameEl ? nameEl.textContent : '', art: !!(art && art.classList.contains('dsw-art-on')) };
     },
     WORDS: WORDS
   };

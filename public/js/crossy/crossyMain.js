@@ -959,7 +959,8 @@ if (WATCH) {
   document.body.classList.add('watching');
   $('wait').hidden = true;
   if (BAR) {
-    BAR.open({ game: GAME, stake: WATCH_STAKE, onPrev: () => stepWatch('prev'), onNext: () => stepWatch('next'), onLobby: toLobby });
+    BAR.open({ game: GAME, stake: WATCH_STAKE, onPrev: () => stepWatch('prev'), onNext: () => stepWatch('next'), onLobby: toLobby,
+      emptyArt: true });   // nobody playing: the card art behind the bar (the map only comes from a match)
     BAR.watching('Finding a match');
     BAR.busy(true);
   }

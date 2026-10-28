@@ -420,7 +420,8 @@
       game: 'chomp', stake: 0,
       onPrev: function () { stepWatch(-1); },
       onNext: function () { stepWatch(1); },
-      onLobby: function () { backToLobby(); }
+      onLobby: function () { backToLobby(); },
+      emptyArt: true   // nobody to follow: the card art behind the bar, not a black maze
     });
     watchId = 0;
     stepWatch(0);
