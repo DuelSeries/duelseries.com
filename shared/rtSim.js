@@ -1265,22 +1265,67 @@
     p.jumpTime = a[8]; p.arm = a[9]; p.armBase = a[10]; p.held = a[11]; p.cool = a[12]; p.contactWith = a[13]; p.shots = a[14];
     p.nj = a[15]; p.nd = a[16]; p.nr = a[17];
   }
-  /* An object as the wire carries it: [id, side, x, y, a, vx, vy, w] for a rocket, and for the others the kind
-     (1 tomahawk, 2 civilian, 3 beach ball) and its age, then a tomahawk's throw angle (its inertia) and mirroring,
-     a civilian's look. Friction comes back from the round's Slippery. */
-  function packObj(r) {
-    var b = r.body, o = [r.id, r.side, r2(b.x), r2(b.y), r4(b.a), r2(b.vx), r2(b.vy), r4(b.w)];
-    if (r.k) { o.push(r.k, r4(r.t)); if (r.k === 1) o.push(r4(r.a0), r.fl); else if (r.k === 2) o.push(r.ch); }
-    return o;
+  /* The round's objects as the wire carries them (`ob`): one short string, because a Tomahawks round keeps dozens
+     alive (each lasts 15 s) and the snapshot goes out 30 times a second, volatile (the mobile rule: keep it small).
+     Each number is a whole one (the value times its unit below, rounded), zigzagged so a small negative one stays
+     small, and written five bits to a character, low bits first, in a 64-letter alphabet that needs no escaping in
+     JSON; a character with the 32 bit set says another follows. Per object, in id order (the order they came):
+       the id's step from the one before; a code: kind (0 rocket, 1 tomahawk, 2 civilian, 3 beach ball)
+       | (side + 1) << 2 | mirrored << 4 | a civilian's look << 5;
+       x, y, the angle, vx, vy and the spin;
+       then, but for a rocket (it has no clock), its age; and a tomahawk's throw angle (its inertia depends on it).
+     The units are the old wire's rounding (hundredths of a pixel and of a pixel a second, ten-thousandths of a
+     radian), so a client's replay agrees with the server exactly as closely as before (test/rooftop.test.js); the age
+     goes in tenths of a tick. Only the writing is shorter: about 2 KB for 62 objects where it was 4.4 KB. The shapes,
+     masses, layers and friction come back from the kind, the side and the round's Slippery. */
+  var OBJ_P = 100, OBJ_A = 10000, OBJ_V = 100, OBJ_W = 10000, OBJ_T = 10 / RT.STEP, OBJ_A0 = 10000;
+  var B64 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-_', B64_AT = {};
+  for (var bi = 0; bi < 64; bi++) B64_AT[B64.charCodeAt(bi)] = bi;
+  function putInt(out, v) {
+    var z = Math.round(v);
+    z = z >= 0 ? 2 * z : -2 * z - 1;
+    if (!(z < 9e15)) z = 0;                          // not a number: never a broken string
+    while (z >= 32) { out.push(B64[32 + z % 32]); z = Math.floor(z / 32); }
+    out.push(B64[z]);
   }
-  function unpackObj(m, o) {
-    var k = o[8] | 0, r = { id: o[0], side: o[1], reported: -1, k: k, t: k ? o[9] : 0 }, b;
-    if (k === 1) { r.a0 = o[10]; r.fl = o[11] | 0; b = tomahawkBody(o[2], o[3], r.a0, r.side); }
-    else if (k === 2 || k === 3) { r.ch = k === 2 ? o[10] | 0 : 0; b = makeFaller(k, o[2], o[3], m.mods[3] === 1); }
-    else b = rocketBody(o[2], o[3], o[4], r.side);
-    b.a = o[4]; b.vx = o[5]; b.vy = o[6]; b.w = o[7];
-    r.body = b;
-    return r;
+  function packObjs(objs) {
+    var out = [], prev = 0;
+    for (var i = 0; i < objs.length; i++) {
+      var r = objs[i], b = r.body;
+      putInt(out, r.id - prev);
+      putInt(out, r.k | (r.side + 1) << 2 | (r.fl ? 16 : 0) | (r.k === OBJ_CIVILIAN ? (r.ch | 0) << 5 : 0));
+      putInt(out, b.x * OBJ_P); putInt(out, b.y * OBJ_P); putInt(out, b.a * OBJ_A);
+      putInt(out, b.vx * OBJ_V); putInt(out, b.vy * OBJ_V); putInt(out, b.w * OBJ_W);
+      if (r.k !== OBJ_ROCKET) putInt(out, r.t * OBJ_T);
+      if (r.k === OBJ_TOMAHAWK) putInt(out, r.a0 * OBJ_A0);
+      prev = r.id;
+    }
+    return out.join('');
+  }
+  function unpackObjs(m, str) {
+    var objs = [], id = 0, at = 0, n = str.length, slip = m.mods[3] === 1;
+    var next = function () {
+      var z = 0, mul = 1, d;
+      do {
+        d = B64_AT[str.charCodeAt(at++)];
+        if (d === undefined) throw new Error('rt: bad object string');
+        z += (d & 31) * mul; mul *= 32;
+      } while (d & 32);
+      return z % 2 ? -(z + 1) / 2 : z / 2;
+    };
+    while (at < n) {
+      id += next();
+      var c = next(), k = c & 3, side = (c >> 2 & 3) - 1, x = next() / OBJ_P, y = next() / OBJ_P, a = next() / OBJ_A, b;
+      var vx = next() / OBJ_V, vy = next() / OBJ_V, w = next() / OBJ_W;
+      var r = { id: id, side: side, reported: -1, k: k, t: k !== OBJ_ROCKET ? next() / OBJ_T : 0 };
+      if (k === OBJ_TOMAHAWK) { r.a0 = next() / OBJ_A0; r.fl = c >> 4 & 1; b = tomahawkBody(x, y, r.a0, side); }
+      else if (k === OBJ_CIVILIAN || k === OBJ_BALL) { r.ch = k === OBJ_CIVILIAN ? c >> 5 : 0; b = makeFaller(k, x, y, slip); }
+      else b = rocketBody(x, y, a, side);
+      b.a = a; b.vx = vx; b.vy = vy; b.w = w;
+      r.body = b;
+      objs.push(r);
+    }
+    return objs;
   }
   // The whole match as the wire carries it (the contact caches are not sent: a client keeps its own).
   function pack(m) {
@@ -1288,7 +1333,7 @@
              tm: r4(m.timer), ps: m.pointShown ? 1 : 0, rdy: [m.ready[0] ? 1 : 0, m.ready[1] ? 1 : 0], lo: m.loser, wi: m.winner, fs: m.flipScale,
              sl: m.slow ? [m.slow.n, r4(m.slow.from), m.slow.final ? 1 : 0] : null,
              p: [packPlayer(m.p[0]), packPlayer(m.p[1])],
-             o: m.objs.map(packObj), no: m.nextObj,
+             ob: packObjs(m.objs), no: m.nextObj,
              an: r4(m.anim), cm: [m.cam.x, m.cam.y, m.cam.t], fo: [m.fall.k, r4(m.fall.due)] };
   }
   function unpack(m, s) {
@@ -1316,7 +1361,8 @@
     if (Array.isArray(s.cm)) m.cam = { x: s.cm[0], y: s.cm[1], t: s.cm[2] };
     if (Array.isArray(s.fo)) m.fall = { k: s.fo[0], due: s.fo[1] };
     var keep = {};
-    m.objs = (s.o || []).map(function (o) { keep['r' + o[0]] = true; return unpackObj(m, o); });
+    m.objs = unpackObjs(m, typeof s.ob === 'string' ? s.ob : '');
+    for (var oi = 0; oi < m.objs.length; oi++) keep['r' + m.objs[oi].id] = true;
     if (typeof s.no === 'number') m.nextObj = s.no;
     for (var pk in m.pairs) {
       var ks = pk.split('#')[0].split(':');

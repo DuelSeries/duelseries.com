@@ -549,3 +549,48 @@ test('a snapshot with a map, tomahawks, civilians and balls round-trips: the cli
     assert.deepStrictEqual([b.cam.x, b.cam.y], [a.cam.x, a.cam.y]);
   }
 });
+
+test('a crowded Tomahawks round (60+ objects) goes out in about 2 KB and the client still steps as the server does', () => {
+  // [0, 3, 1, 0, 0]: Tomahawks with civilians falling; [0, 2, 2, 1, 0]: Rocket Launchers, beach balls, Slippery
+  for (const [mods, want] of [[[0, 3, 1, 0, 0], 60], [[0, 2, 2, 1, 0], 8]]) {
+    const a = roundWith(17, mods);
+    const inp = [{ d: 0, r: 0 }, { d: 0, r: 0 }];
+    let rockets = 0;
+    for (let i = 0; i < 3000 && (a.objs.length < want || (mods[1] === 2 && !rockets)); i++) {
+      if (i % 15 === 0) { inp[0].d++; inp[1].d++; }                   // a throw every quarter second each (spamming)
+      if (i % 15 === 2) { inp[0].r++; inp[1].r++; }
+      for (const s of [0, 1]) {                                        // keep both on the roof so the round lasts
+        const p = a.p[s].body;
+        if (p.y > -60 || Math.abs(p.x) > 600) { p.x = s ? 300 : -300; p.y = -120; p.vx = p.vy = p.w = 0; p.a = 0; }
+      }
+      Sim.tick(a, inp);
+      rockets = a.objs.filter(o => o.k === 0).length;
+    }
+    assert.ok(a.objs.length >= want, mods + ': ' + a.objs.length + ' objects');
+    const snap = JSON.parse(JSON.stringify(Sim.pack(a)));
+    assert.strictEqual(typeof snap.ob, 'string');
+    if (want === 60) assert.ok(JSON.stringify(snap).length < 2300, 'the whole snapshot: ' + JSON.stringify(snap).length);
+    const b = Sim.newMatch(1);
+    Sim.unpack(b, snap);
+    b.pairs = JSON.parse(JSON.stringify(a.pairs));
+    const who = (m) => m.objs.map(o => [o.id, o.k, o.side, o.fl, o.ch]);
+    assert.deepStrictEqual(who(b), who(a), mods + ': the same objects');
+    a.objs.forEach((o, n) => {
+      const q = b.objs[n], p = o.body, c = q.body;
+      assert.ok(Math.abs(p.x - c.x) <= 0.005 && Math.abs(p.y - c.y) <= 0.005 && Math.abs(p.a - c.a) <= 5e-5, mods + ' place ' + n);
+      assert.ok(Math.abs(p.vx - c.vx) <= 0.005 && Math.abs(p.vy - c.vy) <= 0.005 && Math.abs(p.w - c.w) <= 5e-5, mods + ' motion ' + n);
+      assert.ok(Math.abs((o.t || 0) - q.t) <= RT.STEP / 20 && (o.k !== 1 || Math.abs(o.a0 - q.a0) <= 5e-5), mods + ' age ' + n);
+      assert.ok(Math.abs(c.ii - p.ii) <= 1e-3 * p.ii && c.im === p.im && c.ly === p.ly && c.mk === p.mk && c.fr === p.fr, mods + ' body ' + n);
+    });
+    assert.strictEqual(Sim.pack(b).ob, snap.ob, 'what came back writes the same string');
+    for (let i = 0; i < 12; i++) { Sim.tick(a, inp); Sim.tick(b, inp); }
+    for (let s = 0; s < 2; s++) assert.ok(Math.hypot(a.p[s].body.x - b.p[s].body.x, a.p[s].body.y - b.p[s].body.y) < 0.05, mods + ' seat ' + s);
+    const byId = new Map(b.objs.map(o => [o.id, o]));
+    assert.ok(a.objs.length >= want - 4, 'still crowded');
+    a.objs.forEach((o) => {
+      const q = byId.get(o.id);
+      assert.ok(q, mods + ' object ' + o.id + ' still there');
+      assert.ok(Math.hypot(o.body.x - q.body.x, o.body.y - q.body.y) < 1, mods + ' object ' + o.id + ' within a pixel');
+    });
+  }
+});
