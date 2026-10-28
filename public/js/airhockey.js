@@ -43,6 +43,10 @@ const LOOK = (() => {
   catch (_) { return DEFAULT_LOOK; }
 })();
 const art = window.AHArt.create(LOOK);
+/* Your mallet's colour, picked in the lobby's Customize (shared/ahSkins.js, duel.airhockey.skin). Your own screen only. */
+(() => {
+  try { const S = window.DS_AH_SKINS; if (S) art.setMine(S.byId(localStorage.getItem(S.KEY))); } catch (_) { /* storage blocked: the look's own */ }
+})();
 const SND = window.AirHockeySound || null;
 const RM = (() => { try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (_) { return false; } })();
 
@@ -215,6 +219,7 @@ let touchUI = (() => {
 })();
 const STRIP = 60;             // the phone's score strip, CSS px
 const PAUSE = { x: 0, y: 0, r: 18 };
+const MUSIC = { x: 0, y: 0, r: 18 };   // the music on/off button (airhockeySound.js)
 
 function fit() {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -229,12 +234,14 @@ function fit() {
     ox = (w - TW_U * s) / 2 + RAIL * s;
     oy = STRIP + RAIL * s + Math.max(0, (h - STRIP - thumb - 6 - TH_U * s) * 0.25);
     PAUSE.x = 26; PAUSE.y = STRIP / 2; PAUSE.r = 17;
+    MUSIC.x = 26; MUSIC.y = h - 26; MUSIC.r = 17;            // bottom left, clear of the ping box on the right
   } else {
     s = Math.min((h - 36) / TH_U, (w - 420) / TW_U);
     ox = (w - TW_U * s) / 2 + RAIL * s;
     oy = (h - TH_U * s) / 2 + RAIL * s;
     PAUSE.x = ox - RAIL * s - 40; PAUSE.y = oy - RAIL * s + 22; PAUSE.r = 18;
     if (PAUSE.x < 26) { PAUSE.x = 26; PAUSE.y = 26; }
+    MUSIC.x = PAUSE.x; MUSIC.y = PAUSE.y + 46; MUSIC.r = PAUSE.r;
   }
   VIEW = { s, ox, oy, dpr, w, h, phone, flip: VIEW.flip };
   const k = s * dpr;
@@ -299,6 +306,7 @@ window.addEventListener('pointermove', (e) => {
 cv.addEventListener('pointerdown', (e) => {
   if (e.pointerType === 'touch' && !touchUI) { touchUI = true; fit(); }
   if (match && !overShown && onPause(e.clientX, e.clientY)) { e.preventDefault(); pauseMenu(); return; }
+  if (match && Math.hypot(e.clientX - MUSIC.x, e.clientY - MUSIC.y) <= MUSIC.r * 1.4) { e.preventDefault(); if (SND && SND.toggleMusic) SND.toggleMusic(); return; }
   if (!canPlay()) return;
   if (e.pointerType === 'mouse') { aimAt(e.clientX, e.clientY); return; }
   e.preventDefault();
@@ -608,7 +616,26 @@ function draw(now) {
   drawPause();
 }
 
+function drawMusic() {
+  if (!match || !SND || !SND.musicOn) return;
+  const on = SND.musicOn(), x = MUSIC.x, y = MUSIC.y, r = MUSIC.r;
+  ctx.save();
+  ctx.fillStyle = 'rgba(255,255,255,0.08)';
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 1; ctx.stroke();
+  // A pair of beamed notes, struck through when the music is off.
+  ctx.strokeStyle = ctx.fillStyle = on ? '#f5f1e8' : 'rgba(245,241,232,0.45)';
+  const u = r / 18;
+  ctx.lineWidth = 2 * u;
+  ctx.beginPath(); ctx.moveTo(x - 4 * u, y + 5 * u); ctx.lineTo(x - 4 * u, y - 7 * u); ctx.lineTo(x + 6 * u, y - 9 * u); ctx.lineTo(x + 6 * u, y + 3 * u); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(x - 6.5 * u, y + 5.5 * u, 3 * u, 2.3 * u, -0.4, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(x + 3.5 * u, y + 3.5 * u, 3 * u, 2.3 * u, -0.4, 0, Math.PI * 2); ctx.fill();
+  if (!on) { ctx.strokeStyle = '#ff5a4f'; ctx.lineWidth = 2.2 * u; ctx.beginPath(); ctx.moveTo(x - 10 * u, y + 10 * u); ctx.lineTo(x + 10 * u, y - 10 * u); ctx.stroke(); }
+  ctx.restore();
+}
+
 function drawPause() {
+  drawMusic();
   if (!match || overShown) return;
   const L = art.look;
   ctx.save();
@@ -703,6 +730,9 @@ function drawBanners(now) {
     const u = ((now - countAt) % 1000) / 1000;
     word(String(n), 120, '#f5f1e8', 1 - u * 0.6, 1.25 - 0.25 * Math.min(1, u * 4));
     if (serveTo === mySeat && !WATCH) word('Your serve', 26, art.colorOf('me'), 0.9, 1, 90 * unit);
+    // How to steer, said once before the first serve.
+    if (!WATCH && mySeat >= 0) word(touchUI ? 'Drag anywhere to move your mallet' : 'Move the mouse to steer your mallet', 18,
+      '#e8eef5', 0.85, 1, 150 * unit);
   } else if (n === 0) {
     const u = (now - playAt) / 550;
     word('Go', 110, art.colorOf('me'), 1 - u, 1 + 0.3 * u);
@@ -802,6 +832,7 @@ function startMatch(m) {
   if (m.snap) onSnap(m.snap);
   $('wait').hidden = true;
   chatShow(true);
+  if (SND && SND.music) SND.music(true);
 }
 
 const cut = (s, n) => { const t = String(s || 'Player'); return t.length > n ? t.slice(0, n - 1) + '…' : t; };
@@ -825,6 +856,7 @@ socket.on('connect', () => {
 
 function dropMatch() {
   match = null; mySeat = -1; phase = null; haveBase = false; predicting = false;
+  if (SND && SND.music) SND.music(false);
   releaseAll();
 }
 
@@ -987,6 +1019,7 @@ socket.on('ah:over', (m) => {
   restake = null; restakeLine = '';
   paintOver();
   chatShow(false);
+  if (SND && SND.music) SND.music(false);
 });
 
 /* ── the result card ───────────────────────────────────────────────────────

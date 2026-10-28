@@ -85,6 +85,10 @@
   ];
   var BY = {};
   GAMES.forEach(function (g) { BY[g.id] = g; g.by = {}; g.skins.forEach(function (k) { g.by[k.id] = k; }); });
+  /* Games with free Customize looks and no Shop yet: found by game(id), so Customize draws their chooser, but not in
+     `games`, so the Shop does not list them. Air Hockey: its neon cyan, then shared/ahSkins.js's colours. */
+  [{ id: 'airhockey', name: 'Air Hockey', bg: '#03070d', def: { name: 'Neon cyan', col: '#2ff3ff' }, skins: [] }]
+    .forEach(function (g) { BY[g.id] = g; g.by = {}; });
 
   /* ── slither.io ───────────────────────────────────────────────────────── */
   /* look.js draws slither's own chooser snake; these say only how much of
@@ -345,11 +349,32 @@
     for (var i = 1; i <= dots; i++) ctx.fillRect(x0 + (6 + i * 8) * px, y0 + 6 * px - px / 2, 2 * px, 2 * px);
   }
 
-  var PAINT = { snake: paintSnake, agar: paintAgar, paper: paintPaper, chomp: paintChomp, knockout: paintKnockout,
+  /* A neon mallet seen from above (public/js/airhockey/ahArt.js, the rink look) with the white puck gliding past. */
+  function paintAirhockey(cv, k, t, big, bare) {
+    var ctx = cv.getContext('2d'), w = cv.width, h = cv.height, col = k.col || '#2ff3ff';
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    if (!bare) { ctx.fillStyle = '#03070d'; ctx.fillRect(0, 0, w, h); }
+    var r = Math.min(w, h) * (big ? 0.26 : 0.34), cx = w / 2 - r * 0.45, cy = h / 2;
+    var px = cx + r * 1.9 + Math.sin((t || 0) * 1.6) * r * 0.25, pr = r * 0.62;
+    ctx.save();
+    ctx.shadowColor = '#ffffff'; ctx.shadowBlur = r * 0.5;
+    ctx.beginPath(); ctx.arc(px, cy, pr, 0, Math.PI * 2); ctx.fillStyle = '#ffffff'; ctx.fill();
+    ctx.shadowColor = col; ctx.shadowBlur = r * 0.6;
+    ctx.beginPath(); ctx.arc(cx, cy, r * 0.92, 0, Math.PI * 2); ctx.lineWidth = r * 0.15; ctx.strokeStyle = col; ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 0.42; ctx.beginPath(); ctx.arc(cx, cy, r * 0.84, 0, Math.PI * 2); ctx.fillStyle = col; ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.beginPath(); ctx.arc(cx, cy, r * 0.42, 0, Math.PI * 2); ctx.lineWidth = r * 0.08; ctx.strokeStyle = col; ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx, cy, r * 0.2, 0, Math.PI * 2); ctx.fillStyle = '#ffffff'; ctx.fill();
+    ctx.restore();
+  }
+
+  var PAINT = { snake: paintSnake, airhockey: paintAirhockey, agar: paintAgar, paper: paintPaper, chomp: paintChomp, knockout: paintKnockout,
     battleship: paintBattleship, omgshooter: paintShooter, tanks: paintTanks };
   /* Which previews move. The rest are painted once per size, which keeps a
      page of forty-odd canvases off the frame budget. */
-  var MOVES = { snake: 1, paper: 1, chomp: 1, omgshooter: 1, tanks: 1 };
+  var MOVES = { snake: 1, paper: 1, chomp: 1, omgshooter: 1, tanks: 1, airhockey: 1 };
 
   /* skinId 'default' is the game's free look (each game's `def`). bare draws
      the piece alone on a clear canvas, for Customize's dark chooser. */

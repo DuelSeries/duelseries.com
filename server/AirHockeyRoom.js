@@ -76,12 +76,13 @@ class AirHockeyRoom extends KnockoutRoom {
     const now = this.match.tick;
     const buf = this.buf[side];
     for (let i = 0; i < n; i++) {
-      let st = t - (n - 1 - i);
+      /* Clamped BEFORE it is remembered (Fable review 2026-10-28): a stamp far in the future must not become the
+         newest one taken, or every honest sample after it would look stale and the seat's mallet would freeze. */
+      let st = Math.min(t - (n - 1 - i), now + AHEAD_MAX);
       if (st <= this.lastT[side]) continue;
       const x = num(pts[2 * i]), y = num(pts[2 * i + 1]);
       if (!Number.isFinite(x) || !Number.isFinite(y) || Math.abs(x) > 5000 || Math.abs(y) > 5000) continue;
       this.lastT[side] = st;
-      if (st > now + AHEAD_MAX) st = now + AHEAD_MAX;
       if (buf.length && st < buf[buf.length - 1].t) st = buf[buf.length - 1].t;
       buf.push({ t: st, x, y });
     }

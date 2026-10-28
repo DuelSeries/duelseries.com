@@ -194,17 +194,20 @@
   function create(lookName) {
     let L = LOOKS[lookName] || LOOKS.house;
     let table = null, builtK = 0;
+    let mine = null;          // a free Customize look for your own mallet (shared/ahSkins.js): { body, rim, top, glow, trail }
     const api = {
       LOOKS, RAIL, TX0, TY0, TW, TH,
       get look() { return L; },
       setLook(n) { if (LOOKS[n] && LOOKS[n] !== L) { L = LOOKS[n]; if (builtK) api.build(builtK); } },
       build(k) { builtK = k; table = paintTable(L, k); },
       drawTable(c) { if (table) c.drawImage(table, TX0, TY0, TW, TH); },
+      // Your own mallet's colour from a Customize pick, or null for the look's own.
+      setMine(skin) { mine = skin && skin.col ? { body: skin.col, rim: skin.col, top: '#ffffff', glow: skin.col, trail: skin.trail || null } : null; },
 
       /* A mallet: a disc with a raised rim and a knob, lit from the top of the screen (flip says the screen is
          turned, so the light stays on the screen's top). flash 0..1 brightens it after a hit. */
       drawMallet(c, x, y, role, flash, flip) {
-        const P = role === 'me' ? L.me : L.them, r = AH.MALLET_R;
+        const P = role === 'me' ? (mine || L.me) : L.them, r = AH.MALLET_R;
         const ly = flip ? 1 : -1;
         c.save();
         if (L.neon) {
@@ -273,7 +276,7 @@
           const a = pts[i - 1], b = pts[i], u = i / pts.length;
           const sp = Math.min(1, (b.v || 0) / AH.PUCK_MAX);
           if (sp < 0.2) continue;
-          c.strokeStyle = L.trail + (u * sp * (L.neon ? 0.7 : 0.45)).toFixed(3) + ')';
+          c.strokeStyle = ((mine && mine.trail) || L.trail) + (u * sp * (L.neon ? 0.7 : 0.45)).toFixed(3) + ')';
           c.lineWidth = AH.PUCK_R * 2 * (0.25 + 0.6 * u);
           c.beginPath(); c.moveTo(a.x, a.y); c.lineTo(b.x, b.y); c.stroke();
         }
@@ -326,14 +329,14 @@
       drawGoals(c, topRole, botRole, sinceGoal, scorerRole) {
         c.save();
         for (const [role, y] of [[topRole, -4], [botRole, H - 2]]) {
-          const col = role === 'me' ? L.me.glow : L.them.glow;
+          const col = api.colorOf(role);
           c.globalAlpha = L.neon ? 0.55 : 0.3; c.fillStyle = col; c.shadowColor = col; c.shadowBlur = L.neon ? 16 : 6;
           c.fillRect(AH.GOAL_X0 + 6, y, AH.GOAL_W - 12, 6);
         }
         c.restore();
       },
 
-      colorOf(role) { return role === 'me' ? L.me.glow : L.them.glow; },
+      colorOf(role) { return role === 'me' ? (mine || L.me).glow : L.them.glow; },
     };
     return api;
   }

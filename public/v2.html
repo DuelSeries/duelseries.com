@@ -3364,6 +3364,7 @@ body.scr-anim { overflow-x:hidden }
 <script src="/shared/shopPrices.js"></script>
 <script src="/shared/agSkins.js"></script>
 <script src="/shared/chompSkins.js"></script>
+<script src="/shared/ahSkins.js"></script>
 <script src="/shared/shopSkins.js"></script>
 <script src="/js/battleshipArt.js"></script>
 <script src="/js/v2/shopArt.js"></script>
@@ -4098,6 +4099,13 @@ const CH_LOOKS=(CHS?CHS.SKINS:[]).map(s=>({id:'ch:'+s.id,game:'chomp',ch:s,name:
 let chSkinId='';
 try{chSkinId=String(localStorage.getItem(CHS?CHS.KEY:'')||'').trim()}catch(_){}
 if(!CH_LOOKS.some(s=>s.ch.id===chSkinId))chSkinId='';   /* unknown or stale: the game's own look */
+/* Air Hockey's free mallet colours (shared/ahSkins.js), kept under duel.airhockey.skin and read by /airhockey itself:
+   your mallet, its flash and the puck's trail on your own screen. */
+const AHS=window.DS_AH_SKINS;
+const AH_LOOKS=(AHS?AHS.SKINS:[]).map(s=>({id:'ah:'+s.id,game:'airhockey',ah:s,name:s.name,col:s.col}));
+let ahSkinId='';
+try{ahSkinId=String(localStorage.getItem(AHS?AHS.KEY:'')||'').trim()}catch(_){}
+if(!AH_LOOKS.some(s=>s.ah.id===ahSkinId))ahSkinId='';   /* unknown or stale: the game's own look */
 /* What a game keeps: how to read the skin being worn, and how to store a new
    one (null is the game's free look: a random colour in both). */
 /* A paid skin (docs/skin-purchases.md) is worn through DSSkins (public/js/v2/skinBuy.js): its id under
@@ -4119,6 +4127,9 @@ const SAVED={
   chomp:{worn:()=>paidWorn('chomp')||CH_LOOKS.find(s=>s.ch.id===chSkinId)||null,
     put:s=>{wearPaid('chomp',s);if(s&&s.shop)return;chSkinId=s&&s.ch?s.ch.id:'';
       try{if(chSkinId)localStorage.setItem(CHS.KEY,chSkinId);else localStorage.removeItem(CHS.KEY)}catch(_){}}},
+  airhockey:{worn:()=>AH_LOOKS.find(s=>s.ah.id===ahSkinId)||null,
+    put:s=>{if(s&&s.shop)return;ahSkinId=s&&s.ah?s.ah.id:'';
+      try{if(ahSkinId)localStorage.setItem(AHS.KEY,ahSkinId);else localStorage.removeItem(AHS.KEY)}catch(_){}}},
 };
 /* Every other game's only choice is its free look or a paid skin. */
 ['paper','knockout','battleship','omgshooter','tanks'].forEach(g=>{
@@ -4136,7 +4147,7 @@ function lookList(g){
   }):[];
   /* Every free skin first, then every paid one: one run of each. */
   const free=g.look?LOOKS
-    :[{id:'default',game:g.id,name:S.defaultName(g.id)}].concat(g.id==='agar'?AG_LOOKS:g.id==='chomp'?CH_LOOKS:[]);
+    :[{id:'default',game:g.id,name:S.defaultName(g.id)}].concat(g.id==='agar'?AG_LOOKS:g.id==='chomp'?CH_LOOKS:g.id==='airhockey'?AH_LOOKS:[]);
   return free.concat(paid);
 }
 let LK=[];   /* what the open chooser lists, from lookList */
@@ -4178,11 +4189,11 @@ function paintLook(cv){
   const s=cv.dataset.skin?LK.find(l=>l.id===cv.dataset.skin):wornIn(cur);
   /* Any game but slither.io: its own piece, drawn alone, from shopArt. */
   if(key==='mini'&&cur&&!cur.look){
-    if(window.V2Shop){if(s&&(s.ag||s.ch))V2Shop.paintWith(cv,cur.id,{col:s.col},lookT,false,true);
+    if(window.V2Shop){if(s&&(s.ag||s.ch||s.ah))V2Shop.paintWith(cv,cur.id,{col:s.col},lookT,false,true);
       else V2Shop.paint(cv,cur.id,s&&s.shop?s.shop.id:'default',lookT,false,true)}
     return}
   if(s&&s.game&&s.game!=='snake'){
-    if(s.ag||s.ch)V2Shop.paintWith(cv,s.game,{col:s.col},lookT,false,true);
+    if(s.ag||s.ch||s.ah)V2Shop.paintWith(cv,s.game,{col:s.col},lookT,false,true);
     else V2Shop.paint(cv,s.game,s.shop?s.shop.id:'default',lookT,false,true);
     return}
   /* slither.io: a free skin by number, a Shop skin by its stripe runs. */

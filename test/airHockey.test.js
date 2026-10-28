@@ -228,6 +228,17 @@ test('a pointer sample is applied on the step it is stamped with, early or late'
   assert.deepStrictEqual(room.inputs[0], { x: 300, y: 650 });
 });
 
+test('a stamp far in the future cannot freeze a seat: later honest samples still move the mallet (Fable review)', () => {
+  const room = new AirHockeyRoom(io);
+  room.addPlayer(sock('A'), 'A', null); room.addPlayer(sock('B'), 'B', null);
+  room.start(0);
+  room.setInput('A', { t: 1e8 - 1, p: [100, 900] });
+  for (let i = 0; i < 60; i++) room.stepOnce(0);
+  room.setInput('A', { t: room.match.tick + 1, p: [500, 700] });
+  for (let i = 0; i < 5; i++) room.stepOnce(0);
+  assert.deepStrictEqual(room.inputs[0], { x: 500, y: 700 }, 'the honest sample after it is taken');
+});
+
 test('junk input never throws and never moves a mallet off its half or faster than a hand', () => {
   const room = new AirHockeyRoom(io);
   room.addPlayer(sock('A'), 'A', null); room.addPlayer(sock('B'), 'B', null);
