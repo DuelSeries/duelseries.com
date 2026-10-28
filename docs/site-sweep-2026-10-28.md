@@ -31,6 +31,10 @@ Commit (this one), the established games:
 - Paper.io "Play again" renamed you to "Player" (respawn did not send the name).
 - Slither.io spectate: the "you" row showed the watcher's name on the watched snake's rank and length.
 
+Commit 7ff3cd5:
+- Agar.io on a phone: the chat button never appeared in a quiet room (chat checked "can you talk" only before the player came alive). Chat now re-checks every second while shown, in every game; Agar's phone chat moved from under the Lobby button to top 62.
+- The "P clip" hint was white on the light Agar.io and Paper.io maps: dark there now. The share card's time-left bar keeps running under reduced motion.
+
 ## Not fixed, and why
 
 Needs Owen:
@@ -42,11 +46,9 @@ Needs Owen:
 
 Left for the game sessions (real work, not a quick fix):
 - A connection blip mid-match drops the match silently and re-queues (Rooftop, Crossy, Air Hockey, Pool share it); on a paid table the stake goes the same quiet way. Wants Swim's reconnect grace (2800a36). Money-adjacent.
-- Agar.io free: a guest can be eaten 0 to 1 s after spawning (2 of 5 launches); free rooms have no spawn shield.
-- Agar.io phone: the chat button never appears in a quiet room, and sits under the Lobby button when it does.
+- Agar.io free: a guest can be eaten 0 to 1 s after spawning (finder: 2 of 5 PC launches; re-check: 2 of 3 phone launches, "Eaten by Noah" at 0:00). Free humans already spawn 500 units clear of anything that can eat them. A real-laws offline room with its bots (30 s and 5 min warm-up, 45 idle spawns at clearance 500 and 1500) never killed a guest within 1 s, so the live cause is something a fresh room does not have (room age and bot sizes after hours, or bot splits). Not changed without a cause; needs the agar session to log the eater's size, distance and split on a live death.
 - Rooftop: "Point Blue" is drawn over "Blue Wins!" at the end (check against the reference before changing); Spectate on an empty table is a blank sky; names are not drawn in the match.
 - Battleship placement is a few px too tall at 1366x768 ("5 TO PLACE" cut).
-- "P clip" hint is near invisible on the light Agar.io and Paper.io maps.
 - Phone leaderboards cut names of 11+ characters.
 - Free-room leave button says "Cash out" in Slither.io and Agar.io but "Leave" in Paper.io.
 - iOS-only "Add to home screen" hint can cover the Events Join bar until dismissed.
