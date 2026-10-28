@@ -251,6 +251,29 @@ class CrossyRoom extends KnockoutRoom {
 
   decideNow() { this.judge(); }
 
+  /* A held seat (KnockoutLobby's reconnect grace): while it is away its hopper is moved on with nothing pressed once
+     it trails LAG_MAX (advance), so it stands still and is judged as usual. A seat that has already left (removePlayer
+     above, kept only for a death still to be judged) is never handed to a new socket. */
+  rekey(oldId, socket) {
+    const p = this.players.get(oldId);
+    if (!p || (p.cr && p.cr.left)) return false;
+    return super.rekey(oldId, socket);
+  }
+
+  /* Both held seats ran out together: each hopper is stepped to the clock with what it had sent, as a leaver's is,
+     and judged; only if neither timeline has decided it is it the draw KnockoutRoom calls it. */
+  bothGone() {
+    if (this.state !== 'playing') { super.bothGone(); return; }
+    for (const p of this.players.values()) {
+      if (p.cr.bot) continue;
+      const h = p.cr.h;
+      p.cr.heard = Math.min(p.cr.heard, this.clock);
+      while (h.tick < this.clock && h.alive) S.step(this.world, h, this.pressFor(p.cr, h.tick));
+    }
+    if (this.judge()) return;
+    super.bothGone();
+  }
+
   overExtra() {
     const sc = [0, 1].map(s => { const p = this.bySide(s); return p ? S.score(p.cr.h) : 0; });
     const deaths = [0, 1].map(s => { const p = this.bySide(s); return p && !p.cr.h.alive ? p.cr.h.death : null; });

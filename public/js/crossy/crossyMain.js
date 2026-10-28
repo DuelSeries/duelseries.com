@@ -101,7 +101,8 @@ const matchFt = () => (match ? (serverNow() - match.goAt) / Sim.TICK_MS : 0);   
 const KEYS = { ArrowUp: IN.FWD, KeyW: IN.FWD, Space: IN.FWD, ArrowDown: IN.BACK, KeyS: IN.BACK,
   ArrowLeft: IN.LEFT, KeyA: IN.LEFT, ArrowRight: IN.RIGHT, KeyD: IN.RIGHT };
 const down = new Set();
-const canPlay = () => !WATCH && match && phase === 'playing' && mySeat >= 0 && mine && mine.alive;
+// Offline nothing is pressed: the server holds the seat standing still (the seat hold below), so the screen does too.
+const canPlay = () => !WATCH && match && phase === 'playing' && mySeat >= 0 && mine && mine.alive && socket.connected;
 function press(m) {
   if (!canPlay()) return;
   /* Stamped with the clock's tick now, not the last frame's: a slow frame must not make a hop look older than it
@@ -273,7 +274,37 @@ socket.on('connect', () => {
   if (WATCH) { me = null; swapping = false; watch(null); return; }
   me = socket.id;
   if (overShown) return;
+  /* A match this socket was in: the server holds the seat for five seconds and the seat's key takes it back
+     (cr:rejoined below). Without a key, or too late, the drop was a walk-out, as it always was. */
+  if (match && seatHold && seatHold.rejoin()) return;
   if (match) dropMatch();
+  if (waiting && resumeKey) { queue(null, resumeKey); return; }
+  queue();
+});
+
+/* THE SEAT HOLD (public/js/shared/dsSeatHold.js, server/KnockoutLobby.js drop / rejoin): a connection that blinks
+   mid-match keeps its seat for five seconds while the match runs on (the hopper stands still); "Reconnecting..." on
+   the small pill meanwhile, and the other player and watchers are told the same. */
+const seatHold = window.DSSeatHold ? window.DSSeatHold.create({
+  socket, ev: 'cr', watch: WATCH, pill: $('botNote'), line: $('watchLine'),
+  live: () => !!match && !overShown, nameOf: (s) => match && match.names[s], mySeat: () => mySeat,
+}) : null;
+// The seat back on this socket: the match as the server has it now (startMatch takes the server's hopper rows).
+socket.on('cr:rejoined', (m) => {
+  if (WATCH || !m || !match || overShown) return;
+  if (m.v !== Sim.VERSION) { location.reload(); return; }
+  if (seatHold) seatHold.back();
+  me = socket.id;
+  startMatch(m);
+});
+socket.on('cr:rejoinfail', (m) => {
+  if (WATCH) return;
+  if (seatHold) seatHold.done();
+  if (overShown || !match) return;
+  /* The match ended while the link was down (it was decided, or the five seconds ran out): its own result card, read
+     with the id the seat had in it. */
+  if (m && m.over && typeof m.you === 'string') { showOver(m.over, m.you); return; }
+  dropMatch();
   if (waiting && resumeKey) { queue(null, resumeKey); return; }
   queue();
 });
@@ -282,6 +313,7 @@ socket.on('cr:start', (raw) => {
   if (!raw) return;
   stopWait();
   resumeKey = null;
+  if (seatHold) seatHold.done();     // this match's seat key follows in cr:seat
   if (WATCH) { if (watchMatch) startMatch(fromWatch(raw)); return; }
   if (raw.v !== Sim.VERSION) { location.reload(); return; }
   if (raw.vsBot) botNote();
@@ -298,13 +330,18 @@ socket.on('cr:s', (m) => {
 });
 
 socket.on('cr:over', (m) => {
+  if (seatHold) seatHold.done();
   if (WATCH) { watchOver(m || {}); return; }
+  showOver(m, me);
+});
+// who: the id this seat has in the result (this socket's, or the one it had before a reconnect: cr:rejoinfail).
+function showOver(m, who) {
   if (overShown || !match) return;
   overShown = true;
   phase = 'over';
   $('leave').hidden = true;      // the result card has its own Lobby; the pause button stayed lit on top of it (site sweep 2026-10-28)
-  lastOver = Object.assign({}, m || {}, { ms: matchAt ? Date.now() - matchAt : 0, me, seat: mySeat, vsBot: !!(match && match.vsBot) });   // the card names the bot as a bot (site sweep 2026-10-28)
-  if (m && m.winnerId) { if (m.winnerId === me) series.mine++; else series.theirs++; }
+  lastOver = Object.assign({}, m || {}, { ms: matchAt ? Date.now() - matchAt : 0, me: who, seat: mySeat, vsBot: !!(match && match.vsBot) });   // the card names the bot as a bot (site sweep 2026-10-28)
+  if (m && m.winnerId) { if (m.winnerId === who) series.mine++; else series.theirs++; }
   restake = null; restakeLine = '';
   // The death plays out first: the card comes up 1.6 s after the first one went.
   const first = Math.min(deadAt[0] || Infinity, deadAt[1] || Infinity, mine && !mine.alive ? (mine.diedAt || Infinity) : Infinity);
@@ -312,11 +349,11 @@ socket.on('cr:over', (m) => {
   overAt = performance.now() + delay;
   setTimeout(() => {
     if (!lastOver) return;
-    sfx(m && m.winnerId === me ? 'g.win' : m && m.winnerId ? 'g.lose' : 'g.tick');
+    sfx(m && m.winnerId === who ? 'g.win' : m && m.winnerId ? 'g.lose' : 'g.tick');
     paintOver();
     chatShow(false);
   }, delay);
-});
+}
 
 /* ── the wait (Head Soccer's, word for word) ──────────────────────────────── */
 const WAIT_MS = window.DS_DUEL_WAIT_MS;
@@ -821,6 +858,8 @@ window.__cr = () => ({
   me: mine ? { x: mine.x, r: mine.r, alive: mine.alive, death: mine.death, score: Sim.score(mine), coins: mine.coins, eagle: mine.eagle } : null,
   them: mySeat >= 0 && seen[1 - mySeat] ? { r: seen[1 - mySeat].h.r, alive: seen[1 - mySeat].h.alive } : null,
   corrections, rtt: Math.round(rtt), over: overShown, waiting, touchUI,
+  connected: socket.connected, hold: seatHold ? seatHold.state() : null,
+  result: lastOver ? (lastOver.winnerId ? (lastOver.winnerId === lastOver.me ? 'won' : 'lost') : 'draw') + ', ' + lastOver.why : null,
 });
 
 /* ── boot ──────────────────────────────────────────────────────────────── */

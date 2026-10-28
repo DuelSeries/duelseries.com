@@ -11,6 +11,7 @@
    Turn based, so Knockout's 5 Hz lobby clock is plenty. */
 
 const { KnockoutLobby } = require('./KnockoutLobby');
+const { RECONNECT_GRACE_MS } = require('./duelQueue');
 const { Pool8Room } = require('./Pool8Room');
 const crypto = require('crypto');
 const pool8Bot = require('./pool8Bot');
@@ -18,7 +19,7 @@ const { DUEL_HOUSE_CUT } = require('./duelMoney');
 
 class Pool8Lobby extends KnockoutLobby {
   constructor(io) {
-    super(io, { ev: 'p8', game: 'pool8', tag: '[P8]', Room: Pool8Room });
+    super(io, { ev: 'p8', game: 'pool8', tag: '[P8]', Room: Pool8Room, graceMs: RECONNECT_GRACE_MS });   // a dropped seat is held 5 s
   }
 
   earlyEnough(room) {

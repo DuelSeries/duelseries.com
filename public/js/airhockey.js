@@ -296,7 +296,8 @@ function pauseMenu() {
    above it, so the finger never covers it) and follows the finger from there. */
 const LIFT = 62;
 const finger = { id: null, dx: 0, dy: 0 };
-const canPlay = () => !WATCH && !!match && mySeat >= 0 && !overShown && phase !== 'over';
+// Offline nothing is pressed: the server holds the seat as it was (the seat hold below), so the screen does the same.
+const canPlay = () => !WATCH && !!match && mySeat >= 0 && !overShown && phase !== 'over' && socket.connected;
 const LIVE_PHASES = { countdown: 1, playing: 1, goal: 1, settling: 1 };
 
 function aimAt(px, py) {
@@ -867,10 +868,40 @@ socket.on('connect', () => {
   me = socket.id;
   /* The result card is up: it stays, and Play again queues from it. */
   if (overShown) return;
-  /* A match this socket was in is gone with the old socket (walking out forfeits it on the server). */
+  /* A match this socket was in: the server holds the seat for five seconds and the seat's key takes it back
+     (ah:rejoined below). Without a key, or too late, the drop was a walk-out (it forfeits on the server). */
+  if (match && seatHold && seatHold.rejoin()) return;
   if (match) dropMatch();
   /* A reconnect while waiting takes the same seat back (the key the server sent with ah:queued): the same place,
      the same minute, and for a paid seat the same buy-in, with no new token. */
+  if (waiting && resumeKey) { queue(null, resumeKey); return; }
+  queue();
+});
+
+/* THE SEAT HOLD (public/js/shared/dsSeatHold.js, server/KnockoutLobby.js drop / rejoin): a connection that blinks
+   mid-match keeps its seat for five seconds while the match runs on; "Reconnecting..." on the small pill meanwhile,
+   and the other player and watchers are told the same. */
+const seatHold = window.DSSeatHold ? window.DSSeatHold.create({
+  socket, ev: 'ah', watch: WATCH, pill: $('botNote'), line: $('watchLine'),
+  live: () => !!match && !overShown, nameOf: (s) => match && match.names[s], mySeat: () => mySeat,
+}) : null;
+// The seat back on this socket: the match as the server has it now, with the pointer left where it was.
+socket.on('ah:rejoined', (m) => {
+  if (WATCH || !m || !match || overShown) return;
+  if (seatHold) seatHold.back();
+  me = socket.id;
+  const ax = aim.x, ay = aim.y;
+  startMatch(m);
+  aim.x = ax; aim.y = ay;
+});
+socket.on('ah:rejoinfail', (m) => {
+  if (WATCH) return;
+  if (seatHold) seatHold.done();
+  if (overShown || !match) return;
+  /* The match ended while the link was down (it was decided, or the five seconds ran out): its own result card, read
+     with the id the seat had in it. */
+  if (m && m.over && typeof m.you === 'string') { showOver(m.over, m.you); return; }
+  dropMatch();
   if (waiting && resumeKey) { queue(null, resumeKey); return; }
   queue();
 });
@@ -961,6 +992,7 @@ socket.on('ah:start', (raw) => {
   if (!raw) return;
   stopWait();
   resumeKey = null;
+  if (seatHold) seatHold.done();     // this match's seat key follows in ah:seat
   if (WATCH) { if (watchMatch) startMatch(fromWatch(raw)); return; }
   if (raw.vsBot) botNote();
   me = socket.id;
@@ -1029,19 +1061,24 @@ socket.on('ah:whistle', (m) => {
 });
 
 socket.on('ah:over', (m) => {
+  if (seatHold) seatHold.done();
   if (WATCH) { watchOver(m || {}); return; }
+  showOver(m, me);
+});
+// who: the id this seat has in the result (this socket's, or the one it had before a reconnect: ah:rejoinfail).
+function showOver(m, who) {
   if (overShown) return;
   overShown = true;
   setPhase('over');
   releaseAll();
   cv.classList.remove('playing');
-  lastOver = Object.assign({}, m || {}, { ms: matchAt ? Date.now() - matchAt : 0, me, seat: mySeat, vsBot: !!(match && match.vsBot) });   // the card names the bot as a bot (site sweep 2026-10-28)
-  if (m && m.winnerId) { if (m.winnerId === me) series.mine++; else series.theirs++; }
+  lastOver = Object.assign({}, m || {}, { ms: matchAt ? Date.now() - matchAt : 0, me: who, seat: mySeat, vsBot: !!(match && match.vsBot) });   // the card names the bot as a bot (site sweep 2026-10-28)
+  if (m && m.winnerId) { if (m.winnerId === who) series.mine++; else series.theirs++; }
   restake = null; restakeLine = '';
   paintOver();
   chatShow(false);
   if (SND && SND.music) SND.music(false);
-});
+}
 
 /* ── the result card ───────────────────────────────────────────────────────
    The one card every DuelSeries game ends on (public/js/shared/dsEnd.js). Every amount on it is the server's own

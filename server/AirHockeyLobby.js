@@ -10,6 +10,7 @@
    bot match is still young enough to pull its human out of, and the bot. */
 
 const { KnockoutLobby } = require('./KnockoutLobby');
+const { RECONNECT_GRACE_MS } = require('./duelQueue');
 const { AirHockeyRoom } = require('./AirHockeyRoom');
 const ahBot = require('./ahBot');
 const { AH } = require('../shared/ahSim');
@@ -19,7 +20,7 @@ const RESCUE_PLAYED_MS = 10000;   // a bot match 0-0 and under ten seconds old c
 
 class AirHockeyLobby extends KnockoutLobby {
   constructor(io) {
-    super(io, { ev: 'ah', game: 'airhockey', tag: '[AH]', Room: AirHockeyRoom });
+    super(io, { ev: 'ah', game: 'airhockey', tag: '[AH]', Room: AirHockeyRoom, graceMs: RECONNECT_GRACE_MS });   // a dropped seat is held 5 s
   }
 
   /* The table runs in real time, so the lobby ticks at the physics rate. The room catches up in fixed steps from

@@ -165,6 +165,19 @@ function create(deps) {
     on('cr:unqueue', () => lobby.leave(socket.id));   // leave(): a paid seat is refunded, once
     on('cr:leave', () => lobby.leave(socket.id));
 
+    /* A reconnect mid-match takes its seat back with the key only that seat was sent (cr:seat), inside the five
+       seconds a dropped seat is held (KnockoutLobby.drop / rejoin, index.js p8:rejoin). The seat keeps its wallet. */
+    on('cr:rejoin', ({ key } = {}) => {
+      if (!h.socketRL(socket, 'crrejoin', 1000)) return;
+      try {
+        const r = lobby.rejoin(socket, key, Date.now());
+        if (r && r.ok && r.worth > 0 && r.wallet) socket._walletAddress = r.wallet;
+      } catch (e) {
+        console.error('[CR] rejoin threw:', e && e.stack ? e.stack : e);
+        socket.emit('cr:rejoinfail', {});
+      }
+    });
+
     /* Hops, a few ticks a packet: only ever this socket's own hopper (CrossyRoom.input checks everything). A flood
        past 40 in half a second is dropped. */
     on('cr:in', (msg) => {
@@ -196,9 +209,10 @@ function create(deps) {
     });
   }
 
-  // A closed tab: out of the queue (a paid seat refunded), a match forfeited, a watcher forgotten.
+  /* A closed tab: out of the queue (a paid seat refunded), a watcher forgotten, and a seat mid-match held five
+     seconds for its reconnect (KnockoutLobby.drop) before it forfeits as it always did. */
   function disconnect(socketId) {
-    lobby.leave(socketId);
+    lobby.drop(socketId);
     lobby.unwatch(socketId);
   }
 

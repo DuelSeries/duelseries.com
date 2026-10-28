@@ -246,7 +246,8 @@ function pauseMenu() {
 const KEYS = { KeyW: 'J', KeyI: 'J', KeyE: 'S', KeyO: 'S' };
 let shootDown = false;
 let sentAt = 0, winAt = 0, winN = 0, sendTimer = 0;
-const canPlay = () => !WATCH && !!match && mySeat >= 0 && !overShown && phase !== 'over';
+// Offline nothing is pressed: the server holds the seat as it was (the seat hold below), so the screen does the same.
+const canPlay = () => !WATCH && !!match && mySeat >= 0 && !overShown && phase !== 'over' && socket.connected;
 
 function sendInput(reliable) {
   if (!canPlay()) return;
@@ -728,7 +729,40 @@ socket.on('connect', () => {
   if (WATCH) { me = null; swapping = false; watch(null); return; }
   me = socket.id;
   if (overShown) return;
+  /* A match this socket was in: the server holds the seat for five seconds and the seat's key takes it back
+     (rt:rejoined below). Without a key, or too late, the drop was a walk-out, as it always was. */
+  if (match && seatHold && seatHold.rejoin()) return;
   if (match) dropMatch();
+  if (waiting && resumeKey) { queue(null, resumeKey); return; }
+  queue();
+});
+
+/* THE SEAT HOLD (public/js/shared/dsSeatHold.js, server/KnockoutLobby.js drop / rejoin): a connection that blinks
+   mid-match keeps its seat for five seconds while the match runs on; "Reconnecting..." on the small pill meanwhile,
+   and the other player and watchers are told the same. */
+const seatHold = window.DSSeatHold ? window.DSSeatHold.create({
+  socket, ev: 'rt', watch: WATCH, pill: $('botNote'), line: $('watchLine'),
+  live: () => !!match && !overShown, nameOf: (s) => match && match.names[s], mySeat: () => mySeat,
+}) : null;
+/* The seat back on this socket: the match as the server has it now, and this seat's input counts and sequence carried
+   on from the server's (a count only ever goes up, so counting from zero again would press nothing). */
+socket.on('rt:rejoined', (m) => {
+  if (WATCH || !m || !match || overShown) return;
+  if (seatHold) seatHold.back();
+  me = socket.id;
+  startMatch(m);
+  const c = m.inp || {};
+  inp.j = c.j | 0; inp.d = c.d | 0; inp.r = c.r | 0; inp.n = c.n | 0;
+  seq = Number(m.ack) | 0; baseAck = seq;
+});
+socket.on('rt:rejoinfail', (m) => {
+  if (WATCH) return;
+  if (seatHold) seatHold.done();
+  if (overShown || !match) return;
+  /* The match ended while the link was down (it was decided, or the five seconds ran out): its own result card, read
+     with the id the seat had in it. */
+  if (m && m.over && typeof m.you === 'string') { if (SND) SND.music(false); showOver(m.over, m.you); return; }
+  dropMatch();
   if (waiting && resumeKey) { queue(null, resumeKey); return; }
   queue();
 });
@@ -810,6 +844,7 @@ socket.on('rt:start', (raw) => {
   if (!raw) return;
   stopWait();
   resumeKey = null;
+  if (seatHold) seatHold.done();     // this match's seat key follows in rt:seat
   if (WATCH) { if (watchMatch) startMatch(fromWatch(raw)); return; }
   if (raw.vsBot) botNote();
   me = socket.id;
@@ -844,17 +879,22 @@ socket.on('rt:timeup', (m) => { if (match && m) { timeUpAt = performance.now(); 
 let timeUpAt = -1e9;
 
 socket.on('rt:over', (m) => {
+  if (seatHold) seatHold.done();
   if (WATCH) { watchOver(m || {}); return; }
+  showOver(m, me);
+});
+// who: the id this seat has in the result (this socket's, or the one it had before a reconnect: rt:rejoinfail).
+function showOver(m, who) {
   if (overShown) return;
   overShown = true;
   setPhase('over');
   releaseAll();
-  lastOver = Object.assign({}, m || {}, { ms: matchAt ? Date.now() - matchAt : 0, me, seat: mySeat, vsBot: !!(match && match.vsBot) });   // the card names the bot as a bot (site sweep 2026-10-28)
-  if (m && m.winnerId) { if (m.winnerId === me) series.mine++; else series.theirs++; }
+  lastOver = Object.assign({}, m || {}, { ms: matchAt ? Date.now() - matchAt : 0, me: who, seat: mySeat, vsBot: !!(match && match.vsBot) });   // the card names the bot as a bot (site sweep 2026-10-28)
+  if (m && m.winnerId) { if (m.winnerId === who) series.mine++; else series.theirs++; }
   restake = null; restakeLine = '';
   paintOver();
   chatShow(false);
-});
+}
 
 /* ── the result card (public/js/shared/dsEnd.js). Every amount is the server's own figure from rt:over's money. */
 const RESTAKE_WAIT_MS = 120000;

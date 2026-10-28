@@ -11,6 +11,7 @@
    to pull its human out of, and the bot that presses the buttons. */
 
 const { KnockoutLobby } = require('./KnockoutLobby');
+const { RECONNECT_GRACE_MS } = require('./duelQueue');
 const { RooftopRoom } = require('./RooftopRoom');
 const rtBot = require('./rtBot');
 
@@ -19,7 +20,7 @@ const RESCUE_PLAYED_TICKS = 600;   // a bot match 0-0 and under ten seconds old 
 
 class RooftopLobby extends KnockoutLobby {
   constructor(io) {
-    super(io, { ev: 'rt', game: 'rooftop', tag: '[RT]', Room: RooftopRoom });
+    super(io, { ev: 'rt', game: 'rooftop', tag: '[RT]', Room: RooftopRoom, graceMs: RECONNECT_GRACE_MS });   // a dropped seat is held 5 s
   }
 
   /* The roof runs in real time, so the lobby ticks at the physics rate. The room catches up in fixed steps from the

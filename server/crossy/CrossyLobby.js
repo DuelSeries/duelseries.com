@@ -11,6 +11,7 @@
    room (CrossyRoom.advance), so there is nothing to aim. */
 
 const { KnockoutLobby } = require('../KnockoutLobby');
+const { RECONNECT_GRACE_MS } = require('../duelQueue');
 const { CrossyRoom } = require('./CrossyRoom');
 
 const TICK_MS = 1000 / 60;
@@ -18,7 +19,7 @@ const RESCUE_TICKS = 5 * 60;      // a bot match under five seconds old can stil
 
 class CrossyLobby extends KnockoutLobby {
   constructor(io) {
-    super(io, { ev: 'cr', game: 'crossy', tag: '[CR]', Room: CrossyRoom });
+    super(io, { ev: 'cr', game: 'crossy', tag: '[CR]', Room: CrossyRoom, graceMs: RECONNECT_GRACE_MS });   // a dropped seat is held 5 s
   }
 
   start() {

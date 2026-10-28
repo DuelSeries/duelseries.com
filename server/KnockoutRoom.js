@@ -2,6 +2,7 @@
 const crypto = require('crypto');
 const { refundBound } = require('./stakeRules');
 const { duelMoney } = require('./duelMoney');
+const { newResumeKey } = require('./duelQueue');
 /* ─── Knockout ────────────────────────────────────────────────────────────────
    Two players, two pieces each, one shrinking disc over a pit. Every turn both
    players get fifteen seconds to drag an arrow out of each of their pieces —
@@ -180,6 +181,10 @@ class KnockoutRoom {
     /* Seat -> who sat there. Kept after somebody leaves, because the last
        messages of a match (the result) still name the seat they had. */
     this.seats = [];
+    /* The seat keys live now (key -> side), for the duels whose lobby holds a dropped seat (see "a dropped
+       connection" below), and the result message once there is one, for a seat that comes back after it. */
+    this.seatKeys = new Map();
+    this.overMsg = null;
   }
 
   /* ── seats ──────────────────────────────────────────────────────────────── */
@@ -269,6 +274,98 @@ class KnockoutRoom {
     for (const id of this.players.keys()) if (id !== socketId) return id;
     return null;
   }
+
+  /* ── a dropped connection (the duels whose lobby opts in: KnockoutLobby opts.graceMs) ─────────────────
+     Swim's five seconds (server/swim/SwimRoom.js), for every duel built on this room that asks for it. A seat whose
+     socket drops while the match is on is marked away and HELD: nothing is decided for it, the match runs on, and the
+     seat simply presses nothing new. A reconnect that shows the seat's key within the grace takes it over on its new
+     socket (rekey); past the grace the lobby makes it the leave it always was (removePlayer, the old forfeit). The key
+     is a random secret sent to the seat's own socket only (<ev>:seat), never broadcast, never a socket id, and it is
+     replaced on every rejoin, so a key works once. Nothing about worth, pot or wallets changes here: the seat keeps
+     the wallet that paid, whichever socket holds it. */
+
+  /* A new key for a person's seat, sent to that seat's socket and nowhere else. Issued when the match starts and
+     again after every rejoin (the used one is dead). */
+  issueSeatKey(socketId) {
+    const p = this.players.get(socketId);
+    if (!p || isBotId(socketId)) return null;
+    if (p.seatKey) this.seatKeys.delete(p.seatKey);
+    p.seatKey = newResumeKey();
+    this.seatKeys.set(p.seatKey, p.side);
+    try { if (p.socket && typeof p.socket.emit === 'function') p.socket.emit(this.ev + ':seat', { key: p.seatKey }); } catch (_) {}
+    return p.seatKey;
+  }
+
+  /* The seat's socket went. Only a person's seat with a key, in a match that is still on, is held; anything else is
+     the old rule (false: the lobby makes it a leave). The other player and the watchers are told, by seat. */
+  awayFrom(socketId, now, graceMs) {
+    const p = this.players.get(socketId);
+    if (!p || isBotId(socketId) || !p.seatKey || !(graceMs > 0)) return false;
+    if (this.state === 'waiting' || this.state === 'over') return false;
+    if (!p.away) {
+      p.away = nowOr(now) + graceMs;
+      this.broadcast(this.ev + ':away', { side: p.side, ms: graceMs });
+    }
+    return true;
+  }
+
+  /* The held seats whose grace is up by `now`, the earliest first. */
+  awayDue(now) {
+    const t = nowOr(now), out = [];
+    for (const [id, p] of this.players) if (p.away && t >= p.away) out.push(id);
+    return out.sort((a, b) => this.players.get(a).away - this.players.get(b).away);
+  }
+
+  /* The seat that holds this key, or null. */
+  seatByKey(key) {
+    if (typeof key !== 'string' || !this.seatKeys.has(key)) return null;
+    for (const [id, p] of this.players) if (p.seatKey === key) return { id, p };
+    return null;
+  }
+
+  /* Both held seats ran out on the same deadline: neither is the one who stayed, so it is not whichever seat the map
+     lists first (Swim's rule, Fable review 2026-10-27). A match already decided is settled as decided; anything else
+     is a draw, each seat its own stake back. A game whose result can still be read off what was sent overrides it. */
+  bothGone() {
+    if (this.state === 'over') return;
+    if (this.state === 'settling') { this.decideNow(); if (this.state === 'over') return; }
+    this.finish(null, 'both out');
+  }
+
+  /* MOVE A SEAT TO A NEW SOCKET. Everything keyed by socket id is moved to the new id once, nothing is left under the
+     old one, and the maps keep their order: the seat (players), what it staked (worth, so the pot is the same sum),
+     the seat's id that finish() and the watchers name it by (seats[side].id), and Knockout's own aims, ready flags
+     and pieces. The seat object is the same one, so its wallet (the one that paid), paid, name, side and skin are
+     kept. The old socket, if somehow still connected, is taken out of the match's channel. */
+  rekey(oldId, socket) {
+    const p = this.players.get(oldId);
+    if (!p || isBotId(oldId) || !socket || typeof socket.id !== 'string') return false;
+    if (this.state === 'waiting' || this.state === 'over') return false;
+    const newId = socket.id;
+    if (newId === oldId || isBotId(newId) || this.players.has(newId) || this.worth.has(newId)) return false;
+    const move = (m) => new Map([...m].map(([id, v]) => [id === oldId ? newId : id, v]));
+    this.players = move(this.players);
+    this.worth = move(this.worth);
+    if (this.aims) this.aims = move(this.aims);
+    if (this.ready && this.ready.has(oldId)) this.ready = new Set([...this.ready].map(id => (id === oldId ? newId : id)));
+    for (const pc of this.pieces || []) if (pc.owner === oldId) pc.owner = newId;
+    for (let s = 0; s < this.seats.length; s++) {
+      if (this.seats[s] && this.seats[s].id === oldId) this.seats[s] = Object.assign({}, this.seats[s], { id: newId });
+    }
+    this.rekeyExtra(oldId, newId);
+    try { if (p.socket && p.socket !== socket && typeof p.socket.leave === 'function') p.socket.leave(this.socketRoomName); } catch (_) {}
+    p.socket = socket;
+    p.away = 0;
+    if (socket.join) socket.join(this.socketRoomName);
+    this.broadcast(this.ev + ':back', { side: p.side });
+    return true;
+  }
+
+  /* A game's own state keyed by socket id, moved the same way (rekey). */
+  rekeyExtra() {}
+
+  /* What a game adds to <ev>:rejoined for the seat coming back, beyond publicState (Rooftop: its input counts). */
+  rejoinExtra() { return {}; }
 
   piecesOf(socketId) { return this.pieces.filter(p => p.owner === socketId && p.alive); }
 
@@ -653,7 +750,8 @@ class KnockoutRoom {
       }
     }
 
-    this.broadcast(this.ev + ':over', Object.assign({
+    /* Kept (overMsg), so a held seat that comes back after the match ended is shown the real result. */
+    this.overMsg = Object.assign({
       winner: winnerId ? (this.players.get(winnerId) || {}).name || null : null,
       winnerId: winnerId ? this.publicId(winnerId) : null,
       why: this.overWhy,
@@ -665,7 +763,8 @@ class KnockoutRoom {
          only; null on a free table. Both screens get both seats' figures, keyed
          by the socket ids the state already names, and never a wallet. */
       money: duelMoney({ winnerId: winnerId || null, pot, seats }),
-    }, this.overExtra()));
+    }, this.overExtra());
+    this.broadcast(this.ev + ':over', this.overMsg);
   }
 
   // The settling result, decided now (removePlayer). Knockout: the pieces left on the disc.
@@ -729,7 +828,9 @@ class KnockoutRoom {
        watcher when somebody decides it should and not before. */
     if (this.watchers > 0 && this.io && this.io.to) {
       try {
-        const out = this.forWatchers(event, payload);
+        // A held seat (awayFrom / rekey) is told to watchers by seat, the same in every game built on this room.
+        const out = event === this.ev + ':away' || event === this.ev + ':back'
+          ? { side: payload.side, ms: payload.ms } : this.forWatchers(event, payload);
         if (out) this.io.to(this.watchRoomName).emit(event, out);
       } catch (e) { console.error('[' + this.ev.toUpperCase() + '] watcher send failed:', e.message); }
     }

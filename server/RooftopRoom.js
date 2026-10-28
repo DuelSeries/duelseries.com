@@ -179,6 +179,14 @@ class RooftopRoom extends KnockoutRoom {
      settled by the score first (KnockoutRoom.removePlayer calls this while 'settling'). */
   decideNow() { this.finishByScore(); }
 
+  /* A seat coming back after a dropped connection (KnockoutLobby.rejoin): its running counts and the last input it
+     had acknowledged, so its page carries on counting from them (a count only ever goes up, so a page counting from
+     zero again would press nothing until it passed them). While it was away the seat pressed nothing new. */
+  rejoinExtra(side) {
+    const s = side === 1 ? 1 : 0, inp = this.inputs[s];
+    return { inp: { j: inp.j, d: inp.d, r: inp.r, n: inp.n }, ack: this.acks[s] };
+  }
+
   overExtra() {
     return { score: (this.finalScore || this.match.score).slice() };
   }

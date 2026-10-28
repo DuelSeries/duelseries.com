@@ -115,6 +115,10 @@ class KnockoutLobby {
     this.watchers = new Map();
     this.liveKey = '';            // which matches were running, for telling watchers
     this.timer = null;
+    /* A dropped seat at a table is held this long for its reconnect (drop / rejoin below). 0, the default, is the
+       old rule: a drop is a leave at once. Knockout and Head Soccer pass nothing and are exactly what they were. */
+    this.graceMs = Number(o.graceMs) > 0 ? Number(o.graceMs) : 0;
+    this.ended = new Map();       // seat key -> { over, side, you, at }: matches that ended, for a late reconnect
   }
 
   start() {
@@ -275,9 +279,95 @@ class KnockoutLobby {
          a match is decided on the buzzer. */
       this.botAim(room, t);
       room.tick(t);
-      if (room.state === 'over') this.sweep(room);
+      if (room.state === 'over') { this.sweep(room); continue; }
+      /* After the room's own tick, so a match decided on the last tick of a grace is settled by its result. */
+      this.expire(room, t);
     }
     this.tickWatchers();
+  }
+
+  /* ── a dropped connection mid-match (KnockoutRoom's "a dropped connection") ─────────────────────────── */
+
+  /* The socket's disconnect. A seat at a table that is still being played is held for the grace; everything else (a
+     queued seat, a watcher, a lobby with no grace, a room not on) is the leave it always was. A deliberate leave
+     (<ev>:leave) never comes here: it calls leave() and forfeits at once. */
+  drop(socketId, now) {
+    const room = this.graceMs > 0 ? this.roomOf(socketId) : null;
+    if (room && room.awayFrom(socketId, typeof now === 'number' ? now : Date.now(), this.graceMs)) {
+      this.unwatch(socketId);
+      return true;
+    }
+    this.leave(socketId);
+    return false;
+  }
+
+  /* A held seat whose grace is up leaves, exactly as a disconnect did before: removePlayer gives the match to the
+     seat still there, or settles it as decided if it already was. Only a room still in the lobby and still on (one
+     that ended in the grace was swept and settled by its result), and only a seat the lobby still seats. */
+  expire(room, t) {
+    if (!room || room.state === 'over' || this.rooms.get(room.id) !== room || typeof room.awayDue !== 'function') return;
+    const due = room.awayDue(t).filter(id => this.bySocket.get(id) === room.id);
+    if (!due.length) return;
+    const P = (id) => room.players.get(id);
+    if (due.length === 2 && P(due[0]).away === P(due[1]).away) {
+      console.log(this.tag + ' ' + room.id + ': both dropped seats ran out together');
+      for (const id of due) P(id).away = 0;
+      room.bothGone();
+      this.sweep(room);
+      return;
+    }
+    console.log(this.tag + ' ' + room.id + ': a dropped seat did not come back in time');
+    P(due[0]).away = 0;
+    this.leave(due[0]);
+  }
+
+  /* A RECONNECT TAKES ITS SEAT BACK. The key (sent only to the seat's own socket, <ev>:seat) is the only proof, and
+     it opens only its own seat at its own table. A socket that already holds a seat or a queue place cannot take
+     another. On success the new socket gets the match as it is now (<ev>:rejoined: the start message's shape, plus
+     its side and anything the game adds) and a fresh key, and the used one is dead. A key whose match has ended gets
+     that match's result instead (it may have been decided while the link was down); anything else is refused, and
+     the page does what a reconnect did before. Returns { ok, room, wallet, worth } for the caller's socket record. */
+  rejoin(socket, key, now) {
+    const fail = (extra) => { send(socket, this.ev + ':rejoinfail', extra || {}); return { ok: false }; };
+    if (!(this.graceMs > 0)) return fail();
+    // Restarting: every paid seat was turned into an owed refund (shutdownSettle), so the page can say so.
+    if (this.stopping) return fail({ restart: true });
+    if (!socket || typeof socket.id !== 'string' || !duelQueue.isKey(key)) return fail();
+    if (this.holds(socket.id)) return fail();
+    for (const room of this.rooms.values()) {
+      if (!room.seatKeys || !room.seatKeys.has(key)) continue;
+      const found = room.seatByKey(key);
+      if (!found || room.state === 'waiting' || room.state === 'over' || this.bySocket.get(found.id) !== room.id) {
+        return fail(room.overMsg ? { over: room.overMsg, side: room.seatKeys.get(key), you: found ? room.publicId(found.id) : null } : null);
+      }
+      const oldId = found.id;
+      if (!room.rekey(oldId, socket)) return fail();
+      this.bySocket.delete(oldId);
+      this.bySocket.set(socket.id, room.id);
+      socket._koRoom = room.id;
+      this.unwatch(socket.id);
+      const p = found.p;
+      console.log(this.tag + ' ' + room.id + ': ' + p.name + ' reconnected');
+      send(socket, this.ev + ':rejoined', Object.assign(room.publicState(typeof now === 'number' ? now : Date.now()),
+        { side: p.side }, room.rejoinExtra(p.side)));
+      room.issueSeatKey(socket.id);
+      return { ok: true, room, side: p.side, wallet: p.wallet, worth: room.worth.get(socket.id) || 0 };
+    }
+    const gone = this.ended.get(key);
+    if (gone) { this.ended.delete(key); return fail({ over: gone.over, side: gone.side, you: gone.you }); }
+    return fail();
+  }
+
+  /* A swept room's seat keys keep its result for a few minutes (rejoin above), each with the id its seat was named
+     by in that result, so the page can tell whether it won. */
+  rememberEnded(room) {
+    if (!room || !room.overMsg || !room.seatKeys || !room.seatKeys.size) return;
+    const t = Date.now();
+    for (const [k, v] of this.ended) if (t - v.at > duelQueue.RESUME_REMEMBER_MS) this.ended.delete(k);
+    for (const [k, side] of room.seatKeys) {
+      const seat = room.seats[side];
+      this.ended.set(k, { over: room.overMsg, side, you: seat ? room.publicId(seat.id) : null, at: t });
+    }
   }
 
   /* SOMEBODY WAITING BEATS A BOT, EVEN A LITTLE LATE.
@@ -300,7 +390,9 @@ class KnockoutLobby {
       const human = [...room.players.keys()].find(id => !String(id).startsWith('bot_'));
       if (!human || human === entry.socket.id) continue;
       const seat = room.players.get(human);
-      if (!seat || !seat.socket) continue;
+      /* A seat held for its reconnect has no live socket to move: pairing a newcomer with it would put them against a
+         player who is not there (Swim's rule). */
+      if (!seat || !seat.socket || seat.away) continue;
 
       /* Take the room away without finishing it: finish() would broadcast a
          result for a match that is not over and did not happen. */
@@ -358,6 +450,11 @@ class KnockoutLobby {
        6000 and could be lowered again, and at a few hundred milliseconds it
        would sit inside stalls that really do happen. */
     room.start(typeof now === 'number' ? now : Date.now());
+    /* Each person's seat key, to that seat's socket only, after <ev>:start so the page has its match (a lobby with a
+       reconnect grace only). */
+    if (this.graceMs > 0 && room.state !== 'waiting' && typeof room.issueSeatKey === 'function') {
+      for (const id of room.players.keys()) room.issueSeatKey(id);
+    }
     return room;
   }
 
@@ -402,6 +499,7 @@ class KnockoutLobby {
   sweep(room) {
     const humans = [...room.players.keys()].filter(id => !String(id).startsWith('bot_'));
     if (humans.length && room.state !== 'over') return;
+    if (this.rooms.get(room.id) === room) this.rememberEnded(room);
     for (const [sid, rid] of [...this.bySocket]) {
       if (rid === room.id) this.bySocket.delete(sid);
     }

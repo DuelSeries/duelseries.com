@@ -5933,6 +5933,22 @@ io.on('connection', (socket) => {
 
   on('p8:leave', () => pool8Lobby.leave(socket.id));
 
+  /* A RECONNECT MID-MATCH takes its seat back with the key only that seat was sent (<ev>:seat), inside the five
+     seconds a dropped seat is held (KnockoutLobby.drop / rejoin; Swim's sw:rejoin below, for 8 Ball Pool, Air
+     Hockey, Rooftop Snipers and Crossy Road). The answer (<ev>:rejoined or <ev>:rejoinfail) goes to this socket only.
+     The seat keeps the wallet that paid; this only lets the socket name it, as a resumed queue seat does. */
+  const duelRejoin = (lobby, ev) => ({ key } = {}) => {
+    if (!socketRL(socket, ev + 'rejoin', 1000)) return;
+    try {
+      const r = lobby.rejoin(socket, key, Date.now());
+      if (r && r.ok && r.worth > 0 && r.wallet) socket._walletAddress = r.wallet;
+    } catch (e) {
+      console.error('[' + ev.toUpperCase() + '] rejoin threw:', e && e.stack ? e.stack : e);
+      socket.emit(ev + ':rejoinfail', {});
+    }
+  };
+  on('p8:rejoin', duelRejoin(pool8Lobby, 'p8'));
+
   on('p8:chat', ({ text } = {}) => {
     const room = pool8Lobby.roomOf(socket.id);
     if (!room) return;
@@ -6080,6 +6096,7 @@ io.on('connection', (socket) => {
   });
 
   on('ah:leave', () => airHockeyLobby.leave(socket.id));
+  on('ah:rejoin', duelRejoin(airHockeyLobby, 'ah'));   // a reconnect mid-match (see p8:rejoin)
 
   on('ah:chat', ({ text } = {}) => {
     const room = airHockeyLobby.roomOf(socket.id);
@@ -6231,6 +6248,7 @@ io.on('connection', (socket) => {
   });
 
   on('rt:leave', () => rooftopLobby.leave(socket.id));
+  on('rt:rejoin', duelRejoin(rooftopLobby, 'rt'));   // a reconnect mid-match (see p8:rejoin)
 
   on('rt:chat', ({ text } = {}) => {
     const room = rooftopLobby.roomOf(socket.id);
@@ -6576,9 +6594,9 @@ io.on('connection', (socket) => {
     knockoutLobby.leave(socket.id);
     battleshipLobby.leave(socket.id);
     headSoccerLobby.leave(socket.id);
-    pool8Lobby.leave(socket.id);
-    airHockeyLobby.leave(socket.id);
-    rooftopLobby.leave(socket.id);
+    pool8Lobby.drop(socket.id);                  // a seat mid-match is held 5 s for its reconnect (KnockoutLobby.drop)
+    airHockeyLobby.drop(socket.id);
+    rooftopLobby.drop(socket.id);
     knockoutLobby.unwatch(socket.id);            // a watcher holds no seat, only a place on the list
     battleshipLobby.unwatch(socket.id);
     swimLobby.drop(socket.id);                   // a Swim seat mid-race is held 5 s for its reconnect
@@ -6587,7 +6605,7 @@ io.on('connection', (socket) => {
     pool8Lobby.unwatch(socket.id);
     airHockeyLobby.unwatch(socket.id);
     rooftopLobby.unwatch(socket.id);
-    crossy.disconnect(socket.id);                // a Crossy seat forfeits; a paid queue seat is refunded
+    crossy.disconnect(socket.id);                // a Crossy seat mid-match is held 5 s; a paid queue seat is refunded
     endShooter(socket.id);
     paper.drop(socket.id);                       // a Paper seat enters its 5 s grace
     console.log(`[-] Disconnected: ${socket.id}`);

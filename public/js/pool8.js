@@ -140,7 +140,8 @@ let spinOpen = false;
 let drag = null;              // { kind: 'pull' | 'bar' | 'cue' | 'turn' | 'fine', ... }
 let aimSentAt = 0, aimDirty = false;
 
-const myTurn = () => !WATCH && match && mySeat >= 0 && phase === 'aiming' && rules.turn === mySeat && !overShown && !tape;
+// Offline no shot is taken: the server holds the seat as it was (the seat hold below), so the screen does the same.
+const myTurn = () => !WATCH && match && mySeat >= 0 && phase === 'aiming' && rules.turn === mySeat && !overShown && !tape && socket.connected;
 const cueBall = () => view[0];
 
 /* ── the transform ───────────────────────────────────────────────────────────
@@ -220,7 +221,7 @@ function setRules(r) {
 
 function setPhase(p) { phase = p; phaseAt = performance.now(); }
 
-function startMatch(m) {
+function startMatch(m, resumed) {
   const players = m.players || [];
   mySeat = -1;
   if (!WATCH) { const p = players.find(q => q.id === me); mySeat = p ? (p.side === 1 ? 1 : 0) : -1; }
@@ -241,7 +242,8 @@ function startMatch(m) {
   vsUntil = m.state === 'countdown' ? performance.now() + Math.max(0, Number(m.phaseMs) || 0) : 0;
   // The first aim: from the cue ball at the head ball.
   aimAtRack();
-  if (rules.turn === mySeat && rules.inHand === 'kitchen') say('You are breaking, good luck!', 4000);
+  if (resumed) { /* a seat back after a reconnect: the table as it is, no break banner */ }
+  else if (rules.turn === mySeat && rules.inHand === 'kitchen') say('You are breaking, good luck!', 4000);
   else if (mySeat >= 0) say((match.names[rules.turn] || 'Opponent') + ' is breaking', 4000);
   myShots = 0; groupBanner = { text: '', at: -1e9 };
   $('wait').hidden = true;
@@ -760,10 +762,38 @@ socket.on('connect', () => {
   me = socket.id;
   /* The result card is up: it stays, and Play again queues from it. */
   if (overShown) return;
-  /* A match this socket was in is gone with the old socket (walking out forfeits it on the server). */
+  /* A match this socket was in: the server holds the seat for five seconds and the seat's key takes it back
+     (p8:rejoined below). Without a key, or too late, the drop was a walk-out (it forfeits on the server). */
+  if (match && seatHold && seatHold.rejoin()) return;
   if (match) dropMatch();
   /* A reconnect while waiting takes the same seat back (the key the server sent with hs:queued): the same place,
      the same minute, and for a paid seat the same buy-in, with no new token. */
+  if (waiting && resumeKey) { queue(null, resumeKey); return; }
+  queue();
+});
+
+/* THE SEAT HOLD (public/js/shared/dsSeatHold.js, server/KnockoutLobby.js drop / rejoin): a connection that blinks
+   mid-match keeps its seat for five seconds while the match runs on (the shot clock too); "Reconnecting..." on the
+   small pill meanwhile, and the other player and watchers are told the same. */
+const seatHold = window.DSSeatHold ? window.DSSeatHold.create({
+  socket, ev: 'p8', watch: WATCH, pill: $('botNote'), line: $('watchLine'),
+  live: () => !!match && !overShown, nameOf: (s) => match && match.names[s], mySeat: () => mySeat,
+}) : null;
+// The seat back on this socket: the table as the server has it now.
+socket.on('p8:rejoined', (m) => {
+  if (WATCH || !m || !match || overShown) return;
+  if (seatHold) seatHold.back();
+  me = socket.id;
+  startMatch(m, true);
+});
+socket.on('p8:rejoinfail', (m) => {
+  if (WATCH) return;
+  if (seatHold) seatHold.done();
+  if (overShown || !match) return;
+  /* The match ended while the link was down (it was decided, or the five seconds ran out): its own result card, read
+     with the id the seat had in it. */
+  if (m && m.over && typeof m.you === 'string') { showOver(m.over, m.you); return; }
+  dropMatch();
   if (waiting && resumeKey) { queue(null, resumeKey); return; }
   queue();
 });
@@ -853,6 +883,7 @@ socket.on('p8:start', (raw) => {
   if (!raw) return;
   stopWait();
   resumeKey = null;                        // the seat is a match now, not a place in the queue
+  if (seatHold) seatHold.done();                   // this match's seat key follows in p8:seat
   if (WATCH) { if (watchMatch) startMatch(fromWatch(raw)); return; }   // a watcher's matches come by hs:watching
   if (raw.vsBot) botNote();
   me = socket.id;
@@ -861,19 +892,24 @@ socket.on('p8:start', (raw) => {
 });
 
 socket.on('p8:over', (m) => {
+  if (seatHold) seatHold.done();
   if (WATCH) { watchOver(m || {}); return; }
+  showOver(m, me);
+});
+// who: the id this seat has in the result (this socket's, or the one it had before a reconnect: p8:rejoinfail).
+function showOver(m, who) {
   if (overShown) return;
   overShown = true;
   setPhase('over');
   releaseAll();
   /* Whose result it is, read now: a reconnect while the card is up changes the socket id, and the card is drawn
      again on every restake step. */
-  lastOver = Object.assign({}, m || {}, { ms: matchAt ? Date.now() - matchAt : 0, me, seat: mySeat, vsBot: !!(match && match.vsBot) });   // the card names the bot as a bot (site sweep 2026-10-28)
-  if (m && m.winnerId) { if (m.winnerId === me) series.mine++; else series.theirs++; }
+  lastOver = Object.assign({}, m || {}, { ms: matchAt ? Date.now() - matchAt : 0, me: who, seat: mySeat, vsBot: !!(match && match.vsBot) });   // the card names the bot as a bot (site sweep 2026-10-28)
+  if (m && m.winnerId) { if (m.winnerId === who) series.mine++; else series.theirs++; }
   restake = null; restakeLine = '';
   paintOver();
   chatShow(false);
-});
+}
 
 /* ── the result card ───────────────────────────────────────────────────────
    The one card every DuelSeries game ends on (public/js/shared/dsEnd.js). Every amount on it is the server's own

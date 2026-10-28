@@ -392,8 +392,10 @@ test('index.js wires Air Hockey like Head Soccer: page, queue, door, settle, jou
   // In the paid shutdown list (the lobbies after Head Soccer's may grow).
   assert.match(src, /const paidShutdownDirs = \[[^\]]*headSoccerLobby, [^\]]*airHockeyLobby[^\]]*\];/);
   const drop = src.slice(src.indexOf("socket.on('disconnect', async"), src.indexOf("socket.on('disconnect', async") + 2500);
-  assert.ok(drop.includes('airHockeyLobby.leave(socket.id);') && drop.includes('airHockeyLobby.unwatch(socket.id);'),
-    'a dropped socket leaves its seat and its watch');
+  /* drop: a seat mid-match is held for its reconnect grace and then leaves as before; a queued seat or a watcher
+     leaves at once (KnockoutLobby.drop, tested below with the lobby itself). */
+  assert.ok(drop.includes('airHockeyLobby.drop(socket.id);') && drop.includes('airHockeyLobby.unwatch(socket.id);'),
+    'a dropped socket leaves its seat (after the grace) and its watch');
   assert.match(src, /airHockeyLobby\.start\(\);/);
   assert.match(src, /consumePaidEntryAtStake\(entryToken, want, 'airhockey'\)/);
   assert.match(src, /if \(!AH_PAID_ON \|\| !ahPaidOpen\) \{ socket\.emit\('ah:refused'/);

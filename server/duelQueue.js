@@ -181,5 +181,10 @@ function noteRefund(lobby, entry, now) {
   lobby.recentRefunds.set(entry.resumeKey, { paid: entry.worth > 0, at: t });
 }
 
+/* A SEAT AT A TABLE GETS FIVE SECONDS TOO (the duels that opt in, KnockoutLobby opts.graceMs). Swim's number
+   (server/swim/SwimRoom.js GRACE_MS, Owen 2026-10-27: a phone that blinks for a second must not lose a paid match
+   for it). Past it, the drop is the walk-out it always was. */
+const RECONNECT_GRACE_MS = 5000;
+
 module.exports = { FREE_WAIT_MS, PAID_WAIT_MS, PAID_GIVE_UP_MS, samePerson, pairUp, waitingByRung, shutdownRows,
-                   newResumeKey, resumeSeat, noteRefund };
+                   newResumeKey, resumeSeat, noteRefund, isKey, RECONNECT_GRACE_MS, RESUME_REMEMBER_MS };
