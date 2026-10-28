@@ -162,6 +162,7 @@ let forceSnap = false;
 const off = [{ x: 0, y: 0 }, { x: 0, y: 0 }, { x: 0, y: 0 }];   // eased corrections: seat 0, seat 1, puck
 const was = [{ x: 0, y: 0 }, { x: 0, y: 0 }, { x: 0, y: 0 }];
 const CORRECT_MS = 90;
+const CORRECT_MINE_MS = 35;   // your own mallet settles faster: it is under your hand, and a slow slide there feels like lag
 const SNAP_U = [140, 260, 280];   // a correction bigger than this snaps: your mallet, theirs, the puck (world units)
 const LEAD_TICKS = 2;             // how far past the trip there the page runs: room for a little jitter
 
@@ -449,8 +450,11 @@ function predict(now, dt) {
     }
     forceSnap = false;
   }
-  const decay = Math.exp(-dt / CORRECT_MS);
-  for (const o of off) { o.x *= decay; o.y *= decay; if (Math.abs(o.x) < 0.05) o.x = 0; if (Math.abs(o.y) < 0.05) o.y = 0; }
+  const decay = Math.exp(-dt / CORRECT_MS), decayMine = Math.exp(-dt / CORRECT_MINE_MS);
+  off.forEach((o, i) => {
+    const d = i === mySeat ? decayMine : decay;
+    o.x *= d; o.y *= d; if (Math.abs(o.x) < 0.05) o.x = 0; if (Math.abs(o.y) < 0.05) o.y = 0;
+  });
   const frac = Math.max(0, Math.min(1, clientTick - sim.tick));
   for (let i = 0; i < 2; i++) toRender(rm[i], sim.m[i], frac, off[i]);
   puckRender(sim.puck, frac, off[2]);
