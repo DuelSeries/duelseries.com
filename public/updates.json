@@ -2,6 +2,13 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-10-28-head-soccer-kickoff",
+      "date": "2026-10-28",
+      "tag": "new",
+      "title": "Head Soccer: the ball goes to whoever was scored on",
+      "body": "After a goal, the kick-off ball now drops on the side of the player who was just scored on and rolls toward them, so they get the first touch. The first kick-off of a match still drops in the middle."
+    },
+    {
       "id": "2026-10-28-swim-cars",
       "date": "2026-10-28",
       "tag": "new",
