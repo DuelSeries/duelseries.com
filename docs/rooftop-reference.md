@@ -6,6 +6,11 @@ Written 2026-10-28. The game Owen picked: poki.com/en/g/rooftop-snipers (Poki ga
 Code: `shared/rtSim.js` (rules and physics), `server/RooftopRoom.js` / `RooftopLobby.js` / `rtBot.js`,
 `public/rooftop.html` + `public/js/rooftop.js` + `public/js/rooftop/rtArt.js` + `rtFont.js` + `public/js/rooftopSound.js`.
 
+**Clean room (2026-10-28).** The rules in `shared/rtSim.js` and the CPU in `server/rtBot.js` are written from this
+document and the tests, in our own structure: only the reference's numbers and observable behaviour are matched, none
+of its code. The physics in `shared/rtSim.js` is a port of the Godot Engine's MIT-licensed 2D physics server (source
+**E**), with Godot's licence notice at the top of the file.
+
 ## Sources
 
 | Tag | What | How |
@@ -131,6 +136,8 @@ reference's are lookalikes of famous characters and none of them is copied.
 - **Snow and the elevator doors** are pictures only (no physics in the reference either); the snowflakes' randomness is the browser's own.
 - **The solver's constraint order** (player-roof pairs first, then player-player) and the broadphase (a bounding-circle check) stand in for Godot's island and hash-grid order.
 - **A rocket that never hits anything** is removed 5000 px from the roof (the reference's flies on for ever).
+- **The slow motion runs 3 frames (0.05 s) longer** than the reference's 2 s (`RT.SLOW_LAG`), as ours always has, so the
+  point and the next round come 3 frames after the reference's (see Gaps). Setting it to 0 lands them on +212 and +272.
 - **Characters**: eight of our own, drawn for each player at random each round as the reference does with its own.
 
 ## Measured on the real build (M)
@@ -148,4 +155,4 @@ and each player tracked by the pixels of its team colour. At 1024 x 600 and zoom
 | A fall | point and score +212 frames, next round +272 (slow motion 1 to 0.1 in 17 frames, held to frame 96, back by frame 120) | +215 and +275 |
 
 Gaps: a K = 19 hit in the reference spins the player about 7 degrees a frame and flips it; ours was not compared frame
-by frame. The point and next-round timings are 3 frames (50 ms) later than the reference's.
+by frame. The point and next-round timings are 3 frames (50 ms) later than the reference's, all of it from `RT.SLOW_LAG` (CHOSEN).

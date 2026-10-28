@@ -438,7 +438,7 @@ test('Civilians fall from 1000 above the camera, within 700 of it, and come to r
   assert.strictEqual(c.body.y, m.cam.y + RT.FALL_DY);
   assert.ok(Math.abs(c.body.x - m.cam.x) <= RT.FALL_DX);
   assert.ok(c.ch >= 0 && c.ch < RT.CHARS, 'a random look');
-  assert.ok(m.fall.w >= 0 && m.fall.w < RT.FALL_WAIT, 'the next within 5 s');
+  assert.ok(m.fall.due >= 0 && m.fall.due < RT.FALL_WAIT, 'the next within 5 s');
   m.fall.k = 0;                                                         // just this one, so nothing lands on it
   for (let i = 0; i < 300; i++) Sim.tick(m, null);
   const b = c.body;

@@ -12,6 +12,34 @@
 // the roof, y grows DOWN. Angles are radians, positive turns clockwise on screen (Godot's convention).
 //
 // Seat 0 is RED and starts on the left; seat 1 is BLUE and starts on the right (S: Gamemanger.create_players).
+//
+// CLEAN ROOM (2026-10-28). The game's rules in this file (the round modifiers and their odds, the righting, the
+// jump, the arm, the shot, the rocket and the tomahawk, facing, falls, the slow motion and the round timers, the
+// falling objects and the camera) are written from the behaviour in docs/rooftop-reference.md and from the tests,
+// in our own structure. No code of the reference game is copied, translated or followed line by line; only its
+// numbers and its observable behaviour are matched, each number tagged with where it was read or measured.
+// The physics (the contact solver, the separating axis tests, contact generation, warm starting, the integration
+// and the convex polygon partition) is a port of the Godot Engine's open source 2D physics server, under its
+// licence below.
+//
+// Portions are a JavaScript port of the Godot Engine 3.3 2D physics server.
+// Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.
+// Copyright (c) 2014-2021 Godot Engine contributors.
+// Licensed under the MIT License:
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
+// documentation files (the "Software"), to deal in the Software without restriction, including without limitation
+// the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and
+// to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all copies or substantial portions
+// of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO
+// THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
+// CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+// DEALINGS IN THE SOFTWARE.
 (function (root) {
   'use strict';
 
@@ -39,18 +67,19 @@
     SLIP_FRICTION: 0.25,        // S: GameInfo.slip_amount (the Slippery round)
     JUMP: 500,                  // T: Player.jump_power 500 (the script's default 600 is overridden)
     JUMP_ATHLETE: 650,          // S: Gamemanger.create_ability: jump_power = 650
-    JUMP_SPIN: 0.05,            // S: PlayerMovement.jump: angular_velocity += randf() * 0.1 - 0.05
-    JUMP_LOCK: 0.2,             // S: PlayerMovement.jump: jumpTime += 0.2 (no righting for that long)
+    JUMP_SPIN: 0.05,            // S: PlayerMovement.jump: a random spin of up to 0.05 rad/s either way
+    JUMP_LOCK: 0.2,             // S: PlayerMovement.jump: each jump adds 0.2 s with no righting
     ALIGN_DEADZONE: 5,          // T: Player.align_deadzone 5 (degrees)
     ALIGN_SPEED: 1350,          // T: Player.align_speed 1350
     ALIGN_DAMP: 0.55,           // T: Player.align_damp_force 0.55
+    ALIGN_STILL: 0.05,          // S: PlayerMovement.align: a spin at or under 0.05 rad/s is left alone
     RAY_X: 15, RAY_Y: 27.8, RAY_LEN: 20,   // T: Raycasts/RayCast2DL,R at (-+15, 27.8), cast_to (0, 20)
     // The arm and gun (T: Character.tscn PinJoint2D, Gun.tscn).
     PIN_Y: -58,                 // PlayerBody (0,-82) + PinJoint2D (0,24)
     MUZZLE_X: -6, MUZZLE_Y: 92, // arm body (0,14) from the pin + HoldSpot (0,20) + Gun ShootSpot (-6,58)
-    ARM_START: -25,             // S: PlayerShoot.raise_gun: arm_rot = -25 + randf() * 2 - 1 (degrees)
-    ARM_SPEED: 360,             // S: PlayerShoot._physics_process: arm_rot + 360 * delta
-    ARM_MAX: 200,               // S: min(..., 200)
+    ARM_START: -25,             // S: PlayerShoot.raise_gun: raised to -25 degrees, a degree either way at random
+    ARM_SPEED: 360,             // S: PlayerShoot._physics_process: it then turns 360 degrees a second
+    ARM_MAX: 200,               // S: PlayerShoot._physics_process: and stops at 200
     RAY_RANGE: 3000,            // T: Gun RayCast2D cast_to (0, 3000)
     RELOAD: 0.1,                // T: Gun.reload_time 0.1
     POWER: 400,                 // T: Gun.power 400
@@ -63,16 +92,16 @@
     ROCKET_FAR: 5000,           // C: a rocket this far from the roof is gone (the reference's flies for ever)
     // Tomahawks (T: Tomahawk.tscn, TomahawkRigid.tscn; S: Tomahawk.shoot, DestoyDelayed).
     TOM_SPEED: 900,             // T: Tomahawk.shoot_power 900, along the arm (the weapon's +y axis)
-    TOM_SPIN: 16,               // S: angular_velocity = 16 * (1 if its sprite is mirrored else -1): a forward spin
+    TOM_SPIN: 16,               // S: Tomahawk.shoot: a forward spin of 16 rad/s (clockwise when its sprite is mirrored)
     TOM_MX: -20, TOM_MY: 34,    // its ShootSpot (-20, 0) + HoldSpot (0, 20) + the arm's (0, 14) from the pin
     TOM_MASS: 1.5, TOM_GS: 5.25, TOM_ANG_DAMP: 0,   // T: TomahawkRigid mass 1.5, gravity_scale 5.25, angular_damp 0
     TOM_FR: 0.5, TOM_BO: 0.3,   // T: TomahawkRigid PhysicsMaterial friction 0.5, bounce 0.3
     TOM_LIFE: 15,               // T: TomahawkRigid DestoyDelayed.wait_time 15 (seconds of game time)
     TOM_RELOAD: 0.2,            // S: Weapon.reload_time 0.2 (Tomahawk.tscn does not override it)
     // Falling objects (S: FallingObjects.gd, Civillian.gd; T: Civillian.tscn, BeachBall.tscn).
-    FALL_WAIT: 5,               // S: FallingObjects.reset_time: wait_time = randf() * 5
-    FALL_DX: 700, FALL_DY: -1000,          // S: create_obj: (cam.x + rand_range(-700, 700), cam.y - 1000)
-    CIV_LIFE: 10,               // S: Civillian._process: queue_free after 10 s
+    FALL_WAIT: 5,               // S: FallingObjects.reset_time: the next one within 5 s, at random
+    FALL_DX: 700, FALL_DY: -1000,          // S: FallingObjects.create_obj: up to 700 either side of the camera, 1000 above it
+    CIV_LIFE: 10,               // S: Civillian._process: gone after 10 s
     BALL_R: 40.1863,            // T: BeachBall CircleShape2D radius 40.1863
     BALL_MASS: 0.1, BALL_GS: 3, BALL_VY: 200,      // T: BeachBall mass 0.1, gravity_scale 3, linear_velocity (0, 200)
     BALL_LIN_DAMP: 0.5, BALL_ANG_DAMP: 0.25,       // T: BeachBall linear_damp 0.5, angular_damp 0.25
@@ -86,10 +115,13 @@
     EDGE_X: 640,                // DefualtMap MapEdge x 640 (the roof's half width)
     // The match (S: GameInfo, Gamemanger, SloMo).
     PLAY_TO: 5,                 // S: GameInfo.play_up_to 5 (SettingsMenu's first choice)
-    POINT_AFTER: 2,             // S: Gamemanger.wrap_point: create_timer(2) (scaled seconds)
-    NEXT_AFTER: 3,              // S: Gamemanger.wrap_scene: create_timer(3)
+    POINT_AFTER: 2,             // S: Gamemanger.wrap_point: the point 2 s after the fall (game seconds)
+    NEXT_AFTER: 3,              // S: Gamemanger.wrap_scene: the next round 3 s after it
     END_AFTER: 3,               // S: Gamemanger.game_over: 2 s then 1 s more before the game-over menu
-    SLOW_TO: 0.1, SLOW_FOR: 2, SLOW_RAMP: 0.4,   // S: round_over: SloMo.slow_down(0.1, 2, 0.4)
+    SLOW_TO: 0.1, SLOW_FOR: 2, SLOW_RAMP: 0.4,   // S: Gamemanger.round_over, SloMo.slow_down: to 0.1, for 2 s, 0.4 s each way
+    SLOW_LAG: 0.05,             // C: our slow motion has always run 3 frames (0.05 s) past the reference's 2 s, which
+                                //    puts our point and next round 3 frames after its (doc: Measured); kept so the
+                                //    2026-10-28 rewrite changes no timing. 0 would land them on the reference's frames.
     READY_MS: 10000,            // C: the first round waits for both to press jump (S: ReadyUpManager); online it
                                 //    also starts by itself after 10 s so nobody can hold a table hostage
     FLIP_GAP: 50,               // S: Gamemanger.check_flip hysteresis
@@ -106,26 +138,41 @@
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   }
 
-  // ── the round modifiers (S: Customizations.gd) ──
+  // ── the round modifiers (doc: Rules and flow, "Later rounds") ──
+  // Five slots: map, weapon, falling objects, weather, ability. A round's mods are one number per slot: 0 is plain,
+  // k is the slot's k-th name below.
   var MOD_NAMES = [['Elevator', 'House', 'Blimp', 'Cabin'], ['Strong Snipers', 'Rocket Launchers', 'Tomahawks'],
                    ['Civilians', 'Beach Balls'], ['Slippery'], ['Athlete']];
-  // Which choices this build plays: every one, so a roll is the reference's own odds. (A roll that landed on a choice
-  // not built would play as the plain one; none is left.)
+  /* The odds of each slot as whole-number weights: plain first, then each choice in MOD_NAMES order. They are the
+     reference's odds (S: Customizations), which keep a slot of n choices plain with chance (2 / (n + 1) + 1) / 3
+     and share the rest evenly: the map is plain 7 times in 15 (each map 2 in 15), the weapon 3 in 6 (each 1 in 6),
+     the falling objects 5 in 9 (each 2 in 9), the weather and the ability 2 in 3. */
+  var MOD_WEIGHTS = [[7, 2, 2, 2, 2], [3, 1, 1, 1], [5, 2, 2], [2, 1], [2, 1]];
+  // Which values of each slot this build plays: every one, so a roll is the reference's own odds. (A roll that
+  // landed on a choice not built would play as plain; none is left.)
   var MOD_BUILT = [[0, 1, 2, 3, 4], [0, 1, 2, 3], [0, 1, 2], [0, 1], [0, 1]];
-  function rollMods(m) {
-    var c = [];
-    for (var i = 0; i < MOD_NAMES.length; i++) {
-      var n = MOD_NAMES[i].length;
-      var plain = (2.0 / (n + 1) + 1) / 3.0;          // S: get_customization norm_comparison
-      var v = rand(m) < plain ? 0 : 1 + Math.floor(rand(m) * n);
-      c.push(MOD_BUILT[i].indexOf(v) >= 0 ? v : 0);
+  // One seeded draw picks an entry of a weight list.
+  function pickWeighted(m, weights) {
+    var total = 0, i;
+    for (i = 0; i < weights.length; i++) total += weights[i];
+    var r = rand(m) * total;
+    for (i = 0; i < weights.length - 1; i++) {
+      if (r < weights[i]) return i;
+      r -= weights[i];
     }
-    return c;
+    return weights.length - 1;
   }
+  function rollMods(m) {
+    return MOD_WEIGHTS.map(function (w, slot) {
+      var v = pickWeighted(m, w);
+      return MOD_BUILT[slot].indexOf(v) >= 0 ? v : 0;
+    });
+  }
+  // The label under the score (doc: "Later rounds"): the round's names joined by " + ", or "Normal".
   function modLabel(c) {
-    var names = [];
-    for (var i = 0; i < c.length; i++) if (c[i] > 0) names.push(MOD_NAMES[i][c[i] - 1]);
-    return names.length ? names.join(' + ') : 'Normal';   // S: name_customization_string
+    var on = [];
+    c.forEach(function (v, slot) { if (v > 0) on.push(MOD_NAMES[slot][v - 1]); });
+    return on.join(' + ') || 'Normal';
   }
 
   // ── bodies ──
@@ -310,7 +357,7 @@
       side: side, body: body,
       enabled: false, hasContact: false, upright: true, jumpTime: 0, grounded: false, contactWith: -1,
       raising: false, arm: 0, armBase: 0, held: 0, reloaded: true, cool: 0, jump: jump,
-      sx: side === 0 ? -1 : 1,                     // S: set_player_scale(players[0], -1): red faces right
+      sx: side === 0 ? -1 : 1,                     // S: Gamemanger: red is mirrored at the start, so it faces right
       shots: 0,
       nj: 0, nd: 0, nr: 0,                         // presses applied so far (jump, shoot down, shoot up)
     };
@@ -326,8 +373,8 @@
     return m;
   }
 
-  // A new round: the scene reloads (S: wrap_scene -> reload_current_scene). The first round is always Normal
-  // (S: Customizations.get_customization returns [0,0,0,0,0] on first play) and waits for both to ready up.
+  // A new round: everything is built afresh (S: Gamemanger.wrap_scene reloads the scene). The first round is always
+  // Normal (S: Customizations, on the first play) and waits for both to ready up.
   // mods: a given round instead of a roll (the tests' and the picture harness's; play always rolls).
   function startRound(m, first, mods) {
     m.round++;
@@ -336,11 +383,11 @@
     var fr = slip ? RT.SLIP_FRICTION : RT.FRICTION;
     var jump = m.mods[4] === 1 ? RT.JUMP_ATHLETE : RT.JUMP;
     m.power = m.mods[1] === 1 ? RT.POWER_STRONG : RT.POWER;
-    var mp = mapOf(m);                             // S: create_map(cust[0])
+    var mp = mapOf(m);                             // S: Gamemanger.create_map: the map slot's map
     m.world = mp.build(); m.wm = m.mods[0];
     m.anim = 0;                                    // the map's AnimationPlayer time (the Elevator's), from the scene load
     m.cam = { x: 0, y: RT.CAM_Y, t: -1 };          // T: GameScene Camera2D at (0, -150), following nobody yet
-    m.fall = { k: m.mods[2], c: 0, w: 0 };         // S: create_falling(cust[2]): FallingObjects' cur_time, wait_time
+    m.fall = { k: m.mods[2], due: 0 };             // the falling slot's kind and the seconds to its next drop (see falling)
     var had = m.p;
     m.p = [newPlayer(0, fr, jump, mp.spawn), newPlayer(1, fr, jump, mp.spawn)];
     /* The press counts run for the whole match (the room's inputs never reset), so a new round's players start
@@ -352,7 +399,7 @@
     m.flipScale = 1;
     m.ts = 1; m.slow = null; m.timer = 0; m.pointShown = false; m.loser = -1;
     m.phase = first ? 'ready' : 'play';
-    m.p[0].enabled = m.p[1].enabled = !first;     // S: start_game enables both (round 1: after ready-up)
+    m.p[0].enabled = m.p[1].enabled = !first;     // S: Gamemanger.start_game lets both play (round 1: after ready-up)
     m.ev.push({ e: 'round', r: m.round, mods: m.mods.slice() });
   }
 
@@ -812,119 +859,173 @@
     return false;
   }
 
-  // ── the arm and the shot (S: PlayerShoot.gd, Gun.gd) ──
-  function armAngle(p) { return p.body.a + (p.arm * p.sx) * Math.PI / 180; }
+  // ── the arm and its weapon (doc: Arm, Shot, Rocket Launchers, Tomahawks) ──
+  // The arm hangs from a pin PIN_Y above the origin. p.arm is its swing in degrees away from hanging straight down,
+  // mirrored by the way the player faces (p.sx); armAngle is that swing in the world, the body's own lean included.
+  function armAngle(p) { return p.body.a + p.arm * p.sx * Math.PI / 180; }
   function pinPoint(p) { return toWorld(p.body, 0, RT.PIN_Y); }
-  function muzzle(p) {
-    var pin = pinPoint(p), a = armAngle(p), c = Math.cos(a), s = Math.sin(a);
-    var lx = RT.MUZZLE_X * p.sx, ly = RT.MUZZLE_Y;
-    return [pin[0] + lx * c - ly * s, pin[1] + lx * s + ly * c];
+  // A point given in the arm's own frame (its x mirrored with the facing, its +y down the arm), in the world.
+  function onArm(p, lx, ly) {
+    var pin = pinPoint(p), a = armAngle(p), c = Math.cos(a), s = Math.sin(a), x = lx * p.sx;
+    return [pin[0] + x * c - ly * s, pin[1] + x * s + ly * c];
   }
+  // The unit vector the arm points along (its +y axis) in the world: where a shot or a throw goes.
+  function armDir(p) { var a = armAngle(p); return [-Math.sin(a), Math.cos(a)]; }
+  function muzzle(p) { return onArm(p, RT.MUZZLE_X, RT.MUZZLE_Y); }
+  function wrapAngle(a) { return Math.atan2(Math.sin(a), Math.cos(a)); }
+  // The arm's swing after `ticks` steps of holding the button: ARM_SPEED a second from where the raise put it, up to
+  // ARM_MAX. Both the arm as it turns and the shot read it, so the shot leaves at the angle the server counted.
+  function swingAfter(base, ticks) { return Math.min(base + ticks * RT.ARM_SPEED * RT.STEP, RT.ARM_MAX); }
+
+  // Pressing: the arm comes up to ARM_START, a degree either way at random, and starts turning.
   function raise(m, p) {
-    if (!p.reloaded || !p.enabled) return;
-    p.raising = true;
-    p.armBase = RT.ARM_START + rand(m) * 2 - 1;
-    p.arm = p.armBase; p.held = 0;
+    if (!p.enabled || !p.reloaded) return;
+    p.armBase = RT.ARM_START + (rand(m) - 0.5) * 2;
+    p.arm = p.armBase; p.held = 0; p.raising = true;
   }
-  // held: ticks the button was down, as the shooter saw it (the arm turns 6 degrees a tick).
-  function shoot(m, p, held) {
-    if (!p.reloaded || !p.raising) return;
-    var h = Math.max(0, Math.min(RT.MAX_HELD, held | 0));
-    p.arm = Math.min(p.armBase + h * RT.ARM_SPEED * RT.STEP, RT.ARM_MAX);
+  // One step of holding: one more tick on the swing.
+  function holdStep(p) {
+    if (!p.raising) return;
+    p.held++;
+    p.arm = swingAfter(p.armBase, p.held);
+  }
+  // Letting go: the round's weapon goes off at the swing the server counted (never a hold the client names), and
+  // the gun reloads.
+  function shoot(m, p) {
+    if (!p.enabled || !p.raising || !p.reloaded) return;
+    p.arm = swingAfter(p.armBase, p.held);
     p.raising = false; p.reloaded = false; p.cool = reloadTime(m); p.shots++;
-    if (m.mods[1] === 2) { fireRocket(m, p); return; }
-    if (m.mods[1] === 3) { throwTomahawk(m, p); return; }
-    var o = m.p[1 - p.side];
-    var a = armAngle(p), dx = -Math.sin(a), dy = Math.cos(a);              // the gun's +y axis in the world
-    var f = muzzle(p), tx = f[0] + dx * RT.RAY_RANGE, ty = f[1] + dy * RT.RAY_RANGE;
-    var best = 2, who = -1, hitBody = null, j, t;
-    for (j = 0; j < m.world.length; j++) { t = rayBody(m.world[j], f[0], f[1], tx, ty); if (t >= 0 && t < best) { best = t; who = 100 + j; } }
-    var to = rayBox(o.body, f[0], f[1], tx, ty);
-    if (to >= 0 && to < best) { best = to; who = o.side; hitBody = o.body; }
-    // S: Gun.init adds the other player's layer to the ray's default mask 1: it also stops on a civilian or a ball
-    for (j = 0; j < m.objs.length; j++) {
-      var ob = m.objs[j].body;
-      if (!(ob.ly & maskOf(p.side))) continue;
-      t = rayBody(ob, f[0], f[1], tx, ty);
-      if (t >= 0 && t < best) { best = t; who = 1000 + m.objs[j].id; hitBody = ob; }
-    }
-    var hx = f[0] + (tx - f[0]) * Math.min(best, 1), hy = f[1] + (ty - f[1]) * Math.min(best, 1);
-    if (hitBody) {
-      // S: if col is RigidBody2D: col.apply_impulse(hit - col.global_position, ray.global_transform.y * power)
-      impulse(hitBody, hx - hitBody.x, hy - hitBody.y, dx * m.power, dy * m.power);
-    }
-    m.ev.push({ e: 'shot', s: p.side, f: [f[0], f[1]], h: [hx, hy], hit: who === o.side ? 1 : 0, strong: m.power > RT.POWER ? 1 : 0 });
+    var weapon = m.mods[1];
+    if (weapon === 2) fireRocket(m, p);
+    else if (weapon === 3) throwTomahawk(m, p);
+    else fireRifle(m, p);
   }
-  // S: PlayerShoot.shoot / reload: cur_cool_down = cur_weapon.reload_time (T: Gun and RocketLauncher 0.1, the
-  // Tomahawk keeps Weapon's 0.2).
+  // The reload: a countdown from the shot; the gun is ready on the first step that finds it run out.
   function reloadTime(m) { return m.mods[1] === 3 ? RT.TOM_RELOAD : RT.RELOAD; }
-  // S: RocketLauncher.shoot: a rocket from the launcher's mouth, flying along it at 750, turned to face its way.
+  function reloadStep(p, dt) {
+    if (p.reloaded) return;
+    if (p.cool > 0) p.cool -= dt;
+    else p.reloaded = true;
+  }
+
+  // Who a hit is, as the events and the contact reports name it: 0 and 1 the players, 100 + j the map's body j,
+  // 1000 + id a round object. bodyOfId finds the body that can be pushed (none for the map).
+  function bodyOfId(m, id) {
+    if (id === 0 || id === 1) return m.p[id].body;
+    for (var i = 0; id >= 1000 && i < m.objs.length; i++) if (1000 + m.objs[i].id === id) return m.objs[i].body;
+    return null;
+  }
+  /* The nearest thing a ray from `from` to `to` meets among those its mask sees (E: a RayCast2D's collision_mask
+     against each body's layer): { t: 0..1 along the ray, id, body } or null. The map first, then the players, then
+     the round's objects; on an exact tie the earlier one is kept. */
+  function nearestOnRay(m, from, to, mask) {
+    var best = null, i;
+    var consider = function (body, id) {
+      if (!((body.ly || 1) & mask)) return;
+      var t = rayBody(body, from[0], from[1], to[0], to[1]);
+      if (t >= 0 && (!best || t < best.t)) best = { t: t, id: id, body: body };
+    };
+    for (i = 0; i < m.world.length; i++) consider(m.world[i], 100 + i);
+    for (i = 0; i < 2; i++) consider(m.p[i].body, i);
+    for (i = 0; i < m.objs.length; i++) consider(m.objs[i].body, 1000 + m.objs[i].id);
+    return best;
+  }
+  /* The rifle (doc: Shot, Layers): a ray RAY_RANGE long from the muzzle along the arm. Its mask is the shooter's
+     own (the map's layer 1 and the other player), so it stops on the map, on the other player, or on a civilian or a
+     beach ball, and whatever it stops on that can move is pushed there with the round's power along the ray. */
+  function fireRifle(m, p) {
+    var from = muzzle(p), dir = armDir(p);
+    var to = [from[0] + dir[0] * RT.RAY_RANGE, from[1] + dir[1] * RT.RAY_RANGE];
+    var hit = nearestOnRay(m, from, to, maskOf(p.side)), f = hit ? hit.t : 1;
+    var at = [from[0] + (to[0] - from[0]) * f, from[1] + (to[1] - from[1]) * f];
+    if (hit) impulse(hit.body, at[0] - hit.body.x, at[1] - hit.body.y, dir[0] * m.power, dir[1] * m.power);
+    m.ev.push({ e: 'shot', s: p.side, f: from, h: at, hit: hit && hit.id === 1 - p.side ? 1 : 0, strong: m.power > RT.POWER ? 1 : 0 });
+  }
+  // A thrown or fired body joins the round's objects with the next id.
+  function addObj(m, rec) {
+    rec.id = m.nextObj++; rec.reported = -1;
+    m.objs.push(rec);
+    return rec;
+  }
+  /* Rocket Launchers (doc): the rocket leaves the launcher's mouth along the arm at ROCKET_SPEED. Its box lies along
+     its flight with its x axis pointing back the way it came (the way the picture draws it). It skips its first
+     step's forces, as a player does. */
   function fireRocket(m, p) {
-    var pin = pinPoint(p), a = armAngle(p), c = Math.cos(a), sn = Math.sin(a);
-    var lx = RT.ROCKET_MX * p.sx, ly = RT.ROCKET_MY;
-    var b = rocketBody(pin[0] + lx * c - ly * sn, pin[1] + lx * sn + ly * c, Math.atan2(Math.sin(a - Math.PI / 2), Math.cos(a - Math.PI / 2)), p.side);
+    var mouth = onArm(p, RT.ROCKET_MX, RT.ROCKET_MY), dir = armDir(p);
+    var b = rocketBody(mouth[0], mouth[1], Math.atan2(-dir[1], -dir[0]), p.side);
     b.first = true;
-    b.vx = -Math.sin(a) * RT.ROCKET_SPEED; b.vy = Math.cos(a) * RT.ROCKET_SPEED;
-    var r = { id: m.nextObj++, side: p.side, body: b, reported: -1, k: 0 };
-    m.objs.push(r);
+    b.vx = dir[0] * RT.ROCKET_SPEED; b.vy = dir[1] * RT.ROCKET_SPEED;
+    var r = addObj(m, { side: p.side, body: b, k: 0 });
     m.ev.push({ e: 'rocket', s: p.side, id: r.id, f: [b.x, b.y] });
   }
-  /* S: Tomahawk.shoot: the tomahawk leaves its ShootSpot turned as the spot is (a mirrored spot's global_rotation is
-     the arm's plus PI: E Transform2D.get_rotation is the angle of its x axis), flies along the arm at 900 and spins
-     forward at 16 rad/s (+16 when its sprite is mirrored, -16 when not); the one in the hand is hidden until the
-     reload. Layer and mask as the rocket's. */
+  /* Tomahawks (doc): it leaves its spot on the arm turned as that spot is (the arm's angle, half a turn more when
+     the arm is mirrored), flies along the arm at TOM_SPEED and spins forward at TOM_SPIN, which is clockwise when
+     the arm is mirrored. fl remembers the mirroring for the picture and the wire. */
   function throwTomahawk(m, p) {
-    var pin = pinPoint(p), a = armAngle(p), c = Math.cos(a), sn = Math.sin(a);
-    var lx = RT.TOM_MX * p.sx, ly = RT.TOM_MY, fl = p.sx < 0 ? 1 : 0;
-    var a0 = fl ? a + Math.PI : a;
-    a0 = Math.atan2(Math.sin(a0), Math.cos(a0));
-    var b = tomahawkBody(pin[0] + lx * c - ly * sn, pin[1] + lx * sn + ly * c, a0, p.side);
-    b.vx = -sn * RT.TOM_SPEED; b.vy = c * RT.TOM_SPEED; b.w = fl ? RT.TOM_SPIN : -RT.TOM_SPIN;
-    var r = { id: m.nextObj++, side: p.side, body: b, reported: -1, k: 1, t: 0, a0: a0, fl: fl };
-    m.objs.push(r);
+    var spot = onArm(p, RT.TOM_MX, RT.TOM_MY), dir = armDir(p), mirrored = p.sx < 0;
+    var a0 = wrapAngle(armAngle(p) + (mirrored ? Math.PI : 0));
+    var b = tomahawkBody(spot[0], spot[1], a0, p.side);
+    b.vx = dir[0] * RT.TOM_SPEED; b.vy = dir[1] * RT.TOM_SPEED;
+    b.w = mirrored ? RT.TOM_SPIN : -RT.TOM_SPIN;
+    var r = addObj(m, { side: p.side, body: b, k: 1, t: 0, a0: a0, fl: mirrored ? 1 : 0 });
     m.ev.push({ e: 'toss', s: p.side, id: r.id, f: [b.x, b.y] });
   }
-  // S: Rocket._on_Rocket_body_entered, after the step that touched something: a push along its flight to a body
-  // that can move, then the blast, and the rocket is gone.
-  function rocketHits(m) {
-    for (var i = m.objs.length - 1; i >= 0; i--) {
-      var r = m.objs[i], b = r.body;
-      if (r.k) continue;                       // only a rocket reports its contacts (T: Rocket contact_monitor)
-      if (r.reported >= 0) {
-        var target = r.reported < 2 ? m.p[r.reported].body : null;
-        if (r.reported >= 1000) for (var k = 0; k < m.objs.length; k++) if (1000 + m.objs[k].id === r.reported) target = m.objs[k].body;
-        var sp = Math.hypot(b.vx, b.vy) || 1;
-        if (target && target.dyn) impulse(target, b.x - target.x, b.y - target.y, b.vx / sp * RT.ROCKET_BLAST, b.vy / sp * RT.ROCKET_BLAST);
-        m.ev.push({ e: 'boom', s: r.side, x: b.x, y: b.y, hit: r.reported < 2 ? 1 : 0 });
-        m.objs.splice(i, 1);
-      } else if (Math.abs(b.x) > RT.ROCKET_FAR || Math.abs(b.y) > RT.ROCKET_FAR) m.objs.splice(i, 1);
-    }
+  /* A rocket that touched something in the last step is spent (doc: Rocket Launchers): what it touched, if it can
+     move, gets ROCKET_BLAST along the rocket's flight at the rocket's position (its own contact push already came in
+     the step), and the rocket bursts and is gone. One that touches nothing is dropped ROCKET_FAR from the roof (C). */
+  function rocketsLand(m) {
+    var kept = [];
+    m.objs.forEach(function (r) {
+      var b = r.body;
+      if (r.k !== 0) { kept.push(r); return; }
+      if (r.reported < 0) {
+        if (Math.abs(b.x) <= RT.ROCKET_FAR && Math.abs(b.y) <= RT.ROCKET_FAR) kept.push(r);
+        return;
+      }
+      var target = bodyOfId(m, r.reported), speed = Math.hypot(b.vx, b.vy) || 1;
+      if (target) impulse(target, b.x - target.x, b.y - target.y, b.vx / speed * RT.ROCKET_BLAST, b.vy / speed * RT.ROCKET_BLAST);
+      m.ev.push({ e: 'boom', s: r.side, x: b.x, y: b.y, hit: r.reported < 2 ? 1 : 0 });
+    });
+    m.objs = kept;
   }
+
+  // ── the player's own movement (doc: Jump, Jump allowed, Righting) ──
+  /* The jump: only while a foot ray touches. JUMP (or the Athlete's) straight along the body's own up, so a leaning
+     player jumps sideways; any righting torque built up is dropped, a small random spin is added, and the righting
+     is off for JUMP_LOCK more seconds. */
   function jump(m, p) {
-    if (!grounded(m, p)) return;             // S: PlayerMovement.jump: only when a foot ray touches
-    var b = p.body, ux = Math.sin(b.a), uy = -Math.cos(b.a);
-    b.vx += ux * p.jump * b.im; b.vy += uy * p.jump * b.im;     // apply_impulse at the origin: no spin from it
+    if (!grounded(m, p)) return;
+    var b = p.body, up = [Math.sin(b.a), -Math.cos(b.a)];
     b.tq = 0;
-    b.w += rand(m) * 2 * RT.JUMP_SPIN - RT.JUMP_SPIN;
+    impulse(b, 0, 0, up[0] * p.jump, up[1] * p.jump);
+    b.w += (rand(m) - 0.5) * 2 * RT.JUMP_SPIN;
     p.jumpTime += RT.JUMP_LOCK;
     m.ev.push({ e: 'jump', s: p.side });
   }
-
-  // S: PlayerMovement._integrate_forces / align, run between physics steps.
+  /* The righting controller. It works while the player is in play, touching something (by its contact report or
+     its foot rays) and out of the lock after a jump; by the body's lean it is in one of two zones:
+       leaning (ALIGN_DEADZONE degrees or more either way): a push back toward upright, in proportion to the lean
+         and full at 90 degrees, is ADDED to the standing torque every step, so it keeps growing until the player
+         comes back;
+       settled (inside the dead zone): the first step back in, if the body still spins faster than ALIGN_STILL,
+         drops the built up torque and brakes the spin by ALIGN_DAMP. p.upright says that brake has been spent. */
+  function rightingOn(p) { return p.enabled && p.jumpTime <= 0 && (p.hasContact || p.grounded); }
   function align(p) {
-    if (!p.enabled) return;
-    if (!(p.jumpTime <= 0 && (p.hasContact || p.grounded))) return;
-    var b = p.body, deg = b.a * 180 / Math.PI;
-    if (Math.abs(deg) < RT.ALIGN_DEADZONE) {
-      if (Math.abs(b.w) > 0.05 && p.upright === false) {
-        b.tq = 0;
-        b.w *= (1 - RT.ALIGN_DAMP);
-        p.upright = true;
-      }
-      return;
+    if (!rightingOn(p)) return;
+    var b = p.body, lean = b.a * 180 / Math.PI;
+    if (Math.abs(lean) >= RT.ALIGN_DEADZONE) {
+      b.tq -= Math.max(-1, Math.min(1, lean / 90)) * RT.ALIGN_SPEED;
+      p.upright = false;
+    } else if (!p.upright && Math.abs(b.w) > RT.ALIGN_STILL) {
+      b.tq = 0;
+      b.w *= 1 - RT.ALIGN_DAMP;
+      p.upright = true;
     }
-    b.tq += Math.max(-1, Math.min(1, -deg / 90)) * RT.ALIGN_SPEED;   // add_torque ADDS to the standing torque
-    p.upright = false;
+  }
+  // Touching: the body's deepest contact of the last step names something (T: contacts_reported 1).
+  function contactSignal(p) {
+    p.contactWith = p.reported === undefined ? -1 : p.reported;
+    p.hasContact = p.contactWith >= 0;
   }
 
   // ── one tick of the whole game (the order Godot 3.3's main loop runs things in) ──
@@ -935,40 +1036,31 @@
     m.ev = [];
     m.tick++;
     var dt = RT.STEP * m.ts, i, p;
-    // 1. after the last step: each body's _integrate_forces, then its contact signals (has_contact)
-    for (i = 0; i < 2; i++) {
-      p = m.p[i];
-      align(p);
-      var now = p.reported === undefined ? -1 : p.reported;
-      if (now !== p.contactWith) {
-        if (p.contactWith >= 0) p.hasContact = false;     // body_exited
-        if (now >= 0) p.hasContact = true;                // body_entered (additions run after removals)
-        p.contactWith = now;
-      }
-    }
-    rocketHits(m);
-    // 2. _physics_process: the map's animation and the foot rays (internal), the camera, the arm turning, the button
+    // 1. after the last step: each body's forces (the righting), then its contact report, then the rockets that hit
+    for (i = 0; i < 2; i++) { align(m.p[i]); contactSignal(m.p[i]); }
+    rocketsLand(m);
+    // 2. the map's animation and the foot rays, the camera, the arms turning, the buttons
     animate(m, dt);
     for (i = 0; i < 2; i++) m.p[i].grounded = grounded(m, m.p[i]);
     camStep(m, dt);
     var want = [{ j: false }, { j: false }];
     for (i = 0; i < 2; i++) {
       p = m.p[i];
-      if (p.raising) { p.arm = Math.min(p.arm + RT.ARM_SPEED * dt, RT.ARM_MAX); p.held++; }
+      holdStep(p);
       var inp = inputs && inputs[i];
       if (!inp) continue;
       if ((inp.d | 0) > p.nd) { p.nd++; raise(m, p); }
       /* The aim is the hold the SERVER saw, tick for tick (the arm turns from the press it applied to the release
          it applied). A hold the client names is never believed: a modified client could otherwise fire at any
          angle it had swept past (review 2026-10-28). */
-      if ((inp.r | 0) > p.nr) { p.nr++; if (p.enabled) shoot(m, p, p.held); }
+      if ((inp.r | 0) > p.nr) { p.nr++; shoot(m, p); }
       /* One jump per press, and a backlog of presses is one press: several counted at once would stack impulses
          while the feet are still near the roof (a "super jump", review 2026-10-28). */
       if ((inp.j | 0) > p.nj) { p.nj = inp.j | 0; want[i].j = true; }
     }
     // 3. the physics step
     physics(m, dt);
-    // 4. _process: the rules first (the scene root), then each player's timers and the jump key
+    // 4. the rules first, then each player's timers and the jump key
     if (m.phase === 'ready') {
       for (i = 0; i < 2; i++) if (want[i].j && !m.ready[i]) { m.ready[i] = true; m.ev.push({ e: 'ready', s: i }); }
     }
@@ -979,14 +1071,13 @@
       p = m.p[i];
       if (p.jumpTime > 0) p.jumpTime -= dt;
       if (p.enabled) {
-        if (p.cool > 0) p.cool -= dt;
-        else if (!p.reloaded) { p.reloaded = true; p.cool = reloadTime(m); }   // S: reload() restarts the cooldown
+        reloadStep(p, dt);
         if (want[i].j) jump(m, p);
       }
     }
     objTimers(m, dt);
     slowMo(m);
-    if (m.phase === 'down' || m.phase === 'end') roundTimers(m, dt);
+    if (m.phase === 'down' || m.phase === 'end') afterFall(m, dt);
     return m.ev;
   }
 
@@ -999,55 +1090,67 @@
       if (w.kin) { w.nx = LIFT.X; w.ny = LIFT.Y + LIFT.S * liftAt(m.anim); }
     }
   }
-  // E: Math::round (halves away from zero), as Vector2.round
-  function gdRound(v) { return v < 0 ? -Math.round(-v) : Math.round(v); }
-  /* S: CameraFollow._physics_process: towards the players' midpoint (keeping its height), or the one who fell once
-     set_target_player ran, by delta * lerp_speed (5, then 10), rounded to whole pixels. Only its position is kept
-     here: FallingObjects drops from it (the zoom only matters to the picture, which the browser keeps itself). */
-  function camStep(m, dt) {
-    var c = m.cam, px, py;
-    if (c.t < 0) { var x0 = m.p[0].body.x, x1 = m.p[1].body.x; px = x0 - (x0 - x1) / 2; py = c.y; }
-    else { px = m.p[c.t].body.x; py = m.p[c.t].body.y; }
-    var u = dt * (c.t < 0 ? RT.CAM_LERP : RT.CAM_LERP_FALL);
-    c.x = gdRound(c.x + (px - c.x) * u); c.y = gdRound(c.y + (py - c.y) * u);
+
+  // ── the sim's camera (doc: Camera (in the sim)) ──
+  // E: Math::round, which rounds halves away from zero.
+  function roundHalfOut(v) { return v < 0 ? -Math.round(-v) : Math.round(v); }
+  // Where it is heading: the players' middle at its own height, or once someone has fallen, that player.
+  function camGoal(m) {
+    var c = m.cam;
+    if (c.t >= 0) return [m.p[c.t].body.x, m.p[c.t].body.y];
+    return [(m.p[0].body.x + m.p[1].body.x) / 2, c.y];
   }
-  /* S: FallingObjects._process, once the game has started (its root's game_started, which stays true through the
-     fall): every randf() * 5 s (the first at once) a civilian or a beach ball 1000 above the camera, 700 either side
-     of it at random, turned at random, with the Slippery friction on a slippery round. The civilian's look is drawn
-     first (its _ready runs as it is added, before it is placed). */
+  /* Only its position is kept here, which the falling objects drop from (the zoom is the picture's, which the
+     browser keeps). Each step it closes dt x CAM_LERP of the gap to its goal (CAM_LERP_FALL once following a fall),
+     on whole pixels. */
+  function camStep(m, dt) {
+    var c = m.cam, goal = camGoal(m), k = dt * (c.t >= 0 ? RT.CAM_LERP_FALL : RT.CAM_LERP);
+    c.x = roundHalfOut(c.x + (goal[0] - c.x) * k);
+    c.y = roundHalfOut(c.y + (goal[1] - c.y) * k);
+  }
+
+  // ── the round's objects (doc: Falling, Civilians, Beach Balls) ──
+  var OBJ_ROCKET = 0, OBJ_TOMAHAWK = 1, OBJ_CIVILIAN = 2, OBJ_BALL = 3;   // an object's k
+  var FALL_CIVILIANS = 1, FALL_BALLS = 2;                                  // the falling slot (m.fall.k)
+  /* While the game is on (not in the ready-up, not after time-up), the round's falling kind drops one object at
+     once and then one each time a random wait of up to FALL_WAIT seconds runs out (m.fall.due counts it down). It
+     appears FALL_DY above the camera and up to FALL_DX either side of it, turned at random. The seeded draws go in
+     the order the doc fixes: a civilian's look, the x, the turn, then the next wait. */
   function falling(m, dt) {
     var f = m.fall;
     if (!f.k || m.phase === 'ready' || m.phase === 'frozen') return;
-    f.c += dt;
-    if (f.c <= f.w) return;
-    var slip = m.mods[3] === 1, ch = f.k === 1 ? Math.floor(rand(m) * RT.CHARS) : 0;
-    var x = m.cam.x + (rand(m) * 2 - 1) * RT.FALL_DX, y = m.cam.y + RT.FALL_DY, a = rand(m) * 2 * Math.PI;
-    var o = { id: m.nextObj++, side: -1, reported: -1, k: f.k === 1 ? 2 : 3, t: 0, ch: ch };
-    o.body = makeFaller(o.k, x, y, slip);
-    o.body.a = a;
-    m.objs.push(o);
-    m.ev.push({ e: 'drop', k: o.k, id: o.id });
-    f.c = 0; f.w = rand(m) * RT.FALL_WAIT;     // S: reset_time
+    f.due -= dt;
+    if (f.due >= 0) return;
+    var kind = f.k === FALL_CIVILIANS ? OBJ_CIVILIAN : OBJ_BALL;
+    var look = kind === OBJ_CIVILIAN ? Math.floor(rand(m) * RT.CHARS) : 0;
+    var x = m.cam.x + (rand(m) - 0.5) * 2 * RT.FALL_DX, y = m.cam.y + RT.FALL_DY;
+    var body = makeFaller(kind, x, y, m.mods[3] === 1);
+    body.a = rand(m) * 2 * Math.PI;
+    var o = addObj(m, { side: -1, body: body, k: kind, t: 0, ch: look });
+    m.ev.push({ e: 'drop', k: kind, id: o.id });
+    f.due = rand(m) * RT.FALL_WAIT;
   }
-  function makeFaller(k, x, y, slip) {
-    if (k === 2) return civilianBody(x, y, slip ? RT.SLIP_FRICTION : RT.FRICTION);
+  // A civilian keeps the player's friction (the Slippery one on a slippery round); a beach ball has its own, and
+  // starts at BALL_VY down.
+  function makeFaller(kind, x, y, slip) {
+    if (kind === OBJ_CIVILIAN) return civilianBody(x, y, slip ? RT.SLIP_FRICTION : RT.FRICTION);
     var b = ballBody(x, y, slip ? RT.SLIP_FRICTION : RT.BALL_FR);
     b.vy = RT.BALL_VY;
     return b;
   }
-  // S: Civillian._process (10 s) and DestoyDelayed (15 s: a tomahawk, a beach ball) free themselves; a rocket has no
-  // timer (C: ROCKET_FAR instead).
-  var LIFE = [0, RT.TOM_LIFE, RT.CIV_LIFE, RT.BALL_LIFE];
+  // How long each kind lasts (doc): a tomahawk and a beach ball 15 s, a civilian 10 s; a rocket has no clock (C:
+  // ROCKET_FAR instead).
+  var LIFE = [];
+  LIFE[OBJ_TOMAHAWK] = RT.TOM_LIFE; LIFE[OBJ_CIVILIAN] = RT.CIV_LIFE; LIFE[OBJ_BALL] = RT.BALL_LIFE;
   function objTimers(m, dt) {
-    for (var i = m.objs.length - 1; i >= 0; i--) {
-      var o = m.objs[i];
-      if (!o.k) continue;
+    m.objs = m.objs.filter(function (o) {
+      if (o.k === OBJ_ROCKET) return true;
       o.t += dt;
-      if (o.t > LIFE[o.k]) m.objs.splice(i, 1);
-    }
+      return o.t <= LIFE[o.k];
+    });
   }
 
-  // Both ready (or the ready wait ran out): the first round starts (S: ReadyUpManager -> Gamemanger.start_game).
+  // Both ready (or the ready wait ran out): the first round starts (S: ReadyUpManager, Gamemanger.start_game).
   function begin(m) {
     if (m.phase !== 'ready') return;
     m.phase = 'play';
@@ -1055,72 +1158,93 @@
     m.ev.push({ e: 'go' });
   }
 
+  /* Facing (doc): red faces right and blue left while red is on the left (m.flipScale 1). They swap only once one
+     has got past the other by FLIP_GAP: blue at least FLIP_GAP left of red, or back the other way, blue more than
+     FLIP_GAP right of red. */
   function checkFlip(m) {
-    var p0 = m.p[0].body, p1 = m.p[1].body;
-    if ((p1.x - p0.x > RT.FLIP_GAP * -m.flipScale) !== (m.flipScale > 0)) {
-      m.flipScale *= -1;
+    var gap = m.p[1].body.x - m.p[0].body.x;          // how far blue is to red's right
+    var redLeft = m.flipScale > 0;
+    if (redLeft ? gap <= -RT.FLIP_GAP : gap > RT.FLIP_GAP) {
+      m.flipScale = -m.flipScale;
       m.p[0].sx = -m.flipScale; m.p[1].sx = m.flipScale;
     }
   }
 
-  // S: check_death: the first player found below the line loses the round. Both on the same tick: the lower one
-  // loses (C: the reference checks red first, which would favour blue in a paid match).
+  // ── a fall and what follows (doc: Death, A fall, The winning fall) ──
+  /* Whoever's origin is below the map's death line has lost the round; if both are, the lower one (C: the doc's
+     "Ties on the same step"), and on an exact tie red. -1 when nobody is. */
+  function fallen(m) {
+    var line = mapOf(m).death, who = -1;
+    for (var s = 0; s < 2; s++) {
+      var y = m.p[s].body.y;
+      if (y > line && (who < 0 || y > m.p[who].body.y)) who = s;
+    }
+    return who;
+  }
   function checkDeath(m) {
-    var dy = mapOf(m).death;                    // S: death_line_y = Map/DeathLine.global_position.y
-    var d0 = m.p[0].body.y > dy, d1 = m.p[1].body.y > dy;
-    if (!d0 && !d1) return;
-    var loser = d0 && d1 ? (m.p[0].body.y >= m.p[1].body.y ? 0 : 1) : d0 ? 0 : 1;
-    m.phase = 'down';
-    m.loser = loser;
-    m.timer = 0;
-    m.score[1 - loser]++;                       // S: round_over: scores[1 - player_id] += 1
-    m.p[0].enabled = m.p[1].enabled = false;
-    m.p[0].raising = m.p[1].raising = false;
-    m.cam.t = loser;                            // S: Camera2D.set_target_player(player_id)
-    m.slow = { t: 0, cur: m.ts, back: false, wait: -1 };
-    if (m.score[1 - loser] >= RT.PLAY_TO) m.winner = 1 - loser;
+    var loser = fallen(m);
+    if (loser < 0) return;
+    var winner = 1 - loser;
+    m.phase = 'down'; m.loser = loser; m.timer = 0;
+    m.score[winner]++;
+    for (var s = 0; s < 2; s++) { m.p[s].enabled = false; m.p[s].raising = false; }
+    m.cam.t = loser;                            // the camera follows the faller
+    m.slow = startSlow(m, false);
+    if (m.score[winner] >= RT.PLAY_TO) m.winner = winner;
     m.ev.push({ e: 'fall', s: loser, score: m.score.slice() });
   }
 
-  // S: SloMo.slow_down(0.1, 2, 0.4), frame by frame (its total_time counts real time: scaled delta / speed).
+  /* The slow motion (doc: A fall) is a curve over real time: m.slow.n counts the real steps since it began, and the
+     time scale is read off the curve each step.
+       easing down: over SLOW_RAMP (N steps) from the scale it began at to SLOW_TO. What is left of the gap after n
+         steps is the product of (1 - k / N) for k = 1..n, so it is nearly there in 17 frames (M) and exactly
+         there at N;
+       held at SLOW_TO;
+       coming back: a straight line up to 1 over the last SLOW_RAMP, ending SLOW_FOR + SLOW_LAG after it began.
+     The game-over slow-down (final) only eases down, and the game stays slow. */
+  function startSlow(m, final) { return { n: 0, from: m.ts, final: !!final }; }
+  function slowSteps() {
+    var ramp = Math.round(RT.SLOW_RAMP / RT.STEP);
+    return { ramp: ramp, end: Math.round((RT.SLOW_FOR + RT.SLOW_LAG) / RT.STEP) };
+  }
+  function slowScale(s) {
+    var k = slowSteps(), i;
+    if (s.final || s.n <= k.ramp) {
+      var left = 1;
+      for (i = 1; i <= Math.min(s.n, k.ramp); i++) left *= 1 - i / k.ramp;
+      return RT.SLOW_TO + (s.from - RT.SLOW_TO) * left;
+    }
+    var back = k.end - k.ramp;                  // the step the climb back starts from
+    if (s.n <= back) return RT.SLOW_TO;
+    return RT.SLOW_TO + (1 - RT.SLOW_TO) * Math.min(1, (s.n - back) / k.ramp);
+  }
   function slowMo(m) {
     var s = m.slow;
     if (!s) return;
-    var real = RT.STEP;
-    if (!s.back && s.wait < 0) {
-      s.t += real;
-      s.cur = s.cur + (RT.SLOW_TO - s.cur) * (s.t / RT.SLOW_RAMP);
-      m.ts = s.cur;
-      if (s.t >= RT.SLOW_RAMP) {
-        if (s.final) { m.slow = null; return; }                  // the game-over slow-down never comes back (S)
-        s.wait = Math.max(RT.SLOW_FOR - RT.SLOW_RAMP * 2, 0) * RT.SLOW_TO;   // a scaled-time timer
-      }
-      return;
-    }
-    if (s.wait >= 0 && !s.back) {
-      s.wait -= real * m.ts;
-      if (s.wait <= 0) s.back = true;
-      return;
-    }
-    s.t -= real;
-    s.cur = 1 + (RT.SLOW_TO - 1) * Math.max(0, s.t / RT.SLOW_RAMP);
-    m.ts = s.cur;
-    if (s.t <= 0) { m.ts = 1; m.slow = null; }
+    s.n++;
+    m.ts = slowScale(s);
+    var k = slowSteps();
+    if (s.final ? s.n >= k.ramp : s.n >= k.end) { m.slow = null; if (!s.final) m.ts = 1; }
   }
 
-  function roundTimers(m, dt) {
+  /* After a fall, by game time since it (m.timer): the point and the score at POINT_AFTER; then the next round at
+     NEXT_AFTER, or after the winning fall the game-over at END_AFTER, with the slow-down again (staying slow). The
+     winning fall also turns the falling objects to civilians when the point shows (doc: Falling). */
+  function afterFall(m, dt) {
     m.timer += dt;
-    if (m.phase === 'down' && !m.pointShown && m.timer >= RT.POINT_AFTER) {
+    if (m.phase !== 'down') return;
+    var won = m.winner >= 0;
+    if (!m.pointShown && m.timer >= RT.POINT_AFTER) {
       m.pointShown = true;
-      if (m.winner >= 0) m.fall.k = 1;          // S: game_over, 2 s on: create_falling(1, slippery): civilians rain
+      if (won) m.fall.k = FALL_CIVILIANS;
       m.ev.push({ e: 'point', s: 1 - m.loser, score: m.score.slice() });
     }
-    if (m.phase === 'down' && m.winner >= 0 && m.pointShown) {
-      // S: game_over: the slow-down again after 1 s more, then the menu
-      if (m.timer >= RT.END_AFTER) { m.phase = 'end'; m.slow = { t: 0, cur: m.ts, back: false, wait: -1, final: true }; m.ev.push({ e: 'end', w: m.winner, score: m.score.slice() }); }
-      return;
+    if (!won && m.timer >= RT.NEXT_AFTER) startRound(m, false);
+    else if (won && m.pointShown && m.timer >= RT.END_AFTER) {
+      m.phase = 'end';
+      m.slow = startSlow(m, true);
+      m.ev.push({ e: 'end', w: m.winner, score: m.score.slice() });
     }
-    if (m.phase === 'down' && m.winner < 0 && m.timer >= RT.NEXT_AFTER) startRound(m, false);
   }
 
   // ── the wire: a whole state in a few numbers, so a client can rewind to it and replay its own presses ──
@@ -1163,10 +1287,10 @@
   function pack(m) {
     return { k: m.tick, r: m.rng >>> 0, ph: m.phase, rd: m.round, md: m.mods.slice(), ch: m.chars.slice(), sc: m.score.slice(), ts: r4(m.ts),
              tm: r4(m.timer), ps: m.pointShown ? 1 : 0, rdy: [m.ready[0] ? 1 : 0, m.ready[1] ? 1 : 0], lo: m.loser, wi: m.winner, fs: m.flipScale,
-             sl: m.slow ? [r4(m.slow.t), r4(m.slow.cur), m.slow.back ? 1 : 0, r4(m.slow.wait), m.slow.final ? 1 : 0] : null,
+             sl: m.slow ? [m.slow.n, r4(m.slow.from), m.slow.final ? 1 : 0] : null,
              p: [packPlayer(m.p[0]), packPlayer(m.p[1])],
              o: m.objs.map(packObj), no: m.nextObj,
-             an: r4(m.anim), cm: [m.cam.x, m.cam.y, m.cam.t], fo: [m.fall.k, r4(m.fall.c), r4(m.fall.w)] };
+             an: r4(m.anim), cm: [m.cam.x, m.cam.y, m.cam.t], fo: [m.fall.k, r4(m.fall.due)] };
   }
   function unpack(m, s) {
     if (s.rd !== m.round) {
@@ -1177,7 +1301,8 @@
     }
     m.tick = s.k; m.rng = s.r >>> 0; m.phase = s.ph; m.mods = s.md.slice(); m.score = s.sc.slice(); if (Array.isArray(s.ch)) m.chars = s.ch.slice(); m.ts = s.ts;
     m.timer = s.tm; m.pointShown = !!s.ps; m.ready = [!!(s.rdy && s.rdy[0]), !!(s.rdy && s.rdy[1])]; m.loser = s.lo; m.winner = s.wi; m.flipScale = s.fs;
-    m.slow = s.sl ? { t: s.sl[0], cur: s.sl[1], back: !!s.sl[2], wait: s.sl[3], final: !!s.sl[4] } : null;
+    m.slow = s.sl ? { n: s.sl[0] | 0, from: s.sl[1], final: !!s.sl[2] } : null;
+    if (m.slow) m.ts = slowScale(m.slow);           // the curve's own value, not the rounded one
     var fr = m.mods[3] === 1 ? RT.SLIP_FRICTION : RT.FRICTION;
     var jp = m.mods[4] === 1 ? RT.JUMP_ATHLETE : RT.JUMP;
     m.power = m.mods[1] === 1 ? RT.POWER_STRONG : RT.POWER;
@@ -1190,7 +1315,7 @@
       if (w.kin) { w.x = w.nx = LIFT.X; w.y = w.ny = LIFT.Y + LIFT.S * liftAt(m.anim); w.vx = w.vy = 0; }
     }
     if (Array.isArray(s.cm)) m.cam = { x: s.cm[0], y: s.cm[1], t: s.cm[2] };
-    if (Array.isArray(s.fo)) m.fall = { k: s.fo[0], c: s.fo[1], w: s.fo[2] };
+    if (Array.isArray(s.fo)) m.fall = { k: s.fo[0], due: s.fo[1] };
     var keep = {};
     m.objs = (s.o || []).map(function (o) { keep['r' + o[0]] = true; return unpackObj(m, o); });
     if (typeof s.no === 'number') m.nextObj = s.no;

@@ -4,67 +4,103 @@
    reads from a socket, so it can do nothing a player cannot: jump, raise the
    gun, let go.
 
-   HOW IT PLAYS IS THE REFERENCE'S CPU (Rooftop Snipers, Scripts/ComputerInput.gd,
-   read 2026-10-27), step for step at the reference's default difficulty
-   (GameInfo.difficulty 1, "Medium", so inv_diff() = 3 - 1 = 2):
-     · it waits randf() x (inv x 2 - 1) + 0.5 s (0.5 to 3.5 s) between shots and
-       aims off by randf_range(-1, 1) x inv^3 x 2 degrees (up to 16) each time
-     · it raises the gun, then lets go the first frame the gun points within 60
-       degrees past the target's chest (20 above its origin, seen from 55 above
-       its own), or after 0.6 s whatever it points at
-     · it waits randf() x 3 x inv + 0.5 s (0.5 to 6.5 s) between jump checks and
-       jumps when it leans away from the nearer roof edge by more than the
-       distance to that edge allows (check_jump)
-   It reads the match after each step, which is when the reference's _process
-   runs, and its presses are applied on the next step, the same as a person's. */
+   HOW IT PLAYS is the reference's CPU at its default difficulty ("Medium"), as
+   docs/rooftop-reference.md describes it (S: ComputerInput.gd). CLEAN ROOM
+   (2026-10-28): written from that description in our own terms, not from the
+   reference's script:
+     · between shots it waits a random 0.5 to 3.5 s, and for each shot picks an
+       aim error of up to 16 degrees either way
+     · to shoot it raises the gun, then lets go the first frame the gun has
+       swung past its aim point (the line from 55 above its own origin to 20
+       above the target's, turned by the aim error) by less than 60 degrees, or
+       after 0.6 s raised, whatever it points at
+     · every random 0.5 to 6.5 s it decides whether to jump: yes, unless it
+       leans toward the nearer roof edge by more than its room to that edge
+       allows (the first 100 px of room allow no lean, each 400 px more allow a
+       radian, and 0.01 rad is always allowed)
+   It reads the match after each step, and its presses are applied on the next
+   step, as a person's are. */
 
 const Sim = require('../shared/rtSim');
 
-const INV = 2;                                  // S: GameInfo.inv_diff() at difficulty 1
+// S: ComputerInput.gd at "Medium" (GameInfo.difficulty 1); doc: CPU.
+const SHOT_WAIT = [0.5, 3.5];          // seconds between shots
+const AIM_ERROR = 16;                  // degrees either way, picked anew for each shot
+const AIM_WINDOW = 60;                 // lets go while the gun is less than this past its aim point...
+const AIM_GIVE_UP = 0.6;               // ...or once it has been raised this long
+const JUMP_WAIT = [0.5, 6.5];          // seconds between jump checks
+const EYE_Y = -55, CHEST_Y = -20;      // it looks from 55 above its own origin at 20 above the target's
+const EDGE_NO_LEAN = 100, EDGE_PX_PER_RAD = 400, LEAN_ALWAYS = 0.01;   // the jump check's lean allowance
+const DEG = 180 / Math.PI;
 
-function brainFor(room, bot) {
-  if (!bot.brain) bot.brain = { shootT: 0, shootWait: 0, offset: 0, shooting: false, waited: 0, jumpT: 0, jumpWait: 0,
-                                 armed: false, rng: (Math.random() * 4294967296) >>> 0 };
+// Its own state, kept on the bot; its random numbers are its own stream (never the match's).
+function brainOf(bot) {
+  if (!bot.brain) {
+    bot.brain = { rng: (Math.random() * 4294967296) >>> 0, on: false,
+                  shot: 'wait', shotIn: 0, aimErr: 0, aimFor: 0, jumpIn: 0 };
+  }
   return bot.brain;
 }
-function rnd(ai) {                              // its own random numbers, never the match's
-  let t = (ai.rng = (ai.rng + 0x6D2B79F5) | 0);
-  t = Math.imul(t ^ (t >>> 15), t | 1);
-  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+function between(ai, range) { return range[0] + Sim.rand(ai) * (range[1] - range[0]); }
+function nextShot(ai) {
+  ai.shot = 'wait';
+  ai.shotIn = between(ai, SHOT_WAIT);
+  ai.aimErr = (Sim.rand(ai) * 2 - 1) * AIM_ERROR;
 }
-function resetShoot(ai) {
-  ai.shootWait = rnd(ai) * (INV * 2 - 1) + 0.5;
-  ai.shootT = 0;
-  ai.offset = (rnd(ai) * 2 - 1) * (INV * INV * INV * 2);
-  ai.shooting = false;
-}
-function resetJump(ai) {
-  ai.jumpWait = rnd(ai) * 3 * INV + 0.5;
-  ai.jumpT = 0;
-}
-const clampAng = (d) => (d > 0 ? d : d + 360);
-const wrapDeg = (d) => { d = ((d + 180) % 360 + 360) % 360 - 180; return d === -180 ? 180 : d; };
+function nextJump(ai) { ai.jumpIn = between(ai, JUMP_WAIT); }
 
-// S: is_aimed_at_target
-function aimed(me, him, offset) {
-  const tp = Sim.toWorld(him.body, 0, -20);
-  const at = Sim.toWorld(me.body, 0, -55);
-  let angle = Math.atan2(tp[1] - at[1], tp[0] - at[0]) * 180 / Math.PI;
-  let arm = wrapDeg(Sim.armAngle(me) * 180 / Math.PI);
-  const scale = me.sx;
-  arm = clampAng(arm + 90 * scale);
-  angle = ((scale > 0 ? clampAng(angle) : angle + 180) + offset) % 360;
-  return (arm < angle) !== (scale > 0) && Math.abs(arm - angle) < 60;
+// The signed difference a - b of two angles in degrees, folded into (-180, 180].
+function angleDiff(a, b) {
+  let d = (a - b) % 360;
+  if (d > 180) d -= 360;
+  else if (d <= -180) d += 360;
+  return d;
 }
 
-// S: check_jump
-// m: the match, for its map's edge (S: map_edge = Map/MapEdge.global_position.x, which each map sets)
+/* Whether the raised gun has swung past its aim point by less than AIM_WINDOW. The gun points along the arm, a
+   quarter turn on from the arm's angle; it swings clockwise on screen when the arm is not mirrored (me.sx 1) and
+   anticlockwise when it is, so "past" is that way round. */
+function onTarget(me, him, aimErr) {
+  const eye = Sim.toWorld(me.body, 0, EYE_Y), chest = Sim.toWorld(him.body, 0, CHEST_Y);
+  const aim = Math.atan2(chest[1] - eye[1], chest[0] - eye[0]) * DEG + aimErr;
+  const gun = Sim.armAngle(me) * DEG + 90;
+  const past = angleDiff(gun, aim) * me.sx;
+  return past >= 0 && past < AIM_WINDOW;
+}
+
+// Whether a jump now is safe enough (doc: CPU). m: the match, for its map's edge (each map has its own).
 function wantsJump(me, m) {
-  const at = Sim.toWorld(me.body, 0, -55);
-  const edgeDir = at[0] < 0 ? 1 : -1;
-  const toEdge = (m ? Sim.mapOf(m).edge : Sim.RT.EDGE_X) - Math.abs(me.body.x);
-  return me.body.a * edgeDir >= Math.min((100 - toEdge) / 400, -0.01);
+  const eye = Sim.toWorld(me.body, 0, EYE_Y);
+  const edge = m ? Sim.mapOf(m).edge : Sim.RT.EDGE_X;
+  const towardEdge = eye[0] < 0 ? -me.body.a : me.body.a;      // its lean toward the nearer edge, radians
+  const room = edge - Math.abs(me.body.x);
+  return towardEdge <= Math.max((room - EDGE_NO_LEAN) / EDGE_PX_PER_RAD, LEAN_ALWAYS);
+}
+
+// The shot, one frame at a time: waiting, then pressed (until the room raises the gun), then aiming.
+function shotStep(ai, me, him, inp, dt) {
+  if (ai.shot === 'wait') {
+    if (ai.shotIn > 0) { ai.shotIn -= dt; return; }
+    if (!me.reloaded) { nextShot(ai); return; }
+    inp.d++;
+    ai.shot = 'pressed';
+  } else if (ai.shot === 'pressed') {
+    if (me.raising) { ai.shot = 'aim'; ai.aimFor = 0; }
+    else nextShot(ai);                           // the room refused the raise: start over
+  } else if (!me.raising) {
+    nextShot(ai);
+  } else if (ai.aimFor >= AIM_GIVE_UP || onTarget(me, him, ai.aimErr)) {
+    inp.n = me.held;
+    inp.r++;
+    nextShot(ai);
+  } else {
+    ai.aimFor += dt;
+  }
+}
+function jumpStep(ai, me, m, inp, dt) {
+  if (ai.jumpIn > 0) { ai.jumpIn -= dt; return; }
+  if (wantsJump(me, m)) inp.j++;
+  nextJump(ai);
 }
 
 function drive(room, now, who) {
@@ -75,30 +111,16 @@ function drive(room, now, who) {
   if (side === null) return;
   const m = room.match, me = m.p[side], him = m.p[1 - side];
   const inp = room.inputs[side];
-  const ai = brainFor(room, bot);
+  const ai = brainOf(bot);
   // The first round waits for a jump press to ready up: the bot readies after its first look.
-  if (m.phase === 'ready') { if (!m.ready[side] && inp.j <= me.nj) inp.j++; ai.armed = false; return; }
-  if (!me.enabled) { ai.armed = false; ai.shooting = false; return; }
-  if (!ai.armed) { ai.armed = true; resetJump(ai); resetShoot(ai); }   // S: _on_PlayerManager_enable_player(true)
-  // Only once the room has caught up with what it pressed last.
+  if (m.phase === 'ready') { if (!m.ready[side] && inp.j <= me.nj) inp.j++; ai.on = false; return; }
+  if (!me.enabled) { ai.on = false; return; }
+  if (!ai.on) { ai.on = true; nextJump(ai); nextShot(ai); }     // fresh waits each time play starts for it
+  // Only once the room has applied what it pressed last.
   if (inp.d > me.nd || inp.r > me.nr || inp.j > me.nj) return;
   const dt = Sim.RT.STEP * m.ts;
-  // S: shoot(delta)
-  if (ai.shootT < ai.shootWait) ai.shootT += dt;
-  else if (!ai.shooting) {
-    if (!me.reloaded) resetShoot(ai);
-    else { ai.shooting = true; ai.waited = -1; inp.d++; }
-  } else if (me.raising) {
-    // S: the shoot_loop coroutine, one frame at a time after raise_gun
-    if (ai.waited < 0) ai.waited = 0;
-    else if (!aimed(me, him, ai.offset) && ai.waited < 0.6) ai.waited += dt;
-    else { inp.n = me.held; inp.r++; resetShoot(ai); }
-  } else if (ai.waited >= 0 || me.nd === inp.d) {
-    resetShoot(ai);                              // the raise was refused (not reloaded): start over
-  }
-  // S: jump(delta)
-  if (ai.jumpT < ai.jumpWait) ai.jumpT += dt;
-  else { if (wantsJump(me, m)) inp.j++; resetJump(ai); }
+  shotStep(ai, me, him, inp, dt);
+  jumpStep(ai, me, m, inp, dt);
 }
 
-module.exports = { drive, aimed, wantsJump, INV };
+module.exports = { drive, onTarget, wantsJump };
