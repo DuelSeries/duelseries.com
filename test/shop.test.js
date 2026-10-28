@@ -40,8 +40,8 @@ function lobbyGames() {
   // a name is a literal, or Pac-Man's one constant (window.DS_CHOMP_NAME||'Chomp', shared/chompName.js)
   return [...list.matchAll(/\{id:'(\w+)',name:(?:'[^']*'|window\.\w+\|\|'[^']*')[^\n]*/g)]
     .filter(m => !/\bsoon:1\b/.test(m[0])).map(m => m[1])
-    /* Head Soccer's Shop heads are coming (Owen 2026-10-27: "add heads later"); until they are, it is not held to this. */
-    .filter(id => id !== 'headsoccer');
+    /* Head Soccer's Shop heads are coming (Owen 2026-10-27: "add heads later"), and 8 Ball Pool's cues with them; until they are, neither is held to this. */
+    .filter(id => id !== 'headsoccer' && id !== 'pool8');
 }
 
 test('every game in the lobby that has been built has its own skins in the Shop', () => {

@@ -2,6 +2,17 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-10-28-8-ball-pool",
+      "date": "2026-10-28",
+      "tag": "new",
+      "title": "8 Ball Pool is here",
+      "body": "Break, take solids or stripes, and call your pocket for the 8. On a computer the cue follows your mouse: press, drag back and let go to shoot. On a phone, drag to aim and pull the power bar on the left.\n\nFree tables are open now. If nobody joins in time, you play a bot and the screen says so.",
+      "image": {
+        "src": "/updates/pool8-new.webp",
+        "alt": "An 8 Ball Pool table with the cue lined up behind the white ball"
+      }
+    },
+    {
       "id": "2026-10-28-same-ping-fps",
       "date": "2026-10-28",
       "tag": "new",
@@ -51,7 +62,10 @@
       "tag": "new",
       "title": "Game screens match their cards",
       "body": "Open any game and its screen now sits on its own card picture, zoomed in and softened, so every game looks like part of the same set.",
-      "image": {"src": "/updates/game-screen-art.webp", "alt": "The Slither.io game screen on a soft, zoomed-in picture of its striped snake card"}
+      "image": {
+        "src": "/updates/game-screen-art.webp",
+        "alt": "The Slither.io game screen on a soft, zoomed-in picture of its striped snake card"
+      }
     },
     {
       "id": "2026-10-27-new-game-cards",
@@ -59,7 +73,10 @@
       "tag": "new",
       "title": "New game cards",
       "body": "Every game in the lobby has a new card, all painted in one bright style with the game's name on it. The player count now sits at the top of the card so it never covers the name.",
-      "image": {"src": "/updates/new-game-cards.webp", "alt": "The lobby's row of new game cards: Pac-Man, Slither.io, Agar.io, Paper.io, Head Soccer, Swim, Knockout and Battleship"}
+      "image": {
+        "src": "/updates/new-game-cards.webp",
+        "alt": "The lobby's row of new game cards: Pac-Man, Slither.io, Agar.io, Paper.io, Head Soccer, Swim, Knockout and Battleship"
+      }
     },
     {
       "id": "2026-10-27-card-hover",
@@ -67,7 +84,10 @@
       "tag": "new",
       "title": "Game cards react to your mouse",
       "body": "Point at a game in the lobby and its card lifts, dims and shows a big play button, so you can see which one you are about to open.",
-      "image": {"src": "/updates/card-hover.webp", "alt": "The lobby's row of game cards with the mouse over Slither.io, which is lifted and dimmed with a white play arrow in the middle"}
+      "image": {
+        "src": "/updates/card-hover.webp",
+        "alt": "The lobby's row of game cards with the mouse over Slither.io, which is lifted and dimmed with a white play arrow in the middle"
+      }
     },
     {
       "id": "2026-10-27-head-soccer-card",
@@ -190,7 +210,10 @@
       "tag": "new",
       "title": "Join the clip team",
       "body": "Like making clips? The Join us tab now opens the DuelSeries clip team on Whop. It's free to join and has the clip rules.\n\nRecord your Free games, keep duelseries.com on screen, and share your best moments in #clips on our Discord.",
-      "image": {"src": "/updates/clip-team.webp", "alt": "The DuelSeries clip team banner with Snake gameplay"}
+      "image": {
+        "src": "/updates/clip-team.webp",
+        "alt": "The DuelSeries clip team banner with Snake gameplay"
+      }
     },
     {
       "id": "2026-10-26-top-10-on-the-board",
@@ -234,7 +257,10 @@
       "tag": "new",
       "title": "A new loading screen",
       "body": "When DuelSeries opens, the crossed swords and the name now draw themselves in gold while the site loads, then fade into the lobby.\n\nIt only stays as long as loading takes. On a fast connection it is gone in a blink.",
-      "image": { "src": "/updates/loading-screen.webp", "alt": "The DuelSeries crossed swords emblem and name drawn in gold on a dark screen" }
+      "image": {
+        "src": "/updates/loading-screen.webp",
+        "alt": "The DuelSeries crossed swords emblem and name drawn in gold on a dark screen"
+      }
     },
     {
       "id": "2026-10-26-chomp-wraps-around",
@@ -249,7 +275,10 @@
       "tag": "new",
       "title": "Chomp is here",
       "body": "A new arena game in the lobby. Eat the dots, dodge the ghosts, and grab the gold coins anyone who gets caught drops on the maze. A power pellet turns nearby ghosts blue and lets you eat other players too.\n\nPlay a Free room or a paid one. Hold Q to cash out, and keep moving while the ring fills. On a phone, drag your thumb to steer and hold the Cash out button to leave.",
-      "image": { "src": "/updates/chomp-arrives.webp", "alt": "Chomp: a yellow chomper in a blue maze with ghosts, dots and the leaderboard" }
+      "image": {
+        "src": "/updates/chomp-arrives.webp",
+        "alt": "Chomp: a yellow chomper in a blue maze with ghosts, dots and the leaderboard"
+      }
     },
     {
       "id": "2026-10-26-connect-wallet",
@@ -262,7 +291,10 @@
         "alt": "The Connect wallet sheet listing Phantom, Solflare and Backpack"
       },
       "gallery": [
-        { "src": "/updates/connect-wallet-sign-in.webp", "alt": "The Sign in sheet with Continue with Google or email and Connect wallet" }
+        {
+          "src": "/updates/connect-wallet-sign-in.webp",
+          "alt": "The Sign in sheet with Continue with Google or email and Connect wallet"
+        }
       ]
     },
     {

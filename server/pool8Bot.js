@@ -135,11 +135,11 @@ function decide(room, side) {
     let a = pick ? pick.a : null;
     if (a === null) {
       /* Hidden from every ball it may hit: try a ring of kicks off the cushions and keep the first that the rules
-         call legal (two dozen played-through shots, only in this rare spot). */
+         call legal (a dozen played-through shots, only in this rare spot, so the event loop is never held long). */
       const before = balls.map(b => ({ n: b.n, x: b.x, y: b.y, on: b.on }));
       const start = Math.random() * Math.PI * 2;
-      for (let i = 0; i < 24 && a === null; i++) {
-        const ang = start + i * Math.PI / 12;
+      for (let i = 0; i < 12 && a === null; i++) {
+        const ang = start + i * Math.PI / 6;
         const r = Sim.simulate(before, { a: ang, p: 0.5, sx: 0, sy: 0 });
         if (!Rules.judge(st, before, r, null).foul) a = ang;
       }

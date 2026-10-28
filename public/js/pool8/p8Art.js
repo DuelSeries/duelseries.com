@@ -53,6 +53,9 @@
   const tx = (x) => F.x + x * k, ty = (y) => F.y + y * k;
   const fx = (dx) => (dx - F.x) / k, fy = (dy) => (dy - F.y) / k;
 
+  // The pocket holes as drawn, in design units (Owen's screenshot: about 24 across the corners, 22 at the sides).
+  const POCKET_R = { corner: 24, side: 22 };
+
   /* ── the table, painted once per size ──────────────────────────────────── */
   function paintTable(g, s) {
     const R = LAYOUT.rail;
@@ -83,9 +86,9 @@
     rg.addColorStop(0, C.railHi); rg.addColorStop(0.08, C.rail); rg.addColorStop(0.92, C.rail); rg.addColorStop(1, C.railLo);
     g.fillStyle = rg; g.fill();
     g.lineWidth = 3; g.strokeStyle = C.railEdge; g.stroke();
-    // The rail's inner lip.
-    roundRect(g, F.x - 16, F.y - 16, F.w + 32, F.h + 32, 14);
-    g.fillStyle = C.railLo; g.fill();
+    // The rail's inner edge: a thin dark line where the cushion meets the wood.
+    roundRect(g, F.x - 11, F.y - 11, F.w + 22, F.h + 22, 6);
+    g.fillStyle = C.railEdge; g.fill();
 
     // The felt: lit from above, brightest in the middle.
     const fg = g.createRadialGradient(F.x + F.w / 2, F.y + F.h / 2, 30, F.x + F.w / 2, F.y + F.h / 2, F.w * 0.62);
@@ -103,11 +106,14 @@
     }
     g.restore();
     const lip = (x, y, w, h) => { g.fillStyle = C.cushion; g.fillRect(x, y, w, h); };
-    lip(F.x, F.y - 12, F.w, 12); lip(F.x, F.y + F.h, F.w, 12); lip(F.x - 12, F.y, 12, F.h); lip(F.x + F.w, F.y, 12, F.h);
+    lip(F.x, F.y - 9, F.w, 9); lip(F.x, F.y + F.h, F.w, 9); lip(F.x - 9, F.y, 9, F.h); lip(F.x + F.w, F.y, 9, F.h);
+    // The baulk line the break is taken from behind.
+    g.strokeStyle = 'rgba(255,255,255,0.22)'; g.lineWidth = 1.5;
+    line(g, tx(P8.HEAD_X * P8.L), F.y, tx(P8.HEAD_X * P8.L), F.y + F.h);
     // Pockets: black holes with a dark rim, over the cushion ends.
     for (const p of Sim.POCKETS) {
-      const px = tx(p.x), py = ty(p.y), pr = p.r * k * (p.kind === 'corner' ? 1.08 : 1.15);
-      g.beginPath(); g.arc(px, py, pr + 5, 0, Math.PI * 2); g.fillStyle = C.railLo; g.fill();
+      const px = tx(p.x), py = ty(p.y), pr = POCKET_R[p.kind];
+      g.beginPath(); g.arc(px, py, pr + 3, 0, Math.PI * 2); g.fillStyle = C.railLo; g.fill();
       g.beginPath(); g.arc(px, py, pr, 0, Math.PI * 2);
       const pg = g.createRadialGradient(px, py, pr * 0.2, px, py, pr);
       pg.addColorStop(0, '#000'); pg.addColorStop(0.8, '#050000'); pg.addColorStop(1, C.pocketRim);

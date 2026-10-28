@@ -1516,7 +1516,7 @@ function consoleStake(r) {
    sl:paid:off is on. The old fixed tiers and a drained old free rung are
    counted only while somebody is still in one. The duels are read only. Rows
    go in the lobby's game order: slither.io, Paper.io, agar.io, then the duels. */
-function consoleGames(ko, bs, sw, hs) {
+function consoleGames(ko, bs, sw, hs, p8) {
   const snakeRungs = [];
   for (const e of ladder.rooms.values()) if (e && e.game === 'snake' && e.room) snakeRungs.push(e.room);
   const oldFree = snakeRungs.filter((r) => consoleStake(r) === 0);
@@ -1671,7 +1671,7 @@ function opsSnapshot(req, signed) {
     drain: drainNow(),
     escrow: consoleEscrow(),
     bots,
-    games: consoleGames(ko, bs, sw, hs),
+    games: consoleGames(ko, bs, sw, hs, p8),
     battleRoyale: ownerConsole.brState(br, { engine: brOnSl() ? 'sl' : 'old', room: brRoomNow(), now }),
     smooth: consoleSmooth(),
     /* Paid snake on the new engine's door, for the owner page's readout: built
@@ -2824,7 +2824,7 @@ let hsPaidOpen = !hsPaidSwitch.closedAtBoot().closed;
 if (!hsPaidOpen) console.warn("[HS] paid door CLOSED at boot: the owner's hs:paid:off outlived the restart");
 /* Paid 8 Ball Pool: P8_PAID_ON is the build switch (paid rungs exist at all), hs:paid:off the owner's door on top
    of it, saved like the other two. */
-const P8_PAID_ON = true;
+const P8_PAID_ON = false;   // off until the money reviews pass (docs/pool8-reference.md, "Paid")
 const p8PaidSwitch = createPaidSwitchStore({
   file: process.env.P8_PAID_SWITCH_PATH || path.join(path.dirname(agJournal.file), 'p8-paid-switch.json'),
   tag: '[P8]', what: 'paid 8 Ball Pool',

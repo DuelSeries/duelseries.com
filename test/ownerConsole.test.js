@@ -392,7 +392,7 @@ test('index.js: the paid Knockout and Battleship doors are saved switches that r
 
 test('index.js: the restart check, maintenance, Start alone, bots:set and announce are wired as the console expects', () => {
   assert.match(SRC, /const drainNow = \(\) => ops\.drainStatus\(ALL_ROOMS\(\), entryStore\.pending\(\), duelStatusNow\(\), brDrainWhy\(\)\);/);
-  assert.match(SRC, /const duelStatusNow = \(\) => ops\.duelStatus\(\[knockoutLobby, battleshipLobby, swimLobby, headSoccerLobby]\);/);
+  assert.match(SRC, /const duelStatusNow = \(\) => ops\.duelStatus\(\[knockoutLobby, battleshipLobby, swimLobby, headSoccerLobby, pool8Lobby]\);/);
   const check = SRC.slice(SRC.indexOf("case 'maintenance:check'"), SRC.indexOf("case 'announce'"));
   assert.match(check, /const d = drainNow\(\);/);
   assert.match(check, /d\.moneyInPlay/);

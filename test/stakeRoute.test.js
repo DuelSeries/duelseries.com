@@ -36,7 +36,7 @@ test('snake follows the region, which is written for its page from the same answ
 // The pages really do connect the way the table above says (a page change must update it).
 test('the origin games\' pages connect to their own origin; snake to the region', async () => {
   const { ORIGIN_GAMES, SERVER_URLS } = await load();
-  assert.deepStrictEqual(Object.keys(ORIGIN_GAMES).sort(), ['agar', 'battleship', 'chomp', 'headsoccer', 'knockout', 'paper', 'swim']);
+  assert.deepStrictEqual(Object.keys(ORIGIN_GAMES).sort(), ['agar', 'battleship', 'chomp', 'headsoccer', 'knockout', 'paper', 'pool8', 'swim']);
   assert.match(read('public/js/swim/swimMain.js'), /const socket = io\(\);/);
   assert.match(read('public/js/paper/mp/paperArenaMain.js'), /var socket = root\.io\(\);/);
   assert.match(read('public/js/knockout.js'), /const socket = io\(\);/);
