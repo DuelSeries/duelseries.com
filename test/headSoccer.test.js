@@ -610,3 +610,20 @@ test('a player on either goal roof can always jump off it, every spot, every lan
     }
   }
 });
+
+/* Kick-off after a goal (Owen 2026-10-28: "favour whoever conceded, just like the game"). The reference's
+   GameplayHandler.startGame drops the ball from the middle at .3 of the height with
+   ball.setStart(..., ((score[0] - score[1]) * Game.scale(5), 0)): a sideways drift of 5 units/s per goal of lead,
+   toward the side that is BEHIND, whoever scored last; the first kick-off (0-0) is neutral. Pinned as theirs. */
+test('kick-off: neutral at 0-0, after a goal the ball drifts toward the side behind (S: startGame)', () => {
+  const m = Sim.newMatch();
+  assert.deepStrictEqual([m.ball.x, m.ball.y, m.ball.vx, m.ball.vy], [0, HS.DROP_Y, 0, 0], 'the first kick-off is neutral');
+  for (const [score, toward] of [[[1, 0], 1], [[0, 1], -1], [[3, 1], 1], [[1, 1], 0]]) {
+    m.score = score.slice();
+    Sim.kickoff(m);
+    assert.strictEqual(m.ball.vx, (score[0] - score[1]) * HS.DROP_VX_PER_GOAL, 'drift for ' + score);
+    for (let i = 0; i < 90; i++) Sim.step(m, null, HS.STEP, false, false);
+    const side = Math.abs(m.ball.x) < 0.5 ? 0 : Math.sign(m.ball.x);
+    assert.strictEqual(side, toward, score + ': lands toward the side behind (' + m.ball.x.toFixed(2) + ')');
+  }
+});
