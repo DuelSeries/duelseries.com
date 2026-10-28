@@ -209,6 +209,8 @@
     const dv = reach * VX_RISE * DT;
     if (vx < want) { vx += dv; if (vx > want) vx = want; }
     else if (vx > want) { vx -= dv; if (vx < want) vx = want; }
+    /* Never more sideways speed than this forward speed allows, so a car that stops does not keep sliding (Fable review 2026-10-28). */
+    if (vx > reach) vx = reach; else if (vx < -reach) vx = -reach;
     let x = car.x + vx * DT;
     let wall = 0;
     /* The barrier stops you and scrubs a little speed while you lean on it.
