@@ -47,6 +47,9 @@ const Swap = require('./swap');                      // SOL <-> USDC in the play
 const { TRUST_PROXY } = require('./clientAddr');     // X-Forwarded-For only from nginx (loopback / private)
 const addrLimits = require('./addrLimits');          // sockets and free duel seats per address on the main namespace
 const { securityHeaders } = require('./securityHeaders');
+const { cacheControl, precompressed, byteBudget, budgetMbFrom, staticNames } = require('./staticCache'); // static: no-cache + ETag, br/gzip, bytes per address
+const { ingestProxy } = require('./ingestProxy');    // the PostHog relay, credentials stripped
+const { liveCache } = require('./liveCache');        // /api/live's JSON, shared while busy
 const ops       = require('./ops');       // maintenance mode
 const { createSkinShop, liveChain } = require('./skinShop');   // buying skins with USDC
 const { sharedPass: sharedSkinPass } = require('./skinPass');   // the pass a game checks before wearing a paid skin
@@ -438,25 +441,18 @@ async function isOwnerReq(req) {
   return !!(await ownerAuthOf(req));
 }
 
+/* Bytes of full downloads per address (server/staticCache.js, night review 2026-10-29): the
+   pages and files below and the /ingest relay share one meter. STATIC_BUDGET_MB, 0 = off. */
+const staticBudget = byteBudget({ maxMb: budgetMbFrom(process.env) });
+
 // ─── PostHog reverse proxy ───────────────────────────────────────────────────
 // Route analytics through our own domain so ad blockers can't block tracking.
 // Registered BEFORE the JSON body parser so we can stream the raw request straight
 // through untouched. /ingest/static/* -> the posthog-js asset host; everything else
-// (capture, flags, session recording) -> the capture host.
-app.all('/ingest/*', (req, res) => {
-  const isStatic = req.path.startsWith('/ingest/static/');
-  const host = isStatic ? 'us-assets.i.posthog.com' : 'us.i.posthog.com';
-  const upstreamPath = req.originalUrl.replace(/^\/ingest/, '') || '/';
-  const headers = { ...req.headers, host };
-  const upstream = https.request({ hostname: host, port: 443, path: upstreamPath, method: req.method, headers }, (up) => {
-    const h = { ...up.headers };
-    delete h.connection; delete h['transfer-encoding'];
-    res.writeHead(up.statusCode || 502, h);
-    up.pipe(res);
-  });
-  upstream.on('error', () => { if (!res.headersSent) res.status(502).end(); });
-  req.pipe(upstream);
-});
+// (capture, flags, session recording) -> the capture host. No cookie or other
+// credential goes to PostHog, no cookie comes back, and only posthog-js's own
+// paths are relayed (server/ingestProxy.js, night review 2026-10-29).
+app.all('/ingest/*', ingestProxy({ request: https.request, budget: staticBudget }));
 
 /* Compressed request bodies are refused with a 415 before any zlib stream exists (night review
    2026-10-29). body-parser 1.20.8 left req piped into a finished gunzip, and the next read threw
@@ -2463,17 +2459,18 @@ app.get('/api/my-transactions', txHistoryLimiter, async (req, res) => {
   }
 });
 
-/* no-store everywhere, deliberately (public/sw.js says why: a stored copy is how
-   a phone shows yesterday's balance or an old staking client). One exception,
-   Owen's pick (2026-10-08): agar.io's client scripts are no-cache. The browser
-   may keep a copy but must ask before every use; express.static answers with
-   the ETag it already sends and a 304 when nothing changed, so a repeat visit
-   skips the download and can still never run a stale build. */
-const revalidate = (p) => p.startsWith('/js/ag/');
-app.use((req, res, next) => {
-  res.setHeader('Cache-Control', revalidate(req.path) ? 'no-cache' : 'no-store');
-  next();
-});
+/* no-store for every page, /api answer and anything dynamic, deliberately (public/sw.js
+   says why: a stored copy is how a phone shows yesterday's balance or an old staking
+   client). Static assets are no-cache, the rule Owen picked for agar.io's scripts
+   (2026-10-08), widened to every asset folder in the night review (2026-10-29): the
+   browser may keep a copy but must ask before every use; express.static answers with
+   the ETag it already sends and a 304 when nothing changed, so a repeat visit skips the
+   download (the 5 MB wallet widget among it) and can still never run a stale build.
+   The rule itself is revalidates() in server/staticCache.js. */
+app.use(cacheControl);
+/* A full download counts against its address's byte budget (staticBudget, above);
+   past it, pages and files answer 429 until the window ends. /api is never counted. */
+app.use(staticBudget.middleware);
 
 /* The lobby. Declared BEFORE express.static, which would otherwise serve a
    file for '/' and win.
@@ -2589,10 +2586,21 @@ slGate.slRoutes(app, {
    served by the live site (Owen, 2026-10-15): the pre-owner-console admin page
    and the art/sound tools. Production only (NODE_ENV, which dev-local refuses),
    and above express.static, which would otherwise hand them out. */
+/* /img/logo-source.png is the 2 MB artwork scripts/make-icons.js cuts the icons
+   from, build input only: no page uses it, so the live site no longer hands it to
+   a download loop. Matched by what express.static would resolve (staticNames), not
+   one exact path, since /img/logo-source%2Epng or //img/./logo-source.png reach the
+   same file past an app.get (night review 2026-10-29). staticNames resolves it as
+   send does on Linux and on Windows, so a backslash spelling can't slip past either
+   (night review 2026-10-29). It stays on disk for the script. */
 const DEV_ONLY_PAGES = ['/admin.html', '/dev-bake-tiles.html', '/dev-soundcheck.html',
-  '/dev-tankart.html', '/preview_snake.html'];
+  '/dev-tankart.html', '/preview_snake.html', '/img/logo-source.png'];
 if (process.env.NODE_ENV === 'production') {
-  app.get(DEV_ONLY_PAGES, (_req, res) => res.status(404).sendFile(path.join(__dirname, '../public/404.html')));
+  const devOnly = new Set(DEV_ONLY_PAGES);
+  app.use((req, res, next) => {
+    if ((req.method !== 'GET' && req.method !== 'HEAD') || !staticNames(req.path).some((n) => devOnly.has(n))) return next();
+    res.status(404).sendFile(path.join(__dirname, '../public/404.html'));
+  });
 }
 
 /* The legal pages by their clean names: every link in the site says .html, but a
@@ -2602,8 +2610,11 @@ for (const p of ['terms', 'privacy', 'responsible-play']) {
   app.get('/' + p, (_req, res) => res.redirect(301, '/' + p + '.html'));
 }
 
+/* Text assets go out Brotli/gzip-compressed from a copy made once per file version
+   (server/staticCache.js); anything it does not take falls through to express.static. */
+app.use(precompressed(path.join(__dirname, '../public')));
 app.use(express.static(path.join(__dirname, '../public')));
-app.use('/shared', express.static(path.join(__dirname, '../shared')));
+app.use('/shared', precompressed(path.join(__dirname, '../shared')), express.static(path.join(__dirname, '../shared')));
 
 // ─── Game rooms (one per region + lobby type) ────────────────────────────────
 const REGIONS = ['na', 'eu'];
@@ -4274,7 +4285,10 @@ function liveSnapshot() {
     return { lobbies: [], stakes: ALL_STAKES, extras: [], br: null, counts: null, unknown: ['all'] };
   }
 }
-app.get('/api/live', (_req, res) => res.json(liveSnapshot()));
+/* Built fresh for a quiet site, shared for up to a second once it is busy (server/liveCache.js,
+   night review 2026-10-29): a crowd of polling lobbies costs a few builds a second, not one each. */
+const liveJson = liveCache(liveSnapshot);
+app.get('/api/live', (_req, res) => res.type('json').send(liveJson()));
 
 /* The lobby's Open lobbies board, pushed (Owen 2026-10-27: a player waiting in a queue or joining a paid room
    "doesn't show up until I reload my page"; the 10 s poll was the only way it learned). A lobby page's listen-only
