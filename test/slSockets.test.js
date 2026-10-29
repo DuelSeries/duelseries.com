@@ -412,8 +412,9 @@ test('paid delegation only with setPaid: auth.paid 1 sends the join to the door 
   // a paid socket: the cleaned name and its skin go to the door, nothing to the free room
   const p = r.sock({ auth: { paid: 1, cv: 5 } });
   p.fire('sl:join', { nick: 'Owené 1' });
-  // skin: a bought skin's bytes, null with no skin pass (docs/skin-purchases.md)
-  assert.deepStrictEqual(joins, [[p.id, { nick: cleanNick('Owené 1', r.laws), cv: 5, skin: null }]]);
+  // skin: a bought skin's bytes, null with no skin pass (docs/skin-purchases.md); ip: the socket's client address, for
+  // the door's one paid snake per address per room (night review 2026-10-29)
+  assert.deepStrictEqual(joins, [[p.id, { nick: cleanNick('Owené 1', r.laws), cv: 5, skin: null, ip: '10.0.0.1' }]]);
   assert.strictEqual(r.room().seatOf(p.id), null);
   r.wall.t += 1000;
   p.fire('sl:join', { nick: 'again' });

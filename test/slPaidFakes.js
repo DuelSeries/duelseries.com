@@ -121,10 +121,15 @@ function paidRig(opts) {
       m || {});
     return store.mint(x);
   }
+  // each paid socket is its own player on its own network unless the test says otherwise (so.ip): a room takes one
+  // paid snake per address (slPaidConst SAME_ADDR_PER_ROOM, night review 2026-10-29)
+  let addrs = 0;
   function paidSock(token, so) {
     const s = so || {};
     const auth = Object.assign({ paid: 1, stake: 0.5, entryToken: token, cv: 3 }, s.auth || {});
-    return r.sock(Object.assign({}, s, { auth }));
+    const n = ++addrs;
+    const ip = typeof s.ip === 'string' ? s.ip : '198.51.' + ((n >> 8) & 255) + '.' + (n & 255);
+    return r.sock(Object.assign({}, s, { auth, ip }));
   }
   function join(token, so) {
     r.wall.t += 1000;

@@ -180,9 +180,13 @@ async function mint(port, wallet, stake) {
 // ENG-1). gone: why the socket closed, for the assertion messages.
 const PING_GAP_MS = 250;
 const PING_LOST_MS = 2000; // a ping sent before the seat existed is never answered: ping again after this long
+// Each client is its own player behind nginx (its own X-Forwarded-For hop, believed from loopback): a paid room seats
+// one snake per address (slPaidConst SAME_ADDR_PER_ROOM, night review 2026-10-29), and these players share a room.
+let clientAddrs = 0;
 function slSocket(io, port, auth, nick) {
+  const xff = '198.51.100.' + (++clientAddrs % 250);
   const s = io(`http://localhost:${port}/sl`, { transports: ['websocket'], forceNew: true, reconnection: false, timeout: 5000,
-    auth });
+    extraHeaders: { 'x-forwarded-for': xff }, auth });
   const h = { s, nick, items: [], grd: null, own: null, q: null, beat: null, pingOut: false, pingAt: 0, gone: null };
   s.on('disconnect', (why) => { h.gone = String(why); });
   s.on('sl:x', (list) => { for (const it of Array.isArray(list) ? list : []) h.items.push(it); });

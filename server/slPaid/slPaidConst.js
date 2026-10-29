@@ -10,6 +10,13 @@ module.exports = Object.freeze({
   // `full` before it spends the token.
   ROOMS_PER_RUNG: 4,
 
+  // Paid snakes one network (an IPv4 address, an IPv6 /64) may hold in ONE paid room (night review 2026-10-29): the
+  // next from it is seated in another room of the rung or a new one (slPaidArenas seatFor), never refused while a room
+  // is left, so one person cannot team several funded wallets against the strangers in a room. The trade-off: two
+  // people on one wifi (or one carrier NAT address) who buy in together play in different rooms of the rung. 0 turns
+  // it off (every join to the fullest room, as before).
+  SAME_ADDR_PER_ROOM: 1,
+
   // A paid room with no account, seat, orphan or parked seat for this long books its floor to the house through
   // sweepFloor (one per source wallet) and retires (design 7.5; Owen 2026-10-14, OWNER-ANSWERS.md:154: the house
   // keeps gold nobody picks up in a room empty 5 minutes). The same 5 minutes as the old ladder's empty-room sweep

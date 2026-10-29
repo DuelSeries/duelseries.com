@@ -475,7 +475,8 @@ function attachSlSockets(nsp, arenas, helpers) {
     if (st.paid) {
       st.joined = true;
       stats.paidJoins++;
-      return st.door.join(socket, { nick, cv: st.cv, skin: st.skin });
+      // ip: the door seats one paid snake per address per room (night review 2026-10-29, slPaidArenas.seatFor)
+      return st.door.join(socket, { nick, cv: st.cv, skin: st.skin, ip: addrOf(socket) });
     }
     if (ops && typeof ops.get === 'function') {
       const o = ops.get();

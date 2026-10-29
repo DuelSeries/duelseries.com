@@ -24,7 +24,8 @@
 //   leave, disconnect, input, hold, vis, chat, diag   slSockets' calls by socket id, as SlArenas names them (a
 //                    watcher's socket too: roomOf looks in the watchers)
 //   isOpen(), watch(socket, {stake, after})  a read-only watcher of the rung's busiest room (the lobby's Spectate)
-//   seatFor(stake, exclude)  a room with space (the door's step 11); hasSpace(stake) the same without opening one
+//   seatFor(stake, exclude, ip)  a room with space (the door's step 11) that holds fewer than SAME_ADDR_PER_ROOM seats
+//                    from the joiner's network; hasSpace(stake, ip) the same without opening one
 //   walletSeatOf(wallet), hasAccount(jid), labelOf(stake, index), setPaidOpen(on)
 //   boardRows()      one row per rung for /api/live: players = open accounts (live, gliding or parked, each once),
 //                    parked = gliding accounts, bots 0, capacity C_PAID_HUMAN_CAP x rooms; 'closed' under the switch,
@@ -54,7 +55,8 @@ const { SlRoom } = require('../sl/slRoom');
 const { assertLawsComplete } = require('../sl/slLaws');
 const { createSlMoney, REQUIRED_HOOKS } = require('./slMoney');
 const { STAKE_TIERS } = require('../stakeRules');
-const { ROOMS_PER_RUNG, FLOOR_SWEEP_MS } = require('./slPaidConst');
+const { ROOMS_PER_RUNG, FLOOR_SWEEP_MS, SAME_ADDR_PER_ROOM } = require('./slPaidConst');
+const { addressGroup, socketClientIp } = require('../clientAddr');
 
 // The hooks the server hands in; onAccountOpen and onAccountClosed are this directory's own (walletSeat).
 const SERVER_HOOKS = Object.freeze(REQUIRED_HOOKS.filter((k) => k !== 'onAccountOpen' && k !== 'onAccountClosed'));
@@ -407,13 +409,29 @@ class SlPaidArenas {
     return room.seats.size + room.orphans.size;
   }
 
+  // Night review 2026-10-29: one person could fund a few wallets and seat them all in one room (seatFor sends every
+  // join to the fullest), a team against the strangers in it that the collusion monitor never sees (the money flows
+  // from the victims to the team, not between the team's own wallets). So a room takes at most SAME_ADDR_PER_ROOM
+  // seats from one network (clientAddr.addressGroup: an IPv4 address, an IPv6 /64), and the next one from it is
+  // seated in another room of the rung, or a new one. Nobody is refused for it until every room the rung may open
+  // holds one (then 'full', before the token is spent). An unknown address ('') is never held back.
+  _takesAddr(room, net) {
+    if (!net || !(SAME_ADDR_PER_ROOM > 0)) return true;
+    let n = 0;
+    for (const s of room.seats.values()) {
+      if (s && s.socket && addressGroup(socketClientIp(s.socket)) === net && ++n >= SAME_ADDR_PER_ROOM) return false;
+    }
+    return true;
+  }
+
   // A room of this rung with space: the fullest first (not exclude), else a new one while the rung has fewer than
-  // ROOMS_PER_RUNG, else null.
-  seatFor(stake, exclude) {
+  // ROOMS_PER_RUNG, else null. ip: the joining socket's address (the door's), for SAME_ADDR_PER_ROOM; none, no rule.
+  seatFor(stake, exclude, ip) {
     const rung = this._rungOf(stake);
     if (rung === null) return null;
     const list = this.rungs.get(rung);
-    const open = list.filter((r) => r !== exclude && this._open(r))
+    const net = addressGroup(ip);
+    const open = list.filter((r) => r !== exclude && this._open(r) && this._takesAddr(r, net))
       .sort((a, b) => this._humans(b) - this._humans(a) || this.place.get(a).index - this.place.get(b).index);
     if (open.length) return open[0];
     if (list.length < ROOMS_PER_RUNG) {
@@ -425,12 +443,13 @@ class SlPaidArenas {
     return null;
   }
 
-  // The door's step 5: would seatFor find or open a room? Opens nothing.
-  hasSpace(stake) {
+  // The door's step 5: would seatFor find or open a room? Opens nothing. ip as seatFor's.
+  hasSpace(stake, ip) {
     const rung = this._rungOf(stake);
     if (rung === null) return false;
     const list = this.rungs.get(rung);
-    return list.length < ROOMS_PER_RUNG || list.some((r) => this._open(r));
+    const net = addressGroup(ip);
+    return list.length < ROOMS_PER_RUNG || list.some((r) => this._open(r) && this._takesAddr(r, net));
   }
 
   walletSeatOf(wallet) {
