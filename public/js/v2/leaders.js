@@ -86,7 +86,7 @@
     return '<button type="button" class="lbrow" data-name="' + esc(r.name) + '">' +
       '<span class="rk">' + r.rank + '</span>' +
       '<span class="nm">' + esc(r.name) + (sub ? '<span class="gm">' + esc(sub) + '</span>' : '') + '</span>' +
-      '<span class="fw">' + (r.wins > 0 ? r.wins + (r.wins === 1 ? ' free win' : ' free wins') : '') + '</span>' +
+      '<span class="fw">' + (Number(r.wins) > 0 ? Number(r.wins) + (Number(r.wins) === 1 ? ' free win' : ' free wins') : '') + '</span>' +
       '<span class="am' + (r.amount > 0 ? '' : ' zero') + '" data-cu="lb-' + esc(r.name) + '">' + money(r.amount) + '</span></button>';
   }
 

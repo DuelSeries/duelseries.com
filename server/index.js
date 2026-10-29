@@ -5007,6 +5007,10 @@ io.on('connection', (socket) => {
      and the owner's live alerts only from ownerProof (an owner signature over the action
      'owner:alerts', ownerAuth) or ownerTicket (one use, from POST /api/owner/ticket with the
      owner session). Without them the socket is an anonymous lobby watcher. */
+  /* A duel page's wallet proof (public/js/shared/dsIdentify.js), the same one-time proof lobby:join takes and checked
+     once per socket: a free win then counts on the board under that wallet (server/freeWins.js). Binds nothing else. */
+  on('id:prove', ({ idProof } = {}) => { socketIdentity.fromProof(socket, idProof); });
+
   on('lobby:join', ({ idProof, ownerProof, ownerTicket } = {}) => {
     lobbyConnections.add(socket);
     socketIdentity.fromProof(socket, idProof);

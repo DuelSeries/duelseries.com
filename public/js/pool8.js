@@ -18,6 +18,8 @@
    with p8: event names. */
 
 const socket = io();
+// whose wallet is playing, so a free win counts on the board (dsIdentify.js); never a spectator
+if (window.DSIdentify) window.DSIdentify.attach(socket, () => !WATCH);
 const Sim = window.P8Sim;
 const Art = window.P8Art;
 const $ = (id) => document.getElementById(id);

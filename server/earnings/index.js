@@ -238,8 +238,10 @@ function freeWinsList(rows) {
     const game = lobbyGame(r.game);
     if (!game) continue;
     let name;
-    if (typeof r.wallet === 'string' && r.wallet) name = displayName(r.name, r.wallet);
-    else {
+    if (typeof r.wallet === 'string' && r.wallet) {
+      name = displayName(r.name, r.wallet);
+      if (guestNameProblem(name)) name = shortWallet(r.wallet);   // an account name the chat guard would stop
+    } else {
       const raw = String(r.played_as == null ? '' : r.played_as).replace(/[\u0000-\u001f\u007f]/g, '').trim();
       if (!raw || guestNameProblem(raw)) continue;   // the whole name, before the cut can hide an address
       name = raw.slice(0, NAME_MAX);

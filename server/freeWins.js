@@ -34,7 +34,11 @@ function cleanName(n) {
   const s = String(n == null ? '' : n).replace(/[\u0000-\u001f\u007f]/g, '').trim();
   return s.length > NAME_MAX ? s.slice(0, NAME_MAX) : s;
 }
-function cleanWallet(w) {
+/* The wallet a free win is credited to: only one the socket PROVED (socketIdentity sets _googleId from a signed
+   proof or a consumed paid entry). A free table's seat wallet is whatever the client claimed, so it is never used:
+   anyone could name another player's wallet and pile wins on them (Fable review). Unproven = a guest's win. */
+function provenWallet(p) {
+  const w = p && p.socket ? p.socket._googleId : null;
   return typeof w === 'string' && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(w) ? w : null;
 }
 
@@ -49,7 +53,7 @@ function noteRoom(room, winnerId, pot, game) {
   if (!name) return false;
   stats.noted++;
   Promise.resolve()
-    .then(() => sink(INSERT_SQL, [game, name, cleanWallet(p.wallet)]))
+    .then(() => sink(INSERT_SQL, [game, name, provenWallet(p)]))
     .catch((e) => { stats.failed++; console.warn('[FREEWINS] write failed: ' + (e && e.message)); });
   return true;
 }
