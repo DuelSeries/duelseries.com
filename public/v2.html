@@ -695,10 +695,9 @@ body.ingame>.howveil,body.ingame>.meveil,body.ingame>.apscreen,body.ingame>.bshe
   transform:scale(.3333);animation:ltping 1.8s infinite}
 .ltag .dot::after{content:'';position:absolute;inset:0;border-radius:50%;background:inherit}
 @keyframes ltping{0%{transform:scale(.3333);opacity:1}70%,100%{transform:none;opacity:0}}
-/* No real wins yet: the row shows examples, so the pill says so in the leaderboard's Sample colours and has no live
-   dot (Owen's rule: made-up winnings are never shown to the public as real; site sweep 2026-10-28). */
-.tickerwrap.top .ltag.sample{background:var(--money);color:var(--ink);padding:3px 6px}
-.ltag.sample .dot{display:none}
+/* A free match won: a small pill where a paid win shows its amount (Owen 2026-10-28). */
+.tkc .am.fr{display:inline-block;padding:1px 8px;border-radius:var(--rf);background:var(--s2);color:var(--tx2);
+  font-size:11px;font-weight:600}
 .tickerwrap.top .ticker{-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 96px),transparent);
           mask-image:linear-gradient(90deg,#000 calc(100% - 96px),transparent)}
 .tkrun.cards{animation:none;transition:transform .55s cubic-bezier(.16,1,.3,1)}
@@ -2277,8 +2276,7 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
   .tkc .am{font-size:11.5px}
   .tickerwrap.top .ltag{font-size:9px;padding:2px 4px 2px 3px;gap:3px;left:2px;top:2px}
   .ltag .dot{width:5px;height:5px}
-  /* "Sample wins" is longer than "Live wins": a step smaller so it stays on the first card (54px wide here). */
-  .tickerwrap.top .ltag.sample{font-size:8px;padding:2px 3px;letter-spacing:-.15px}
+  .tkc .am.fr{font-size:10px;padding:1px 6px}
   .tiles{grid-template-columns:1fr 1fr;gap:10px}
   .tile{padding:15px 16px}
   .tile .v{font-size:25px}
@@ -2564,7 +2562,7 @@ body.scr-anim { overflow-x:hidden }
   <!-- Above the Games row on PC and phone alike (Owen 2026-10-27, PC first, then phones too).
        Read-only decoration: it exists to show the board is alive and people
        are winning. No controls of any kind, by explicit instruction. -->
-  <div class="tickerwrap top">
+  <div class="tickerwrap top" hidden>
     <span class="ltag" aria-hidden="true"><span class="dot"></span>Live wins</span>
     <div class="ticker"><div class="tkrun" id="tkrun"></div></div>
   </div>
@@ -5150,56 +5148,22 @@ window.repaintAll=repaintAll;
    advertise a game nobody can play. Today that means every line is
    slither.io; the moment another game loses its `soon` flag its wins start
    appearing here on their own. */
-/* Real results: the most recent landed paid payouts from /api/earnings/recent (server/earnings, the strip's own
-   landed rule, never the owner, test wallets or bots), filled by loadRealWins below. Empty until a real player
-   cashes out, and then the row shows only these. */
-let REAL_WINS=[];
-
-const NAMES=['PEPIK','hashim','degenmonkey','qesku','tungsahur','quietfox',
- 'driftwood','wenmoon','noodlearm','grasshopper','lilbogdan','sn4kepit','vorpal',
- 'mikoto','bagholder','0xhydra','pixelmaw','tinyfangs','coilcoil','nomnom',
- 'slithy','pogface','cashcow','ghostbyte'];
-/* Most wins are small and the occasional one is large, because a row of
-   uniformly middling amounts is the tell that the numbers were invented. */
-function madeUpAmount(){
-  const r=Math.random();
-  const v=r<0.62 ? 0.25+Math.random()*2.75
-        : r<0.93 ? 3+Math.random()*9
-        :          12+Math.random()*24;
-  return Math.round(v*100)/100;
-}
-/* An empty ticker is worse than no ticker, so when there are no real results
-   the row shows plausible examples rather than sitting blank, and its pill says
-   "Sample wins" (WINS_REAL below). Real and made-up wins are never mixed: once
-   any real result exists the row shows only those, under "Live wins". Made-up
-   wins can only ever name a game that is actually playable. */
-const MIN_TICKER=14;
-let WINS_REAL=false;
-function buildWins(){
-  const live=REAL_WINS.filter(w=>{const g=G(w.g); return g&&!g.soon});
-  WINS_REAL=live.length>0;
-  if(live.length)return live;
-  const playable=GAMES.filter(g=>!g.soon);
-  if(!playable.length)return live;
-  const pool=NAMES.slice(), out=[];
-  while(out.length<MIN_TICKER&&pool.length){
-    const who=pool.splice(Math.floor(Math.random()*pool.length),1)[0];
-    out.push({who,g:playable[Math.floor(Math.random()*playable.length)].id,
-              amt:madeUpAmount()});
-  }
-  return out;
-}
-let WINS=buildWins();
+/* Real results only (Owen 2026-10-28: no made-up wins, ever): /api/earnings/recent, the most recent landed paid
+   payouts (server/earnings, the strip's own landed rule, never the owner, test wallets or bots) merged by time with
+   free duels won by people (server/freeWins.js; a person beating a bot counts, a bot's own win never does). A paid
+   win shows its amount, a free one a Free pill. Only games the lobby can play. No wins: the row stays hidden. */
+let WINS=[];
 /* Asked on load and every two minutes; the row is redrawn only when the list changed. A failed read keeps what
    is showing. */
 let _realKey='[]';
 function loadRealWins(){
   fetch('/api/earnings/recent',{cache:'no-store'}).then(r=>r.json()).then(d=>{
-    if(!d||d.ok!==true||!Array.isArray(d.wins))return;
-    const next=d.wins.filter(w=>w&&typeof w.name==='string'&&typeof w.game==='string'&&Number(w.amount)>0)
-      .map(w=>({who:w.name.slice(0,24),g:w.game,amt:Number(w.amount)}));
+    if(!d||!Array.isArray(d.wins))return;
+    const next=(d.ok===true?d.wins:[]).filter(w=>w&&typeof w.name==='string'&&typeof w.game==='string'
+        &&(w.free===true||Number(w.amount)>0)&&G(w.game)&&!G(w.game).soon)
+      .map(w=>({who:w.name.slice(0,24),g:w.game,amt:w.free===true?null:Number(w.amount)}));
     const key=JSON.stringify(next); if(key===_realKey)return;
-    _realKey=key; REAL_WINS=next; WINS=buildWins(); drawTicker();
+    _realKey=key; WINS=next; drawTicker();
   }).catch(()=>{});
 }
 setInterval(loadRealWins,120000);
@@ -5210,18 +5174,19 @@ let tkTimer=0;
 const tkEsc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
 function drawTicker(){
   const run=document.getElementById('tkrun');
-  const tag=document.querySelector('.tickerwrap.top .ltag');
-  /* Owen's own preview browser wears Live, as the board does there (socialPreview.js liveLook); every other
-     visitor keeps "Sample wins" while the row is made up. */
-  const liveLook=!!(window.V2SocialPreview&&window.V2SocialPreview.liveLook);
-  if(tag&&!WINS_REAL&&!liveLook&&!tag.classList.contains('sample')){tag.classList.add('sample');tag.textContent='Sample wins';}
-  if(tag&&(WINS_REAL||liveLook)&&tag.classList.contains('sample')){tag.classList.remove('sample');tag.innerHTML='<span class="dot"></span>Live wins';}
+  const wrap=run.closest('.tickerwrap');
   clearInterval(tkTimer); run.classList.remove('cards'); run.style.transform=''; run.style.transition='';
-  /* Twice over, so the card that leaves on the right is never the one coming in on the left. */
+  if(wrap)wrap.hidden=!WINS.length;
+  if(!WINS.length){run.innerHTML='';return;}
   const card=w=>`<div class="tkc"><img src="${artSrc(w.g)}" alt="${G(w.g).name}" width="70" height="98" decoding="async">
-    <div class="nm">${TK_RANK}<b>${tkEsc(w.who)}</b></div><div class="am num">$${w.amt.toFixed(2)}</div></div>`;
-  run.innerHTML=WINS.map(card).join('')+WINS.map(w=>card(w).replace('class="tkc"','class="tkc" aria-hidden="true"')).join('');
+    <div class="nm">${TK_RANK}<b>${tkEsc(w.who)}</b></div>${w.amt==null?'<div class="am fr">Free</div>'
+      :`<div class="am num">$${w.amt.toFixed(2)}</div>`}</div>`;
+  /* A long list goes round twice over, so the card that leaves on the right is never the one coming in on the
+     left. A short one is shown once, as it is: never padded out with repeats. */
+  const twice=WINS.length>=8;
+  run.innerHTML=WINS.map(card).join('')+(twice?WINS.map(w=>card(w).replace('class="tkc"','class="tkc" aria-hidden="true"')).join(''):'');
   run.classList.add('cards');
+  if(WINS.length<2)return;
   tkTimer=setInterval(()=>{
     if(document.hidden||document.body.classList.contains('ingame')||!run.offsetParent)return;
     const c=run.lastElementChild; if(!c)return;

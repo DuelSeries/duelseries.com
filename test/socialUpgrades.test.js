@@ -119,7 +119,8 @@ test('board: the strip\'s own read, ranked, ten at most, owner never on it', asy
   const rows = [];
   for (let i = 0; i < 14; i++) rows.push(row('W' + String(i).padStart(43, 'x'), 0.1 + i / 100, 'p' + i));
   let asked = null;
-  const q = (sql, params) => { asked = params; return Promise.resolve({ rows }); };
+  // the free wins read (its own SQL, 2026-10-28) answers nothing here
+  const q = (sql, params) => { if (/free_wins/.test(sql)) return Promise.resolve({ rows: [] }); asked = params; return Promise.resolve({ rows }); };
   const e = createEarnings({ query: q, excludeWallets: [OWNER, REV], previewExclude: [REV], config: CFG, log: quiet });
   const b = await e.board();
   assert.strictEqual(b.ok, true);

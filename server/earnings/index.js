@@ -84,13 +84,34 @@ const RECENT_N = 20;
 const RECENT_SQL = `SELECT h.player_wallet AS wallet,
        COALESCE(h.game, '') AS game,
        h.amount_usdc::text AS rake,
-       a.name AS name
+       a.name AS name,
+       extract(epoch FROM h.created_at)::float8 AS at
 ${EARNINGS_SQL.slice(EARNINGS_SQL.indexOf('  FROM house_revenue h'), EARNINGS_SQL.indexOf('\n GROUP BY'))}
  ORDER BY h.created_at DESC
  LIMIT ${RECENT_N}`;
 function recentParams(exclude) {
   return earningsParams(exclude, 'UTC').slice(0, 4);
 }
+
+/* Free duel wins by people (server/freeWins.js writes them; a bot's win is never a row), the last FREE_DAYS days,
+   newest first, never an excluded wallet. A winner with a wallet is named as the board names them (their account
+   name, else the short wallet); a guest by the name they played under. $1 excluded wallets. */
+const FREE_DAYS = 7;
+const FREE_RECENT_SQL = `SELECT f.game, f.name AS played_as, f.wallet, a.name AS name,
+       extract(epoch FROM f.created_at)::float8 AS at
+  FROM free_wins f
+  LEFT JOIN accounts a ON a.google_id = f.wallet
+ WHERE f.created_at >= now() - make_interval(days => ${FREE_DAYS})
+   AND (f.wallet IS NULL OR f.wallet <> ALL ($1::text[]))
+ ORDER BY f.created_at DESC
+ LIMIT ${RECENT_N}`;
+/* Free wins per wallet, all time, for the board's second column. $1 excluded wallets. */
+const FREE_BOARD_SQL = `SELECT f.wallet, f.game, count(*)::int AS wins, max(a.name) AS name
+  FROM free_wins f
+  LEFT JOIN accounts a ON a.google_id = f.wallet
+ WHERE f.wallet IS NOT NULL
+   AND f.wallet <> ALL ($1::text[])
+ GROUP BY 1, 2`;
 // house_revenue.game to the lobby's GAMES id (its card art and name); anything else is not a lobby game and is dropped.
 const LOBBY_GAME = Object.freeze({ slither: 'snake', snake: 'snake', ag: 'agar', agar: 'agar' });
 function lobbyGame(g) {
@@ -136,6 +157,9 @@ function takeHome(micro) {
   return Math.round((micro * TAKE_HOME_PER_RAKE) / 1e4) / 100;
 }
 
+/* A top row's wallet, kept beside the row (a WeakMap, not a field) so no answer can carry it. */
+const TOP_WALLET = new WeakMap();
+
 /* Rows from EARNINGS_SQL to the public answer. Pure, so the tests drive it directly.
    Returns null for a row set that cannot be trusted (the caller keeps its last value). */
 function summarize(rows) {
@@ -176,7 +200,9 @@ function summarize(rows) {
       .map((pl) => {
         let g = '', gm = -1;
         for (const [k, m] of pl.games) if (m > gm) { g = k; gm = m; }
-        return { name: displayName(pl.name, pl.wallet), game: gameLabel(g), amount: takeHome(pl.micro), n: pl.n };
+        const row = { name: displayName(pl.name, pl.wallet), game: gameLabel(g), amount: takeHome(pl.micro), n: pl.n };
+        TOP_WALLET.set(row, pl.wallet);   // for the board's free-wins merge; never a field, so never in an answer
+        return row;
       }),
   });
   return {
@@ -197,9 +223,52 @@ function recentWins(rows) {
     if (!(micro > 0)) return null;
     const game = lobbyGame(r.game);
     if (!game) continue;
-    out.push({ name: displayName(r.name, r.wallet), game, amount: takeHome(micro) });
+    out.push({ name: displayName(r.name, r.wallet), game, amount: takeHome(micro), at: Number(r.at) || 0 });
   }
   return out;
+}
+
+/* Rows from FREE_RECENT_SQL to [{name, game, free: true, at}]. Pure. A guest's name is player input that never went
+   through an account: one the chat guard would stop (a link, an address, a slur, a secret) is left out. */
+function freeWinsList(rows) {
+  if (!Array.isArray(rows)) return null;
+  const out = [];
+  for (const r of rows) {
+    if (!r) return null;
+    const game = lobbyGame(r.game);
+    if (!game) continue;
+    let name;
+    if (typeof r.wallet === 'string' && r.wallet) name = displayName(r.name, r.wallet);
+    else {
+      const raw = String(r.played_as == null ? '' : r.played_as).replace(/[\u0000-\u001f\u007f]/g, '').trim();
+      if (!raw || guestNameProblem(raw)) continue;   // the whole name, before the cut can hide an address
+      name = raw.slice(0, NAME_MAX);
+    }
+    out.push({ name, game, free: true, at: Number(r.at) || 0 });
+  }
+  return out;
+}
+function guestNameProblem(n) {
+  const g = require('../chatGuard');
+  // a long base58 run is a wallet (or most of one) whatever its length
+  return !!g.contentProblem(n) || g.maskSwears(n) !== n || /[1-9A-HJ-NP-Za-km-z]{20,}/.test(n);
+}
+
+/* Rows from FREE_BOARD_SQL to Map(wallet -> {name, wins, game}), game the one they won most. Pure. */
+function freeBoard(rows) {
+  if (!Array.isArray(rows)) return null;
+  const by = new Map();
+  for (const r of rows) {
+    if (!r || typeof r.wallet !== 'string' || !r.wallet) return null;
+    const n = Number(r.wins);
+    if (!(n > 0)) continue;
+    let p = by.get(r.wallet);
+    if (!p) { p = { name: r.name, wins: 0, game: '', best: 0 }; by.set(r.wallet, p); }
+    p.wins += n;
+    if (r.name) p.name = r.name;
+    if (n > p.best) { p.best = n; p.game = r.game; }
+  }
+  return by;
 }
 
 /* The owner console's hide, kept in a small file so it outlives a restart and a
@@ -255,17 +324,22 @@ function createEarnings({ query, excludeWallets, previewExclude, switchFile = nu
   const sw = createHideSwitch({ file: switchFile, fsx, log });
   const stats = { reads: 0, fails: 0 };
 
-  // kind: the strip's grouped read (default), or the Live wins row's recent list.
+  // kind: the strip's grouped read (default), the Live wins row's recent list, or the free wins (row and board).
+  const READS = {
+    recent: { sql: RECENT_SQL, params: (ex) => recentParams(ex), map: recentWins },
+    free: { sql: FREE_RECENT_SQL, params: (ex) => [ex.slice()], map: freeWinsList },
+    freeBoard: { sql: FREE_BOARD_SQL, params: (ex) => [ex.slice()], map: freeBoard },
+  };
   function cache(ex, kind) {
-    const recent = kind === 'recent';
+    const rd = READS[kind] || null;
     let value = null, at = 0, inFlight = null, pokeTimer = null;
     function refresh() {
       if (inFlight) return inFlight;
       inFlight = (async () => {
         try {
-          const res = recent ? await query(RECENT_SQL, recentParams(ex))
+          const res = rd ? await query(rd.sql, rd.params(ex))
             : await query(EARNINGS_SQL, earningsParams(ex, config.TIME_ZONE));
-          const v = recent ? recentWins(res && res.rows) : summarize(res && res.rows);
+          const v = rd ? rd.map(res && res.rows) : summarize(res && res.rows);
           if (!v) { stats.fails++; log.warn('[EARN] unusable rows, keeping the last value'); return value; }
           stats.reads++;
           value = v;
@@ -300,6 +374,8 @@ function createEarnings({ query, excludeWallets, previewExclude, switchFile = nu
   const pub = typeof query === 'function' ? cache(exclude) : null;
   const pre = typeof query === 'function' ? cache(pExclude) : null;
   const rec = typeof query === 'function' ? cache(exclude, 'recent') : null;   // never the preview's owner
+  const fre = typeof query === 'function' ? cache(exclude, 'free') : null;
+  const freB = typeof query === 'function' ? cache(exclude, 'freeBoard') : null;
 
   const OFF = Object.freeze({ on: false });
   function shown() { return !!config.SHOW && !sw.hidden(); }
@@ -335,7 +411,20 @@ function createEarnings({ query, excludeWallets, previewExclude, switchFile = nu
     if (!pub) return { ok: false, top: [] };
     const v = await pub();
     if (!v) return { ok: false, top: [] };
-    return { ok: true, top: v.periods.all.top.map((r, i) => ({ rank: i + 1, ...r })) };
+    /* Free duel wins as the second column (Owen 2026-10-28), so the board is not empty while nobody has won money:
+       money first, then free wins. A player with free wins and no money joins under the money rows. A failed free
+       read leaves every wins figure at 0 rather than the board unshown. */
+    const fb = freB ? await freB() : null;
+    const rows = v.periods.all.top.map((r) => ({ r, w: TOP_WALLET.get(r), wins: 0 }));
+    if (fb) {
+      const seen = new Set();
+      for (const x of rows) { const f = x.w ? fb.get(x.w) : null; if (f) x.wins = f.wins; seen.add(x.w); }
+      for (const [w, f] of fb) {
+        if (!seen.has(w)) rows.push({ r: { name: displayName(f.name, w), game: gameLabel(f.game), amount: 0, n: 0 }, w, wins: f.wins });
+      }
+    }
+    rows.sort((a, b) => (b.r.amount - a.r.amount) || (b.wins - a.wins));
+    return { ok: true, top: rows.slice(0, TOP_N).map((x, i) => ({ rank: i + 1, ...x.r, wins: x.wins })) };
   }
 
   /* The Live wins row: {ok:true, wins:[{name, game, amount}]} newest first, or ok:false (no database or a failed
@@ -344,8 +433,11 @@ function createEarnings({ query, excludeWallets, previewExclude, switchFile = nu
   async function recentList() {
     if (!rec || !shown()) return { ok: false, wins: [] };
     const v = await rec();
-    if (!v) return { ok: false, wins: [] };
-    return { ok: true, wins: v.map((w) => ({ name: w.name, game: w.game, amount: w.amount })) };
+    const f = fre ? await fre() : null;   // free duel wins by people (Owen 2026-10-28), merged by time
+    if (!v && !f) return { ok: false, wins: [] };
+    const all = [].concat(v || [], f || []).sort((a, b) => b.at - a.at).slice(0, RECENT_N);
+    return { ok: true, wins: all.map((w) => (w.free ? { name: w.name, game: w.game, free: true }
+      : { name: w.name, game: w.game, amount: w.amount })) };
   }
 
   function route(app) {
@@ -413,5 +505,9 @@ module.exports = {
   earningsParams,
   RECENT_SQL,
   recentParams,
+  FREE_RECENT_SQL,
+  FREE_BOARD_SQL,
+  freeWinsList,
+  freeBoard,
   recentWins,
 };

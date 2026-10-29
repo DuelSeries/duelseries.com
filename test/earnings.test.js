@@ -24,7 +24,9 @@ function tmpFile() {
 
 function fakeQuery(rows) {
   const calls = [];
-  const q = (sql, params) => { calls.push({ sql, params }); return Promise.resolve({ rows: typeof rows === 'function' ? rows(params) : rows }); };
+  // the free wins reads (2026-10-28) answer nothing unless a test gives rows as a function of (params, sql)
+  const q = (sql, params) => { calls.push({ sql, params });
+    return Promise.resolve({ rows: typeof rows === 'function' ? rows(params, sql) : /free_wins/.test(sql) ? [] : rows }); };
   q.calls = calls;
   return q;
 }
@@ -285,12 +287,13 @@ test('recent wins: only a name, a lobby game id and the take-home leave; never a
     { wallet: B, game: 'pool8', rake: '0.1', name: null },
     { wallet: A, game: 'ag', rake: '0.02', name: 'neo' },
   ]);
+  // at: the payout's time, kept inside the server to merge with free wins; recentList strips it (test below)
   assert.deepStrictEqual(out, [
-    { name: 'neo', game: 'snake', amount: 0.45 },
-    { name: 'BBBB…ZZ22', game: 'pool8', amount: 0.9 },
-    { name: 'neo', game: 'agar', amount: 0.18 },
+    { name: 'neo', game: 'snake', amount: 0.45, at: 0 },
+    { name: 'BBBB…ZZ22', game: 'pool8', amount: 0.9, at: 0 },
+    { name: 'neo', game: 'agar', amount: 0.18, at: 0 },
   ]);
-  for (const w of out) assert.deepStrictEqual(Object.keys(w).sort(), ['amount', 'game', 'name']);
+  for (const w of out) assert.deepStrictEqual(Object.keys(w).sort(), ['amount', 'at', 'game', 'name']);
   assert.ok(!JSON.stringify(out).includes(A) && !JSON.stringify(out).includes(B), 'no full wallet');
   assert.strictEqual(recentWins([{ wallet: '', game: 'paper', rake: '0.1' }]), null, 'an untrustworthy set is refused');
   assert.strictEqual(recentWins([{ wallet: A, game: 'paper', rake: '-1' }]), null);
@@ -313,4 +316,63 @@ test('recent wins: hidden with the strip (SHOW false), and reads nothing then', 
   const e = createEarnings({ query: q, excludeWallets: [OWNER, REV], previewExclude: [REV], config: Object.assign({}, CFG, { SHOW: false }), log: quiet });
   assert.deepStrictEqual(await e.recentList(), { ok: false, wins: [] });
   assert.strictEqual(q.calls.length, 0);
+});
+
+// Free duel wins by people (Owen 2026-10-28): the Live wins row and the board show real results only.
+const { freeWinsList, freeBoard, FREE_RECENT_SQL, FREE_BOARD_SQL } = require('../server/earnings');
+
+test('free wins: read only, never an excluded wallet, the last week only', () => {
+  for (const s of [FREE_RECENT_SQL, FREE_BOARD_SQL]) {
+    assert.ok(!/(INSERT|UPDATE|DELETE|DROP|ALTER)/i.test(s), 'read only');
+    assert.match(s, /<> ALL \(\$1::text\[\]\)/, 'the public exclusions');
+  }
+  assert.match(FREE_RECENT_SQL, /make_interval\(days => 7\)/);
+  assert.match(FREE_BOARD_SQL, /wallet IS NOT NULL/, 'the board is wallets only: a guest has no profile');
+});
+
+test('free wins: a wallet holder by their account name or short wallet, a guest by the name they played under; a guest name the chat guard would stop is left out', () => {
+  const out = freeWinsList([
+    { game: 'knockout', played_as: 'Owen', wallet: A, name: 'neo', at: 3 },
+    { game: 'pool8', played_as: 'Owen', wallet: B, name: null, at: 2 },
+    { game: 'swim', played_as: 'guesty', wallet: null, name: null, at: 1 },
+    { game: 'swim', played_as: 'visit evil.com', wallet: null, at: 1 },
+    { game: 'swim', played_as: B, wallet: null, at: 1 },
+    { game: 'swim', played_as: '   ', wallet: null, at: 1 },
+  ]);
+  assert.deepStrictEqual(out, [
+    { name: 'neo', game: 'knockout', free: true, at: 3 },
+    { name: 'BBBB…ZZ22', game: 'pool8', free: true, at: 2 },
+    { name: 'guesty', game: 'swim', free: true, at: 1 },
+  ]);
+  assert.ok(!JSON.stringify(out).includes(A) && !JSON.stringify(out).includes(B), 'no full wallet');
+});
+
+test('recent list: paid wins and free wins merged newest first; only name, game and amount or free leave', async () => {
+  const q = fakeQuery((p, sql) => (/free_wins/.test(sql)
+    ? [{ game: 'knockout', played_as: 'kid', wallet: null, at: 150 }]
+    : [{ wallet: A, game: 'paper', rake: '0.1', name: 'neo', at: 200 }, { wallet: B, game: 'ag', rake: '0.1', name: 'zed', at: 100 }]));
+  const e = createEarnings({ query: q, excludeWallets: [OWNER, REV], previewExclude: [REV], config: CFG, log: quiet });
+  assert.deepStrictEqual(await e.recentList(), { ok: true, wins: [
+    { name: 'neo', game: 'paper', amount: 0.9 },
+    { name: 'kid', game: 'knockout', free: true },
+    { name: 'zed', game: 'agar', amount: 0.9 },
+  ] });
+  const free = q.calls.find((c) => /free_wins/.test(c.sql));
+  assert.deepStrictEqual(free.params[0].slice().sort(), [OWNER, REV].sort(), 'free wins leave out the same wallets');
+});
+
+test('board: free wins are the second column; money first, then free-only players by wins; no wallet leaves', async () => {
+  const q = fakeQuery((p, sql) => (/free_wins/.test(sql)
+    ? [{ wallet: A, game: 'pool8', wins: 2, name: 'neo' }, { wallet: B, game: 'swim', wins: 5, name: null }, { wallet: B, game: 'knockout', wins: 1, name: null }]
+    : [row(A, 'paper', 3, 1, '0.1', '0.1', 'neo')]));
+  const e = createEarnings({ query: q, excludeWallets: [OWNER, REV], previewExclude: [REV], config: CFG, log: quiet });
+  const b = await e.board();
+  assert.deepStrictEqual(b, { ok: true, top: [
+    { rank: 1, name: 'neo', game: 'Paper.io', amount: 0.9, n: 1, wins: 2 },
+    { rank: 2, name: 'BBBB…ZZ22', game: 'Swim', amount: 0, n: 0, wins: 6 },
+  ] });
+  assert.ok(!JSON.stringify(b).includes(A) && !JSON.stringify(b).includes(B));
+  const a = await e.answer(false);
+  assert.ok(!JSON.stringify(a).includes(A), 'the strip answer still carries no wallet');
+  assert.ok(freeBoard([{ wallet: '', wins: 1 }]) === null, 'an untrustworthy set is refused');
 });

@@ -29,6 +29,7 @@ const { ShooterRoom, SH: SHOOTER } = require('./ShooterRoom'); // the top-down t
    shared/lockedGames.js, which the lobby reads too. */
 const { LOCKED_GAMES, isLocked } = require('../shared/lockedGames');
 const db     = require('./db');
+const freeWins = require('./freeWins');   // free duel wins by people (lobby Live wins, board)
 const collusion = require('./CollusionMonitor');
 const profiler = require('./profiler');
 const debugTick = require('./debugTick');
@@ -198,6 +199,10 @@ app.use((req, res, next) => {
       stakeLedger.sweep({ boot: true }).catch((e) => console.error('[STAKE] boot sweep', e.message));
       /* Paid agar crash refunds and killed-process flags (server/ag/agJournal.js). */
       replayAgJournal();
+      /* Free duel wins by people, for the lobby's Live wins and the board (server/freeWins.js). */
+      db.pool.query(freeWins.CREATE_SQL)
+        .then(() => freeWins.setSink((sql, params) => db.pool.query(sql, params)))
+        .catch((e) => console.error('[FREEWINS] table', e.message));
       return;
     } catch (e) {
       console.error(`[DB] Init attempt ${attempt}/8 failed: ${e.message}`);

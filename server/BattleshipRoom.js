@@ -2,6 +2,7 @@
 const crypto = require('crypto');
 const { refundBound } = require('./stakeRules');
 const { duelMoney } = require('./duelMoney');
+const freeWins = require('./freeWins');
 /* ─── Battleship ──────────────────────────────────────────────────────────────
    Two fleets, two ten-by-ten grids, and one thing neither player is allowed to
    know: where the other one's ships are.
@@ -456,6 +457,7 @@ class BattleshipRoom {
           });
         } catch (e) { console.error('[BS] settle hook failed:', e.message); }
       }
+      freeWins.noteRoom(this, winnerId, pot, 'battleship');   // a person's free win, for the lobby's Live wins (never a bot's)
     }
     /* What the result card shows about the money: the split index.js pays,
        from this same pot and these same seats (server/duelMoney.js). Display
