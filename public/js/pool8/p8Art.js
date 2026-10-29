@@ -294,7 +294,13 @@
     g.lineCap = 'butt';
     g.strokeStyle = 'rgba(0,0,0,0.18)'; g.lineWidth = 6;
     line(g, x0 + 3, y0 + 5, x1 + 3, y1 + 5);
-    const seg = (fa, fb, w0, col) => {
+    // One of our designed cues (shared/pool8Looks.js paintCue, the lobby's preview draws the same).
+    const LK = window.DS_POOL8_LOOKS;
+    if (Q.style && LK && LK.paintCue) {
+      g.translate(x0, y0); g.rotate(a + Math.PI); LK.paintCue(g, len, Q, 1);
+      g.restore(); return;
+    }
+    const seg =(fa, fb, w0, col) => {
       g.strokeStyle = col; g.lineWidth = w0;
       line(g, x0 - ux * len * fa, y0 - uy * len * fa, x0 - ux * len * fb, y0 - uy * len * fb);
     };

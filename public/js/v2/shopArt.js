@@ -434,22 +434,28 @@
     var g = ctx.createRadialGradient(w / 2, h / 2, 2, w / 2, h / 2, Math.max(w, h) * 0.6);
     g.addColorStop(0, cl.hi); g.addColorStop(0.55, cl.mid); g.addColorStop(1, cl.lo);
     ctx.fillStyle = g; ctx.fillRect(p, p, w - 2 * p, h - 2 * p);
-    var br = Math.min(w, h) * 0.085, bx = w * 0.62, by = h * 0.52;
+    var br = Math.min(w, h) * 0.085, bx = w * 0.8, by = h * 0.4;
     ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.arc(bx + br * 0.25, by + br * 0.3, br, 0, Math.PI * 2); ctx.fill();
     var bg = ctx.createRadialGradient(bx - br * 0.35, by - br * 0.4, br * 0.1, bx, by, br);
     bg.addColorStop(0, '#ffffff'); bg.addColorStop(1, '#b9b6ad');
     ctx.fillStyle = bg; ctx.beginPath(); ctx.arc(bx, by, br, 0, Math.PI * 2); ctx.fill();
-    // The cue: drawn back and through, on a loop.
-    var ph = (t % 2) / 2, back = ph < 0.7 ? Math.sin(ph / 0.7 * Math.PI / 2) : 1 - (ph - 0.7) / 0.3 * 1.15;
-    var a = Math.PI * 0.86, ux = Math.cos(a), uy = Math.sin(a), len = Math.max(w, h) * 0.9;
-    var x0 = bx + ux * (br * 1.25 + back * br * 1.6), y0 = by + uy * (br * 1.25 + back * br * 1.6);
-    var lw = Math.max(2, br * 0.42);
-    ctx.lineCap = 'round';
-    var seg = function (fa, fb, wd, col) {
-      ctx.strokeStyle = col; ctx.lineWidth = wd; ctx.beginPath();
-      ctx.moveTo(x0 + ux * len * fa, y0 + uy * len * fa); ctx.lineTo(x0 + ux * len * fb, y0 + uy * len * fb); ctx.stroke();
-    };
-    seg(0, 0.03, lw, '#f4f1e6'); seg(0.03, 0.6, lw * 1.1, cu.shaft); seg(0.6, 0.64, lw * 1.3, cu.joint); seg(0.64, 1, lw * 1.55, cu.butt);
+    /* The cue, whole, from the ball to the far corner so its design shows (Owen 2026-10-28: a cue chooser), drawn
+       back and through on a perfect 2 s loop: an eased draw back, the strike past the rest, and a settle home. A
+       designed cue is shared/pool8Looks.js paintCue, as in the game; a plain one is its three colours. */
+    var ph = (t % 2) / 2, back, q;
+    if (ph < 0.55) back = (1 - Math.cos(ph / 0.55 * Math.PI)) / 2;
+    else if (ph < 0.66) { q = (ph - 0.55) / 0.11; back = 1 - 1.15 * q * q; }
+    else { q = (ph - 0.66) / 0.34; back = -0.15 * (1 - q) * (1 - q); }
+    var ex = m + rw * 0.02, ey = h * 0.66, dx = ex - bx, dy = ey - by, dl = Math.hypot(dx, dy);
+    var ux = dx / dl, uy = dy / dl, gap = br * 1.25, pull = br * 1.6, len = dl - gap - pull * 0.5;
+    var LK = root.DS_POOL8_LOOKS, ws = Math.max(5, Math.min(w, h) * 0.075) / 8.4;
+    var Q = cu.style ? cu : { shaft: cu.shaft, joint: cu.joint, fore: cu.butt, wrap: cu.butt, wrapLine: cu.butt, sleeve: cu.butt, trim: cu.butt };
+    if (!LK || !LK.paintCue) return;
+    ctx.save();
+    ctx.translate(bx + ux * (gap + back * pull), by + uy * (gap + back * pull)); ctx.rotate(Math.atan2(uy, ux));
+    ctx.fillStyle = 'rgba(0,0,0,0.22)'; ctx.fillRect(0, ws * 3, len, ws * 5);   // its shadow on the cloth
+    LK.paintCue(ctx, len, Q, ws);
+    ctx.restore();
   }
 
   /* Crossy Road: the critter as a voxel block seen the game's way (top, front, right face), hopping on the spot. Not a
