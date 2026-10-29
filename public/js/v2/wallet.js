@@ -5,11 +5,12 @@
    so there is exactly one implementation of funding and sending in the product
    and this lobby cannot drift from the live one:
 
-     window.duelWallet          { ready, authenticated, address, balance, unit, sol, swap, mode, usdc, solUsd }
+     window.duelWallet          { ready, authenticated, address, balance, unit, sol, swap, mode, usdc, solUsd, stale }
                                 mode 'usdc': balance is the USDC, sol the SOL beside it.
                                 mode 'sol' (the games still count in dollars): balance is the dollar value of the
                                 wallet's SOL (null with no price), sol the SOL itself, usdc any old USDC left,
                                 solUsd the server's display rate.
+                                stale: the figures are the server's last read (up to 5 min old), not a read now.
      'duelwallet:change'        fired on any of the above changing
      window.duelWalletLogin()   opens the Privy login
      window.duelWalletFund(method)  Privy funding flow (Pay with card, Receive funds; 'card' or 'manual' opens on one)
@@ -64,8 +65,14 @@
   const maxSendLamports = () => Math.max(0, solLamports() - KEEP_LAMPORTS - SEND_FEE_LAMPORTS);
   /* Whether the wallet's SOL has been read at all (night review 2026-10-29, third pass). Unread (a busy moment on the
      server's reads), Withdraw still opens and sends: the widget checks a fresh balance when it can, and the network
-     refuses more than the wallet has. A read balance is checked here exactly as before. */
-  const solKnown = () => typeof w().sol === 'number' && isFinite(w().sol);
+     refuses more than the wallet has. A read balance is checked here exactly as before.
+     Stale (night review 2026-10-29, fourth pass): the server's last read of the address, up to 5 minutes old, given when
+     it could not read the chain just now. It is shown as it is, but checked as unread: a payout or a top-up that landed
+     since must never be refused as "more than you have", and Max never offers the old figure. */
+  const stale = () => w().stale === true;
+  const solKnown = () => !stale() && typeof w().sol === 'number' && isFinite(w().sol);
+  // SOL mode's Max needs a figure read now: the SOL for a SOL send, and (stale or not) the old USDC for a USDC one.
+  const maxOff = as => (as === 'sol' ? !solKnown() : stale());
   // Old USDC, in whole cents, in SOL mode only; a smaller dust figure would read $0.00 and is left alone.
   const usdcBal = () => (solMode() ? cents(w().usdc) : 0);
   const usdcOn = () => usdcBal() > 0;
@@ -640,7 +647,7 @@
         '<input class="fld num" id="co-amt" inputmode="decimal" placeholder="' + (as === 'usdc' ? '0.00' : '0.0000') + '" ' +
           'autocomplete="off" aria-label="' + (as === 'usdc' ? 'Amount in USDC' : 'Amount in SOL') + '" ' +
           'oninput="V2Wallet.hint()" onkeydown="if(event.key===\'Enter\')V2Wallet.submitCash()">' +
-        '<button type="button" class="maxbtn" onclick="V2Wallet.max()"' + (as === 'sol' && !solKnown() ? ' disabled' : '') + '>Max</button>' +
+        '<button type="button" class="maxbtn" onclick="V2Wallet.max()"' + (maxOff(as) ? ' disabled' : '') + '>Max</button>' +
       '</div>' +
       '<p class="note" id="co-msg"></p>' +
       '<div class="brow">' +
@@ -944,6 +951,7 @@
     const a = el('co-amt');
     // Filled, not focused: a tap on Max should not raise the keyboard either.
     if (a && solMode()) {
+      if (maxOff(curAsset())) return;
       /* SOL mode: Max is the SOL less 0.001 SOL and the fee, rounded DOWN to six places, so the wallet is never
          left holding dust; old USDC goes whole (to the cent). */
       a.value = curAsset() === 'usdc' ? cents(w().usdc).toFixed(2)
@@ -988,9 +996,11 @@
     if (!raw || !isFinite(amt) || amt <= 0) return say('Enter an amount to withdraw.');
     if (as === 'usdc') {
       if (/\.\d{3,}$/.test(raw)) return say('Use dollars and cents, two decimal places at most.');
-      if (amt > usdcBal()) return say('That is more than the ' + money(usdcBal()) + ' USDC you have.');
-      // the fee, the receiver's USDC account rent if it has none (the sender pays it), then 0.001 SOL left over
-      if (solLamports() < KEEP_LAMPORTS + SEND_FEE_LAMPORTS + 2039280) return say('Add a little SOL first. Sending USDC needs about 0.003 SOL for network fees.');
+      // (a stale USDC figure is not checked against: the widget sends and the network refuses an overdraw)
+      if (!stale() && amt > usdcBal()) return say('That is more than the ' + money(usdcBal()) + ' USDC you have.');
+      /* the fee, the receiver's USDC account rent if it has none (the sender pays it), then 0.001 SOL left over; only on
+         a SOL balance that was read, like the widget's own check (night review 2026-10-29, fourth pass) */
+      if (solKnown() && solLamports() < KEEP_LAMPORTS + SEND_FEE_LAMPORTS + 2039280) return say('Add a little SOL first. Sending USDC needs about 0.003 SOL for network fees.');
     } else {
       if (/\.\d{7,}$/.test(raw)) return say('Use six decimal places at most.');
       const lamports = Math.round(amt * 1e9);

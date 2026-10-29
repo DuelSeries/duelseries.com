@@ -529,6 +529,9 @@ function WalletPanel() {
   const [sol, setSol] = useState(null);    // the wallet's SOL (beside a USDC balance, or the money itself in SOL mode)
   const [usdc, setUsdc] = useState(null);  // SOL mode: old USDC still in the wallet (null: none, or not read)
   const [solUsd, setSolUsd] = useState(null); // SOL mode: the server's display rate, dollars per SOL
+  // The figures above are the server's last read of the address (up to 5 minutes old), not a read now (night review
+  // 2026-10-29, fourth pass): the lobby shows them as they are and treats them as unread for its own checks.
+  const [stale, setStale] = useState(false);
   const [mode, setMode] = useState(null);  // 'usdc' | 'sol', from /api/money-config (null until it answers)
   const [unit, setUnit] = useState('');    // what the games count in: USDC, or USD in SOL mode (/api/money-config)
   const [busy, setBusy] = useState(false);
@@ -740,9 +743,9 @@ function WalletPanel() {
     if (want && !authenticated) signIn();
   }, [ready]);
 
-  const applyBalances = (b) => { setBalance(b.balance); setSol(b.sol); setUsdc(b.usdc); setSolUsd(b.solUsd); };
+  const applyBalances = (b) => { setBalance(b.balance); setSol(b.sol); setUsdc(b.usdc); setSolUsd(b.solUsd); setStale(b.stale === true); };
   useEffect(() => {
-    if (!address) { setBalance(null); setSol(null); setUsdc(null); setSolUsd(null); return; }
+    if (!address) { setBalance(null); setSol(null); setUsdc(null); setSolUsd(null); setStale(false); return; }
     /* Every 15 s while the page is in view; while it is hidden (another tab, a locked phone) once a minute, and at
        once on coming back (night review 2026-10-29, third pass: a tab left open all day was most of what balances
        cost the server's read budget). */
@@ -786,7 +789,7 @@ function WalletPanel() {
 
   useEffect(() => {
     // external: signed in with a browser wallet (walletName 'Phantom', ...), not the email and Google wallet
-    window.duelWallet = { ready, authenticated, address, balance, unit, sol, swap: swapCfg, mode, usdc, solUsd,
+    window.duelWallet = { ready, authenticated, address, balance, unit, sol, swap: swapCfg, mode, usdc, solUsd, stale,
                           external: isExternal, walletName: extWallet ? extWallet.name : null,
                           // a Google/email player's linked browser wallet ({ address, name, here }), and what could be linked
                           linked: linked ? { address: linked.address, name: linked.name, here: !!linkedStd,
@@ -795,7 +798,7 @@ function WalletPanel() {
                           // Privy's Add funds sheet has Transfer from wallet (the dashboard's funding methods)
                           walletFunding };
     window.dispatchEvent(new CustomEvent('duelwallet:change', { detail: window.duelWallet }));
-  }, [ready, authenticated, address, balance, unit, sol, swapCfg, mode, usdc, solUsd, isExternal, extWallet, linkedKey, linkableKey, walletFunding]);
+  }, [ready, authenticated, address, balance, unit, sol, swapCfg, mode, usdc, solUsd, stale, isExternal, extWallet, linkedKey, linkableKey, walletFunding]);
 
   // Hide the widget while the game iframe covers the screen; re-show on return to lobby.
   useEffect(() => {
