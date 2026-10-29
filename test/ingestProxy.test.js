@@ -12,8 +12,8 @@ const http = require('http');
 const { PassThrough, Writable } = require('stream');
 const express = require('express');
 
-const { ingestProxy, upstreamFor, forwardHeaders, returnHeaders, POSTHOG_TOKEN, MAX_BODY, CAPTURE_HOST, ASSET_HOST }
-  = require('../server/ingestProxy');
+const { ingestProxy, upstreamFor, forwardHeaders, returnHeaders, POSTHOG_TOKEN, MAX_BODY, UPSTREAM_IDLE_MS, CAPTURE_HOST,
+  ASSET_HOST } = require('../server/ingestProxy');
 const { byteBudget } = require('../server/staticCache');
 const { securityHeaders } = require('../server/securityHeaders');
 const { TRUST_PROXY } = require('../server/clientAddr');
@@ -27,6 +27,7 @@ function fakeUpstream(answer = {}) {
     const call = { opts, body: [], ended: false, destroyed: false };
     calls.push(call);
     const req = new Writable({
+      autoDestroy: false,            // as a real ClientRequest: ending the body does not destroy it, so 'destroyed' means cut off
       write(chunk, _enc, cb) { call.body.push(chunk); cb(); },
       final(cb) {
         call.ended = true;
@@ -126,7 +127,8 @@ test('nothing comes back that could set a cookie or override our security header
 test('only the paths posthog-js calls are relayed; anything else is a 404 that never leaves the box', async (t) => {
   for (const p of ['/ingest/static/array.js', '/ingest/static/recorder.js', '/ingest/e/', '/ingest/e', '/ingest/i/v0/e/',
     '/ingest/s/', '/ingest/batch/', '/ingest/flags/', '/ingest/decide/', '/ingest/engage/', '/ingest/capture/',
-    '/ingest/api/surveys/', '/ingest/api/early_access_features/', '/ingest/array/' + POSTHOG_TOKEN + '/config',
+    '/ingest/api/surveys/', '/ingest/api/early_access_features/', '/ingest/api/surveys', '/ingest/api/web_experiments',
+    '/ingest/api/web_experiments/', '/ingest/array/' + POSTHOG_TOKEN + '/config',
     '/ingest/array/' + POSTHOG_TOKEN + '/config.js']) {
     assert.ok(upstreamFor(p), p + ' is relayed');
   }
@@ -135,7 +137,10 @@ test('only the paths posthog-js calls are relayed; anything else is a 404 that n
   assert.strictEqual(upstreamFor('/ingest/flags/').host, CAPTURE_HOST);
   for (const p of ['/ingest/', '/ingest', '/ingest/login', '/ingest/admin/', '/ingest/array/phc_someoneElse/config.js',
     '/ingest/static/../login', '/ingest/static/%2e%2e/login', '/ingest/e/..%2flogin', '/ingest//evil.example/x',
-    '/ingest/static\\..\\login', '/ingest/eee', '/ingest/apix/']) {
+    '/ingest/static\\..\\login', '/ingest/eee', '/ingest/apix/',
+    // Night review 2026-10-29: only the three reads posthog-js makes under api/, not the rest of PostHog's app API.
+    '/ingest/api/', '/ingest/api', '/ingest/api/projects/1/insights/', '/ingest/api/users/@me/', '/ingest/api/surveysx',
+    '/ingest/api/organizations/', '/ingest/api/environments/1/session_recordings/']) {
     assert.strictEqual(upstreamFor(p), null, p + ' is refused');
   }
 
@@ -185,6 +190,67 @@ test('the relay counts against the caller\'s byte budget both ways, and stops at
   assert.strictEqual(up.calls.length, 2, 'refused before it reached PostHog');
   assert.strictEqual((await call(port, 'GET', '/ingest/static/array.js', { 'X-Forwarded-For': '198.51.100.3' })).status, 200,
     'another player is untouched');
+});
+
+/* Night review 2026-10-29: a PostHog that never answers. Like a real ClientRequest: setTimeout() arms an idle timer,
+   and destroy() before an answer is an 'error' (socket hang up). */
+function hangingUpstream() {
+  const calls = [];
+  const request = (opts) => {
+    const call = { opts, destroyed: false, idleMs: null };
+    calls.push(call);
+    const req = new Writable({ autoDestroy: false, write(_c, _e, cb) { cb(); } });
+    let timer = null;
+    req.setTimeout = (ms, fn) => { call.idleMs = ms; timer = setTimeout(fn, ms); return req; };
+    req.destroy = ((d) => function () {
+      call.destroyed = true;
+      clearTimeout(timer);
+      const out = d.apply(this, arguments);
+      process.nextTick(() => this.emit('error', new Error('socket hang up')));
+      return out;
+    })(req.destroy);
+    return req;
+  };
+  return { request, calls };
+}
+
+async function until(fn, ms = 3000) {
+  const t0 = Date.now();
+  while (!fn()) {
+    if (Date.now() - t0 > ms) throw new Error('timed out waiting');
+    await new Promise((r) => setTimeout(r, 10));
+  }
+}
+
+test('a PostHog call that hangs is given up after its idle time, and a caller who leaves takes it along', async (t) => {
+  assert.strictEqual(UPSTREAM_IDLE_MS, 30 * 1000);
+  const up = hangingUpstream();
+  const port = await proxyApp(t, up, { idleMs: 150 });
+  const t0 = Date.now();
+  const r = await call(port, 'GET', '/ingest/flags/?v=2');
+  assert.strictEqual(r.status, 502, 'posthog-js gets an answer it retries, not an open socket');
+  assert.ok(Date.now() - t0 >= 140, 'after the idle time, not before');
+  assert.strictEqual(up.calls[0].idleMs, 150);
+  assert.strictEqual(up.calls[0].destroyed, true);
+
+  const up2 = hangingUpstream();
+  const port2 = await proxyApp(t, up2);                 // the real 30 s: the caller leaves long before
+  const leaver = http.request({ host: '127.0.0.1', port: port2, path: '/ingest/e/', method: 'POST', agent: false,
+    headers: { 'Content-Type': 'application/json' } });
+  leaver.on('error', () => {});
+  leaver.end('{"a":1}');
+  await until(() => up2.calls.length === 1);
+  assert.strictEqual(up2.calls[0].idleMs, UPSTREAM_IDLE_MS);
+  assert.strictEqual(up2.calls[0].destroyed, false);
+  leaver.destroy();
+  await until(() => up2.calls[0].destroyed);
+
+  // An answered call is left alone.
+  const ok = fakeUpstream();
+  const port3 = await proxyApp(t, ok);
+  assert.strictEqual((await call(port3, 'POST', '/ingest/e/', { 'Content-Type': 'application/json' }, '{"a":1}')).status, 200);
+  await new Promise((res) => setTimeout(res, 30));
+  assert.strictEqual(ok.calls[0].destroyed, false);
 });
 
 test('the helpers on their own', () => {

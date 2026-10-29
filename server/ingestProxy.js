@@ -34,8 +34,11 @@ const POSTHOG_TOKEN = 'phc_rGiSHXN4HzBvzZaZhuFCwbmHFihkemTVcxK7MCPdDqgw';
 
 /* What posthog-js calls under its api_host: the SDK files (static/), remote config (array/<token>/), capture
    (e/, i/v0/e/, batch/, capture/, track/, engage/), session recording (s/), flags (flags/, decide/) and the
-   surveys / early-access / web-experiment reads (api/...). Matched on the path after /ingest. */
-const PATH_OK = new RegExp('^/(?:static/|array/' + POSTHOG_TOKEN + '/|(?:e|i|s|batch|capture|track|engage|decide|flags|api)(?:/|$))');
+   surveys / early-access / web-experiment reads (api/surveys, api/early_access_features, api/web_experiments).
+   Matched on the path after /ingest. Only those three under api/ (night review 2026-10-29): the rest of PostHog's
+   /api is its app's API, and an answer from it would come back under our origin with PostHog's Content-Type. */
+const PATH_OK = new RegExp('^/(?:static/|array/' + POSTHOG_TOKEN + '/|(?:e|i|s|batch|capture|track|engage|decide|flags)(?:/|$)'
+  + '|api/(?:surveys|early_access_features|web_experiments)(?:/|$))');
 /* Never relayed: a dot-dot segment, an encoded dot or slash, a backslash or an empty segment. posthog-js sends
    none of them, and each is a way to make the upstream resolve a path other than the one checked above. */
 const PATH_ODD = /\.\.|%2e|%2f|%5c|\\|\/\//i;
@@ -52,6 +55,8 @@ const DROP_RES = new Set(['connection', 'transfer-encoding', 'keep-alive', 'set-
 /* A session-recording batch is gzip-compressed by posthog-js and well under a megabyte; 10 MB is far above any
    honest request and stops one call from pushing an unbounded upload through the box. */
 const MAX_BODY = 10 * 1024 * 1024;
+/* A call to PostHog with nothing sent or received for this long is given up (night review 2026-10-29). */
+const UPSTREAM_IDLE_MS = 30 * 1000;
 
 function upstreamFor(reqPath) {
   const p = reqPath.replace(/^\/ingest/, '') || '/';
@@ -78,11 +83,13 @@ function returnHeaders(upHeaders) {
   return out;
 }
 
-/* opts.request: https.request (a test passes a fake). opts.budget: the static byte budget, or null. */
+/* opts.request: https.request (a test passes a fake). opts.budget: the static byte budget, or null.
+   opts.idleMs: how long a silent call to PostHog may last (tests). */
 function ingestProxy(opts = {}) {
   const request = opts.request || https.request;
   const budget = opts.budget || null;
   const maxBody = opts.maxBody || MAX_BODY;
+  const idleMs = opts.idleMs || UPSTREAM_IDLE_MS;
   return function ingest(req, res) {
     if (req.method !== 'GET' && req.method !== 'HEAD' && req.method !== 'POST') return res.sendStatus(405);
     const up = upstreamFor(req.path);
@@ -104,6 +111,15 @@ function ingestProxy(opts = {}) {
       if (cut) return;                                // our own cut-off below, already answered
       if (!res.headersSent) res.status(502).end(); else res.destroy();
     });
+    /* Night review 2026-10-29: a PostHog call that hangs no longer holds a socket open forever. 30 s with nothing
+       either way ends it (a 502 to posthog-js, which retries), and when the caller (or nginx) goes away first, the
+       call to PostHog goes with it. */
+    if (typeof upstream.setTimeout === 'function') upstream.setTimeout(idleMs, () => upstream.destroy());
+    res.on('close', () => {
+      if (res.writableFinished) return;
+      cut = true;                                     // nobody left to answer
+      upstream.destroy();
+    });
     req.on('data', (c) => {
       sent += c.length;
       if (budget) budget.charge(req, c.length);
@@ -120,4 +136,4 @@ function ingestProxy(opts = {}) {
 }
 
 module.exports = { ingestProxy, upstreamFor, forwardHeaders, returnHeaders, POSTHOG_TOKEN, MAX_BODY,
-  CAPTURE_HOST, ASSET_HOST };
+  UPSTREAM_IDLE_MS, CAPTURE_HOST, ASSET_HOST };
