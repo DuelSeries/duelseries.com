@@ -135,3 +135,33 @@ test('a loop of ko:lock tells the opponent once, not once per packet', { timeout
     assert.ok(alive(), died());
   } finally { a.s.close(); b.s.close(); }
 });
+
+/* An owner proof signed with dev-local's throwaway owner key (it prints it, local only). */
+function ownerProof(action) {
+  const m = /throwaway owner secret \(bs58, local only\) (\S+)/.exec(out);
+  assert.ok(m, 'dev-local printed its throwaway owner key');
+  const { ed25519 } = require('@noble/curves/ed25519');
+  const _bs58 = require('bs58');
+  const bs58 = (_bs58 && _bs58.default) ? _bs58.default : _bs58;
+  const { actionMessage } = require('../server/ownerAuth');
+  const secret = bs58.decode(m[1]);
+  const wallet = bs58.encode(ed25519.getPublicKey(secret));
+  const ts = Date.now();
+  const sig = bs58.encode(ed25519.sign(new TextEncoder().encode(actionMessage(action, {}, wallet, ts)), secret));
+  return { action, args: {}, wallet, ts, sig };
+}
+
+/* ── finding 21: GET /api/debug/tick?recent=all, unauthenticated and unlimited ───────────────────── */
+test('/api/debug/tick is the owner\'s: anyone else gets a quick 403 and no report, then the limiter', async () => {
+  const ip = nextIp();
+  const first = await call('GET', '/api/debug/tick?recent=all', undefined, ip);
+  assert.strictEqual(first.status, 403);
+  assert.ok(first.json && !first.json.rooms && !first.json.heap, 'nothing of the report is built or sent');
+  let limited = false;
+  for (let i = 0; i < 40 && !limited; i++) limited = (await call('GET', '/api/debug/tick?recent=all', undefined, ip)).status === 429;
+  assert.ok(limited, 'one address is cut off after 30 a minute (sigLimiter)');
+  // The owner still reads all of it.
+  const mine = await call('GET', '/api/debug/tick?recent=all', ownerProof('debug:tick'));
+  assert.strictEqual(mine.status, 200);
+  assert.ok(mine.json && mine.json.rooms && Object.keys(mine.json.rooms).length > 0 && mine.json.heap, 'the full report for the owner');
+});

@@ -10,7 +10,11 @@
 // server/index.js (returning [{ region, room, avgMs, maxMs, ticksPerSec, snakes }])
 // to restore the server-side tick metrics.
 //
-// Usage: npm run loadtest   (env: LT_URL, LT_LEVELS, LT_HZ, LT_SAMPLE, LT_REGION, LT_LOBBY)
+// /api/debug/tick is owner only since the night review of 2026-10-29: set LT_OWNER_COOKIE to the
+// owner console's session cookie ("name=value", from the browser) to read it. Without it the
+// server-tick columns show "-".
+//
+// Usage: npm run loadtest   (env: LT_URL, LT_LEVELS, LT_HZ, LT_SAMPLE, LT_REGION, LT_LOBBY, LT_OWNER_COOKIE)
 const { io } = require('socket.io-client');
 const http   = require('http');
 const https  = require('https');
@@ -58,7 +62,8 @@ setInterval(() => {
 function getTickStats() {
   const mod = URL.startsWith('https') ? https : http;
   return new Promise((resolve) => {
-    mod.get(URL + '/api/debug/tick', (r) => {
+    const headers = process.env.LT_OWNER_COOKIE ? { cookie: process.env.LT_OWNER_COOKIE } : {};
+    mod.get(URL + '/api/debug/tick', { headers }, (r) => {
       let d = ''; r.on('data', x => d += x); r.on('end', () => { try { resolve(JSON.parse(d)); } catch { resolve([]); } });
     }).on('error', () => resolve([]));
   });
@@ -83,7 +88,8 @@ async function run() {
     const snapPerCli = joined ? snaps / joined / dt : 0;
     const mbps   = (bytes / dt) / 1e6;
     const stats  = await getTickStats();
-    const room   = stats.find(s => s.region === REGION && String(s.room).endsWith(LOBBY)) || {};
+    const rows   = Array.isArray(stats) ? stats : [];   // a 403, or the object the endpoint answers today: no tick columns
+    const room   = rows.find(s => s.region === REGION && String(s.room).endsWith(LOBBY)) || {};
     console.log(
       `${String(L).padStart(7)} | ${String(conn).padStart(4)} | ${String(joined).padStart(5)} | ` +
       `${snapPerCli.toFixed(1).padStart(10)} | ${String(room.avgMs ?? '-').padStart(7)} | ${String(room.maxMs ?? '-').padStart(7)} | ` +

@@ -4751,12 +4751,18 @@ app.get('/api/debug/profile', sigLimiter, async (req, res) => {
   res.json(profiler.report());
 });
 
-/* /api/debug/tick below and /wallet/debug above stay unauthenticated on purpose:
-   scripts/loadtest.js reads /api/debug/tick with no credentials for its server-tick columns,
-   and test/durableStakeServer.test.js reads /wallet/debug's ledger flags the same way (the
-   owner's no-login check that paid stakes are durable). Neither carries a secret. */
+/* /wallet/debug above stays unauthenticated on purpose: test/durableStakeServer.test.js reads its
+   ledger flags with no credentials (the owner's no-login check that paid stakes are durable). It
+   carries no secret.
 
-app.get('/api/debug/tick', (req, res) => {
+   /api/debug/tick below is owner only, like /api/debug/profile (night review 2026-10-29). It was
+   open for scripts/loadtest.js, but every read sorts each agar room's 60 s tick ring several times
+   on the game thread (and ?recent=all serialises every raw tick, hundreds of KB), so a loop of
+   anonymous GETs stalled every room. The owner's console cookie skips sigLimiter as everywhere;
+   loadtest sends one from LT_OWNER_COOKIE. */
+
+app.get('/api/debug/tick', sigLimiter, async (req, res) => {
+  if (!(await isOwnerReq(req))) return res.status(403).json({ error: 'Forbidden' });
   const mem = process.memoryUsage();
   const out = {
     now: Date.now(), tickRate: C.TICK_RATE, upSec: Math.round(process.uptime()),
