@@ -42,6 +42,9 @@ const WATCH_TEXT = {
 };
 
 const TOKEN_MAX_LEN = 256; // a real token is a UUID; anything longer names no seat
+// Paid Spectate pages one address may have open at once, every paid rung together (night review 2026-10-29): two, so
+// a second tab or a housemate behind the same router still watches; one more is told 'full'.
+const PAID_WATCH_PER_ADDR = 2;
 
 function isObject(v) {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -436,6 +439,18 @@ module.exports = function createPaperSockets({
     return false;
   }
 
+  // Night review 2026-10-29 (the review of finding 16): the paid watchers from one address, every paid rung, this
+  // socket aside. A script on a second address pinned one watcher on each square; PAID_WATCH_PER_ADDR caps that.
+  function paidWatchesAt(ip, except) {
+    if (!ip || typeof arenas.all !== 'function') return 0;
+    let n = 0;
+    for (const r of arenas.all()) {
+      if (!r || !(r.stake > 0) || !r.watchers) continue;
+      for (const [id, ws] of r.watchers) if (id !== except && ws && addrOf(ws) === ip) n++;
+    }
+    return n;
+  }
+
   function dropWatchersAt(stake, ip) {
     if (!(stake > 0) || !ip) return;
     for (const r of rungArenas(stake)) {
@@ -471,6 +486,13 @@ module.exports = function createPaperSockets({
     if (stake > 0 && seatedAt(stake, addrOf(socket), socket.id)) {
       unwatch(socket);
       return watchRefuse(socket, 'seated');
+    }
+    // A paid watch whose first state is still on its way (PaperRoom WATCH_DELAY_MS): the page's every-3-s ask keeps it.
+    const cur = socket._ppWatch;
+    if (cur && cur.stake === stake && !cur.stopped && typeof cur.watchStarting === 'function' && cur.watchStarting(socket.id)) return;
+    if (stake > 0 && paidWatchesAt(addrOf(socket), socket.id) >= PAID_WATCH_PER_ADDR) {
+      unwatch(socket);
+      return watchRefuse(socket, 'full');
     }
     const after = Number.isInteger(msg.after) && msg.after > 0 ? msg.after : 0;
     // A dead player's socket still sits in its arena's io room: it leaves it, as pp:leave does.
@@ -509,7 +531,9 @@ module.exports = function createPaperSockets({
     if (!room) return;
     const id = Number.isInteger(msg.id) && msg.id > 0 ? msg.id : 0;
     if (!socketRL(socket, 'ppneed' + id, id ? 250 : 2000)) return;
-    // a paid arena answers trails only for the squares this page is sent (night review 2026-10-29)
+    // a paid arena answers trails only for the squares this page is sent, and to its watcher behind what that watcher
+    // is shown (night review 2026-10-29)
+    if (typeof room.answerNeed === 'function') return room.answerNeed(socket, id);
     socket.emit('pp:geo', MP.packBin(room.geo(id, socket.id)));
   }
 

@@ -192,7 +192,8 @@ test('a free arena is untouched: one frame of every square, trail batches to the
 // A paid room with real sockets: per-page frames, trails, pp:need and watchers
 // -------------------------------------------------------------------------------------------
 
-function roomKit({ stake = 0.5, seed = 0.3 } = {}) {
+// watchDelayMs 0: these read what each page is sent at once (a paid watcher's delay has its own tests below).
+function roomKit({ stake = 0.5, seed = 0.3, watchDelayMs = 0 } = {}) {
   let t = 5000000;
   const clock = { now: () => t, advance: (ms) => { t += ms; } };
   const sockets = new Map();
@@ -211,7 +212,7 @@ function roomKit({ stake = 0.5, seed = 0.3 } = {}) {
   };
   const hooks = {};
   for (const h of ['onCashout', 'onTransfer', 'onRefund', 'onSweep', 'onBreach']) hooks[h] = () => {};
-  const room = new PaperRoom({ stake, io, hooks, now: clock.now, autoTick: false, seed });
+  const room = new PaperRoom({ stake, io, hooks, now: clock.now, autoTick: false, seed, watchDelayMs });
   room.game.radiusTarget = () => 950;
   room.game.setRadiusNow(950);
   let n = 0;
@@ -422,7 +423,7 @@ test('a paid rung is never watched from the address of a live square there; a bu
     }
   };
   const hooks = { onCashout() {}, onTransfer() {}, onRefund() {}, onSweep() {}, onBreach() {} };
-  const arenas = new PaperArenas({ io, hooks, now: () => 1000000, paidEnabled: true, autoTick: false, warm: false });
+  const arenas = new PaperArenas({ io, hooks, now: () => 1000000, paidEnabled: true, autoTick: false, warm: false, watchDelayMs: 0 });
   const tokens = new Map();
   const take = (token, stake) => {
     const tk = typeof token === 'string' && tokens.get(token);

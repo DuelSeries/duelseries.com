@@ -20,6 +20,19 @@ const WATCHERS_MAX = 50; // read-only spectators per arena (the lobby's Spectate
 // A paid arena (night review 2026-10-29): how long a watcher whose square died is shown around its killer, as its page's
 // camera glides there before following the next square (paperMirror FOLLOW_AFTER_KILL_MS 2000, with room to spare).
 const DEATH_VIEW_TICKS = Math.round(10000 / MP.STEP_MS);
+// A paid arena (night review 2026-10-29, the review of finding 16): a dead or cashed-out page that stays in the arena
+// is shown around its killer only this long (its camera glides there and the end card shows 2 s later); after that
+// only around where it died, so a second wallet that gets itself cut by a chosen square keeps no camera on it.
+const DEAD_VIEW_TICKS = Math.round(15000 / MP.STEP_MS);
+// A paid arena's watcher (the lobby's Spectate on $0.50 or $1) is sent everything this far behind the live game
+// (night review 2026-10-29, the review of finding 16, as paid agar's WATCH_DELAY_MS): live, a script on a second
+// address could pin one watcher on each square and rebuild the whole map. A square crosses more than a view in 5 s
+// (90 u/s against VIEW_CULL_RADIUS 362). Free arenas and every player are sent live as before; 0 sends paid watchers
+// live too (PaperArenas / PaperRoom option watchDelayMs).
+const WATCH_DELAY_MS = 5000;
+// A paid watcher's queue never holds more than this many sends (an honest page builds about 3 per snapshot, 450 in
+// 5 s); one asking for far more (pp:need on every id, say) is let go as 'full' and asks again.
+const WATCH_QUEUE_MAX = 1500;
 const NO_MEMBERS = new Set();
 let roomSeq = 0; // makes every arena's socket.io room name unique for the process
 const monotonicNow = () => performance.now();
@@ -35,7 +48,8 @@ const BANK_SPENT = '#botbank:spent';
 class PaperRoom {
   // now: the wall clock of every deadline (grace, stale hold, coin age). clock: the monotonic
   // clock the tick loop runs on (never steps with the wall clock).
-  constructor({ stake = 0, region = 'na', index = 0, io = null, hooks = {}, now = Date.now, clock = monotonicNow, seed, directory = null, autoTick = true, trim, paidBots = false, botCurve = null } = {}) {
+  // watchDelayMs: how far behind the live game a paid arena's watchers are sent (WATCH_DELAY_MS; 0: live).
+  constructor({ stake = 0, region = 'na', index = 0, io = null, hooks = {}, now = Date.now, clock = monotonicNow, seed, directory = null, autoTick = true, trim, paidBots = false, botCurve = null, watchDelayMs = WATCH_DELAY_MS } = {}) {
     for (const name of REQUIRED_HOOKS) {
       if (typeof hooks[name] !== 'function') throw new Error('PaperRoom: hook ' + name + ' must be a function');
     }
@@ -152,6 +166,14 @@ class PaperRoom {
     this.watchFollow = new Map();
     this.deadViews = new Map();
     this.deaths = new Map();
+    // A paid arena's watchers are sent everything watchLagTicks late (WATCH_DELAY_MS, night review 2026-10-29): such a
+    // watcher never joins the io room, and lagged holds, per watcher socketId, { q: [{ at: tick, ev, payload, vol }]
+    // oldest first, shown: its pp:watching state went out, over: its queue overflowed }; _releaseLagged sends what is
+    // old enough, in order. A watcher's dead square is looked at that much longer too (deathViewTicks).
+    const lagMs = Number(watchDelayMs);
+    this.watchLagTicks = this.wire.cull && lagMs > 0 ? Math.ceil(lagMs / MP.STEP_MS) : 0;
+    this.deathViewTicks = DEATH_VIEW_TICKS + this.watchLagTicks;
+    this.lagged = new Map();
   }
 
   // ---------------------------------------------------------------------------------------
@@ -219,6 +241,7 @@ class PaperRoom {
     const main = seat.unit.skin && seat.unit.skin.colors && seat.unit.skin.colors.main;
     if (typeof main === 'string' && /^#[0-9a-f]{6}$/i.test(main)) msg.c = main;
     this.io.to(this.ioRoom).emit('pp:chat', msg);
+    for (const id of this.lagged.keys()) this._lag(id, 'pp:chat', msg); // a paid watcher hears it with what it sees
     return true;
   }
 
@@ -317,14 +340,29 @@ class PaperRoom {
   // full); the caller answers for it. A paid arena takes watchers too (the lobby's Spectate on a paid rung): a watcher
   // there is never a member, so no money path ever sees it, and like every page there it is sent only what is around
   // the square it follows (night review 2026-10-29: _culledFrames, pp:follow).
+  // A paid arena's watcher (watchLagTicks, night review 2026-10-29) never joins the io room: the state and everything
+  // after it wait in its queue (_lag) and reach it WATCH_DELAY_MS late, in order. Asked again while that first state is
+  // still on its way (the page asks every 3 s until it shows a table), the watch is kept as it is, never restarted.
   addWatcher(socket, after) {
     if (this.stopped || this.warming || !socket || !socket.id) return false;
     if (!this.watchers.has(socket.id) && this.watchers.size >= WATCHERS_MAX) return false;
+    if (this.watchStarting(socket.id)) return true;
     this._flushPending(); // to the members already here, never to the watcher
     this.watchers.set(socket.id, socket);
+    const state = MP.packBin(this.watchPayload(after, socket.id));
+    if (this.watchLagTicks > 0) {
+      this.lagged.set(socket.id, { q: [{ at: this.game.tick, ev: 'pp:watching', payload: state, vol: false }], shown: false, over: false });
+      return true;
+    }
     socket.join(this.ioRoom);
-    socket.emit('pp:watching', MP.packBin(this.watchPayload(after, socket.id)));
+    socket.emit('pp:watching', state);
     return true;
+  }
+
+  // A paid watcher whose first state has not reached it yet (its queue still holds it).
+  watchStarting(socketId) {
+    const w = this.lagged.get(socketId);
+    return !!(w && !w.shown && !w.over && this.watchers.has(socketId));
   }
 
   // pp:joined's state fields, minus you and resumeKey, plus the square to follow. socketId: the watcher's, whose
@@ -375,6 +413,7 @@ class PaperRoom {
     this.watchers.delete(socketId);
     this.watchFollow.delete(socketId);
     this.views.delete(socketId);
+    this.lagged.delete(socketId);
     try {
       s.leave(this.ioRoom);
     } catch (e) {
@@ -393,6 +432,7 @@ class PaperRoom {
       this.watchers.delete(id);
       this.watchFollow.delete(id);
       this.views.delete(id);
+      this.lagged.delete(id);
       try {
         s.leave(this.ioRoom);
         if (s._ppWatch === this) s._ppWatch = null;
@@ -421,13 +461,15 @@ class PaperRoom {
 
   // Where a page's camera is: its own live square; the square it watches; after its square died, the killer its
   // camera glides to (or where it died). null: nothing to show (a page that follows nobody, or a socket this arena
-  // does not know).
+  // does not know). A dead page looks at its killer DEAD_VIEW_TICKS at most, then only where it died (night review
+  // 2026-10-29).
   _focusOf(socketId) {
     const seat = this.bySocket.get(socketId);
     if (seat && !seat.unit.death) return { x: seat.unit.position.x, y: seat.unit.position.y, unit: seat.unit };
     if (this.watchers.has(socketId)) return this._focusOn(this.watchFollow.get(socketId) || 0);
     const d = this.deadViews.get(socketId);
-    return d ? this._afterDeath(d) : null;
+    if (!d) return null;
+    return this.game.tick - d.tick > DEAD_VIEW_TICKS ? { x: d.x, y: d.y, unit: null } : this._afterDeath(d);
   }
 
   _focusOn(id) {
@@ -458,6 +500,7 @@ class PaperRoom {
 
   // The paid snapshot: one frame per page, of what is around its camera, before the shared bundle (see _snapshot);
   // the trail batches each page is owed follow it (_culledTrails). Records of pages that left are dropped here.
+  // A paid watcher's frame goes into its queue instead (_lag).
   _culledFrames(pickups) {
     const members = this._members();
     const seen = new Map();
@@ -466,9 +509,15 @@ class PaperRoom {
       seen.set(id, s);
       this.io.to(id).volatile.emit('pp:s', this.wire.frame(pickups, s));
     }
-    for (const id of Array.from(this.views.keys())) if (!members.has(id)) this.views.delete(id);
+    for (const id of this.lagged.keys()) {
+      if (seen.has(id)) continue;
+      const s = this.wire.seenBy(this._focusOf(id));
+      seen.set(id, s);
+      this._lag(id, 'pp:s', this.wire.frame(pickups, s), true);
+    }
+    for (const id of Array.from(this.views.keys())) if (!members.has(id) && !this.lagged.has(id)) this.views.delete(id);
     for (const id of Array.from(this.deadViews.keys())) if (!members.has(id)) this.deadViews.delete(id);
-    const old = this.game.tick - DEATH_VIEW_TICKS;
+    const old = this.game.tick - this.deathViewTicks;
     for (const [id, d] of Array.from(this.deaths)) if (d.tick < old) this.deaths.delete(id);
     return seen;
   }
@@ -481,8 +530,68 @@ class PaperRoom {
         this.views.set(id, held);
       }
       const ev = this.wire.trailsFor(held, s);
-      if (ev.length) this.io.to(id).emit('pp:ev', MP.packBin({ tick: this.game.tick, ev }));
+      if (!ev.length) continue;
+      const buf = MP.packBin({ tick: this.game.tick, ev });
+      if (this.lagged.has(id)) this._lag(id, 'pp:ev', buf);
+      else this.io.to(id).emit('pp:ev', buf);
     }
+  }
+
+  // ---------------------------------------------------------------------------------------
+  // A paid arena's watchers, sent everything WATCH_DELAY_MS late (night review 2026-10-29)
+  // ---------------------------------------------------------------------------------------
+
+  // One send for a paid watcher, queued behind everything it was sent before. vol: a frame, sent volatile as every
+  // page's is. A queue past WATCH_QUEUE_MAX takes nothing more and is let go at the next release.
+  _lag(socketId, ev, payload, vol) {
+    const w = this.lagged.get(socketId);
+    if (!w || w.over) return;
+    w.q.push({ at: this.game.tick, ev, payload, vol: vol === true });
+    if (w.q.length > WATCH_QUEUE_MAX) {
+      w.over = true;
+      w.q = [];
+    }
+  }
+
+  // Every queued send built watchLagTicks ago or more goes out, oldest first, after each snapshot. The page gets what
+  // a live watcher gets, in the same order, only later, so its clock (which reads the ticks against arrival), its
+  // trail records and pp:need all work unchanged.
+  _releaseLagged() {
+    if (!this.lagged.size) return;
+    const due = this.game.tick - this.watchLagTicks;
+    for (const [id, w] of Array.from(this.lagged)) {
+      const s = this.watchers.get(id);
+      if (!s) {
+        this.lagged.delete(id);
+        continue;
+      }
+      if (w.over) {
+        this.removeWatcher(id);
+        try {
+          s.emit('pp:watching', { none: true, why: 'full' });
+        } catch (e) {
+          console.error('[PAPER] watcher queue', e && e.message);
+        }
+        continue;
+      }
+      while (w.q.length && w.q[0].at <= due) {
+        const e = w.q.shift();
+        try {
+          if (e.vol) (s.volatile || s).emit(e.ev, e.payload);
+          else s.emit(e.ev, e.payload);
+        } catch (err) {
+          console.error('[PAPER] watcher send', e.ev, err && err.message);
+        }
+        if (e.ev === 'pp:watching') w.shown = true;
+      }
+    }
+  }
+
+  // pp:need's answer: to a paid watcher behind what it is shown (its queue), to everyone else now.
+  answerNeed(socket, id) {
+    const buf = MP.packBin(this.geo(id, socket.id));
+    if (this.lagged.has(socket.id)) this._lag(socket.id, 'pp:geo', buf);
+    else socket.emit('pp:geo', buf);
   }
 
   // Disconnect (design 5.7): the hold is cancelled, the square keeps moving on its last angle.
@@ -1018,7 +1127,10 @@ class PaperRoom {
     if (!this.pending.length) return;
     const ev = this.pending;
     this.pending = [];
-    if (this.io) this.io.to(this.ioRoom).emit('pp:ev', MP.packBin({ tick: this.game.tick, ev }));
+    if (!this.io) return;
+    const buf = MP.packBin({ tick: this.game.tick, ev });
+    this.io.to(this.ioRoom).emit('pp:ev', buf);
+    for (const id of this.lagged.keys()) this._lag(id, 'pp:ev', buf); // a paid watcher: in its queue (_lag)
   }
 
   // The volatile frame goes out BEFORE the reliable bundle. Any send leaves a socket's transport
@@ -1028,7 +1140,8 @@ class PaperRoom {
   // queue item 3). A frame that lands just before its own tick's bundle is harmless: entries
   // apply by tick, and the version compare waits RESYNC_AFTER_MS before it asks for anything.
   // A paid arena (night review 2026-10-29): one frame per page instead, then the shared bundle, then each page's own
-  // trail batches (behind the bundle, so a square's ['j'] is always ahead of its trail).
+  // trail batches (behind the bundle, so a square's ['j'] is always ahead of its trail). Its watchers get the same
+  // three, in that order, WATCH_DELAY_MS later (_releaseLagged).
   _snapshot() {
     let seen = null;
     if (this.io) {
@@ -1042,6 +1155,7 @@ class PaperRoom {
     }
     this._flushPending();
     if (seen) this._culledTrails(seen);
+    this._releaseLagged();
   }
 
   // ---------------------------------------------------------------------------------------
@@ -1471,4 +1585,4 @@ class PaperRoom {
   }
 }
 
-module.exports = { PaperRoom, TRIM_ON, stakeLabel, WATCHERS_MAX };
+module.exports = { PaperRoom, TRIM_ON, stakeLabel, WATCHERS_MAX, WATCH_DELAY_MS };

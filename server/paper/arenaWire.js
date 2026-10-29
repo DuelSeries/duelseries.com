@@ -22,6 +22,18 @@ function ringPoints(base) {
   return base.polygon.segments.map((s) => s.start);
 }
 
+// Squared distance from (px, py) to the segment a-b.
+function distToSegmentSq(px, py, ax, ay, bx, by) {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const len2 = dx * dx + dy * dy;
+  let t = len2 > 0 ? ((px - ax) * dx + (py - ay) * dy) / len2 : 0;
+  t = t < 0 ? 0 : t > 1 ? 1 : t;
+  const qx = ax + dx * t - px;
+  const qy = ay + dy * t - py;
+  return qx * qx + qy * qy;
+}
+
 class ArenaWire {
   constructor(game, { queue, microOf, holdingOf, cull } = {}) {
     this.game = game;
@@ -200,14 +212,36 @@ class ArenaWire {
       const poly = u.track && u.track.polyline;
       const b = poly && poly.start ? poly.bounds : null;
       if (!b) continue;
-      // the trail's box, widened by the track, against the circle
+      // the trail's box, widened by the track, against the circle (a quick no), then the trail itself
       const cx = Math.max(b.left - tw, Math.min(focus.x, b.right + tw));
       const cy = Math.max(b.top - tw, Math.min(focus.y, b.bottom + tw));
       const ex = cx - focus.x;
       const ey = cy - focus.y;
-      if (ex * ex + ey * ey <= R * R) out.set(u.id, u);
+      if (ex * ex + ey * ey <= R * R && this._trailNear(u, focus, R + tw + MP.TRAIL_TOL)) out.set(u.id, u);
     }
     return out;
+  }
+
+  // Night review 2026-10-29 (the review of finding 16): the box alone sent a square on a big loop, with its head and
+  // whole trail, to every page whose circle touched any corner of the loop's box, empty corners included. A page draws
+  // a square's trail as its corners and then its head, so the square is seen when one of those segments comes within
+  // r of the focus (r: the cull radius, the track's width and the decimator's tolerance).
+  _trailNear(unit, focus, r) {
+    const st = this.state.get(unit);
+    const pts = st && st.dec.corners.length ? st.dec.corners : null;
+    if (!pts) return true; // nothing decimated yet (a trail this tick began): the box decides
+    const r2 = r * r;
+    let ax = pts[0].x;
+    let ay = pts[0].y;
+    for (let i = 1; i <= pts.length; i++) {
+      const p = i < pts.length ? pts[i] : unit.position;
+      if (distToSegmentSq(focus.x, focus.y, ax, ay, p.x, p.y) <= r2) return true;
+      ax = p.x;
+      ay = p.y;
+    }
+    // the raw points the decimator still holds lie within its tolerance of the last corner to the newest one
+    const h = st.dec.head();
+    return distToSegmentSq(focus.x, focus.y, pts[pts.length - 1].x, pts[pts.length - 1].y, h.x, h.y) <= r2;
   }
 
   // The reliable trail entries one page is owed (cull): for every square it sees, the corners batched since that page

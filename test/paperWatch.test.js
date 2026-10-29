@@ -20,7 +20,8 @@ function socketRL(socket, key, minMs) {
 }
 
 // An io that delivers: io.to(room or socket id).emit reaches every socket in that room (or that socket).
-function world({ rateLimit = false, autoTick = false } = {}) {
+// watchDelayMs 0: a paid watcher is sent live here (its delay is tested in paperCull.test.js).
+function world({ rateLimit = false, autoTick = false, watchDelayMs = 0 } = {}) {
   let t = 1000000;
   const clock = { now: () => t, advance: (ms) => { t += ms; } };
   const sockets = new Map();
@@ -36,7 +37,7 @@ function world({ rateLimit = false, autoTick = false } = {}) {
     }
   };
   const hooks = { onCashout() {}, onTransfer() {}, onRefund() {}, onSweep() {}, onBreach() {} };
-  const arenas = new PaperArenas({ io, hooks, now: clock.now, paidEnabled: true, autoTick, warm: false });
+  const arenas = new PaperArenas({ io, hooks, now: clock.now, paidEnabled: true, autoTick, warm: false, watchDelayMs });
   const tokens = new Map();
   const spy = { consume: [], storeConsume: [], refunds: [] };
   const take = (token, stake) => {
