@@ -565,7 +565,11 @@ async function buildSignedUsdcPayout(toAddress, amountUsdc, opts) {
   const transfer = createTransferCheckedInstruction(fromAta, USDC_MINT, toAta, escrow.publicKey, amount, USDC_DECIMALS);
   /* A random read-only reference key, so two payouts of one amount to one wallet on one blockhash are never the same
      bytes and the same signature (night review 2026-10-29, finding 42; the reason is at Wallet.buildSignedPayout).
-     The Token program reads extra accounts only as multisig signers, and the escrow is a plain keypair. */
+     The Token program reads extra accounts only as multisig signers, and the escrow is a plain keypair.
+     So an RPC's jsonParsed form shows these payouts as a multisig transfer: 'multisigAuthority' (the escrow) and
+     'signers' ([the reference key]), with no 'authority' field. Nothing here reads that (wallet history uses balance
+     deltas and raw instruction decoding), but a later reconciliation of USDC payouts from an explorer, a webhook or
+     jsonParsed must key on multisigAuthority || authority, never on authority alone (night review 2026-10-29). */
   transfer.keys.push({ pubkey: new PublicKey(crypto.randomBytes(32)), isSigner: false, isWritable: false });
   ixs.push(transfer);
 
