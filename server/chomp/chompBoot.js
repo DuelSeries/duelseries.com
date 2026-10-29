@@ -17,10 +17,13 @@
 //   c:dir {d, s, c, r}                d 0..3 (up, left, down, right), s the page's input number, c/r its tile at the press
 //   c:ready                           paid: the page drew its own chomper (the shield and the freeze go)
 //   c:hold {on: 1 | 0}                paid: hold Q (the page repeats {on: 1} every 200 ms)
+//   c:watch {id}                      paid watcher: the chomper its Spectate bar follows (a big arena sends it the
+//                                     window round that one, chompRoom watch; night review 2026-10-29)
 //   c:chat {text}                     the shared chat guard (server/chatGuard.js)
 //   c:leave                           free: give the seat up (a paid seat leaves only by cash-out)
 // Events out: c:init (the arena, the live dots, who is in; a paid room's coins and stake), c:you {id} (free seat),
-// c:joined (paid seat), c:s (binary snapshot, volatile, SNAP_HZ), c:dots {e, b}, c:coins {a, r}, c:ev [events],
+// c:joined (paid seat), c:s (binary snapshot, volatile, SNAP_HZ; a big paid arena cuts it per page, chompRoom
+// snapshotFor), c:dots {e, b}, c:coins {a, r}, c:ev [events],
 // c:lb [[id, score | micro]], c:me {s, l, rk, n, m?}, c:over (free), c:dead / c:cashedout / c:paid / c:payerror /
 // c:closed / c:holding / c:replaced / c:refunded (paid), c:refused {why}, c:chat, c:chatnote.
 //
@@ -36,7 +39,7 @@ const { createAgPaidDoor, wantsPaid } = require('../ag/agPaidDoor');
 const { socketClientIp } = require('../clientAddr');
 
 const PER_IP = 10;                 // CHOSEN: sockets one address may hold on /chomp
-const RATE = { join: 500, dir: 12, leave: 500, chat: 300, ready: 250, hold: 50 };   // CHOSEN: flood stops (ms)
+const RATE = { join: 500, dir: 12, leave: 500, chat: 300, ready: 250, hold: 50, watch: 100 };   // CHOSEN: flood stops (ms)
 const PAID_DEFAULT = true;
 
 const chompSkins = require('../../shared/chompSkins');
@@ -214,6 +217,12 @@ function openChomp({ io, env = process.env, helpers = {}, money = null, paidSwit
       if (!p || !isInt(msg.d, 0, 3) || !isInt(msg.s, 0, 65535)) return;
       const c = isInt(msg.c, 0, r.A.W - 1) ? msg.c : null, rr = isInt(msg.r, 0, r.A.H - 1) ? msg.r : null;
       r.input(p, msg.d, msg.s, c, rr);
+    });
+    on('c:watch', (msg) => {
+      if (!rl(socket, 'c:watch', RATE.watch)) return;
+      if (!isInt(msg.id, 1, 65535)) return;
+      const r = arenas.roomOfSocket(socket.id);
+      if (r && r.money) r.watch(socket.id, msg.id);
     });
     on('c:ready', () => {
       if (!rl(socket, 'c:ready', RATE.ready)) return;

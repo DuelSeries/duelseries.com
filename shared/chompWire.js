@@ -6,11 +6,14 @@
 //                 (ticks left / 2), u8 spare
 //   ghost    8 B  i16 x, i16 y, u8 dir | look << 2 (where its eyes point), u8 kind | state << 2, u8 spare, u8 spare (each page draws ghosts blue from its own fright timer)
 // Ghosts always come in the same order, so the browser knows each one by its place in the list.
+// A paid page in a big arena (chompRoom snapshotFor, night review 2026-10-29) gets only the players near it, and every
+// ghost slot still, the far ones as AWAY (state 5): their place in the list only, set far off, never drawn.
 (function (root) {
   'use strict';
   var VERSION = 1, SUB = 64, HEAD = 10, PL = 14, GH = 8;
   var F = { MOVING: 1, POWER: 2, SAFE: 4, DYING: 8 };
-  var GSTATE = ['active', 'house', 'leaving', 'eyes', 'entering'];
+  var GSTATE = ['active', 'house', 'leaving', 'eyes', 'entering', 'away'];
+  var AWAY = 5;
   var GKIND = ['blinky', 'pinky', 'inky', 'clyde'];
 
   function clamp16(v) { v = Math.round(v * SUB); return v < -32768 ? -32768 : v > 32767 ? 32767 : v; }
@@ -67,7 +70,7 @@
     return out;
   }
 
-  var Wr = { VERSION: VERSION, SUB: SUB, F: F, GSTATE: GSTATE, GKIND: GKIND, encode: encode, decode: decode };
+  var Wr = { VERSION: VERSION, SUB: SUB, F: F, GSTATE: GSTATE, GKIND: GKIND, AWAY: AWAY, encode: encode, decode: decode };
   if (typeof module === 'object' && module.exports) module.exports = Wr;
   else root.ChompWire = Wr;
 })(typeof self !== 'undefined' ? self : this);

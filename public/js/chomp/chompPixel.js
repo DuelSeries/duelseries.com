@@ -4,7 +4,8 @@
 // the shapes are drawn by formula in this file, never copied from the arcade's sprite or tile data.
 //
 //   new ChompPixel(canvas, A)   A from ChompMaze.build
-//   .resize(cssW, cssH, dpr)    picks the scale k (device px per arcade px)
+//   .resize(cssW, cssH, dpr, maxTiles)  picks the scale k (device px per arcade px); maxTiles (a big paid arena,
+//                               chompMain viewCap): k grows until at most that many tiles show across and down
 //   .frame(scene)               scene: { cam {x, y} tiles, tick (60 Hz count), dots, ghosts, players, fruit, pops, hud,
 //                                        coins (paid rooms: [{ c, r }] tiles holding money) }
 //   .view                       after a frame: { ox, oy, k, T } (screen px = (o + tiles * T) * k), for the page's ring
@@ -232,11 +233,13 @@
 
   // k = device pixels per arcade pixel, whole numbers only: on a screen held upright the arcade's 224 px width fits
   // across (never fewer than 28 columns), otherwise its 288 px height (36 rows) to the nearest whole scale.
-  Pixel.prototype.resize = function (w, h, dpr) {
+  Pixel.prototype.resize = function (w, h, dpr, maxTiles) {
     this.dpr = dpr;
     this.canvas.width = Math.round(w * dpr); this.canvas.height = Math.round(h * dpr);
     var portrait = h > w;
     this.k = Math.max(1, portrait ? Math.floor(this.canvas.width / 224) : Math.round(this.canvas.height / 288));
+    // night review 2026-10-29: never more than maxTiles across or down (only a very wide or very short window zooms in)
+    if (maxTiles > 0) this.k = Math.max(this.k, Math.ceil(this.canvas.width / (maxTiles * T)), Math.ceil(this.canvas.height / (maxTiles * T)));
     this.S = this.k * T;
     this.buf.width = Math.ceil(this.canvas.width / this.k);
     this.buf.height = Math.ceil(this.canvas.height / this.k);

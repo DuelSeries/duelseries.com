@@ -103,6 +103,14 @@
     // names a tile it passed long ago on purpose (after seeing where the ghosts went) gets at most this much hindsight.
     LATE_TURN_TICKS_PAID: 8,     // CHOSEN
 
+    // ---- what a paid page is sent (night review 2026-10-29). Once a paid arena is wider or taller than PAID_SEND_TILES,
+    // each page gets only the chompers and ghosts within PAID_SEND_TILES / 2 tiles (both ways) of the chomper it plays
+    // or follows (chompRoom snapshotFor), and draws at most PAID_VIEW_TILES across or down (chompMain viewCap), so nothing
+    // pops in at the edge. Usual screens show less already (16:9 about 60 x 34 tiles, 21:9 up to 86 across, a phone held
+    // upright up to about 83 rows) and see what they always did; a 2 or 3 module axis (58 to 96 tiles) is never cut.
+    PAID_SEND_TILES: 100,        // CHOSEN: 50 tiles each way
+    PAID_VIEW_TILES: 88,         // CHOSEN: the send window less 6 tiles each side
+
     // ---- directions: index order is the dossier's tie-break order "up, left, down, right"
     DIRS: [[0, -1], [-1, 0], [0, 1], [1, 0]]
   };
