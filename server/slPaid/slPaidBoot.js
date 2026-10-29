@@ -286,6 +286,8 @@ function openSlPaid(opts) {
         ops: d.ops || null,
         recordEntry: d.recordEntry || null,
         onSeated: d.onSeated || null,
+        // night review 2026-10-29: a paid seat ends its address's watchers of the rung (slSockets paidSeated)
+        onSeatedSocket: sockets && typeof sockets.paidSeated === 'function' ? sockets.paidSeated : null,
         alert: d.alert || null,
         track: typeof d.track === 'function' ? d.track : (p) => p,
         log,

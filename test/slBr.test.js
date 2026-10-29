@@ -735,6 +735,10 @@ function brRig(o, rigOpts) {
   return Object.assign(r, { br, seen });
 }
 
+// A watcher on another address than the players' (night review 2026-10-29: an address with a live snake in the event
+// may not watch it; its own test is below).
+const WATCH_IP = '10.0.0.2';
+
 function refusedWith(s, why) {
   const last = s.emitted[s.emitted.length - 1];
   assert.ok(last && last.name === 'sl:x', 'the last emit is the sl:x refusal');
@@ -788,7 +792,7 @@ test('setBr: once a match is under way a join is refused match; a watcher is sea
   late.fire('sl:join', { nick: 'Late' });
   refusedWith(late, 'match');
   const pushes = r.pushes.length;
-  const w = r.sock({ auth: { br: 1, watch: 1 } });
+  const w = r.sock({ ip: WATCH_IP, auth: { br: 1, watch: 1 } });
   w.fire('sl:join', {});
   assert.strictEqual(r.br.room().watchers.size, 1);
   assert.ok(layerMsgs(w).some((m) => m.t === 'watch'));
@@ -803,7 +807,7 @@ test('setBr: once a match is under way a join is refused match; a watcher is sea
   for (const extra of [{ before: aId }, { after: aId }, { before: 'x', after: -1 }]) {
     const want = room._watchTarget(undefined, Number.isInteger(extra.after) && extra.after > 0 ? extra.after : undefined,
       Number.isInteger(extra.before) ? extra.before : undefined).id;
-    const s = r.sock({ auth: Object.assign({ br: 1, watch: 1 }, extra) });
+    const s = r.sock({ ip: WATCH_IP, auth: Object.assign({ br: 1, watch: 1 }, extra) });
     s.fire('sl:join', {});
     assert.strictEqual(layerMsgs(s).filter((m) => m.t === 'watch')[0].id, want, JSON.stringify(extra));
     s.fire('disconnect', 'client namespace disconnect');
@@ -816,7 +820,7 @@ test('setBr: once a match is under way a join is refused match; a watcher is sea
     r.ft.advance(P);
     r.br.room().wake();
   }
-  const w2 = r.sock({ auth: { br: 1, watch: 1 } });
+  const w2 = r.sock({ ip: WATCH_IP, auth: { br: 1, watch: 1 } });
   w2.fire('sl:join', {});
   refusedWith(w2, 'nobody');
 });
@@ -825,7 +829,7 @@ test('an emergency close lets go of watchers too; the replacement room forgets t
   const r = brRig();
   const a = r.sock({ auth: { br: 1, idProof: { ok: true, wallet: 'WA' } } });
   a.fire('sl:join', { nick: 'Ann' });
-  const w = r.sock({ auth: { br: 1, watch: 1 } });
+  const w = r.sock({ ip: WATCH_IP, auth: { br: 1, watch: 1 } });
   w.fire('sl:join', {});
   for (let i = 0; i < 30; i++) {
     r.ft.advance(P);
@@ -864,7 +868,7 @@ test('a hold ring reaches the watcher of the holding snake', () => {
   const r = brRig();
   const a = r.sock({ auth: { br: 1 } });
   a.fire('sl:join', { nick: 'Ann' });
-  const w = r.sock({ auth: { br: 1, watch: 1 } });
+  const w = r.sock({ ip: WATCH_IP, auth: { br: 1, watch: 1 } });
   w.fire('sl:join', {});
   r.br.room().onHold(a.id, true);
   for (let i = 0; i < 6; i++) {
@@ -878,11 +882,50 @@ test('watchers are capped as seats are (C_HUMAN_CAP): one past it is refused ful
   const r = brRig({}, { patch: { C_HUMAN_CAP: 2 } });
   const a = r.sock({ auth: { br: 1 } });
   a.fire('sl:join', { nick: 'Ann' });
-  for (let i = 0; i < 2; i++) r.sock({ auth: { br: 1, watch: 1 } }).fire('sl:join', {});
+  for (let i = 0; i < 2; i++) r.sock({ ip: WATCH_IP, auth: { br: 1, watch: 1 } }).fire('sl:join', {});
   assert.strictEqual(r.br.room().watchers.size, 2);
-  const w = r.sock({ auth: { br: 1, watch: 1 } });
+  const w = r.sock({ ip: WATCH_IP, auth: { br: 1, watch: 1 } });
   w.fire('sl:join', {});
   refusedWith(w, 'full');
+});
+
+// Night review 2026-10-29 (finding 6): a live snake's address cannot watch the event in another tab (a second view round
+// every other snake), a snake seated from a watcher's address ends that watcher, and a dead snake's address watches.
+test('a battle royale watch from the address of a live snake is refused nobody; a seat there ends the watchers of that address', () => {
+  const r = brRig();
+  const room = r.br.room();
+  const a = r.sock({ ip: '10.0.0.7', auth: { br: 1 } });
+  a.fire('sl:join', { nick: 'Ann' });
+  room.spawnSnake({ nick: 'b1', cv: 2, isBot: true });
+  const twin = r.sock({ ip: '10.0.0.7', auth: { br: 1, watch: 1 } });
+  twin.fire('sl:join', {});
+  refusedWith(twin, 'nobody');
+  assert.strictEqual(room.watchers.size, 0);
+  assert.strictEqual(r.sockets.stats.watches, 0);
+  const other = r.sock({ ip: WATCH_IP, auth: { br: 1, watch: 1 } });
+  other.fire('sl:join', {});
+  assert.strictEqual(room.watchers.size, 1, 'another address watches');
+  // a watcher first, then a snake from the same address: the watcher goes, the other address keeps watching
+  const spy = r.sock({ ip: '10.0.0.8', auth: { br: 1, watch: 1 } });
+  spy.fire('sl:join', {});
+  assert.strictEqual(room.watchers.size, 2);
+  const b = r.sock({ ip: '10.0.0.8', auth: { br: 1 } });
+  b.fire('sl:join', { nick: 'Ben' });
+  assert.ok(room.seatOf(b.id) && !room.seatOf(b.id).watch, 'Ben is seated');
+  refusedWith(spy, 'nobody');
+  assert.strictEqual(room.watchers.size, 1);
+  assert.strictEqual(other.disconnected, false);
+  // Ann's snake dies: her address may watch again
+  room.sim.kill(room.seatOf(a.id).snakeId);
+  for (let i = 0; i < 4; i++) {
+    r.ft.advance(P);
+    room.wake();
+  }
+  assert.ok(!room.seatOf(a.id) || room.seatOf(a.id).dead, 'Ann is dead');
+  const again = r.sock({ ip: '10.0.0.7', auth: { br: 1, watch: 1 } });
+  again.fire('sl:join', {});
+  assert.strictEqual(again.disconnected, false, 'the address of a dead snake watches');
+  assert.strictEqual(room.watchers.size, 2);
 });
 
 test('the event directory: no board row, its slice read and reset, a replaced room ends the match with no winner', () => {
