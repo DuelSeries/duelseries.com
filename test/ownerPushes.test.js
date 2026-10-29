@@ -66,7 +66,7 @@ test('the visit route has a per-address limiter and goes through visitAlerts', (
   assert.match(src, /const visitLimiter = rateLimit\(\{ windowMs: 60 \* 1000, max: 5,/);
   assert.match(src, /app\.post\('\/api\/track\/visit', visitLimiter, express\.json\(/);
   assert.match(src, /visitAlerts\.visit\(\{/);
-  assert.match(src, /app\.get\('\/api\/my-profile', socialLimiter, /, 'finding 28: the profile read is limited');
+  assert.match(src, /app\.get\('\/api\/my-profile', myProfileLimiter, /, 'finding 28: the profile read is limited (its own count, so search typing never blocks it)');
 });
 
 // ---- notify.js ------------------------------------------------------------------------------------------------------

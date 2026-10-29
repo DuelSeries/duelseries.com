@@ -56,7 +56,8 @@ test('index.js: the reconnect branch returns before any token is read, and the c
   const reattach = src.indexOf('room.reattach(reconnectKey, socket)');
   const consume = src.indexOf('consumePaidEntryAtStake(entryToken, Number(stake), \'snake\')');
   assert.ok(reattach > 0 && consume > reattach, 'so reattach is the only place the new socket can get its wallet');
-  assert.match(src, /if \(socket\._walletAddress\) \{[\s\S]{0,400}money\.withdraw\(socket\._walletAddress, playerShare\)/);
+  // The payout goes through inlinePayout since the night review (2026-10-29), still to the socket's own wallet.
+  assert.match(src, /if \(socket\._walletAddress\) \{[\s\S]{0,1200}?const wallet = socket\._walletAddress;[\s\S]{0,200}inlinePayout\.pay\(\{ wallet, amount: playerShare/);
   const gr = fs.readFileSync(path.join(__dirname, '..', 'server', 'GameRoom.js'), 'utf8');
   const body = gr.slice(gr.indexOf('  reattach(key, newSocket) {'));
   assert.ok(body.indexOf('newSocket._walletAddress = oldSocket._walletAddress') < body.indexOf('player.socket = newSocket'),

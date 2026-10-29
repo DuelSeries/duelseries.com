@@ -102,12 +102,16 @@ test('agar asks the helper about the whole name too, so a reserved name split ac
 
 function withPool(db, answer, fn) {
   const sent = [];
-  const real = db.pool.query;
-  db.pool.query = async (sql, params) => {
-    sent.push({ sql: sql.replace(/\s+/g, ' '), params });
-    return answer(sql, params, sent.length);
-  };
-  return Promise.resolve().then(() => fn(sent)).finally(() => { db.pool.query = real; });
+  // Both pools: profile and search reads go through db.readPool since the night review (2026-10-29).
+  const pools = [db.pool, db.readPool].filter(Boolean);
+  const real = pools.map((p) => p.query);
+  for (const p of pools) {
+    p.query = async (sql, params) => {
+      sent.push({ sql: sql.replace(/\s+/g, ' '), params });
+      return answer(sql, params, sent.length);
+    };
+  }
+  return Promise.resolve().then(() => fn(sent)).finally(() => { pools.forEach((p, i) => { p.query = real[i]; }); });
 }
 
 test('recordEarnings: a payout names an account only with a free, real name; the landed row is always written', async () => {

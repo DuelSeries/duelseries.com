@@ -560,7 +560,8 @@ test('payBattleRoyaleWinner: checking is journaled before the lookup; a restart 
   boot.sweep();
   assert.deepStrictEqual(boot.journal, [['br_c', 'held'], ['br_p', 'unknown']]);
   assert.deepStrictEqual(boot.pushes.map((x) => x.title), ['Battle Royale prize held', 'Battle Royale prize: check it']);
-  assert.match(boot.pushes[0].msg, /Ann won br_c; the server restarted while it was deciding .* Nothing was sent to WIN\./);
+  assert.match(boot.pushes[0].msg, /Ann won br_c; the server restarted while it was deciding .* Nothing was sent\./);
+  assert.doesNotMatch(boot.pushes[0].msg, /WIN/, 'no wallet in an owner push (the topic is readable by anyone)');
   assert.deepStrictEqual(boot.sends, []);
   assert.strictEqual(boot.real.prize('br_c').wallet, 'WIN', 'the held entry keeps who won');
   boot.sweep();

@@ -4333,9 +4333,9 @@ function sweepBrPrizesAtBoot() {
        before the lookup that decides whether the prize is paid automatically,
        and nothing is sent before 'paying', so nothing went out. Held for Owen. */
     if (p.state === 'checking') {
-      console.warn(`[BR] ${p.matchId}: ${p.name} won; the server restarted while deciding the ${p.amount} USDC prize (nothing sent): held`);
+      console.warn(`[BR] ${p.matchId}: ${p.name} (${p.wallet}) won; the server restarted while deciding the ${p.amount} USDC prize (nothing sent): held`);
       try {
-        notify.pushOwner(`${p.name} won ${p.matchId}; the server restarted while it was deciding whether the ${p.amount} USDC prize could be paid automatically. Nothing was sent to ${p.wallet}. Settle it by hand if it was a real match.`,
+        notify.pushOwner(`${p.name} won ${p.matchId}; the server restarted while it was deciding whether the ${p.amount} USDC prize could be paid automatically. Nothing was sent. The winner wallet is in the server log and the BR journal; settle it by hand if it was a real match.`,
           { title: 'Battle Royale prize held', priority: 'high' });
       } catch (_) {}
       brJournal.setPrize(p.matchId, { state: 'held' });
