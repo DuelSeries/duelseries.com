@@ -625,7 +625,7 @@ test('a paid room watcher: never an account, never joins, steers or holds; count
 });
 
 test('a paid room watcher hears the same $ board as the players: ag:money rows by money, no own rank', () => {
-  const w = world();
+  const w = world({ watchDelayMs: 0 });   // sent live here; the delay has its own test below
   const { r } = w;
   join(w, 'a', { micro: 100000 });
   join(w, 'b', { micro: 1000000 });
@@ -641,7 +641,7 @@ test('a paid room watcher hears the same $ board as the players: ag:money rows b
 
 // The Spectate bar in a paid room (Owen 2026-10-16): Previous and Next move only the watcher's camera.
 test('a paid room watcher: nobody alive is { none: true }; Next and Previous move its camera and nothing else', () => {
-  const w = world();
+  const w = world({ watchDelayMs: 0 });   // sent live here; the delay has its own test below
   const { r, calls } = w;
   const v = sock();
   r.addSocket(v, { watch: true });
@@ -673,4 +673,84 @@ test('a paid room watcher: nobody alive is { none: true }; Next and Previous mov
   assert.strictEqual(r.isWatchOnly(v.id), true);
   assert.strictEqual(r.followStep(a.s.id, 1), false, 'a paying player never steps a camera');
   assert.ok(!a.s.of('ag:watching').length, 'and is never told who a watcher follows');
+});
+
+// Night review 2026-10-29 (finding 8): a paid watcher live was a map hack for a seated player's second tab or friend.
+// It is now sent exactly what it would have been, in the same order, ROOM_TUNING WATCH_DELAY_MS later.
+test('a paid room watcher is sent everything WATCH_DELAY_MS late, in order; the paying seats stay live', () => {
+  const { ROOM_TUNING } = require('../server/ag/agRoom');
+  assert.ok(ROOM_TUNING.WATCH_DELAY_MS.value >= 3000, 'a real delay by default');
+  const live = world({ watchDelayMs: 0 });
+  const late = world();
+  const lagTicks = late.r.watchLagTicks;
+  assert.strictEqual(lagTicks, Math.ceil(ROOM_TUNING.WATCH_DELAY_MS.value / late.r.tickMs));
+  assert.strictEqual(live.r.watchLagTicks, 0);
+  const sides = [live, late].map((w) => {
+    const a = join(w, 'ann', { micro: 300000 });
+    const b = join(w, 'bob', { micro: 200000 });
+    const v = sock('watch-' + (w === live ? 'live' : 'late'));
+    w.r.addSocket(v, { watch: true });
+    assert.strictEqual(w.r.spectate(v.id), true);
+    return { a, b, v };
+  });
+  const [L, D] = sides;
+  // a few ticks: the delayed watcher hears nothing yet, the paying players hear every tick at once
+  for (let i = 0; i < 10; i++) {
+    live.r.tickOnce();
+    late.r.tickOnce();
+  }
+  assert.strictEqual(D.v.events.length, 0, 'nothing reaches the delayed watcher before the delay');
+  assert.ok(L.v.of('ag:f').length >= 10, 'a live watcher hears every tick');
+  assert.strictEqual(D.a.s.of('ag:f').length, L.a.s.of('ag:f').length, 'a paying seat is sent live in both rooms');
+  assert.strictEqual(late.r.followStep(D.v.id, 1), true);
+  assert.strictEqual(live.r.followStep(L.v.id, 1), true);
+  for (let i = 0; i < lagTicks + 40; i++) {
+    live.r.tickOnce();
+    late.r.tickOnce();
+  }
+  const kinds = (v) => v.events.map((e) => e[0]);
+  const n = D.v.events.length;
+  assert.ok(n > 0, 'the delayed watcher hears the game once the delay has passed');
+  assert.ok(D.v.of('ag:f').length <= L.v.of('ag:f').length - lagTicks + 1, 'about the delay behind');
+  assert.ok(D.v.of('ag:money').length > 0 && D.v.of('ag:watching').length > 0, 'money and who it follows come too');
+  // the same rooms (same seed and the same moves), so the late stream is the live one, cut short: same events, same
+  // bytes, same order
+  assert.deepStrictEqual(kinds(D.v), kinds(L.v).slice(0, n));
+  for (let i = 0; i < n; i++) {
+    const x = D.v.events[i][1];
+    const y = L.v.events[i][1];
+    if (Buffer.isBuffer(x) || x instanceof Uint8Array) assert.ok(Buffer.from(x).equals(Buffer.from(y)), 'bundle ' + i);
+    else assert.deepStrictEqual(x, y, 'event ' + i);
+  }
+  // leaving drops what was still queued
+  late.r.removeSocket(D.v.id);
+  const had = D.v.events.length;
+  for (let i = 0; i < lagTicks + 2; i++) late.r.tickOnce();
+  assert.strictEqual(D.v.events.length, had, 'nothing after it left');
+});
+
+test('a paid room watcher whose late emit throws starts over; a free room has no delay', () => {
+  const w = world();
+  join(w, 'ann');
+  const v = sock('watch-throws');
+  w.r.addSocket(v, { watch: true });
+  w.r.spectate(v.id);
+  let boom = true;
+  const emit = v.emit;
+  v.emit = function (ev, p) {
+    if (boom) {
+      boom = false;
+      throw new Error('socket gone');
+    }
+    return emit.call(this, ev, p);
+  };
+  for (let i = 0; i < w.r.watchLagTicks + 1; i++) w.r.tickOnce();
+  const seat = w.r.seatOf(v.id);
+  assert.strictEqual(w.r.stats.emitErrors, 1);
+  assert.strictEqual(seat.lag, null, 'the queue of the old view is dropped');
+  for (let i = 0; i < w.r.watchLagTicks + 1; i++) w.r.tickOnce();
+  const recs = require('../shared/agWire').decodeBundle(v.of('ag:f')[0]);
+  assert.strictEqual(recs[0].t, 'clearAll', 'the page starts over with a clearAll first');
+  const free = new AgRoom({ laws: FIXTURE, shippableOnly: false, seed: 7, autoTick: false, log: quiet });
+  assert.strictEqual(free.watchLagTicks, 0, 'a free room sends every seat live');
 });

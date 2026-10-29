@@ -94,6 +94,12 @@
     INPUT_BATCH_MAX: 8,
     MAX_PREDICT_TICKS_PER_FRAME: 4,
     RESYNC_AFTER_MS: 500,
+    // A paid arena sends each page only the squares around what it looks at (night review 2026-10-29): world units
+    // from the camera's centre. The camera shows a world diagonal of hypot(1366, 768) / scale whatever the window
+    // (paperGame getRenderContext), and a page's scale is never under minScale 3 while it follows a square, so no
+    // shown point is more than 261.2 from the centre; the rest is margin for prediction, the interpolation delay,
+    // the square's own size and its name and money labels.
+    VIEW_CULL_RADIUS: 362,
     WARM_CHUNK: 100,
     ARENA_SWEEP_MS: 300000,
     EMERGENCY_FAIL_TICKS: 3,

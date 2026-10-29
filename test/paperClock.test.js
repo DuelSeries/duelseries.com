@@ -92,20 +92,27 @@ test('clock: the timer runs only while someone is seated and ticks on its own', 
 });
 
 test('a snapshot sends the volatile frame BEFORE the reliable bundle (a send makes the transport unwritable for the turn)', () => {
-  const k = kit();
-  k.room.addHuman(sock(), { name: 'a', micro: 100000, wallet: 'Wa', spot: at(300, 0) });
-  k.emits.length = 0;
-  let order = null;
-  for (let i = 0; i < 40 && !order; i++) {
-    k.room.pending.push(['m', 1, 1]); // something for this tick's bundle
-    k.wall.t += STEP;
-    k.room.tickOnce();
-    const names = k.emits.filter((e) => e[0] === k.room.ioRoom).map((e) => e[1]);
-    if (names.includes('pp:s')) order = names;
+  // A free arena sends one frame to the room; a paid one each page its own (night review 2026-10-29), still first.
+  for (const stake of [0, 0.1]) {
+    const k = kit({ stake });
+    const s = sock();
+    s.rooms = new Set();
+    s.join = function (r) { this.rooms.add(r); };
+    k.room.io.sockets = { sockets: new Map([[s.id, s]]) };
+    k.room.addHuman(s, { name: 'a', micro: stake > 0 ? 100000 : 0, wallet: stake > 0 ? 'Wa' : null, spot: at(300, 0) });
     k.emits.length = 0;
+    let order = null;
+    for (let i = 0; i < 40 && !order; i++) {
+      k.room.pending.push(['m', 1, 1]); // something for this tick's bundle
+      k.wall.t += STEP;
+      k.room.tickOnce();
+      const names = k.emits.filter((e) => e[0] === k.room.ioRoom || e[0] === s.id).map((e) => e[1]);
+      if (names.includes('pp:s')) order = names;
+      k.emits.length = 0;
+    }
+    assert.deepStrictEqual(order, ['pp:s', 'pp:ev'], 'stake ' + stake);
+    k.room.stop();
   }
-  assert.deepStrictEqual(order, ['pp:s', 'pp:ev']);
-  k.room.stop();
 });
 
 test('pp:in batches: an array is applied in order, each counted against the rate; a bad batch is ignored whole', () => {

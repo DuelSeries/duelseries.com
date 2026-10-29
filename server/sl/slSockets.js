@@ -82,6 +82,10 @@
 // watchers), 'nobody'. A watch handshake with watchStake (a $0.50 or $1 rung, Owen 2026-10-15) watches that rung's
 // busiest paid room the same read-only way (slPaidArenas.watch): the paid directory takes its calls, never its door.
 // Read only while the paid helper is attached; a watchStake naming no paid rung is refused like a money field.
+// Night review 2026-10-29 (finding 6): a paid rung's watch, and the battle royale's, is refused 'nobody' while the
+// watcher's address has a live snake seated in those rooms (a second tab or a friend on the same network could see
+// round every other snake), and a snake seated or resumed from an address ends that address's watchers of the same
+// rooms (the paid door calls paidSeated). Free rooms are not guarded (no money). The client asks again on 'nobody'.
 
 const W = require('../../shared/slWire.js');
 const { assertLawsComplete } = require('./slLaws');
@@ -386,6 +390,75 @@ function attachSlSockets(nsp, arenas, helpers) {
     return !!br;
   }
 
+  // The address of a socket ('' when it cannot be read).
+  function addrOf(socket) {
+    try {
+      return String(ipOf(socket) || '');
+    } catch (e) {
+      return '';
+    }
+  }
+
+  // Night review 2026-10-29 (finding 6, see the header): the rooms a paid rung's watcher looks into (stake: a rung),
+  // the rung a paid room is on, and the battle royale's one room.
+  function paidRungRooms(stake) {
+    const a = paid ? paid.arenas : null;
+    if (!a || !a.rungs || typeof a.rungs.get !== 'function' || typeof a._rungOf !== 'function') return [];
+    const rung = a._rungOf(stake);
+    return rung === null ? [] : (a.rungs.get(rung) || []).filter((r) => r && !r.stopped);
+  }
+  function rungRoomsOf(room) {
+    const a = paid ? paid.arenas : null;
+    if (!room || !a || !a.rungs || typeof a.rungs.values !== 'function') return [];
+    for (const list of a.rungs.values()) if (list.includes(room)) return list.filter((r) => r && !r.stopped);
+    return [];
+  }
+  function brRooms() {
+    const r = br && typeof br.arenas.room === 'function' ? br.arenas.room() : null;
+    return r && !r.stopped ? [r] : [];
+  }
+
+  // A live snake seated from this address in these rooms (not dead, not cashed out; a parked seat has no socket and
+  // its snake only glides, and its resume ends the watchers below). except: the asking socket itself.
+  function seatedFrom(ip, rooms, except) {
+    if (!ip) return false;
+    for (const r of rooms) {
+      if (!r || !r.seats || typeof r.seats.values !== 'function') continue;
+      for (const s of r.seats.values()) {
+        if (!s || !s.socket || s.socket === except || s.dead || s.cashed || s.closed) continue;
+        if (addrOf(s.socket) === ip) return true;
+      }
+    }
+    return false;
+  }
+
+  // Every watcher of these rooms from this address ends, refused 'nobody' (its page asks again later, and is refused
+  // while the snake lives). Returns how many.
+  function dropWatchersFrom(ip, rooms) {
+    if (!ip) return 0;
+    let n = 0;
+    for (const r of rooms) {
+      if (!r || !r.watchers || typeof r.watchers.values !== 'function') continue;
+      for (const w of Array.from(r.watchers.values())) {
+        if (!w || !w.socket || addrOf(w.socket) !== ip) continue;
+        try {
+          r.unseat(w.id, 'leave');
+        } catch (e) {
+          log.error('[SL] watcher drop', e && e.message);
+        }
+        kickOut(w.socket, stateOf(w.socket), 'nobody');
+        n++;
+      }
+    }
+    if (n) stats.watchDrops = (stats.watchDrops || 0) + n;
+    return n;
+  }
+
+  // The paid door seated this socket at this rung (slPaidDoor onSeatedSocket): its address's watchers there end.
+  function paidSeated(socket, stake) {
+    return dropWatchersFrom(addrOf(socket), paidRungRooms(stake));
+  }
+
   // A snake id from the handshake (follow, after, before): an integer 1 to 65535, else null.
   function snakeIdOf(auth, k) {
     const v = field(auth, k);
@@ -484,6 +557,9 @@ function attachSlSockets(nsp, arenas, helpers) {
       if (o && o.maintenance) return refuse(socket, 'maintenance', stats);
     }
     if (!st.dir.isOpen()) return refuse(socket, 'closed', stats);
+    // night review 2026-10-29 (finding 6): no watch of a paid rung or the battle royale from an address seated there
+    const guarded = st.br && st.br.watch ? brRooms() : st.watch && st.watch.stake ? paidRungRooms(st.watch.stake) : null;
+    if (guarded && seatedFrom(addrOf(socket), guarded, socket)) return refuse(socket, 'nobody', stats);
     st.joined = true;
     let r;
     try {
@@ -505,6 +581,7 @@ function attachSlSockets(nsp, arenas, helpers) {
     }
     if (r !== true) return refuse(socket, REFUSALS.includes(r) ? r : 'closed', stats);
     stats.joins++;
+    if (st.br && !st.br.watch) dropWatchersFrom(addrOf(socket), brRooms()); // seated: its address's BR watchers end
     if (st.watch) stats.watches++;
     if (st.watch || (st.br && st.br.watch)) return; // a watcher is nobody joining
     if (notifyJoin && pushGate.allow(nick, now())) {
@@ -574,6 +651,9 @@ function attachSlSockets(nsp, arenas, helpers) {
       return refuse(socket, r === 'flood' ? 'flood' : WHY_GONE, stats);
     }
     stats.backs++;
+    // a life back from this address ends its watchers of the same table (night review 2026-10-29, finding 6)
+    if (st.paid) dropWatchersFrom(addrOf(socket), rungRoomsOf(room));
+    else if (st.br) dropWatchersFrom(addrOf(socket), brRooms());
     const old = r.replaced;
     if (old && old !== socket) {
       stats.takeovers++;
@@ -829,7 +909,7 @@ function attachSlSockets(nsp, arenas, helpers) {
   if (nsp && typeof nsp.on === 'function') nsp.on('connection', (socket) => safeCall(() => attach(socket), 'sl.attach', safeStats, { log }));
 
   return { attach, admit, gate, badKeys, stats, laws: L, sockets: () => states.size, setPaid,
-    paid: () => !!paid, setBr, br: () => !!br };
+    paid: () => !!paid, setBr, br: () => !!br, paidSeated };
 }
 
 module.exports = {

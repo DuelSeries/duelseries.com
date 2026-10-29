@@ -258,7 +258,7 @@ test('a paid rung watcher (watchStake) follows a paying player as its own view: 
   const room = r.paid.rooms().find((x) => x.seatOf(payer.id));
   assert.ok(room, 'the payer is seated at $1');
   const opens = room.money.openCount();
-  const w = r.sock({ auth: { watch: 1, watchStake: 1 } });
+  const w = r.sock({ ip: '10.0.0.2', auth: { watch: 1, watchStake: 1 } });   // another address than the payer's
   w.fire('sl:join', {});
   assert.strictEqual(w.disconnected, false);
   assert.strictEqual(room.watchers.size, 1, 'watching the $1 room');
@@ -291,7 +291,7 @@ test('a paid rung watcher\'s Previous and Next: after and before reach the room\
   room.seatWatch = (socket, info) => { asks.push(Object.assign({}, info)); return real(socket, info); };
   const opens = room.money.openCount();
   for (const auth of [{ before: id }, { after: id }, { before: 'x' }]) {
-    const w = r.sock({ auth: Object.assign({ watch: 1, watchStake: 1 }, auth) });
+    const w = r.sock({ ip: '10.0.0.2', auth: Object.assign({ watch: 1, watchStake: 1 }, auth) });
     w.fire('sl:join', {});
     assert.strictEqual(watchMsg(w)[0].id, id, 'one player: Previous and Next wrap to them');
     w.disconnect();
@@ -299,6 +299,66 @@ test('a paid rung watcher\'s Previous and Next: after and before reach the room\
   assert.deepStrictEqual(asks, [{ after: null, before: id }, { after: id, before: null }, { after: null, before: null }]);
   assert.strictEqual(room.seats.size, 1);
   assert.strictEqual(room.money.openCount(), opens, 'no account opened');
+});
+
+// Night review 2026-10-29 (finding 6): a seated payer's address cannot watch its own rung (a second tab could step round
+// every other snake), a payer seated from a watcher's address ends that watcher (the door's onSeatedSocket), and an
+// address whose snake is gone watches again; another rung, and another address, are not touched.
+test('a paid rung watch from the address of a seated payer is refused nobody; a buy-in from that of a watcher ends it', async () => {
+  const r = paidRig({ door: { onSeatedSocket: (s, stake) => r.sockets.paidSeated(s, stake) } });
+  const payer = r.join(r.mint({ stake: 1, worth: 1, paid: 1 }), { ip: '10.0.0.7', auth: { stake: 1 }, nick: 'Payer' });
+  await r.settle();
+  const room = r.paid.rooms().find((x) => x.seatOf(payer.id));
+  assert.ok(room, 'the payer is seated at $1');
+  const twin = r.sock({ ip: '10.0.0.7', auth: { watch: 1, watchStake: 1 } });
+  twin.fire('sl:join', {});
+  refusedWith(twin, 'nobody');
+  assert.strictEqual(room.watchers.size, 0);
+  const other = r.sock({ ip: '10.0.0.2', auth: { watch: 1, watchStake: 1 } });
+  other.fire('sl:join', {});
+  assert.strictEqual(room.watchers.size, 1, 'another address watches');
+  // a watcher first, then that address buys in at the same rung: the watcher goes
+  const spy = r.sock({ ip: '10.0.0.8', auth: { watch: 1, watchStake: 1 } });
+  spy.fire('sl:join', {});
+  assert.strictEqual(room.watchers.size, 2);
+  const late = r.join(r.mint({ stake: 1, worth: 1, paid: 1 }), { ip: '10.0.0.8', auth: { stake: 1 }, nick: 'Late' });
+  await r.settle();
+  assert.ok(r.paid.rooms().some((x) => x.seatOf(late.id)), 'the late payer is seated');
+  refusedWith(spy, 'nobody');
+  assert.strictEqual(room.watchers.size, 1);
+  assert.strictEqual(other.disconnected, false, 'the other address keeps watching');
+  // the first payer's snake dies: that address may watch again
+  const seat = room.seatOf(payer.id);
+  room.sim.kill(seat.snakeId);
+  r.step(4);
+  assert.ok(!room.seatOf(payer.id) || room.seatOf(payer.id).dead, 'the payer is out');
+  const again = r.sock({ ip: '10.0.0.7', auth: { watch: 1, watchStake: 1 } });
+  again.fire('sl:join', {});
+  assert.strictEqual(again.disconnected, false, 'its address watches once its snake is gone');
+});
+
+test('a paid life resumed from an address ends the watcher of the rung from that address (the park is no way round it)', async () => {
+  const r = paidRig();
+  const payer = r.join(r.mint({ stake: 1, worth: 1, paid: 1 }), { ip: '10.0.0.7', auth: { stake: 1 }, nick: 'Payer' });
+  await r.settle();
+  const room = r.paid.rooms().find((x) => x.seatOf(payer.id));
+  r.step(3);
+  // the drop: no sl:leave, so the seat is parked (no socket) and its snake glides
+  payer.disconnected = true;
+  payer.fire('disconnect', 'transport close');
+  assert.strictEqual(room.parked.size, 1);
+  const spy = r.sock({ ip: '10.0.0.7', auth: { watch: 1, watchStake: 1 } });
+  spy.fire('sl:join', {});
+  assert.strictEqual(room.watchers.size, 1, 'a parked seat has no socket, so the watch is let in');
+  const other = r.sock({ ip: '10.0.0.2', auth: { watch: 1, watchStake: 1 } });
+  other.fire('sl:join', {});
+  const keys = layerMsgs(payer).filter((x) => x.t === 'seat' || x.t === 'back');
+  const back = r.sock({ ip: '10.0.0.7', auth: { paid: 1, stake: 1, cv: 3 } });
+  back.fire('sl:back', { k: keys[keys.length - 1].k, n: payer.emitted.filter((e) => e.name === 'sl:f').length, p: 0 });
+  assert.ok(room.seatOf(back.id) && !room.seatOf(back.id).watch, 'resumed');
+  refusedWith(spy, 'nobody');
+  assert.strictEqual(other.disconnected, false, 'another address keeps watching');
+  assert.strictEqual(room.watchers.size, 1);
 });
 
 test('a paid rung watch: nobody playing is nobody to watch (no room opened); a bad watchStake is refused not-open', () => {

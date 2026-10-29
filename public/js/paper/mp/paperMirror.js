@@ -27,6 +27,11 @@
   // page's enemyKillDelay and selfKillDelay, the stock glide to the killer, when the config has none).
   var FOLLOW_AFTER_KILL_MS = 2000;
   var FOLLOW_AFTER_DEATH_MS = 1000;
+  // A paid arena sends each page only the squares around its camera (night review 2026-10-29, server ArenaWire cull).
+  // A square it stopped sending is parked here, far off the map, so every stock pass (which culls by position) leaves
+  // it out, until a frame brings it back.
+  var CULLED_AT = -1e6;
+  var FOLLOW_ASK_MS = 250; // watch mode: pp:follow again while the square picked is still not sent
 
   function lib() {
     var P = root.DuelPaperLib;
@@ -355,6 +360,11 @@
         this.followId = 0;
         this.onFollow = null; // (unit or null) whenever the followed square changes
         this._followDeadMs = 0;
+        // A paid arena sends only what is around the followed square (night review 2026-10-29): a square picked while
+        // it is not sent waits here until the server's next frames bring it (pp:follow told the server), asked again
+        // every FOLLOW_ASK_MS meanwhile.
+        this._followWant = 0;
+        this._followAskedAt = -Infinity;
       }
 
       attachNet(net) {
@@ -463,6 +473,8 @@
         this.predictAcc = 0;
         this._predHomeSince = null;
         this._followDeadMs = 0;
+        this._followWant = 0;
+        this._followAskedAt = -Infinity;
         this.topListChanged = true;
       }
 
@@ -542,9 +554,11 @@
           }
           u.trail = { epoch: info.epoch & 255, corners: corners };
           this._setPercent(u, info.pct);
+          if (info.hidden) this._cull(u); // a paid arena's square away from this page's view: drawn once a frame brings it
         }
         for (var k = 0; k < this.units.length; k++) {
           var w = this.units[k];
+          if (w._culled) continue;
           w.in = this._resolveIn(w, w.inId);
           w.target = new P.Vec2(Math.cos(w.direction), Math.sin(w.direction)).mulScalar(50).add(w.position);
         }
@@ -589,10 +603,22 @@
 
       // The followed square stands in for `player` (camera, zoom, leaderboard, minimap) and is never _local, so
       // no predictor, reconcile or input path ever touches it. Watch mode only: a seated page keeps its own.
+      // A paid arena (night review 2026-10-29) is told (pp:follow), since it sends only what is around the followed
+      // square; a square it is not sending yet is followed once a frame brings it (_followPending), the camera
+      // staying where it is meanwhile.
       follow(id) {
         if (!this.watching) return false;
         var u = this.byId.get(id);
         if (!u || u.death) return false;
+        if (this.paid && this.net && typeof this.net.follow === 'function') {
+          this.net.follow(u.id);
+          this._followAskedAt = this.net.now();
+          if (u._culled) {
+            this._followWant = u.id;
+            return true;
+          }
+        }
+        this._followWant = 0;
         var was = this.player;
         if (was && was !== u) was._followed = false;
         u._followed = true;
@@ -624,13 +650,15 @@
           return null;
         }
         var n = list.length;
-        var i = this.player && !this.player.death ? list.indexOf(this.player) : -1;
+        var from = this._followWant ? this.byId.get(this._followWant) || this.player : this.player; // a pick not shown yet
+        var i = from && !from.death ? list.indexOf(from) : -1;
         var to = list[i >= 0 ? (i + d + n) % n : 0];
         this.follow(to.id);
         return to;
       }
 
       _unfollow() {
+        this._followWant = 0;
         var was = this.player;
         if (!was) return;
         was._followed = false;
@@ -644,6 +672,7 @@
       // Once per update while watching: a followed square that died keeps the camera for the stock glide to its
       // killer (followKiller), then the leader is followed; with nobody followed, the leader as soon as there is one.
       _watchStep(dtMs) {
+        if (this._followWant) return; // a pick on its way (_followPending ends or drops it)
         var u = this.player;
         if (u && !u.death) return;
         if (u) {
@@ -810,6 +839,7 @@
       _moved(id, x, y) {
         var u = this.byId.get(id);
         if (!u || typeof x !== 'number' || typeof y !== 'number') return false;
+        if (u._culled) return true; // out of this page's view: it stays parked until a frame brings it (_cull)
         u.position = new P.Vec2(x, y);
         if (u === this.player && u._local) {
           var pr = this.predictor;
@@ -1024,13 +1054,26 @@
         return u._stable;
       }
 
+      // A paid arena sends each page only the squares around its camera (night review 2026-10-29): a remote square
+      // in neither frame around renderTick is out of view and is culled (_cull); back in a frame, it is drawn again.
+      // The followed square and the killer the camera glides to are never culled (they keep their last spot).
       _placeRemotes(br) {
         if (br) {
+          var me = this.player;
+          var keep = me ? me.killer : null;
           for (var i = 0; i < this.units.length; i++) {
             var u = this.units[i];
             if (u._local) continue;
             var rec = this._interp(u, br);
-            if (rec) this._fields(u, rec);
+            if (rec) {
+              if (u._culled) {
+                u._culled = false;
+                u._crumbAt = null;
+              }
+              this._fields(u, rec);
+            } else if (this.paid && !u._culled && u !== me && u !== keep) {
+              this._cull(u);
+            }
           }
           // Coins come and go by ['p+'] / ['p-']; where they lie is frame STATE (a shrinking wall
           // moves floor coins inward and sends no event for it).
@@ -1045,10 +1088,49 @@
         }
         for (var j = 0; j < this.units.length; j++) {
           var w = this.units[j];
-          if (w._local) continue;
+          if (w._local || w._culled) continue;
           w.in = this._resolveIn(w, w.inId);
           if (w.in === w.base) w.clearTrail();
           else w.drawTrail(this._stable(w), [w.position]);
+        }
+        if (this._followWant) this._followPending();
+      }
+
+      // A square this page is no longer sent: parked off the map (no stock pass draws it, its name, money or ring),
+      // standing on no land, its trail dropped here and in the net's record, so the server's resend from corner 0
+      // (ArenaWire trailsFor) is taken whole when it is back. Its land, name, money and rank stay.
+      _cull(u) {
+        u._culled = true;
+        u.position = new P.Vec2(CULLED_AT, CULLED_AT);
+        u.target = null;
+        u.inId = 0;
+        u.in = null;
+        u.holding = false;
+        u.hold = 0;
+        u.pushed = false;
+        u.wire = null;
+        u.trail = { epoch: -1, corners: [] };
+        u.clearTrail();
+        if (this.net && typeof this.net.forget === 'function') this.net.forget(u.id);
+      }
+
+      // Watch mode, a paid arena: the square picked is followed as soon as a frame brings it; pp:follow again every
+      // FOLLOW_ASK_MS until then; dropped when it dies or goes.
+      _followPending() {
+        var u = this.byId.get(this._followWant);
+        if (!this.watching || !u || u.death) {
+          this._followWant = 0;
+          return;
+        }
+        if (!u._culled) {
+          this._followWant = 0;
+          this.follow(u.id);
+          return;
+        }
+        var now = this.net ? this.net.now() : 0;
+        if (this.net && typeof this.net.follow === 'function' && now - this._followAskedAt >= FOLLOW_ASK_MS) {
+          this._followAskedAt = now;
+          this.net.follow(u.id);
         }
       }
 

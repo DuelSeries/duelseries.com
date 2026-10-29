@@ -369,10 +369,15 @@ function attachAgSockets(io, arenas, helpers) {
         return;
       }
       // The lobby's Spectate on a paid rung (auth { watchStake }, never with paid): a read-only watcher seat in that
-      // rung's busiest room (agArenas.connectWatch), refused 'nobody' when nobody plays there.
+      // rung's busiest room (agArenas.connectWatch), refused 'nobody' when nobody plays there, and while this address
+      // holds an open paid account at that rung (night review 2026-10-29: no second view of your own table).
       const ws = hs && hs.auth && typeof hs.auth.watchStake === 'number' ? hs.auth.watchStake : 0;
       if (ws > 0 && typeof arenas.connectWatch === 'function') {
-        if (!arenas.connectWatch(socket, ws)) refuse(socket, 'nobody');
+        let ip = '';
+        try {
+          ip = String(ipOf(socket) || '');
+        } catch (e) { /* no address: the watch is still delayed (agRoom WATCH_DELAY_MS) */ }
+        if (!arenas.connectWatch(socket, ws, ip)) refuse(socket, 'nobody');
         return;
       }
       if (!arenas.connect(socket)) refuse(socket, 'full');

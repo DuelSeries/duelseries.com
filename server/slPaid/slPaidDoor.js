@@ -88,9 +88,10 @@ function usable(entry) {
 // arenas: SlPaidArenas. consumeAtStake(token, stake, game): entryStore's. ledger: stakeLedger (claimSeat, refund) or
 // null. slPayout: { refund } (paperPayout for 'slither'). journal: the shared agJournal { open, close }. ops: { get() ->
 // { maintenance } }. recordEntry(entry, label): the profile's buy-in row. onSeated({ name, stake, wallet }): the owner's
-// phone push once the seat holds the money. alert(info): the owner alert. track(p): the shutdown's in-flight set. timers: { setTimeout } for the refund re-ask (tests: fake timers). log: needs error.
+// phone push once the seat holds the money. onSeatedSocket(socket, stake): the socket layer's paidSeated (night review
+// 2026-10-29: the address's watchers of that rung end), after the seat holds the money. alert(info): the owner alert. track(p): the shutdown's in-flight set. timers: { setTimeout } for the refund re-ask (tests: fake timers). log: needs error.
 function createSlPaidDoor({ arenas, consumeAtStake, ledger = null, slPayout, journal, ops = null, recordEntry = null,
-  onSeated = null,
+  onSeated = null, onSeatedSocket = null,
   alert = null, uuid = () => crypto.randomUUID(), now = Date.now, log = console, track = (p) => p,
   timers = { setTimeout } } = {}) {
   if (!arenas) throw new Error('slPaidDoor: arenas is required');
@@ -430,6 +431,15 @@ function createSlPaidDoor({ arenas, consumeAtStake, ledger = null, slPayout, jou
         recordEntry(entry, 'snake');
       } catch (e) {
         say('[SLP] DOOR recordEntry: ' + (e && e.message));
+      }
+    }
+    // the socket layer ends this address's watchers of the rung (night review 2026-10-29); a throw is logged, never a
+    // refund
+    if (typeof onSeatedSocket === 'function') {
+      try {
+        onSeatedSocket(socket, stake);
+      } catch (e) {
+        say('[SLP] DOOR onSeatedSocket: ' + (e && e.message));
       }
     }
     // the owner's phone push (joinAlerts), after the seat holds the money; a throw here is logged, never a refund

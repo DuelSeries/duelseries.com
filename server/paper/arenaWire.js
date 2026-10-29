@@ -2,6 +2,14 @@
 // Server side of the Paper wire (design 7.1-7.5): per-unit streaming trail decimation, the base
 // ring cache and its encode budget, the volatile frame, the join payload and pp:geo replies.
 // Events go to the room through `queue(entry)`; money comes from the room through `microOf`.
+//
+// cull (a paid arena, night review 2026-10-29, finding 16): every page used to get every square's live position,
+// heading and open trail, so a userscript could draw the whole arena. With cull the room asks for each page's own
+// view instead: seenBy(focus) picks the squares around what that page looks at, frame(pickups, seen) and
+// joinPayload(seen) carry only those (the rest come with their name, skin, money and land but no position or trail,
+// marked hidden), the reliable trail corners go to each page by trailsFor(held, seen) instead of the shared queue,
+// and geo answers trails only for squares the asker sees. Rings (land) stay shared: the board and every page's
+// land show them anyway. A free arena (no cull) is exactly as before.
 const P = require('./loadPaperLib');
 
 const MP = P.MP;
@@ -14,12 +22,25 @@ function ringPoints(base) {
   return base.polygon.segments.map((s) => s.start);
 }
 
+// Squared distance from (px, py) to the segment a-b.
+function distToSegmentSq(px, py, ax, ay, bx, by) {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const len2 = dx * dx + dy * dy;
+  let t = len2 > 0 ? ((px - ax) * dx + (py - ay) * dy) / len2 : 0;
+  t = t < 0 ? 0 : t > 1 ? 1 : t;
+  const qx = ax + dx * t - px;
+  const qy = ay + dy * t - py;
+  return qx * qx + qy * qy;
+}
+
 class ArenaWire {
-  constructor(game, { queue, microOf, holdingOf } = {}) {
+  constructor(game, { queue, microOf, holdingOf, cull } = {}) {
     this.game = game;
     this.queue = queue || (() => {});
     this.microOf = microOf || (() => 0);
     this.holdingOf = holdingOf || ((u) => !!(u.isHuman && u.locked));
+    this.cull = cull === true;
     this.state = new Map(); // unit -> per-unit wire state
     this.stats = { ringEncodes: 0, trailBatches: 0, frames: 0 };
   }
@@ -115,7 +136,8 @@ class ArenaWire {
         const st = this.state.get(unit);
         const corners = st.dec.corners;
         if (corners.length > st.sent) {
-          this.queue(['t', unit.id, st.epoch, st.sent, MP.encodePoints(corners.slice(st.sent))]);
+          // culled: each page gets its own batches (trailsFor), never the whole room
+          if (!this.cull) this.queue(['t', unit.id, st.epoch, st.sent, MP.encodePoints(corners.slice(st.sent))]);
           st.sent = corners.length;
           this.stats.trailBatches++;
         }
@@ -149,25 +171,105 @@ class ArenaWire {
     };
   }
 
-  // The volatile pp:s frame: ONE encode per arena per snapshot tick.
-  frame(pickups) {
+  // The volatile pp:s frame: ONE encode per arena per snapshot tick. seen (cull): the squares one page is sent
+  // (seenBy), in the arena's order; every square without it.
+  frame(pickups, seen) {
     const game = this.game;
     this.stats.frames++;
+    const units = seen ? game.units.filter((u) => seen.has(u.id)) : game.units;
     return MP.encodeFrame({
       tick: game.tick,
       radius: game.border.radius,
       targetRadius: game.targetRadius,
       shrinking: game.shrinking,
       paid: game.paid,
-      units: game.units.map((u) => this._frameUnit(u)),
+      units: units.map((u) => this._frameUnit(u)),
       pickups: pickups || []
     });
+  }
+
+  // The squares one page is sent (cull): focus { x, y, unit } is what its camera looks at (unit: its own square, or
+  // the one it watches; null when it follows nobody alive). Every square within MP.VIEW_CULL_RADIUS of the focus, any
+  // whose open trail reaches into that circle, the focus square, and any square on the focus square's land (the
+  // minimap's red frame). -> Map unit id -> unit (empty for no focus).
+  seenBy(focus) {
+    const out = new Map();
+    if (!focus) return out;
+    const R = MP.VIEW_CULL_RADIUS;
+    const tw = (this.game.config && this.game.config.trackWidth) || 0;
+    const own = focus.unit || null;
+    for (const u of this.game.units) {
+      if (u === own || (own && u.in && u.in === own.base)) {
+        out.set(u.id, u);
+        continue;
+      }
+      const dx = u.position.x - focus.x;
+      const dy = u.position.y - focus.y;
+      if (dx * dx + dy * dy <= R * R) {
+        out.set(u.id, u);
+        continue;
+      }
+      const poly = u.track && u.track.polyline;
+      const b = poly && poly.start ? poly.bounds : null;
+      if (!b) continue;
+      // the trail's box, widened by the track, against the circle (a quick no), then the trail itself
+      const cx = Math.max(b.left - tw, Math.min(focus.x, b.right + tw));
+      const cy = Math.max(b.top - tw, Math.min(focus.y, b.bottom + tw));
+      const ex = cx - focus.x;
+      const ey = cy - focus.y;
+      if (ex * ex + ey * ey <= R * R && this._trailNear(u, focus, R + tw + MP.TRAIL_TOL)) out.set(u.id, u);
+    }
+    return out;
+  }
+
+  // Night review 2026-10-29 (the review of finding 16): the box alone sent a square on a big loop, with its head and
+  // whole trail, to every page whose circle touched any corner of the loop's box, empty corners included. A page draws
+  // a square's trail as its corners and then its head, so the square is seen when one of those segments comes within
+  // r of the focus (r: the cull radius, the track's width and the decimator's tolerance).
+  _trailNear(unit, focus, r) {
+    const st = this.state.get(unit);
+    const pts = st && st.dec.corners.length ? st.dec.corners : null;
+    if (!pts) return true; // nothing decimated yet (a trail this tick began): the box decides
+    const r2 = r * r;
+    let ax = pts[0].x;
+    let ay = pts[0].y;
+    for (let i = 1; i <= pts.length; i++) {
+      const p = i < pts.length ? pts[i] : unit.position;
+      if (distToSegmentSq(focus.x, focus.y, ax, ay, p.x, p.y) <= r2) return true;
+      ax = p.x;
+      ay = p.y;
+    }
+    // the raw points the decimator still holds lie within its tolerance of the last corner to the newest one
+    const h = st.dec.head();
+    return distToSegmentSq(focus.x, focus.y, pts[pts.length - 1].x, pts[pts.length - 1].y, h.x, h.y) <= r2;
+  }
+
+  // The reliable trail entries one page is owed (cull): for every square it sees, the corners batched since that page
+  // last had it, from 0 when it had none or an older trail. held: Map unit id -> { epoch, sent }, the room's record
+  // of that page, updated here; a square it no longer sees is forgotten, so it comes from 0 when seen again (the page
+  // drops a square's trail when it stops being sent, paperMirror). Nothing goes for a trail with no batched corner.
+  trailsFor(held, seen) {
+    const out = [];
+    for (const id of Array.from(held.keys())) if (!seen.has(id)) held.delete(id);
+    for (const unit of seen.values()) {
+      const st = this.state.get(unit);
+      if (!st) continue;
+      const h = held.get(unit.id);
+      if (h && h.epoch === st.epoch && h.sent === st.sent) continue;
+      const from = h && h.epoch === st.epoch && h.sent <= st.sent ? h.sent : 0;
+      if (st.sent > from) out.push(['t', unit.id, st.epoch, from, MP.encodePoints(st.dec.corners.slice(from, st.sent))]);
+      held.set(unit.id, { epoch: st.epoch, sent: st.sent });
+    }
+    return out;
   }
 
   // The state part of pp:joined, built from live state in the same turn as the join (5.6).
   // Rings reuse the cache; trails carry the corners already sent reliably (the frame tail
   // carries the rest, exactly as for existing members).
-  joinPayload() {
+  // seen (cull): the squares this page is sent (seenBy); any other comes with no position, heading, land it stands on
+  // or trail, and hidden: 1 (its page draws it once a frame brings it). held (cull): filled with the trails sent here,
+  // the page's starting point for trailsFor.
+  joinPayload(seen, held) {
     const game = this.game;
     const units = [];
     const rings = [];
@@ -177,6 +279,15 @@ class ArenaWire {
       this._feedTrail(unit, st);
       this._noteCarve(unit, st);
       const ring = this._encodeRing(unit, st);
+      if (seen && !seen.has(unit.id)) {
+        units.push({ id: unit.id, name: unit.name, skin: unit.skin ? unit.skin.name : null, bot: false, x: 0, y: 0,
+          dir: 0, inId: 0, micro: this.microOf(unit.id), pct: ring.pct, ver: ring.ver & 0xFFFF, epoch: st.epoch,
+          hidden: 1 });
+        rings.push(ring.blob);
+        trails.push(MP.encodePoints([]));
+        continue;
+      }
+      if (held) held.set(unit.id, { epoch: st.epoch, sent: st.sent });
       const inBase = unit.in;
       units.push({
         id: unit.id,
@@ -198,14 +309,16 @@ class ArenaWire {
     return { tick: game.tick, radius: game.border.radius, targetRadius: game.targetRadius, units, rings, trails };
   }
 
-  // Reply to pp:need { id } (0 = everything): the ring and the reliable corners.
-  geo(id) {
+  // Reply to pp:need { id } (0 = everything): the ring and the reliable corners. seen (cull): trails only for the
+  // squares the asker is sent (a ring is everyone's), so pp:need cannot fetch a far square's trail.
+  geo(id, seen) {
     const ev = [];
     for (const unit of this.game.units) {
       if (id && unit.id !== id) continue;
       const st = this._st(unit);
       const ring = this._encodeRing(unit, st);
       ev.push(['b', unit.id, ring.ver & 0xFFFF, ring.pct, ring.blob]);
+      if (seen && !seen.has(unit.id)) continue;
       ev.push(['t', unit.id, st.epoch, 0, MP.encodePoints(st.dec.corners.slice(0, st.sent))]);
     }
     return { tick: this.game.tick, ev };

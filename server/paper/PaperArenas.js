@@ -41,8 +41,11 @@ class PaperArenas {
   // journal: the paid money journal (server/ag/agJournal.js, shared with paid agar and paid snake), or null. Every paid
   // seat's account is opened and closed in it, and a shutdown or crash closes each one 'refunded' with its owed row,
   // so the next boot's replay writes the refunds a dying process could not (security review item a).
-  constructor({ region = 'na', io = null, hooks, now = Date.now, paidEnabled = process.env.PAPER_PAID === '1', autoTick = true, warm = true, awake = false, makeRoom, journal = null, botStore = null, botBank = null, botCurve = null } = {}) {
+  // watchDelayMs: how far behind the live game a paid arena's watchers are sent (PaperRoom WATCH_DELAY_MS, night review
+  // 2026-10-29); left out, the arena's own default.
+  constructor({ region = 'na', io = null, hooks, now = Date.now, paidEnabled = process.env.PAPER_PAID === '1', autoTick = true, warm = true, awake = false, makeRoom, journal = null, botStore = null, botBank = null, botCurve = null, watchDelayMs } = {}) {
     this.region = region;
+    this.watchDelayMs = watchDelayMs;
     this.io = io;
     this.hooks = hooks;
     this.now = now;
@@ -240,7 +243,8 @@ class PaperArenas {
       now: this.now,
       directory: this,
       autoTick: this.autoTick,
-      botCurve: stake > 0 ? null : this.botCurve
+      botCurve: stake > 0 ? null : this.botCurve,
+      watchDelayMs: this.watchDelayMs
     });
     room.onClosed = (closed) => this._replace(closed);
     const list = this.arenas[keyOf(stake)];
@@ -316,7 +320,8 @@ class PaperArenas {
   // the awake free arena #1 and its bots (keepAwake: it ticks anyway). A pure query: never seatFor, never a new arena,
   // and null when no arena of the rung has a player and none is awake (an arena ticks only while someone is seated or
   // it is awake, and watchers alone must never cost a tick). A watcher of a paid arena is read only exactly as on Free
-  // (PaperRoom.addWatcher): every player there is already sent the whole arena, so it learns nothing they do not.
+  // (PaperRoom.addWatcher), and is sent only what is around the square it follows, as each player is sent only what
+  // is around its own (night review 2026-10-29: ArenaWire cull), and only WATCH_DELAY_MS late.
   watchFor(stake) {
     const rung = rungOf(stake);
     if (rung === null || !this.arenas[keyOf(rung)]) return null;

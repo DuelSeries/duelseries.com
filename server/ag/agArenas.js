@@ -568,6 +568,9 @@ class AgArenas {
     this.cleared.delete(socket.id);
     socket._agRoom = room;
     socket._agStake = room.stake;
+    const seat = room.seatOf(socket.id);
+    const acct = seat && room.money ? room.money.account(seat.pid) : null;
+    if (acct && acct.ip) this._dropWatchersAt(room.stake, acct.ip);
   }
 
   // A socket that connected with auth.paid (a stake hand-off): no watcher seat, never refused as full; dropped when
@@ -732,19 +735,54 @@ class AgArenas {
   }
 
   // Watching a paid rung (the lobby's Spectate on $0.50 or $1; agSockets: a handshake with watchStake): a watcher
-  // seat in that rung's room with the most open accounts, read only (agRoom isWatchOnly). Never opens a room; null
-  // when nobody plays at that rung or its rooms have no watcher seat (the socket layer refuses and closes).
-  connectWatch(socket, stake) {
+  // seat in that rung's room with the most open accounts, read only (agRoom isWatchOnly), already watching the top
+  // player. Never opens a room; null when nobody plays at that rung or its rooms have no watcher seat (the socket layer
+  // refuses and closes).
+  // ip (night review 2026-10-29): the watcher's address. An address holding an open paid account at this rung is
+  // refused (null), so a seated player cannot open a second view of their own table in another tab; it can watch
+  // again once that account closes. The watcher's address is kept on its seat for _dropWatchersAt.
+  connectWatch(socket, stake, ip) {
     if (!socket || typeof socket.id !== 'string') return null;
     const rung = this._rungOf(stake);
     if (rung === null || rung === 0) return null;
+    const addr = typeof ip === 'string' ? ip : '';
+    if (addr && this._seatedAt(rung, addr)) return null;
     const list = (this.rungs.get(rung) || []).filter((r) => !r.stopped && r.openAccounts() > 0 && r.hasWatchSpace())
       .sort((a, b) => b.openAccounts() - a.openAccounts() || a.index - b.index);
     if (!list.length) return null;
     const room = list[0];
-    if (!room.addSocket(socket, { watch: true, clearFirst: true })) return null;
+    const seat = room.addSocket(socket, { watch: true, clearFirst: true });
+    if (!seat) return null;
+    seat.ip = addr;
+    // Its bundles reach the page late (agRoom WATCH_DELAY_MS), so the camera is on the top player from the first one
+    // instead of from the page's own ag:spectate a delay later.
+    room.spectate(socket.id);
     this.bySocket.set(socket.id, room);
     return room;
+  }
+
+  // An open paid account at this rung (any of its rooms, the settling ones too) opened from this address.
+  _seatedAt(rung, ip) {
+    for (const room of (this.rungs.get(rung) || []).concat(this.settling.filter((r) => r.stake === rung))) {
+      if (!room.money) continue;
+      for (const acct of room.money.accounts.values()) if (acct.ip && acct.ip === ip) return true;
+    }
+    return false;
+  }
+
+  // A paid seat just opened from this address (night review 2026-10-29): every watcher of that rung from the same
+  // address goes (refused 'nobody', so its page shows the empty table and asks again, which connectWatch refuses until
+  // the account closes). Covers watching first and buying in from another tab after.
+  _dropWatchersAt(rung, ip) {
+    if (!ip) return;
+    for (const room of this.rungs.get(rung) || []) {
+      for (const seat of Array.from(room.seats.values())) {
+        if (!seat.watchOnly || seat.ip !== ip) continue;
+        room.removeSocket(seat.socketId);
+        if (this.bySocket.get(seat.socketId) === room) this.bySocket.delete(seat.socketId);
+        refuse(seat.socket, 'nobody');
+      }
+    }
   }
 
   // Play. Returns the room's answer ('ok', 'alive', 'full', ...).

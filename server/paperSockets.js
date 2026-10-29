@@ -11,6 +11,7 @@ const { rungOf } = require('./stakeRules');
 const { MP } = require('./paper/loadPaperLib');
 const { WATCHERS_MAX } = require('./paper/PaperRoom');
 const { sharedPass } = require('./skinPass');
+const { socketClientIp } = require('./clientAddr');
 
 const TEXT = {
   'bad-stake': 'That table does not exist.',
@@ -41,6 +42,9 @@ const WATCH_TEXT = {
 };
 
 const TOKEN_MAX_LEN = 256; // a real token is a UUID; anything longer names no seat
+// Paid Spectate pages one address may have open at once, every paid rung together (night review 2026-10-29): two, so
+// a second tab or a housemate behind the same router still watches; one more is told 'full'.
+const PAID_WATCH_PER_ADDR = 2;
 
 // pp:need's limits (night review 2026-10-29). Per id: the 250 ms (one square) and 2000 ms (id 0, everything) the page
 // keeps itself (paperNet.js NEED_UNIT_MS, NEED_ALL_MS). They live in one small Map per socket, never a socket._rl key
@@ -228,6 +232,7 @@ module.exports = function createPaperSockets({
       }
       socket._ppRoom = seat.room;
       socket._ppStake = seat.room.stake;
+      if (seat.room.stake > 0) dropWatchersAt(seat.room.stake, addrOf(socket)); // night review 2026-10-29
       return;
     }
     // 3t. a paid join re-sent with its entry token: the page keeps the token in memory until
@@ -255,6 +260,7 @@ module.exports = function createPaperSockets({
         if (socket._ppRoom && socket._ppRoom !== seat.room) socket.leave(socket._ppRoom.ioRoom);
         socket._ppRoom = seat.room;
         socket._ppStake = seat.room.stake;
+        dropWatchersAt(seat.room.stake, addrOf(socket)); // night review 2026-10-29
         return;
       }
       const was = arenas.outcomeOf('t:' + proof);
@@ -381,6 +387,7 @@ module.exports = function createPaperSockets({
     // 9. socket state is these two fields only
     socket._ppRoom = seat.room;
     socket._ppStake = stake;
+    if (stake > 0) dropWatchersAt(stake, addrOf(socket)); // night review 2026-10-29: no second view of your table
     // 10. a free seat's phone push, after the seat exists (nothing paid rides on a free seat, and it cannot throw out)
     if (stake === 0 && !respawn && typeof onFreeJoin === 'function') {
       try {
@@ -418,6 +425,61 @@ module.exports = function createPaperSockets({
     socket.emit('pp:watching', { none: true, why, text: WATCH_TEXT[why] || why });
   }
 
+  // Night review 2026-10-29 (finding 16, with 6 and 8): a paid table is never watched from the address of a live
+  // square at that rung (a second tab, or a housemate, stepping round every other square), and a square seated or
+  // taken back from an address ends that address's watchers of the rung ('seated': the page shows it and asks again,
+  // and is answered once the square is gone). Free tables are not guarded (no money).
+  function addrOf(socket) {
+    try {
+      return String(socketClientIp(socket) || '');
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function rungArenas(stake) {
+    return typeof arenas.all === 'function' ? arenas.all().filter((r) => r && r.stake === stake && !r.stopped) : [];
+  }
+
+  function seatedAt(stake, ip, except) {
+    if (!ip) return false;
+    for (const r of rungArenas(stake)) {
+      for (const seat of r.seats.values()) {
+        if (!seat || seat.unit.death || !seat.socketId || seat.socketId === except) continue;
+        const s = typeof r._socketById === 'function' ? r._socketById(seat.socketId) : null;
+        if (s && addrOf(s) === ip) return true;
+      }
+    }
+    return false;
+  }
+
+  // Night review 2026-10-29 (the review of finding 16): the paid watchers from one address, every paid rung, this
+  // socket aside. A script on a second address pinned one watcher on each square; PAID_WATCH_PER_ADDR caps that.
+  function paidWatchesAt(ip, except) {
+    if (!ip || typeof arenas.all !== 'function') return 0;
+    let n = 0;
+    for (const r of arenas.all()) {
+      if (!r || !(r.stake > 0) || !r.watchers) continue;
+      for (const [id, ws] of r.watchers) if (id !== except && ws && addrOf(ws) === ip) n++;
+    }
+    return n;
+  }
+
+  function dropWatchersAt(stake, ip) {
+    if (!(stake > 0) || !ip) return;
+    for (const r of rungArenas(stake)) {
+      for (const [id, ws] of Array.from(r.watchers)) {
+        if (!ws || addrOf(ws) !== ip) continue;
+        r.removeWatcher(id);
+        try {
+          watchRefuse(ws, 'seated');
+        } catch (e) {
+          console.error('[PAPER] watcher drop', e && e.message);
+        }
+      }
+    }
+  }
+
   function unwatch(socket) {
     const room = socket._ppWatch;
     if (!room) return;
@@ -435,6 +497,17 @@ module.exports = function createPaperSockets({
     const stake = typeof msg.stake === 'number' ? rungOf(msg.stake) : null;
     if (stake === null || !isStake(stake)) return watchRefuse(socket, 'bad-stake');
     if (socket._ppRoom && socket._ppRoom.hasLiveUnit(socket.id)) return watchRefuse(socket, 'seated');
+    if (stake > 0 && seatedAt(stake, addrOf(socket), socket.id)) {
+      unwatch(socket);
+      return watchRefuse(socket, 'seated');
+    }
+    // A paid watch whose first state is still on its way (PaperRoom WATCH_DELAY_MS): the page's every-3-s ask keeps it.
+    const cur = socket._ppWatch;
+    if (cur && cur.stake === stake && !cur.stopped && typeof cur.watchStarting === 'function' && cur.watchStarting(socket.id)) return;
+    if (stake > 0 && paidWatchesAt(addrOf(socket), socket.id) >= PAID_WATCH_PER_ADDR) {
+      unwatch(socket);
+      return watchRefuse(socket, 'full');
+    }
     const after = Number.isInteger(msg.after) && msg.after > 0 ? msg.after : 0;
     // A dead player's socket still sits in its arena's io room: it leaves it, as pp:leave does.
     if (socket._ppRoom) {
@@ -492,7 +565,22 @@ module.exports = function createPaperSockets({
     const id = Number.isInteger(msg.id) && msg.id > 0 ? msg.id : 0;
     if (id && !(room.game && room.game.byId && room.game.byId.has(id))) return;
     if (!needAllowed(socket, id)) return;
-    socket.emit('pp:geo', MP.packBin(room.geo(id)));
+    // a paid arena answers trails only for the squares this page is sent, and to its watcher behind what that watcher
+    // is shown (night review 2026-10-29)
+    if (typeof room.answerNeed === 'function') return room.answerNeed(socket, id);
+    socket.emit('pp:geo', MP.packBin(room.geo(id, socket.id)));
+  }
+
+  // pp:follow { id } (night review 2026-10-29): a watcher's page follows another square now (its Spectate bar, or the
+  // next square after one died), so a paid arena sends it what is around that square. Watchers only. At most one
+  // change every 500 ms, so a script cannot sweep the camera round every square to map the arena; the page asks
+  // again every 250 ms until its pick is shown, so fast presses still land.
+  function onFollow(socket, msg) {
+    if (!isObject(msg) || !Number.isInteger(msg.id) || msg.id < 1) return;
+    const room = socket._ppWatch;
+    if (!room || typeof room.followWatch !== 'function') return;
+    if (!socketRL(socket, 'ppfollow', 500)) return;
+    room.followWatch(socket.id, msg.id);
   }
 
   function onLeave(socket) {
@@ -546,6 +634,7 @@ module.exports = function createPaperSockets({
     socket.on('pp:leave', guard('pp:leave', () => onLeave(socket)));
     socket.on('pp:ping', guard('pp:ping', (msg) => onPing(socket, msg)));
     socket.on('pp:watch', guard('pp:watch', (msg) => onWatch(socket, msg)));
+    socket.on('pp:follow', guard('pp:follow', (msg) => onFollow(socket, msg)));
     socket.on('pp:chat', guard('pp:chat', (msg) => onChat(socket, msg)));
   }
 
