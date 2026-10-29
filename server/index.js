@@ -47,6 +47,7 @@ const { TRUST_PROXY } = require('./clientAddr');     // X-Forwarded-For only fro
 const { securityHeaders } = require('./securityHeaders');
 const { cacheControl, precompressed, byteBudget, budgetMbFrom, staticName } = require('./staticCache'); // static: no-cache + ETag, br/gzip, bytes per address
 const { ingestProxy } = require('./ingestProxy');    // the PostHog relay, credentials stripped
+const { liveCache } = require('./liveCache');        // /api/live's JSON, shared while busy
 const ops       = require('./ops');       // maintenance mode
 const { createSkinShop, liveChain } = require('./skinShop');   // buying skins with USDC
 const { sharedPass: sharedSkinPass } = require('./skinPass');   // the pass a game checks before wearing a paid skin
@@ -4171,7 +4172,10 @@ function liveSnapshot() {
     return { lobbies: [], stakes: ALL_STAKES, extras: [], br: null, counts: null, unknown: ['all'] };
   }
 }
-app.get('/api/live', (_req, res) => res.json(liveSnapshot()));
+/* Built fresh for a quiet site, shared for up to a second once it is busy (server/liveCache.js,
+   night review 2026-10-29): a crowd of polling lobbies costs a few builds a second, not one each. */
+const liveJson = liveCache(liveSnapshot);
+app.get('/api/live', (_req, res) => res.type('json').send(liveJson()));
 
 /* The lobby's Open lobbies board, pushed (Owen 2026-10-27: a player waiting in a queue or joining a paid room
    "doesn't show up until I reload my page"; the 10 s poll was the only way it learned). A lobby page's listen-only
