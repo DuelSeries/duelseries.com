@@ -62,6 +62,16 @@ class SwimLobby {
     this.ended = new Map();       // seat key -> { over, side, at }: races that ended, for a late reconnect
     this.liveKey = '';
     this.timer = null;
+    /* The most FREE races run at once: KnockoutLobby.freeRoomCap, the same rule (night review 2026-10-29).
+       Infinity is the old rule; index.js sets the live number. */
+    this.freeRoomCap = Infinity;
+  }
+
+  /* Free races still being run (see freeRoomCap). */
+  freeRoomsRunning() {
+    let n = 0;
+    for (const r of this.rooms.values()) if (!(r.stake > 0) && r.state !== 'over') n++;
+    return n;
   }
 
   start() {
@@ -146,6 +156,8 @@ class SwimLobby {
   pump(now) {
     if (this.stopping) return;
     for (const [a, b] of duelQueue.pairUp(this.queue)) {
+      // A free pair waits while the free races are full (freeRoomCap); both stay queued.
+      if (!(a.stake > 0) && this.freeRoomCap < Infinity && this.freeRoomsRunning() >= this.freeRoomCap) continue;
       this.dequeue(a.socket.id); this.dequeue(b.socket.id);
       this.startMatch([a, b], false, now);
     }
@@ -154,6 +166,7 @@ class SwimLobby {
   tick(now) {
     const t = typeof now === 'number' ? now : Date.now();
     this.pump(t);
+    let free = -1;   // free races running, counted once a tick and only when a bot is due (freeRoomCap)
     for (const e of [...this.queue]) {
       if (e.stake > 0) {
         if (t - e.since < PAID_GIVE_UP_MS) continue;
@@ -163,6 +176,11 @@ class SwimLobby {
       }
       const wait = typeof e.botWait === 'number' && Number.isFinite(e.botWait) ? e.botWait : BOT_AFTER_MS;
       if (t - e.since < wait) continue;
+      if (this.freeRoomCap < Infinity) {
+        if (free < 0) free = this.freeRoomsRunning();
+        if (free >= this.freeRoomCap) continue;   // the free races are full: it keeps waiting
+        free++;
+      }
       this.dequeue(e.socket.id);
       this.startMatch([e], true, t);
     }

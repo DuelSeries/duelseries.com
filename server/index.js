@@ -44,6 +44,7 @@ const ownerAuth = require('./ownerAuth'); // the owner wallet signing for an own
 const { isWalletString } = require('./b58Caps');     // a client address is a key's size before any decode
 const Swap = require('./swap');                      // SOL <-> USDC in the player's own wallet
 const { TRUST_PROXY } = require('./clientAddr');     // X-Forwarded-For only from nginx (loopback / private)
+const addrLimits = require('./addrLimits');          // sockets and free duel seats per address on the main namespace
 const { securityHeaders } = require('./securityHeaders');
 const ops       = require('./ops');       // maintenance mode
 const { createSkinShop, liveChain } = require('./skinShop');   // buying skins with USDC
@@ -5034,7 +5035,54 @@ function broadcastLobbyState() {
   if (_lobbyStateTimer.unref) _lobbyStateTimer.unref();
 }
 
+/* ─── Per-address limits on this namespace (night review 2026-10-29, server/addrLimits.js) ─────────────
+   /ag, /sl and /chomp cap sockets per address; this namespace (the lobby, the old snake rooms, all eight duels)
+   had no cap, and a free duel seat needs no login, so a few hundred sockets from one machine were a few hundred
+   60 Hz bot matches on the loop every paid game shares. Three limits, each far above any person or household,
+   each an env number on the box (a bad or missing value is the default):
+   - MAIN_SOCKETS_PER_IP (40): sockets one address may hold here. A lobby tab, a game and a spectate are three.
+   - FREE_DUELS_PER_IP (6): free duel seats, queued or at a table, one address may hold across the eight duels.
+     Paid seats are never counted: each is a real stake.
+   - FREE_DUEL_ROOM_CAP: the most free tables each duel runs at once (Head Soccer and Swim 40, the others 60,
+     Knockout 100; Battleship is turn-based and not capped). At the ceiling a free seat keeps waiting until a
+     table ends. Paid tables are never held.
+   A loopback or private address (this box, its own network) is never counted, so nothing local is limited. */
+const envCount = (name, dflt) => {
+  const n = Math.floor(Number(process.env[name]));
+  return Number.isFinite(n) && n > 0 ? n : dflt;
+};
+const MAIN_SOCKETS_PER_IP = envCount('MAIN_SOCKETS_PER_IP', 40);
+const FREE_DUELS_PER_IP = envCount('FREE_DUELS_PER_IP', 6);
+const mainGate = addrLimits.createAddrGate(MAIN_SOCKETS_PER_IP);
+io.use((socket, next) => {
+  if (!mainGate.full(socket)) return next();
+  next(Object.assign(new Error('too many connections from this address'), { data: { why: 'limit' } }));
+});
+{
+  const cap = (n) => envCount('FREE_DUEL_ROOM_CAP', n);
+  knockoutLobby.freeRoomCap = cap(100);
+  headSoccerLobby.freeRoomCap = cap(40);
+  swimLobby.freeRoomCap = cap(40);
+  pool8Lobby.freeRoomCap = cap(60);
+  airHockeyLobby.freeRoomCap = cap(60);
+  rooftopLobby.freeRoomCap = cap(60);
+  crossy.lobby.freeRoomCap = cap(60);
+}
+const FREE_DUELS_BUSY = 'Too many free games from your connection right now. Finish one first.';
+/* A free duel seat this socket may not take: its address already holds FREE_DUELS_PER_IP of them (its own seat in
+   this lobby left out, since queueing again replaces it). Says so with <ev>:refused and answers true. */
+function freeDuelRefused(socket, lobby, ev) {
+  const held = addrLimits.freeSeatsAt(mainGate, socket,
+    [knockoutLobby, battleshipLobby, headSoccerLobby, pool8Lobby, airHockeyLobby, rooftopLobby, swimLobby, crossy.lobby], lobby);
+  if (held === null || held < FREE_DUELS_PER_IP) return false;
+  socket.emit(ev + ':refused', { why: FREE_DUELS_BUSY });
+  return true;
+}
+
 io.on('connection', (socket) => {
+  /* Counted here, after the handshake check above (a socket that never connects is never counted). Two that
+     passed together past the limit: the late one is let go at once, before it has a handler. */
+  if (!mainGate.add(socket)) { socket.disconnect(true); return; }
   console.log(`[+] Connected: ${socket.id}`);
 
   // Every client message goes through here: anything but nothing-or-a-plain-object is dropped
@@ -5682,7 +5730,10 @@ io.on('connection', (socket) => {
       // After the queue holds the seat (never between the token and it): joinAlerts never throws.
       joinAlerts.joined({ game: 'knockout', stake: rung, name: sanitizeName(name), wallet: payTo, queued: true });
     };
-    if (!(wants > 0)) return seat(null);
+    if (!(wants > 0)) {
+      if (freeDuelRefused(socket, knockoutLobby, 'ko')) return;   // the address holds enough free seats already
+      return seat(null);
+    }
     // Off the ladder (the retired 0.1 too): refused before the token is touched, so it stays unspent.
     if (!want) { socket.emit('ko:refused', { why: RETIRED_BUYIN }); return; }
     // The owner's paid door (ko:paid:off), before the token is touched: the player keeps it, and
@@ -5855,7 +5906,10 @@ io.on('connection', (socket) => {
       // After the queue holds the seat (never between the token and it): joinAlerts never throws.
       joinAlerts.joined({ game: 'headsoccer', stake: rung, name: sanitizeName(name), wallet: payTo, queued: true });
     };
-    if (!(wants > 0)) return seat(null);
+    if (!(wants > 0)) {
+      if (freeDuelRefused(socket, headSoccerLobby, 'hs')) return;   // the address holds enough free seats already
+      return seat(null);
+    }
     // Off the ladder (the retired 0.1 too): refused before the token is touched, so it stays unspent.
     if (!want) { socket.emit('hs:refused', { why: RETIRED_BUYIN }); return; }
     // The owner's paid door (ko:paid:off), before the token is touched: the player keeps it, and
@@ -6005,7 +6059,10 @@ io.on('connection', (socket) => {
       // After the queue holds the seat (never between the token and it): joinAlerts never throws.
       joinAlerts.joined({ game: 'pool8', stake: rung, name: sanitizeName(name), wallet: payTo, queued: true });
     };
-    if (!(wants > 0)) return seat(null);
+    if (!(wants > 0)) {
+      if (freeDuelRefused(socket, pool8Lobby, 'p8')) return;   // the address holds enough free seats already
+      return seat(null);
+    }
     // Off the ladder (the retired 0.1 too): refused before the token is touched, so it stays unspent.
     if (!want) { socket.emit('p8:refused', { why: RETIRED_BUYIN }); return; }
     // The owner's paid door (ko:paid:off), before the token is touched: the player keeps it, and
@@ -6075,7 +6132,7 @@ io.on('connection', (socket) => {
   });
   /* ── Crossy Road ── the queue, hops, chat and watching (server/crossy/crossyWire.js). */
   crossy.sockets(socket, on, { socketRL, sanitizeName, rungOf, enterPaid, consumePaidEntryAtStake, strOr, ENTRY_REFUSED,
-    RETIRED_BUYIN, DUEL_PAID_CLOSED, isStake, chatGuard, joinAlerts, ops });
+    RETIRED_BUYIN, DUEL_PAID_CLOSED, isStake, chatGuard, joinAlerts, ops, freeDuelRefused });
 
   /* ── Air Hockey ──────────────────────────────────────────────────────────
      A real-time duel. The queue and the paid door are Knockout's, line for line (the handler below is that one
@@ -6176,7 +6233,10 @@ io.on('connection', (socket) => {
       // After the queue holds the seat (never between the token and it): joinAlerts never throws.
       joinAlerts.joined({ game: 'airhockey', stake: rung, name: sanitizeName(name), wallet: payTo, queued: true });
     };
-    if (!(wants > 0)) return seat(null);
+    if (!(wants > 0)) {
+      if (freeDuelRefused(socket, airHockeyLobby, 'ah')) return;   // the address holds enough free seats already
+      return seat(null);
+    }
     // Off the ladder (the retired 0.1 too): refused before the token is touched, so it stays unspent.
     if (!want) { socket.emit('ah:refused', { why: RETIRED_BUYIN }); return; }
     // The owner's paid door (ko:paid:off), before the token is touched: the player keeps it, and
@@ -6327,7 +6387,10 @@ io.on('connection', (socket) => {
       // After the queue holds the seat (never between the token and it): joinAlerts never throws.
       joinAlerts.joined({ game: 'rooftop', stake: rung, name: sanitizeName(name), wallet: payTo, queued: true });
     };
-    if (!(wants > 0)) return seat(null);
+    if (!(wants > 0)) {
+      if (freeDuelRefused(socket, rooftopLobby, 'rt')) return;   // the address holds enough free seats already
+      return seat(null);
+    }
     // Off the ladder (the retired 0.1 too): refused before the token is touched, so it stays unspent.
     if (!want) { socket.emit('rt:refused', { why: RETIRED_BUYIN }); return; }
     // The owner's paid door (ko:paid:off), before the token is touched: the player keeps it, and
@@ -6449,7 +6512,10 @@ io.on('connection', (socket) => {
       // After the queue holds the seat (never between the token and it): joinAlerts never throws.
       joinAlerts.joined({ game: 'battleship', stake: rung, name: sanitizeName(name), wallet: payTo, queued: true });
     };
-    if (!(wants > 0)) return seat(null);
+    if (!(wants > 0)) {
+      if (freeDuelRefused(socket, battleshipLobby, 'bs')) return;   // the address holds enough free seats already
+      return seat(null);
+    }
     if (!want) { socket.emit('bs:refused', { why: RETIRED_BUYIN }); return; }   // token left unspent
     if (!bsPaidOpen) { socket.emit('bs:refused', { why: DUEL_PAID_CLOSED }); return; }   // bs:paid:off, token left unspent
     // A paid seat is queued only once its stake row is claimed (enterPaid, STATUS item 7a).
@@ -6571,7 +6637,10 @@ io.on('connection', (socket) => {
       // After the queue holds the seat (never between the token and it): joinAlerts never throws.
       joinAlerts.joined({ game: 'swim', stake: rung, name: sanitizeName(name), wallet: payTo, queued: true });
     };
-    if (!(wants > 0)) return seat(null);
+    if (!(wants > 0)) {
+      if (freeDuelRefused(socket, swimLobby, 'sw')) return;   // the address holds enough free seats already
+      return seat(null);
+    }
     if (!want) { socket.emit('sw:refused', { why: RETIRED_BUYIN }); return; }   // token left unspent
     if (!swPaidOpen) { socket.emit('sw:refused', { why: DUEL_PAID_CLOSED }); return; }   // sw:paid:off, token left unspent
     // A paid seat is queued only once its stake row is claimed (enterPaid, STATUS item 7a).
@@ -6693,6 +6762,7 @@ io.on('connection', (socket) => {
   paper.attach(socket);
 
   socket.on('disconnect', async () => {
+    mainGate.remove(socket);                     // its place under its address's MAIN_SOCKETS_PER_IP
     /* Dropping out of a duel hands the other player the win, and takes this
        socket out of the queue if it never got into one. Without it a closed tab
        leaves an opponent staring at a turn that will never come. */

@@ -210,3 +210,66 @@ test('play again still works, and a free one goes through the capped join alerts
   assert.match(h, /\} else \{[\s\S]*joinAlerts\.joined\(\{ game: room\.isBattleRoyale \? 'br' : 'snake', stake: 0,/, 'a free one is a capped join alert');
   assert.strictEqual((h.match(/notify\.pushOwner\(/g) || []).length, 1);
 });
+
+/* ── finding 13: no per-address cap on the main namespace, and free duel seats without limit ─────── */
+test('one address holds at most 40 sockets here; a place frees when one closes; local sockets are never counted', { timeout: 90000 }, async () => {
+  const ip = nextIp();
+  const held = [];
+  try {
+    for (let i = 0; i < 40; i++) held.push(await connect(ip));
+    await assert.rejects(connect(ip), /too many connections/, 'the 41st from that address is refused at the handshake');
+    const other = await connect();   // another address is its own count
+    held.push(other);
+    held.shift().s.close();
+    await sleep(300);
+    held.push(await connect(ip));
+    await assert.rejects(connect(ip), /too many connections/);
+    const local = [];
+    for (let i = 0; i < 45; i++) local.push(await connect(null));
+    held.push(...local);
+    assert.ok(await handled(local[44].s), 'sockets from this box itself are never limited');
+    assert.ok(alive(), died());
+  } finally { for (const c of held) c.s.close(); }
+  await sleep(300);
+});
+
+test('one address holds at most 6 free duel seats across every duel; another address, and a freed seat, still play', { timeout: 90000 }, async () => {
+  const ip = nextIp();
+  const socks = [];
+  try {
+    // Six free seats: five Head Soccer, one Knockout. The same wallet string keeps them from pairing with each other.
+    for (let i = 0; i < 6; i++) {
+      const c = await connect(ip);
+      socks.push(c);
+      c.s.emit(i === 5 ? 'ko:queue' : 'hs:queue', { name: 'seat' + i, wallet: 'SameWa11et' });
+      assert.ok(await handled(c.s));
+    }
+    assert.strictEqual(socks.filter((c) => c.count('hs:queued') === 1 || c.count('ko:queued') === 1).length, 6, 'six seats taken');
+    const seventh = await connect(ip);
+    socks.push(seventh);
+    seventh.s.emit('ah:queue', { name: 'seat6', wallet: 'SameWa11et' });
+    assert.ok(await handled(seventh.s));
+    const refused = seventh.got.find((g) => g[0] === 'ah:refused');
+    assert.ok(refused && /Too many free games/.test(refused[1].why), 'the seventh is refused, with a reason');
+    assert.strictEqual(seventh.count('ah:queued'), 0);
+    // Queueing again where it already waits is not a new seat.
+    await sleep(1100);
+    socks[0].s.emit('hs:queue', { name: 'seat0', wallet: 'SameWa11et' });
+    assert.ok(await handled(socks[0].s));
+    assert.strictEqual(socks[0].count('hs:refused'), 0, 'its own seat is replaced, not counted twice');
+    // Another address plays as normal.
+    const elsewhere = await connect();
+    socks.push(elsewhere);
+    elsewhere.s.emit('ah:queue', { name: 'other', wallet: 'OtherWa11et' });
+    assert.ok(await handled(elsewhere.s));
+    assert.strictEqual(elsewhere.count('ah:queued'), 1);
+    // One of the six leaves: the seventh gets its seat.
+    socks[1].s.emit('hs:unqueue');
+    assert.ok(await handled(socks[1].s));
+    await sleep(1100);
+    seventh.s.emit('ah:queue', { name: 'seat6', wallet: 'SameWa11et' });
+    assert.ok(await handled(seventh.s));
+    assert.ok(await until(() => seventh.count('ah:queued') === 1 || seventh.count('ah:start') === 1, 2000), 'a freed seat is a seat again');
+    assert.ok(alive(), died());
+  } finally { for (const c of socks) c.s.close(); }
+});

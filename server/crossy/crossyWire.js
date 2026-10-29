@@ -153,7 +153,11 @@ function create(deps) {
         }
         h.joinAlerts.joined({ game: 'crossy', stake: rung, name: h.sanitizeName(name), wallet: payTo, queued: true });
       };
-      if (!(wants > 0)) return seat(null);
+      if (!(wants > 0)) {
+        // The address already holds enough free duel seats (index.js freeDuelRefused, night review 2026-10-29).
+        if (typeof h.freeDuelRefused === 'function' && h.freeDuelRefused(socket, lobby, 'cr')) return;
+        return seat(null);
+      }
       if (!want) { socket.emit('cr:refused', { why: h.RETIRED_BUYIN }); return; }
       // The owner's paid door, before the token is touched: the player keeps it unspent.
       if (!paidOpen) { socket.emit('cr:refused', { why: h.DUEL_PAID_CLOSED }); return; }

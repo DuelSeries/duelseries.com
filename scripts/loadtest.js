@@ -12,7 +12,9 @@
 //
 // /api/debug/tick is owner only since the night review of 2026-10-29: set LT_OWNER_COOKIE to the
 // owner console's session cookie ("name=value", from the browser) to read it. Without it the
-// server-tick columns show "-".
+// server-tick columns show "-". The server also caps sockets per internet address on the main
+// namespace (MAIN_SOCKETS_PER_IP, 40 by default): a run against a remote server from one machine
+// needs that raised on the box first. A run against localhost is never capped.
 //
 // Usage: npm run loadtest   (env: LT_URL, LT_LEVELS, LT_HZ, LT_SAMPLE, LT_REGION, LT_LOBBY, LT_OWNER_COOKIE)
 const { io } = require('socket.io-client');

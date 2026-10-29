@@ -119,6 +119,19 @@ class KnockoutLobby {
        old rule: a drop is a leave at once. Knockout and Head Soccer pass nothing and are exactly what they were. */
     this.graceMs = Number(o.graceMs) > 0 ? Number(o.graceMs) : 0;
     this.ended = new Map();       // seat key -> { over, side, you, at }: matches that ended, for a late reconnect
+    /* The most FREE tables this lobby runs at once (night review 2026-10-29). Every table is physics on the one
+       event loop every paid game shares, and a free seat needs no login, so without a ceiling enough sockets
+       queued for free play could slow every paid match on the box. At the ceiling a free pair or a free seat due
+       its bot simply keeps waiting until a table ends. Paid tables are never counted or held. Infinity (the
+       default) is the old rule; index.js sets the live numbers. */
+    this.freeRoomCap = Number(o.freeRoomCap) > 0 ? Number(o.freeRoomCap) : Infinity;
+  }
+
+  /* Free tables still being played (see freeRoomCap). */
+  freeRoomsRunning() {
+    let n = 0;
+    for (const r of this.rooms.values()) if (!(r.stake > 0) && r.state !== 'over') n++;
+    return n;
   }
 
   start() {
@@ -244,6 +257,8 @@ class KnockoutLobby {
     if (this.stopping) return;
     // Same rung, two different people (two tabs of one wallet never meet), oldest first.
     for (const [a, b] of duelQueue.pairUp(this.queue)) {
+      // A free pair waits while the free tables are full (freeRoomCap); both stay queued, oldest first.
+      if (!(a.stake > 0) && this.freeRoomCap < Infinity && this.freeRoomsRunning() >= this.freeRoomCap) continue;
       this.dequeue(a.socket.id); this.dequeue(b.socket.id);
       this.startMatch([a, b], false, now);
     }
@@ -257,6 +272,7 @@ class KnockoutLobby {
        on enqueue, which is exactly the moment the second of them was not there
        yet. */
     this.pump(t);
+    let free = -1;   // free tables running, counted once a tick and only when a bot is due (freeRoomCap)
     for (const e of [...this.queue]) {
       /* A paid seat waits for a person, and then gives up and gets its money
          back. A free one gets a bot, because there is nothing to lose. */
@@ -270,6 +286,11 @@ class KnockoutLobby {
       /* The minute set at enqueue; an entry without one (made by hand) waits the same. */
       const wait = typeof e.botWait === 'number' && Number.isFinite(e.botWait) ? e.botWait : BOT_AFTER_MS;
       if (t - e.since < wait) continue;
+      if (this.freeRoomCap < Infinity) {
+        if (free < 0) free = this.freeRoomsRunning();
+        if (free >= this.freeRoomCap) continue;   // the free tables are full: it keeps waiting
+        free++;
+      }
       this.dequeue(e.socket.id);
       this.startMatch([e], true, t);
     }
