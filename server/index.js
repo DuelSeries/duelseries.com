@@ -4,7 +4,7 @@ const http       = require('http');
 const https      = require('https');
 const { Server } = require('socket.io');
 const path       = require('path');
-const { rateLimit } = require('express-rate-limit');
+const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 const C        = require('../shared/constants');
 const GameRoom = require('./GameRoom');
 const { BattleRoyaleRoom, BR } = require('./BattleRoyaleRoom');
@@ -519,21 +519,45 @@ const entryFeeLimiter = rateLimit({ windowMs: 60 * 1000, max: 10, standardHeader
    the key across many addresses is the server-wide budget below. */
 const rpcLimiter = rateLimit({ windowMs: 10 * 1000, max: 40, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Slow down.' } });
 /* One server-wide budget for the provider calls the public RPC routes make (night review 2026-10-29, findings 2 and
-   22; server/rpcBudget.js says why): /api/sol-balance takes two, /api/rpc one. PUBLIC_RPC_RPS a second (4 by default)
-   after a burst of PUBLIC_RPC_BURST (40), so a page load or a send goes through as before and only a steady flood
-   is held. Empty, the route answers 503 and asks nothing of the chain: the widget shows a balance it could not read
-   as unknown (and never blocks a stake on it) and reads again on its next 15 s tick. Stake verifies, submits, payouts
-   and the drainer never take from it, so whatever strangers send they keep the rest of the key. /api/blockhash takes
-   nothing: it shares one answer every 2 s, so it can never cost more than that, and a withdraw never waits on this.
-   Raise both in .env with a bigger Helius plan (about 30 signed-in lobby tabs fill 4 a second with balance polls). */
-const publicRpcBudget = rpcBudget.createBucket({ perSec: rpcBudget.envNumber('PUBLIC_RPC_RPS', 4),
-  burst: Math.max(4, rpcBudget.envNumber('PUBLIC_RPC_BURST', 40)) });
-const publicRpcBusy = rpcBudget.refusalLog('public RPC reads');
-// true when `calls` provider calls fit the budget now; otherwise the 503 is sent and false comes back.
-function publicRpcAllowed(res, calls) {
-  if (publicRpcBudget.take(calls)) return true;
-  publicRpcBusy();
-  res.set('Retry-After', '1').status(503).json({ error: 'Busy, try again in a moment.' });
+   22; server/rpcBudget.js says why): /api/sol-balance takes two, /api/rpc one, a fresh /api/blockhash one.
+   PUBLIC_RPC_RPS a second after a burst of PUBLIC_RPC_BURST (40), so a page load or a send goes through as before and
+   only a steady flood is held. Empty, the route answers 503 and asks nothing of the chain: the widget shows a balance
+   it could not read as unknown (and never blocks a stake on it; in SOL mode Withdraw, a skin buy and Add from a linked
+   wallet do wait for it, which is why no one address may hold it empty) and reads again on its next 15 s tick. Stake verifies,
+   submits, payouts and the drainer never take from it, so whatever strangers send they keep the rest of the key.
+   Second pass (night review 2026-10-29), what a single address can no longer do:
+   - spend the month: PUBLIC_RPC_PER_DAY (10000 by default) caps a day, so this budget can cost about 300k of the
+     plan's 1M credits a month however long a flood runs (it was 4 a second, about 345k a DAY);
+   - hold it empty for everyone: each IP (as the per-IP counts key it) has a quarter of the rate and half the burst,
+     refused past that with a 429, so three quarters always stay for other addresses (before, one address's 40 asks
+     per 10 s at two calls each was twice the whole rate, and in SOL mode the balance it starved is what Withdraw
+     and a skin buy read first); and an eighth of the day, past which it reads only while more than a quarter of
+     the day is left, which stays for players inside their share.
+   The owner's own session is never counted in the day or a share (budgetKeyOf), only in the rate.
+   Defaults are sized for Helius Free (10 calls a second, 1M a month): 3 a second here and 2 for history leave 5 a
+   second for stakes, submits and payouts, and the two day caps leave about half the month's credits to them. One
+   signed-in tab polls its balance at about 11k calls a day, so real traffic needs a bigger plan and these raised
+   with it (PUBLIC_RPC_RPS, PUBLIC_RPC_BURST, PUBLIC_RPC_PER_DAY in .env; the EU server on the same key spends its
+   own, so halve them on both while it runs). */
+const PUBLIC_RPC_RPS = rpcBudget.envNumber('PUBLIC_RPC_RPS', 3);
+const PUBLIC_RPC_BURST = Math.max(4, rpcBudget.envNumber('PUBLIC_RPC_BURST', 40));
+const PUBLIC_RPC_PER_DAY = rpcBudget.envNumber('PUBLIC_RPC_PER_DAY', 10000);
+const publicRpcBudget = rpcBudget.createBudget({ perSec: PUBLIC_RPC_RPS, burst: PUBLIC_RPC_BURST, perDay: PUBLIC_RPC_PER_DAY,
+  perKey: rpcBudget.callerShare({ perSec: PUBLIC_RPC_RPS, burst: PUBLIC_RPC_BURST, perDay: PUBLIC_RPC_PER_DAY }) });
+const publicRpcBusy = rpcBudget.refusalLogs('public RPC reads');
+/* Who a public chain read is counted to: the owner's own session is UNMETERED (the rate only), anyone else their
+   address as express-rate-limit keys it (an IPv6 address by its /56, so one home network is one caller). */
+function budgetKeyOf(req) {
+  try { if (ownerSessions.fromRequest(req)) return rpcBudget.UNMETERED; } catch (_) { /* no session: an address */ }
+  return ipKeyGenerator(String(req.ip || ''));
+}
+// true when `calls` provider calls fit the budget now; otherwise the refusal is sent and false comes back.
+function publicRpcAllowed(req, res, calls) {
+  const no = publicRpcBudget.take(calls, budgetKeyOf(req));
+  if (!no) return true;
+  publicRpcBusy[no]();
+  if (no === 'key') res.set('Retry-After', '5').status(429).json({ error: 'Too many requests. Slow down.' });
+  else res.set('Retry-After', '1').status(503).json({ error: 'Busy, try again in a moment.' });
   return false;
 }
 /* Every route that verifies a wallet signature or an owner token (/api/my-name, /api/owner/*,
@@ -806,7 +830,7 @@ app.get('/api/sol-balance', rpcLimiter, async (req, res) => {
   if (!address) return res.status(400).json({ error: 'address required' });
   // A key's size and alphabet before new PublicKey() decodes it (quadratic: server/b58Caps.js).
   if (!isWalletString(address)) return res.status(400).json({ error: 'Invalid address' });
-  if (!publicRpcAllowed(res, 2)) return;   // two provider calls in either mode: the wallet's SOL and its USDC
+  if (!publicRpcAllowed(req, res, 2)) return;   // two provider calls in either mode: the wallet's SOL and its USDC
   try {
     if (money.mode === 'sol') {
       /* SOL mode: the wallet's SOL is its money. balance is that SOL in dollars at the display rate (null with no
@@ -838,7 +862,7 @@ app.get('/api/sol-balance', rpcLimiter, async (req, res) => {
 app.post('/api/rpc', rpcLimiter, async (req, res) => {
   const bad = Wallet.rpcRequestError(req.body);
   if (bad) return res.status(400).json({ error: bad });
-  if (!publicRpcAllowed(res, 1)) return;
+  if (!publicRpcAllowed(req, res, 1)) return;
   try {
     res.type('application/json').send(await Wallet.forwardRpc(req.body));
   } catch (e) {
@@ -848,15 +872,24 @@ app.post('/api/rpc', rpcLimiter, async (req, res) => {
 
 /* One blockhash for every asker for 2 s (night review 2026-10-29, finding 2): each ask was its own provider call. A
    blockhash stays good for about a minute, so a send built on one up to 2 s old is the same send, and asks that come
-   while one is being fetched share it. However hard this route is asked it costs the key one call per 2 s at most,
-   so it takes nothing from the public budget and a player's withdraw never waits on that. A failed fetch is not kept;
-   one stuck past 30 s is asked again. */
+   while one is being fetched share it. A failed fetch is not kept; one stuck past 30 s is asked again.
+   Second pass: one call per 2 s is still 43k a day from a loop that never stops (1.3M a month, more than Helius
+   Free's whole month), so each fresh fetch now takes one from the public budget, counted to whoever asked (`key`). When
+   the budget has none for them, the last one is handed out while it is under 20 s old (still good for 40 s or more,
+   far past a send's signing), and only then is the answer a 503. */
 const BLOCKHASH_SHARE_MS = 2000;
+const BLOCKHASH_STALE_OK_MS = 20_000;
 let _sharedBlockhash = null;   // { at, done, promise }
-function sharedBlockhash() {
+function sharedBlockhash(key) {
   const now = Date.now();
   const hit = _sharedBlockhash;
   if (hit && now - hit.at < (hit.done ? BLOCKHASH_SHARE_MS : 30_000)) return hit.promise;
+  const no = publicRpcBudget.take(1, key);
+  if (no) {
+    publicRpcBusy[no]();
+    if (hit && hit.done && now - hit.at < BLOCKHASH_STALE_OK_MS) return hit.promise;
+    return Promise.reject(Object.assign(new Error('Busy, try again in a moment.'), { busy: true }));
+  }
   const entry = { at: now, done: false, promise: null };
   entry.promise = Wallet.getLatestBlockhash().then(
     ({ blockhash }) => { entry.done = true; entry.at = Date.now(); return blockhash; },
@@ -868,9 +901,10 @@ function sharedBlockhash() {
 // Latest blockhash for the wallet to build a transfer (self-custody Cash Out / generic send).
 app.get('/api/blockhash', rpcLimiter, async (req, res) => {
   try {
-    const blockhash = await sharedBlockhash();
+    const blockhash = await sharedBlockhash(budgetKeyOf(req));
     res.json({ blockhash });
   } catch (e) {
+    if (e && e.busy) return res.set('Retry-After', '1').status(503).json({ error: e.message });
     res.status(500).json({ error: e.message });
   }
 });
@@ -2355,7 +2389,7 @@ async function withSkinItems(wallet, page) {
   }
   return page;
 }
-function txHistoryFor(wallet, before) {
+function txHistoryFor(wallet, before, budgetKey) {
   const now = Date.now();
   const key = wallet + ':' + (before || '');
   const hit = txHistoryCache.get(key);
@@ -2366,7 +2400,7 @@ function txHistoryFor(wallet, before) {
     }
     if (txHistoryCache.size >= TX_HISTORY_MAX) txHistoryCache.delete(txHistoryCache.keys().next().value);
   }
-  const pending = Usdc.usdcHistory(wallet, { limit: TX_PAGE, before, sol: money.mode === 'sol', priceOn: prices.solUsdAt }).then((page) => withSkinItems(wallet, page)).then(
+  const pending = Usdc.usdcHistory(wallet, { limit: TX_PAGE, before, sol: money.mode === 'sol', priceOn: prices.solUsdAt, budgetKey }).then((page) => withSkinItems(wallet, page)).then(
     (page) => { txHistoryCache.set(key, { at: Date.now(), page }); return page; },
     (e) => { txHistoryCache.delete(key); throw e; });
   txHistoryCache.set(key, { at: now, pending });
@@ -2381,7 +2415,7 @@ const isTxSignature = (s) => /^[1-9A-HJ-NP-Za-km-z]{64,88}$/.test(s);
    most 500 wallets' answers are kept (each is 200 rows at most, Usdc.TRANSFER_ROWS_MAX). */
 const TX_TRANSFERS_MAX = 500;
 const txTransfersCache = new Map();  // wallet -> { at, page } or { at, pending }
-function txTransfersFor(wallet) {
+function txTransfersFor(wallet, budgetKey) {
   const now = Date.now();
   const hit = txTransfersCache.get(wallet);
   if (hit && (hit.pending || now - hit.at < TX_HISTORY_TTL_MS)) return hit.pending || Promise.resolve(hit.page);
@@ -2391,7 +2425,7 @@ function txTransfersFor(wallet) {
     }
     if (txTransfersCache.size >= TX_TRANSFERS_MAX) txTransfersCache.delete(txTransfersCache.keys().next().value);
   }
-  const pending = Usdc.usdcTransfers(wallet, { priceOn: prices.solUsdAt }).then(
+  const pending = Usdc.usdcTransfers(wallet, { priceOn: prices.solUsdAt, budgetKey }).then(
     (page) => {
       if (page.complete) txTransfersCache.set(wallet, { at: Date.now(), page });
       else txTransfersCache.delete(wallet);
@@ -2406,7 +2440,7 @@ app.get('/api/my-transfers', txHistoryLimiter, async (req, res) => {
   if (!wallet) return res.status(400).json({ error: 'No wallet' });
   if (!isWalletString(wallet)) return res.status(400).json({ error: 'Invalid wallet' });
   try {
-    const page = await txTransfersFor(wallet);
+    const page = await txTransfersFor(wallet, budgetKeyOf(req));   // the reads it starts count to the asker (night review 2026-10-29)
     res.json({ transfers: page.rows, complete: page.complete });
   } catch (e) {
     console.error('[MY-TRANSFERS]', e.message);
@@ -2422,7 +2456,7 @@ app.get('/api/my-transactions', txHistoryLimiter, async (req, res) => {
   const before = strOr(req.query.before, '').trim();
   if (before && !isTxSignature(before)) return res.status(400).json({ error: 'Invalid cursor' });
   try {
-    const page = await txHistoryFor(wallet, before || undefined);
+    const page = await txHistoryFor(wallet, before || undefined, budgetKeyOf(req));
     res.json({ transactions: page.rows, next: page.next });
   } catch (e) {
     console.error('[MY-TX]', e.message);
