@@ -98,6 +98,10 @@
     MAX_PLAYERS: 100,            // CHOSEN: seats per room (the arena grows with them, up to MODULES_MAX)
     BOT_FILL: 8,                 // CHOSEN: bots top the room up to this many chompers
     LATE_TURN_TICKS: 15,         // CHOSEN: how far back (250 ms) the server honours a turn the browser already took
+    // night review 2026-10-29: a paid room honours only the last 8 ticks (133 ms). The page runs its chomper ahead of
+    // ours by its own uplink (chompMain reconcile), so an honest turn lands within its jitter of the tile; a page that
+    // names a tile it passed long ago on purpose (after seeing where the ghosts went) gets at most this much hindsight.
+    LATE_TURN_TICKS_PAID: 8,     // CHOSEN
 
     // ---- directions: index order is the dossier's tie-break order "up, left, down, right"
     DIRS: [[0, -1], [-1, 0], [0, 1], [1, 0]]

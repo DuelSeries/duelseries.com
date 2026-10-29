@@ -34,6 +34,8 @@ const COLORS = 8;                       // chomper colour slots (the page owns t
 const NAME_MAX = 15;
 const DROP_REACH = 6;                   // CHOSEN: coins land on path tiles at most this many steps from the death tile
 const EMERGENCY_FAIL_TICKS = 3;         // agRoom's: this many throwing ticks in a row close a room for good
+const LATE_LOG_OF = 20;                 // CHOSEN (night review 2026-10-29): a paid seat's late turns looked at together,
+const LATE_LOG_DEEP = 15;               //   and how many of them near the limit get it logged (_noteLateTurn)
 
 function mulberry(seed) {
   return function () {
@@ -198,13 +200,18 @@ class ChompRoom {
 
   // The page pressed in tile (c, r), which we went through in the last LATE_TURN_TICKS ticks without changing
   // direction: take the turn at the first tile from there that has the opening (where the page turned) and move on
-  // from it. Movement only, and only where the same rules would have turned, so lying about (c, r) gains nothing.
+  // from it. Movement only, and only where the same rules would have turned.
+  // Lying about (c, r) still buys time: a page can hold a turn back and name the tile later, after seeing where the
+  // ghosts went. So a paid room (night review 2026-10-29) takes a turn back only LATE_TURN_TICKS_PAID ticks, never
+  // through a ghost or a powered chomper on the way (_lateTurnThreat), and logs a seat whose turns keep landing near
+  // that limit (_noteLateTurn). A turn it does not take back waits for the next opening, as one sent too late always did.
   lateTurn(p, d, c, r) {
     const h = p.hist;
-    let i = h.length - 1, first = -1;
-    for (; i >= 0; i--) {
+    const lo = this.money ? Math.max(0, h.length - R.LATE_TURN_TICKS_PAID) : 0;
+    let i = h.length - 1, first = -1, last = -1;
+    for (; i >= lo; i--) {
       if (h[i].dir !== p.dir) break;
-      if (Math.floor(h[i].x) === c && Math.floor(h[i].y) === r) first = i;
+      if (Math.floor(h[i].x) === c && Math.floor(h[i].y) === r) { first = i; if (last < 0) last = i; }
       else if (first >= 0) break;
     }
     if (first < 0) return;
@@ -212,12 +219,56 @@ class ChompRoom {
     for (; j < h.length; j++) if (Move.canGo(this.A, Math.floor(h[j].x), Math.floor(h[j].y), d)) break;
     if (j >= h.length) return;
     const speed = this.speedOf(p);
-    p.x = h[j].x; p.y = h[j].y; p.dir = d;
+    // the move on from the turn, worked out first on a copy (a paid room checks it before anything moves)
+    const t = { x: h[j].x, y: h[j].y, dir: d, moving: p.moving };
+    const path = [];
     for (let k = j + 1; k < h.length; k++) {
-      if (!h[k].paused) Move.advance(p, this.A, speed * DT);
-      h[k] = { x: p.x, y: p.y, dir: p.dir, paused: h[k].paused };
+      if (!h[k].paused) Move.advance(t, this.A, speed * DT);
+      path.push({ x: t.x, y: t.y, dir: t.dir, paused: h[k].paused });
     }
+    if (this.money) {
+      if (this._lateTurnThreat(p, path)) return;
+      this._noteLateTurn(p, h.length - 1 - last);
+    }
+    p.x = t.x; p.y = t.y; p.dir = d; p.moving = t.moving;
+    for (let k = 0; k < path.length; k++) h[j + 1 + k] = path[k];
     p.face = p.dir;
+  }
+
+  // Would the turn taken back carry p through something that catches it? The move on checks no catch, so a ghost
+  // (not blue for p) or, p unpowered, a powered chomper standing now on a tile of that path says no. A chomper
+  // blinking safe or shielded meets nothing.
+  _lateTurnThreat(p, path) {
+    if (!path.length || p.safe > 0 || this.shielded.has(p.id)) return false;
+    const W = this.A.W, tiles = new Set();
+    for (const s of path) tiles.add(Math.floor(s.y) * W + Math.floor(s.x));
+    for (const g of this.ghosts) {
+      if (g.state === 'active' && !this.blueFor(p, g) && tiles.has(Math.floor(g.y) * W + Math.floor(g.x))) return true;
+    }
+    if (p.power > 0) return false;
+    for (const q of this.players.values()) {
+      if (q === p || q.power <= 0 || q.dying || q.over || this.shielded.has(q.id)) continue;
+      if (tiles.has(Math.floor(q.y) * W + Math.floor(q.x))) return true;
+    }
+    return false;
+  }
+
+  // A paid seat's last LATE_LOG_OF turns taken back, by how late each came (ticks since we left the tile it named).
+  // An honest page is lined up with us and comes late only by its jitter; a page that keeps landing within 3 ticks of
+  // the limit looks like one holding its turns back on purpose (or a device far too slow to keep time): logged once a
+  // seat, for the owner to look at.
+  _noteLateTurn(p, late) {
+    const ring = p.lateTurns || (p.lateTurns = []);
+    ring.push(late);
+    if (ring.length > LATE_LOG_OF) ring.shift();
+    if (p.lateLogged || ring.length < LATE_LOG_OF) return;
+    const near = R.LATE_TURN_TICKS_PAID - 4;
+    const deep = ring.filter((n) => n >= near).length;
+    if (deep < LATE_LOG_DEEP) return;
+    p.lateLogged = true;
+    this.log.warn('[CHOMP] LATE-TURN pattern ' + this.lobbyType + ' pid ' + p.id + ' ' + JSON.stringify(p.name) + ': ' +
+      deep + ' of its last ' + LATE_LOG_OF + ' turns came ' + near + '+ ticks after it left the tile (limit ' +
+      (R.LATE_TURN_TICKS_PAID - 1) + ')');
   }
 
   // ---- placement
