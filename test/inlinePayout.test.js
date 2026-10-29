@@ -24,7 +24,7 @@ const bs58 = (_bs58 && _bs58.default) ? _bs58.default : _bs58;
 const Wallet = require('../server/Wallet');
 const { createMemLedgerDb, NO_USDC_ACCOUNT } = require('../scripts/memLedgerDb');
 const { createPayoutDrainer } = require('../server/payoutDrainer');
-const { createInlinePayout, SUPERSEDED } = require('../server/inlinePayout');
+const { createInlinePayout, SUPERSEDED, INTENT_TRIES, HOLD_RETRY_MS } = require('../server/inlinePayout');
 
 const quiet = { log() {}, warn() {}, error() {} };
 const S = 1000;
@@ -33,15 +33,46 @@ const LAMPORTS = 4_500_000;
 const tick = () => new Promise((r) => setImmediate(r));
 async function until(fn, n = 400) { for (let i = 0; i < n && !fn(); i++) await tick(); assert.ok(fn(), 'condition never held'); }
 
-function setup(money) {
+/* sleep: the waits between tries of the owed row. By default every one is over at once; a test that holds a payout
+   passes its own (gates below). */
+function setup(money, { sleep = async () => {} } = {}) {
   let t = 1e12;
   const db = createMemLedgerDb({ now: () => t });
   const earned = [];
   db.recordEarnings = async (w, name, amount) => { earned.push([w, name, amount]); };
   const kicks = [];
-  const inline = createInlinePayout({ money, db, kickDrain: () => kicks.push(1), log: quiet });
+  const alerts = [];
+  const inline = createInlinePayout({ money, db, kickDrain: () => kicks.push(1), log: quiet, sleep, now: () => t,
+    alert: (text, opts) => alerts.push([text, opts]) });
   const drainer = createPayoutDrainer({ db, money, noAccountCode: NO_USDC_ACCOUNT, log: quiet, now: () => t });
-  return { db, earned, kicks, inline, drainer, advance: (ms) => { t += ms; } };
+  return { db, earned, kicks, alerts, inline, drainer, advance: (ms) => { t += ms; } };
+}
+
+/* A sleep whose HOLD_RETRY_MS waits end only when the test opens them, one at a time; the short waits between the
+   first tries end at once. */
+function gatedSleep() {
+  const waiting = [];
+  const sleep = (ms) => (ms === HOLD_RETRY_MS ? new Promise((r) => waiting.push(r)) : Promise.resolve());
+  return { sleep, waiting, open() { const r = waiting.shift(); assert.ok(r, 'nothing is waiting'); r(); } };
+}
+
+// The database answers with an error for the next n calls of db.recordPayoutIntent; commitFirst: the first of
+// them writes its row before the error (the INSERT committed, its reply was lost).
+function failIntent(db, n, { commitFirst = false } = {}) {
+  const real = db.recordPayoutIntent;
+  const calls = [];
+  let left = n;
+  db.recordPayoutIntent = async (...a) => {
+    calls.push(a);
+    if (left > 0) {
+      const first = left === n;
+      left--;
+      if (first && commitFirst) await real(...a);
+      throw new Error('Connection terminated unexpectedly');
+    }
+    return real(...a);
+  };
+  return calls;
 }
 
 /* The real SOL payout path on a stubbed chain. confirmGate: when set, the inline confirmation waits for it (a
@@ -178,6 +209,7 @@ test('the drainer saved its own transaction first: the inline attempt sends noth
   const r = await w.inline.pay({ wallet: WALLET, amount: 0.9, name: 'Ann', reason: 'crossy cr_1' });
   Wallet.connection.getLatestBlockhash = realBlockhash;
   assert.strictEqual(r.paid, false);
+  assert.strictEqual(r.handedOff, true, 'told apart from a failure: koSend warns, the cash-out shows no error');
   assert.strictEqual(r.error.code, SUPERSEDED);
   assert.deepStrictEqual(chain.sent, []);
   assert.strictEqual(w.db.payouts[0].signature, 'DRAINERS');
@@ -189,6 +221,7 @@ test('a payout that fails stays owed with its error, the lease ends and the drai
   const r = await w.inline.pay({ wallet: WALLET, amount: 0.9, name: 'Ann', reason: 'knockout ko_2' });
   assert.strictEqual(r.paid, false);
   assert.strictEqual(r.owed, true);
+  assert.strictEqual(r.handedOff, undefined, 'a real failure');
   const row = w.db.payouts[0];
   assert.strictEqual(row.reason, 'knockout ko_2: Escrow has insufficient funds', 'what recordFailedPayout used to write');
   assert.strictEqual(row.last_attempt_at, null);
@@ -221,22 +254,90 @@ test('a refund is owed as a refund and never booked as winnings, inline or by th
   assert.deepStrictEqual(w.earned, []);
 });
 
-test('the database is down when the row should be written: the payout goes out exactly the old way', async () => {
-  const calls = [];
-  const money = { unit: 'USD', fiatValue: (a) => a,
-    async withdraw(wallet, amount, opts) { calls.push(opts); if (amount > 1) { const e = new Error('rpc'); e.broadcast = { signature: 'B' }; throw e; } return 'OLD'; } };
-  const w = setup(money);
-  w.db.recordPayoutIntent = async () => { throw new Error('db down'); };
-  const failed = [];
-  w.db.recordFailedPayout = async (...a) => { failed.push(a); };
-  assert.deepStrictEqual(await w.inline.pay({ wallet: WALLET, amount: 0.9, name: 'Ann', reason: 'battleship b_1' }), { paid: true, sig: 'OLD', earned: true });
-  assert.strictEqual(calls[0], undefined, 'no beforeSend: nothing to save it on');
-  await tick();
+test('an INSERT that committed but whose reply was lost: the retry finds that row, one transfer, nothing left for the drainer', async () => {
+  const chain = realChain();
+  const w = setup(chain.money);
+  const calls = failIntent(w.db, 1, { commitFirst: true });
+  const r = await w.inline.pay({ wallet: WALLET, amount: 0.9, name: 'Ann', reason: 'knockout ko_9' });
+  assert.strictEqual(r.paid, true);
+  assert.strictEqual(r.earned, true);
+  assert.strictEqual(calls.length, 2, 'tried again');
+  assert.match(calls[0][4], /^payout:[0-9a-f-]{36}$/);
+  assert.strictEqual(calls[1][4], calls[0][4], 'with the same key');
+  assert.strictEqual(w.db.payouts.length, 0, 'the one row was closed: no orphan for the drainer');
+  w.advance(31 * S);
+  await w.drainer.drain();
+  assert.strictEqual(chain.sent.length, 1, 'one transfer (the old fallback paid without a row and the drainer paid the orphan again)');
+  for (let i = 0; i < 10; i++) await tick();
   assert.deepStrictEqual(w.earned, [[WALLET, 'Ann', 0.9]]);
-  const r = await w.inline.pay({ wallet: WALLET, amount: 2, name: 'Ann', reason: 'battleship b_2' });
+});
+
+test('the database is down: the payout is held with nothing sent, the owner is told once, and it is paid once the row is written', async () => {
+  const sent = [];
+  const money = { unit: 'USD', fiatValue: (a) => a,
+    async withdraw(wallet, amount, opts) { assert.strictEqual(await opts.beforeSend({ signature: 'H1' }), true); sent.push(amount); return 'H1'; } };
+  const g = gatedSleep();
+  const w = setup(money, { sleep: g.sleep });
+  const calls = failIntent(w.db, INTENT_TRIES + 2);
+  let r = null;
+  w.inline.pay({ wallet: WALLET, amount: 0.9, name: 'Ann', reason: 'pool8 p_9' }).then((x) => { r = x; });
+  await until(() => g.waiting.length === 1);
+  assert.strictEqual(calls.length, INTENT_TRIES, 'tried a few times a moment apart, then held');
+  assert.deepStrictEqual(sent, [], 'nothing is sent without its row');
+  assert.strictEqual(w.db.payouts.length, 0);
+  assert.strictEqual(w.inline.held().length, 1);
+  assert.strictEqual(w.alerts.length, 1);
+  assert.ok(w.alerts[0][0].includes('0.9 USD to ' + WALLET + ' (pool8 p_9)'), 'the push names the payout, to pay it by hand after a restart');
+  assert.strictEqual(w.alerts[0][1].priority, 'high');
+  g.open(); await until(() => g.waiting.length === 1);    // still down
+  g.open(); await until(() => g.waiting.length === 1);    // still down
+  assert.strictEqual(r, null, 'still held');
+  assert.deepStrictEqual(sent, []);
+  assert.strictEqual(w.alerts.length, 1, 'one push, not one per try');
+  g.open();                                                 // the database is back
+  await until(() => r !== null);
+  assert.deepStrictEqual(r, { paid: true, sig: 'H1', earned: true });
+  assert.deepStrictEqual(sent, [0.9], 'paid once');
+  assert.strictEqual(w.db.payouts.length, 0);
+  assert.strictEqual(w.inline.held().length, 0);
+  assert.strictEqual(new Set(calls.map((c) => c[4])).size, 1, 'one key from the first try to the last');
+  assert.strictEqual(w.alerts.length, 2);
+  assert.match(w.alerts[1][0], /Every held payout has its owed row now/);
+  for (let i = 0; i < 10; i++) await tick();
+  assert.deepStrictEqual(w.earned, [[WALLET, 'Ann', 0.9]]);
+});
+
+test('held after a lost reply, and the drainer pays that row first: the held payout finds it by its key and sends nothing', async () => {
+  const chain = realChain();
+  const g = gatedSleep();
+  const w = setup(chain.money, { sleep: g.sleep });
+  failIntent(w.db, INTENT_TRIES, { commitFirst: true });
+  let r = null;
+  w.inline.pay({ wallet: WALLET, amount: 0.9, name: 'Ann', reason: 'airhockey ah_9' }).then((x) => { r = x; });
+  await until(() => g.waiting.length === 1);
+  assert.strictEqual(w.db.payouts.length, 1, 'the first INSERT went through');
+  assert.deepStrictEqual(chain.sent, []);
+  w.advance(31 * S);                                        // the database is back after the lease ran out
+  await w.drainer.drain();
+  assert.strictEqual(chain.sent.length, 1);
+  assert.strictEqual(w.db.payouts[0].paid, true);
+  g.open();
+  await until(() => r !== null);
   assert.strictEqual(r.paid, false);
-  await tick();
-  assert.deepStrictEqual(failed, [[WALLET, 2, 'Ann', 'battleship b_2: rpc', { signature: 'B' }]]);
+  assert.strictEqual(r.handedOff, true);
+  assert.strictEqual(chain.sent.length, 1, 'one transfer for one prize');
+  assert.strictEqual(w.db.payouts.length, 1, 'no second row');
+  for (let i = 0; i < 10; i++) await tick();
+  assert.strictEqual(w.earned.length, 1, 'booked once, by the drainer');
+});
+
+test('a database without the owed-row statements is refused when the server starts, never paid around', async () => {
+  for (const f of ['recordPayoutIntent', 'closePayoutIntent', 'savePayoutSignature', 'releasePayoutIntent']) {
+    const db = createMemLedgerDb();
+    delete db[f];
+    assert.throws(() => createInlinePayout({ money: {}, db }), new RegExp('db\.' + f + ' is missing'));
+  }
+  await assert.rejects(createMemLedgerDb().recordPayoutIntent(WALLET, 1, 'Ann', 'x', 'not-a-key'), /bad key/);
 });
 
 test('index.js: every duel payout and the old snake cash-out go through the owed-row-first path; refunds are refunds', () => {
@@ -256,6 +357,12 @@ test('index.js: every duel payout and the old snake cash-out go through the owed
   const cash = body('async function doCashout(', '\n  }\n');   // nested in the connection handler
   assert.match(cash, /inlinePayout\.pay\(\{ wallet, amount: playerShare, name: snake\.name, reason: `snake \$\{room\.lobbyType\}` \}\)/);
   assert.ok(!/money\.withdraw\(/.test(cash));
+  // The drainer took the payout over (night review 2026-10-29): a warning, and no error on the player's receipt.
+  assert.match(ko, /\} else if \(r\.handedOff\) \{\n\s+console\.warn\(/);
+  const off = cash.indexOf('if (r.handedOff) {'), err = cash.indexOf("socket.emit('cashout:error'");
+  assert.ok(off > 0 && err > off && /^if \(r\.handedOff\) \{\n\s+console\.warn\(.*\);\n\s+return;\n\s+\}/.test(cash.slice(off, err)), 'returns before cashout:error');
+  // The owner is pushed while payouts are held.
+  assert.match(src, /createInlinePayout\(\{\s*money, db, kickDrain: \(\) => kickDrain\(\),\s*alert: \(text, opts\) => notify\.pushOwner\(text, opts\),\s*\}\)/);
 });
 
 test('db.js: the owed row is written leased, closed only while unpaid, and markPayoutPaid settles a row once', async () => {
@@ -263,13 +370,36 @@ test('db.js: the owed row is written leased, closed only while unpaid, and markP
   const seen = [];
   let rowCount = 1;
   db.pool.query = async (sql, params) => { seen.push({ sql, params }); return { rows: [{ id: 42 }], rowCount }; };
-  assert.strictEqual(await db.recordPayoutIntent('W', 0.9, 'Ann', 'knockout ko_1'), 42);
-  assert.match(seen[0].sql, /INSERT INTO failed_payouts \(wallet_address, amount_sol, name, reason, last_attempt_at\)\s+VALUES \(\$1, \$2, \$3, \$4, NOW\(\)\)\s+RETURNING id/);
-  assert.deepStrictEqual(seen[0].params, ['W', 0.9, 'Ann', 'knockout ko_1']);
+  const KEY = 'payout:0b4f8a52-3c1e-4d7a-9f00-1234567890ab';
+  db.features.durableStakes = true;
+  assert.strictEqual(await db.recordPayoutIntent('W', 0.9, 'Ann', 'knockout ko_1', KEY), 42);
+  assert.match(seen[0].sql, /INSERT INTO failed_payouts \(wallet_address, amount_sol, name, reason, last_attempt_at, stake_sig\)\s+VALUES \(\$1, \$2, \$3, \$4, NOW\(\), \$5\)\s+ON CONFLICT \(stake_sig\) WHERE stake_sig IS NOT NULL DO NOTHING\s+RETURNING id/);
+  assert.deepStrictEqual(seen[0].params, ['W', 0.9, 'Ann', 'knockout ko_1', KEY]);
+  assert.strictEqual(seen.length, 1, 'a new row: one statement');
   assert.strictEqual(await db.closePayoutIntent(42), true);
   assert.match(seen[1].sql, /^DELETE FROM failed_payouts WHERE id = \$1 AND paid = false RETURNING id$/);
   assert.strictEqual(await db.markPayoutPaid(42, 'S'), true);
   assert.match(seen[2].sql, /UPDATE failed_payouts SET paid = true, paid_sig = \$2 WHERE id = \$1 AND paid = false/);
+  // A retry after a lost reply: the INSERT is a no-op and the row is found by its key (night review 2026-10-29).
+  const kept = seen.slice();
+  seen.length = 0;
+  db.pool.query = async (sql, params) => { seen.push({ sql, params }); return /^\s*INSERT/.test(sql) ? { rows: [], rowCount: 0 } : { rows: [{ id: 41 }], rowCount: 1 }; };
+  assert.strictEqual(await db.recordPayoutIntent('W', 0.9, 'Ann', 'knockout ko_1', KEY), 41);
+  assert.strictEqual(seen[1].sql, 'SELECT id FROM failed_payouts WHERE stake_sig = $1');
+  assert.deepStrictEqual(seen[1].params, [KEY]);
+  await assert.rejects(db.recordPayoutIntent('W', 0.9, 'Ann', 'knockout ko_1', 'agowed:' + KEY.slice(7)), /bad key/);
+  await assert.rejects(db.recordPayoutIntent('W', 0.9, 'Ann', 'knockout ko_1'), /bad key/, 'never a row without its key');
+  // Without the stake_sig index (the durable-stakes migration failed): the key ends the reason and is matched there.
+  db.features.durableStakes = false;
+  seen.length = 0;
+  db.pool.query = async (sql, params) => { seen.push({ sql, params }); return { rows: [{ id: 43 }], rowCount: 1 }; };
+  assert.strictEqual(await db.recordPayoutIntent('W', 0.9, 'Ann', 'knockout ko_1', KEY), 43);
+  assert.match(seen[0].sql, /WHERE NOT EXISTS \(SELECT 1 FROM failed_payouts WHERE strpos\(reason, \$5::text\) > 0\)/);
+  assert.deepStrictEqual(seen[0].params, ['W', 0.9, 'Ann', 'knockout ko_1 ' + KEY, KEY]);
+  db.features.durableStakes = true;
+  seen.length = 0;
+  seen.push(...kept);
+  db.pool.query = async (sql, params) => { seen.push({ sql, params }); return { rows: [{ id: 42 }], rowCount }; };
   rowCount = 0;
   assert.strictEqual(await db.closePayoutIntent(42), false);
   assert.strictEqual(await db.markPayoutPaid(42, 'S'), false);

@@ -727,15 +727,45 @@ async function markPayoutPaid(id, paidSig) {
    and the row is closed once the transfer landed. A process that dies at any point leaves a row the drainer finishes
    exactly once (it re-sends the saved bytes, or builds once they provably expired unlanded).
    last_attempt_at = NOW() is the drainer's normal 30 s claim lease, so it keeps off the row while the inline attempt
-   runs. Returns the row id. */
-async function recordPayoutIntent(walletAddress, amountSol, name, reason) {
+   runs. Returns the row id.
+   One row per payout, however many times this is called (night review 2026-10-29, re-review of finding 3): key is
+   'payout:' + a UUID, made once per payout by inlinePayout. An INSERT that committed and whose reply was lost (a
+   dropped connection, an RDS failover) used to be followed by a payout with no row, and the drainer later paid the
+   orphan row again. Now inlinePayout tries again with the same key: the key rides stake_sig, as recordOwedOnce's
+   does, whose unique index (failed_payouts_stake_sig_uniq) turns the second INSERT into a no-op, and the row the
+   first one wrote is returned by its key. A real stake signature is base58 and never holds ':', and an 'agowed:' key
+   never starts 'payout:', so the kinds of key never meet. Without that index (the durable-stakes migration failed) the
+   key is put at the end of the reason and matched there instead; inlinePayout makes one try at a time, so the two
+   statements never race each other. */
+async function recordPayoutIntent(walletAddress, amountSol, name, reason, key) {
+  const k = String(key || '');
+  if (!/^payout:[0-9a-f-]{36}$/.test(k)) throw new Error('recordPayoutIntent: bad key');
+  const why = String(reason || '').slice(0, 500);
+  if (features.durableStakes) {
+    const r = await pool.query(
+      `INSERT INTO failed_payouts (wallet_address, amount_sol, name, reason, last_attempt_at, stake_sig)
+       VALUES ($1, $2, $3, $4, NOW(), $5)
+       ON CONFLICT (stake_sig) WHERE stake_sig IS NOT NULL DO NOTHING
+       RETURNING id`,
+      [walletAddress, amountSol, name || null, why, k]
+    );
+    if (r.rows[0]) return r.rows[0].id;
+    const s = await pool.query(`SELECT id FROM failed_payouts WHERE stake_sig = $1`, [k]);
+    if (s.rows[0]) return s.rows[0].id;
+    throw new Error('recordPayoutIntent: the row for ' + k + ' was neither written nor found');
+  }
+  const tagged = why.slice(0, 500 - k.length - 1) + ' ' + k;
   const r = await pool.query(
     `INSERT INTO failed_payouts (wallet_address, amount_sol, name, reason, last_attempt_at)
-     VALUES ($1, $2, $3, $4, NOW())
+     SELECT $1, $2, $3, $4::text, NOW()
+      WHERE NOT EXISTS (SELECT 1 FROM failed_payouts WHERE strpos(reason, $5::text) > 0)
      RETURNING id`,
-    [walletAddress, amountSol, name || null, String(reason || '').slice(0, 500)]
+    [walletAddress, amountSol, name || null, tagged, k]
   );
-  return r.rows[0].id;
+  if (r.rows[0]) return r.rows[0].id;
+  const s = await pool.query(`SELECT id FROM failed_payouts WHERE strpos(reason, $1::text) > 0 ORDER BY id LIMIT 1`, [k]);
+  if (s.rows[0]) return s.rows[0].id;
+  throw new Error('recordPayoutIntent: the row for ' + k + ' was neither written nor found');
 }
 
 /* The inline payout landed: its row is removed while still unpaid, so a payout that went through leaves exactly what

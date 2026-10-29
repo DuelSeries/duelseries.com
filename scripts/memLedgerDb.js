@@ -242,11 +242,17 @@ function createMemLedgerDb({ now = () => Date.now(), latency = null } = {}) {
   }
 
   /* The inline payouts' write-ahead row (db.recordPayoutIntent, night review 2026-10-29, finding 3): INSERT with
-     last_attempt_at = NOW() (the drainer's 30 s lease), RETURNING id. */
-  async function recordPayoutIntent(wallet, amount, name, reason) {
+     last_attempt_at = NOW() (the drainer's 30 s lease) and the payout's key on stake_sig, ON CONFLICT DO NOTHING
+     RETURNING id, then SELECT id by the key: one row per key, however many times it is called. */
+  async function recordPayoutIntent(wallet, amount, name, reason, key) {
     await wait('recordPayoutIntent');
+    const k = String(key || '');
+    if (!/^payout:[0-9a-f-]{36}$/.test(k)) throw new Error('recordPayoutIntent: bad key');
+    const had = payouts.find((p) => p.stake_sig === k);
+    if (had) return had.id;
     const row = newPayout(wallet, amount, name, String(reason || '').slice(0, 500));
     row.last_attempt_at = now();
+    row.stake_sig = k;
     return row.id;
   }
 

@@ -2846,8 +2846,15 @@ knockoutLobby.onRefund = ({ wallet, name, amount, why }) => {
    so a shutdown waits on it. A refund ('<game> refund ...') is owed as
    'refund <game> ...' and is never booked as winnings, here or by the drainer:
    it is the player's own stake going home (the related review findings: duel
-   refunds farmed the earnings board). */
-const inlinePayout = require('./inlinePayout').createInlinePayout({ money, db, kickDrain: () => kickDrain() });
+   refunds farmed the earnings board).
+   Nothing is sent before its row exists: while the database cannot take the
+   row the payout is held and Owen is pushed (night review 2026-10-29). A
+   payout the drainer took over (handedOff: it saved its own transaction for the
+   row first and is sending it) is not a failure and is logged as a warning. */
+const inlinePayout = require('./inlinePayout').createInlinePayout({
+  money, db, kickDrain: () => kickDrain(),
+  alert: (text, opts) => notify.pushOwner(text, opts),
+});
 function koSend(wallet, amount, name, note) {
   const refund = /^\S+ refund\b/.test(note);
   const reason = refund ? note.replace(/^(\S+) refund\b/, 'refund $1') : note;
@@ -2856,6 +2863,9 @@ function koSend(wallet, amount, name, note) {
       if (r.paid) {
         console.log('[KO] sent ' + amount.toFixed(6) + ' ' + money.unit + ' -> '
           + String(wallet).slice(0, 8) + '… sig ' + String(r.sig).slice(0, 12));
+      } else if (r.handedOff) {
+        console.warn('[KO] payout of ' + amount.toFixed(6) + ' to ' + String(wallet).slice(0, 8)
+          + '… is being sent by the drainer, which saved its transaction first');
       } else {
         console.error('[KO] CRITICAL: payout failed for ' + wallet + ' — owed '
           + amount.toFixed(6) + ': ' + (r.error && r.error.message));
@@ -5265,6 +5275,12 @@ io.on('connection', (socket) => {
             if (r.paid) {
               console.log(`[CASHOUT] self-custody ${playerShare.toFixed(6)} ${money.unit} → ${wallet.slice(0, 8)}… sig ${String(r.sig).slice(0, 12)}`);
               socket.emit('cashout:paid', { sol: playerShare, sig: r.sig });
+              return;
+            }
+            /* The drainer saved its own transaction for the row first and is sending it (night review 2026-10-29):
+               not a failure, so the receipt keeps saying 'Sending to your wallet', which is true. */
+            if (r.handedOff) {
+              console.warn(`[CASHOUT] self-custody ${playerShare.toFixed(6)} ${money.unit} → ${wallet.slice(0, 8)}… is being sent by the drainer, which saved its transaction first`);
               return;
             }
             // Recorded owed durably so it's never silently lost (the drainer pays it; the owner sees it via
