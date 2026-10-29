@@ -12,8 +12,8 @@ const http = require('http');
 const { PassThrough, Writable } = require('stream');
 const express = require('express');
 
-const { ingestProxy, upstreamFor, forwardHeaders, returnHeaders, POSTHOG_TOKEN, MAX_BODY, UPSTREAM_IDLE_MS, CAPTURE_HOST,
-  ASSET_HOST } = require('../server/ingestProxy');
+const { ingestProxy, upstreamFor, forwardHeaders, returnHeaders, POSTHOG_TOKEN, MAX_BODY, UPSTREAM_IDLE_MS, MAX_OPEN,
+  STATIC_FILES, CAPTURE_HOST, ASSET_HOST } = require('../server/ingestProxy');
 const { byteBudget } = require('../server/staticCache');
 const { securityHeaders } = require('../server/securityHeaders');
 const { TRUST_PROXY } = require('../server/clientAddr');
@@ -129,10 +129,21 @@ test('only the paths posthog-js calls are relayed; anything else is a 404 that n
     '/ingest/s/', '/ingest/batch/', '/ingest/flags/', '/ingest/decide/', '/ingest/engage/', '/ingest/capture/',
     '/ingest/api/surveys/', '/ingest/api/early_access_features/', '/ingest/api/surveys', '/ingest/api/web_experiments',
     '/ingest/api/web_experiments/', '/ingest/array/' + POSTHOG_TOKEN + '/config',
-    '/ingest/array/' + POSTHOG_TOKEN + '/config.js']) {
+    '/ingest/array/' + POSTHOG_TOKEN + '/config.js', '/ingest/static/posthog-recorder.js', '/ingest/static/lazy-recorder.js',
+    '/ingest/static/surveys.js', '/ingest/static/web-vitals.js', '/ingest/static/dead-clicks-autocapture.js',
+    '/ingest/static/exception-autocapture.js', '/ingest/static/toolbar.js', '/ingest/static/tracing-headers.js']) {
     assert.ok(upstreamFor(p), p + ' is relayed');
   }
-  assert.strictEqual(upstreamFor('/ingest/static/x.js').host, ASSET_HOST);
+  for (const f of STATIC_FILES) assert.ok(upstreamFor('/ingest/static/' + f + '.js'), f);
+  assert.strictEqual(upstreamFor('/ingest/static/array.js').host, ASSET_HOST);
+  /* Night review 2026-10-29: static/ is the SDK files posthog-js loads, never a source map or the unused full
+     bundle (measured raw on the asset host: array.full.js.map 3.0 MB, array.js.map 1.7 MB, array.full.js 680 KB). */
+  for (const p of ['/ingest/static/array.full.js.map', '/ingest/static/array.js.map', '/ingest/static/posthog-recorder.js.map',
+    '/ingest/static/array.full.js', '/ingest/static/array.no-external.js', '/ingest/static/x.js', '/ingest/static/',
+    '/ingest/static/array.js/', '/ingest/static/sub/array.js', '/ingest/static/array.jsx', '/ingest/static/Array.js',
+    '/ingest/static/array', '/ingest/array/' + POSTHOG_TOKEN + '/config.js.map', '/ingest/e/x.map']) {
+    assert.strictEqual(upstreamFor(p), null, p + ' is refused');
+  }
   assert.strictEqual(upstreamFor('/ingest/array/' + POSTHOG_TOKEN + '/config').host, CAPTURE_HOST, 'routing unchanged');
   assert.strictEqual(upstreamFor('/ingest/flags/').host, CAPTURE_HOST);
   for (const p of ['/ingest/', '/ingest', '/ingest/login', '/ingest/admin/', '/ingest/array/phc_someoneElse/config.js',
@@ -251,6 +262,109 @@ test('a PostHog call that hangs is given up after its idle time, and a caller wh
   assert.strictEqual((await call(port3, 'POST', '/ingest/e/', { 'Content-Type': 'application/json' }, '{"a":1}')).status, 200);
   await new Promise((res) => setTimeout(res, 30));
   assert.strictEqual(ok.calls[0].destroyed, false);
+});
+
+/* Night review 2026-10-29, second re-review: the budget was checked only when a call arrived, so parallel calls all
+   passed together (30 of 30 source maps answered against a 6 MB budget, 90 MB out). */
+
+/* A PostHog that answers after a while with a body of the given size, so parallel calls overlap as on the real host. */
+function slowUpstream(ms, size) {
+  const calls = [];
+  const request = (opts, onResponse) => {
+    calls.push({ opts });
+    return new Writable({
+      autoDestroy: false,
+      write(_c, _e, cb) { cb(); },
+      final(cb) {
+        setTimeout(() => {
+          const res = new PassThrough();
+          res.statusCode = 200;
+          res.headers = { 'content-type': 'application/javascript' };
+          onResponse(res);
+          res.end(Buffer.alloc(size, 97));
+        }, ms);
+        cb();
+      },
+    });
+  };
+  return { request, calls };
+}
+
+async function cappedApp(t, upstream, opts = {}) {
+  const handler = ingestProxy({ request: upstream.request, ...opts });
+  const app = express();
+  app.set('trust proxy', TRUST_PROXY);
+  app.all('/ingest/*', handler);
+  const server = await new Promise((resolve) => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
+  t.after(() => server.close());
+  return { port: server.address().port, handler };
+}
+
+test('one address has at most 8 calls relayed at once: past that a 503 at once, never a queue, so a burst cannot pass the budget', async (t) => {
+  assert.strictEqual(MAX_OPEN, 8);
+  const size = 200 * 1024;
+  const budget = byteBudget({ maxBytes: size * 2, windowMs: 600000, log: () => {} });
+  t.after(() => budget.stop());
+  const up = slowUpstream(150, size);
+  const { port, handler } = await cappedApp(t, up, { budget });
+  const A = { 'X-Forwarded-For': '203.0.113.60' };
+
+  // The source maps the reviewer pulled are not relayed at all.
+  const maps = await Promise.all(Array.from({ length: 30 }, () => call(port, 'GET', '/ingest/static/array.full.js.map', A)));
+  assert.deepStrictEqual([...new Set(maps.map((r) => r.status))], [404]);
+  assert.strictEqual(up.calls.length, 0, 'none of them reached PostHog');
+
+  const all = await Promise.all(Array.from({ length: 30 }, () => call(port, 'GET', '/ingest/static/array.js', A)));
+  const ok = all.filter((r) => r.status === 200);
+  const busy = all.filter((r) => r.status === 503);
+  assert.strictEqual(ok.length + busy.length, 30, 'every answer is a relayed file or a 503');
+  assert.ok(ok.length >= 1 && ok.length <= MAX_OPEN, ok.length + ' relayed at once');
+  assert.strictEqual(up.calls.length, ok.length, 'a refused call never reached PostHog, and none was queued for later');
+  for (const r of ok) assert.strictEqual(r.body.length, size);
+  for (const r of busy) {
+    assert.strictEqual(r.headers['retry-after'], '2', 'posthog-js retries a 5xx');
+    assert.strictEqual(r.headers['cache-control'], 'no-store');
+  }
+  await until(() => handler.inFlight() === 0);
+  // At most MAX_OPEN files past the 2-file budget, then the address is refused for its window.
+  assert.strictEqual((await call(port, 'GET', '/ingest/static/array.js', A)).status, 429);
+  assert.strictEqual((await call(port, 'GET', '/ingest/static/array.js', { 'X-Forwarded-For': '198.51.100.60' })).status, 200,
+    'another player is untouched');
+  // nginx itself and local calls have no address key: no cap, as in the byte budget.
+  const local = await Promise.all(Array.from({ length: 12 }, () => call(port, 'GET', '/ingest/static/array.js')));
+  assert.deepStrictEqual([...new Set(local.map((r) => r.status))], [200]);
+});
+
+test('a caller who leaves gives its place back; an honest page load\'s calls all go through', async (t) => {
+  const up = hangingUpstream();
+  const { port, handler } = await cappedApp(t, up);
+  const A = { 'X-Forwarded-For': '203.0.113.61', 'Content-Type': 'application/json' };
+  const leavers = [];
+  for (let i = 0; i < MAX_OPEN; i++) {
+    const r = http.request({ host: '127.0.0.1', port, path: '/ingest/e/', method: 'POST', agent: false, headers: A });
+    r.on('error', () => {});
+    r.end('{"a":1}');
+    leavers.push(r);
+  }
+  await until(() => up.calls.length === MAX_OPEN);
+  const refused = await call(port, 'POST', '/ingest/e/', A, '{"a":1}');
+  assert.strictEqual(refused.status, 503, 'the ninth waits for nobody: refused at once while PostHog hangs');
+  assert.strictEqual(up.calls.length, MAX_OPEN);
+  for (const r of leavers) r.destroy();
+  await until(() => handler.inFlight() === 0);
+  assert.ok(up.calls.every((c) => c.destroyed), 'each call to PostHog went with its caller');
+
+  // A page load's calls, a few at a time as posthog-js makes them, all answer.
+  const ok = fakeUpstream({ body: 'x'.repeat(1000) });
+  const app2 = await cappedApp(t, ok);
+  const B = { 'X-Forwarded-For': '203.0.113.62' };
+  const load = ['/ingest/static/array.js', '/ingest/array/' + POSTHOG_TOKEN + '/config.js', '/ingest/flags/?v=2',
+    '/ingest/static/posthog-recorder.js', '/ingest/static/surveys.js', '/ingest/api/surveys/', '/ingest/e/', '/ingest/s/'];
+  const answers = await Promise.all(load.map((p) => call(app2.port, p.startsWith('/ingest/e') || p.startsWith('/ingest/s')
+    ? 'POST' : 'GET', p, { ...B, 'Content-Type': 'application/json' }, p.startsWith('/ingest/e') || p.startsWith('/ingest/s')
+    ? '{"a":1}' : undefined)));
+  assert.deepStrictEqual([...new Set(answers.map((r) => r.status))], [200]);
+  await until(() => app2.handler.inFlight() === 0);
 });
 
 test('the helpers on their own', () => {
