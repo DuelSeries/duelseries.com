@@ -1239,19 +1239,20 @@ app.get('/api/ping', (req, res) => {
 
 // Someone opened the site — ping the owner's phone (every top-level page load, per request).
 // Obvious bots/crawlers/monitors are skipped so the pings stay real humans.
-app.post('/api/track/visit', express.json({ limit: '8kb' }), (req, res) => {
+// Night review 2026-10-29: it had no limit, so a loop could fill Owen's phone with its own text
+// and use up the ntfy allowance the money and sign-in alerts share. Now 5 a minute per address
+// here, at most 6 pushes per 10 minutes for the whole process, and only checked text in them
+// (server/visitAlerts.js). The page ignores the answer, so a 429 changes nothing for a player.
+const visitLimiter = rateLimit({ windowMs: 60 * 1000, max: 5, standardHeaders: true, legacyHeaders: false, message: { ok: true } });
+const visitAlerts = require('./visitAlerts').createVisitAlerts({ push: notify.pushOwner });
+app.post('/api/track/visit', visitLimiter, express.json({ limit: '8kb' }), (req, res) => {
   res.json({ ok: true });
-  try {
-    const ua = String(req.headers['user-agent'] || '');
-    if (/bot|crawl|spider|slurp|bingpreview|monitor|uptime|headless|curl|wget|python-requests|facebookexternalhit/i.test(ua)) return;
-    const page = String((req.body && req.body.page) || '/').slice(0, 40);
-    const ref  = String((req.body && req.body.ref) || '').slice(0, 60);
-    const country = req.headers['cf-ipcountry'] || '';
-    notify.pushOwner(
-      `Someone opened your site (${page})` + (country && country !== 'XX' ? ` from ${country}` : '') + (ref ? ` via ${ref}` : ''),
-      { title: 'Site visit', tags: 'eyes' }
-    );
-  } catch (_) {}
+  visitAlerts.visit({
+    ua: req.headers['user-agent'],
+    page: req.body && req.body.page,
+    ref: req.body && req.body.ref,
+    country: req.headers['cf-ipcountry'],
+  });
 });
 
 // ─── Static files ─────────────────────────────────────────────────────────────
@@ -4279,7 +4280,9 @@ for (const p of brJournal.prizes()) _brPaid.add(p.matchId);
     if (p.state !== 'paying') continue;
     console.error(`[BR] ${p.matchId}: the ${p.amount} USDC prize to ${p.wallet} was being sent at a restart; check it by hand`);
     try {
-      notify.pushOwner(`${p.name} won ${p.matchId}; the ${p.amount} USDC prize was being sent to ${p.wallet} when the server restarted. Check the escrow's history for it before settling by hand.`,
+      /* No wallet in the push (night review 2026-10-29): the ntfy topic is readable by anyone who
+         knows its name. The wallet is in the console.error line above and in the BR journal. */
+      notify.pushOwner(`${p.name} won ${p.matchId}; the ${p.amount} USDC prize was being sent when the server restarted (wallet in the server log). Check the escrow's history for it before settling by hand.`,
         { title: 'Battle Royale prize: check it', priority: 'high' });
     } catch (_) {}
     brJournal.setPrize(p.matchId, { state: 'unknown' });
@@ -4648,7 +4651,9 @@ async function checkSolvency() {
   if (bbv.address && bbv.sol !== null && bbv.sol < 0.003 && Date.now() - _bbSolWarnAt > 6 * 3600e3) {
     _bbSolWarnAt = Date.now();
     console.warn('[BOTBANK] wallet low on SOL: ' + bbv.sol);
-    notify.pushOwner('The Bot bank wallet has ' + bbv.sol.toFixed(4) + ' SOL for fees. Send about 0.01 SOL to ' + bbv.address,
+    /* No address in the push (night review 2026-10-29): anyone can post to the ntfy topic, so a
+       real push never carries a pay-to address and one that does is a fake. Control shows it. */
+    notify.pushOwner('The Bot bank wallet has ' + bbv.sol.toFixed(4) + ' SOL for fees. Send it about 0.01 SOL (its address is in Control).',
       { title: 'Bot bank needs SOL' });
   }
   try {
