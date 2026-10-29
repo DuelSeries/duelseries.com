@@ -29,8 +29,6 @@
    (public/js/knockout.js), behaviour for behaviour, with hs: event names. */
 
 const socket = io();
-// whose wallet is playing, so a free win counts on the board (dsIdentify.js); never a spectator
-if (window.DSIdentify) window.DSIdentify.attach(socket, () => !WATCH);
 // The ping and FPS readout every game shares (public/js/shared/dsPerfHud.js), timed on this socket.
 if (window.DSPerfHud) window.DSPerfHud.mount({ socket });
 const Sim = window.HSSim, HS = Sim.HS, IN = Sim.IN;

@@ -7,8 +7,7 @@
    game and get feedback, then turn it off.) The lobby earnings strip, the
    Wallet, /api/* and all server data stay real either way.
    false = the real board for everyone again (?leaderboard=preview still shows
-   the sample board in one browser). Off for everyone since 2026-10-28 (Owen):
-   the real board, Live, with free duel wins beside the money. */
+   the sample board in one browser). */
 window.DSConfig = Object.assign(window.DSConfig || {}, {
-  SAMPLE_BOARD: false,
+  SAMPLE_BOARD: true,
 });

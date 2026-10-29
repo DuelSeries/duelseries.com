@@ -3,7 +3,6 @@ const crypto = require('crypto');
 const { refundBound } = require('./stakeRules');
 const { duelMoney } = require('./duelMoney');
 const { newResumeKey } = require('./duelQueue');
-const freeWins = require('./freeWins');
 /* ─── Knockout ────────────────────────────────────────────────────────────────
    Two players, two pieces each, one shrinking disc over a pit. Every turn both
    players get fifteen seconds to drag an arrow out of each of their pieces —
@@ -749,7 +748,6 @@ class KnockoutRoom {
           });
         } catch (e) { console.error('[' + this.ev.toUpperCase() + '] settle hook failed:', e.message); }
       }
-      freeWins.noteRoom(this, winnerId, pot);   // a person's free win, for the lobby's Live wins (never a bot's)
     }
 
     /* Kept (overMsg), so a held seat that comes back after the match ended is shown the real result. */

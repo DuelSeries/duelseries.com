@@ -23,8 +23,6 @@ import { createScene } from './crossyScene.js';
 
 const Sim = window.CrossySim, IN = Sim.IN;
 const socket = io();
-// whose wallet is playing, so a free win counts on the board (dsIdentify.js); never a spectator
-if (window.DSIdentify) window.DSIdentify.attach(socket, () => !WATCH);
 if (window.DSPerfHud) window.DSPerfHud.mount({ socket });
 const $ = (id) => document.getElementById(id);
 const GAME = 'crossy';

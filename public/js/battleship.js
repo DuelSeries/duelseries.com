@@ -14,8 +14,6 @@
    and draws what it is told. */
 
 const socket = io();
-// whose wallet is playing, so a free win counts on the board (dsIdentify.js); never a spectator
-if (window.DSIdentify) window.DSIdentify.attach(socket, () => !WATCH);
 // The ping and FPS readout every game shares (public/js/shared/dsPerfHud.js), timed on this socket.
 if (window.DSPerfHud) window.DSPerfHud.mount({ socket });
 const $ = (id) => document.getElementById(id);

@@ -6,9 +6,7 @@
 
    Real data only: GET /api/earnings/board, the gold strip's own read and rule
    (server/earnings): take-home from paid cash-outs that LANDED, never the
-   owner, revenue or test wallets, and bots have no wallet to count. Free duels
-   won by people sit beside it (Owen 2026-10-28, server/freeWins.js): money
-   ranks first, free wins next, so the board is not empty at $0. The
+   owner, revenue or test wallets, and bots have no wallet to count. The
    server reads the database once a minute at most, so this asks once a minute
    while the Social tab is on screen, which is what "live" means here.
 
@@ -50,7 +48,7 @@
       'font:600 12px/1 var(--f);color:var(--ink);background:var(--money);border-radius:var(--rf);padding:4px 8px;letter-spacing:0}' +
     /* The top 10: one card, ten rows, the amount where the eye ends. */
     '.lb-card{background:var(--s1);border-radius:var(--r3);padding:6px}' +
-    '.lbrow{display:grid;grid-template-columns:30px minmax(0,1fr) auto auto;gap:12px;align-items:center;width:100%;' +
+    '.lbrow{display:grid;grid-template-columns:30px minmax(0,1fr) auto;gap:12px;align-items:center;width:100%;' +
       'text-align:left;padding:13px 12px;border-radius:12px;transition:background .13s}' +
     '.lbrow+.lbrow{box-shadow:0 -1px 0 var(--s2)}' +
     '.lbrow:hover{background:var(--s2)}' +
@@ -60,9 +58,6 @@
     '.lbrow .nm{min-width:0;font-size:15px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
     '.lbrow .gm{display:block;font-size:12px;font-weight:400;color:var(--tx3);margin-top:2px}' +
     '.lbrow .am{font-family:var(--fm);font-size:15px;font-weight:600;color:var(--money)}' +
-    '.lbrow .am.zero{color:var(--tx3)}' +
-    /* Free duel wins: a quiet second figure before the money. */
-    '.lbrow .fw{font-size:12.5px;color:var(--tx2);white-space:nowrap}' +
     '.lb-first .lbrow:first-child .rk{color:var(--money)}' +
     '.lb-none{font-size:13.5px;color:var(--tx3);padding:22px 12px;line-height:1.5}' +
     '.lb-note{font-size:12px;color:var(--tx3);margin-top:10px;line-height:1.45}' +
@@ -86,8 +81,7 @@
     return '<button type="button" class="lbrow" data-name="' + esc(r.name) + '">' +
       '<span class="rk">' + r.rank + '</span>' +
       '<span class="nm">' + esc(r.name) + (sub ? '<span class="gm">' + esc(sub) + '</span>' : '') + '</span>' +
-      '<span class="fw">' + (Number(r.wins) > 0 ? Number(r.wins) + (Number(r.wins) === 1 ? ' free win' : ' free wins') : '') + '</span>' +
-      '<span class="am' + (r.amount > 0 ? '' : ' zero') + '" data-cu="lb-' + esc(r.name) + '">' + money(r.amount) + '</span></button>';
+      '<span class="am" data-cu="lb-' + esc(r.name) + '">' + money(r.amount) + '</span></button>';
   }
 
   // The heading's marks: LIVE (grey while the last read failed), or Sample instead of it.
@@ -113,8 +107,8 @@
     }
     const top = data.top || [];
     if (!top.length) {
-      box.innerHTML = '<div class="lb-card"><div class="lb-none">Nobody has won yet. ' +
-        'Win a game to be first here.</div></div>';
+      box.innerHTML = '<div class="lb-card"><div class="lb-none">Nobody has cashed out yet. ' +
+        'Win a paid game and cash out to be first here.</div></div>';
       return;
     }
     box.innerHTML = '<div class="lb-card lb-first">' + top.slice(0, 10).map(rowHTML).join('') + '</div>' +

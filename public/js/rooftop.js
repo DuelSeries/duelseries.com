@@ -22,8 +22,6 @@
    Soccer's (public/js/headsoccer.js), behaviour for behaviour, with rt: names. */
 
 const socket = io();
-// whose wallet is playing, so a free win counts on the board (dsIdentify.js); never a spectator
-if (window.DSIdentify) window.DSIdentify.attach(socket, () => !WATCH);
 if (window.DSPerfHud) DSPerfHud.mount({ socket });   // the shared ping + FPS box (public/js/shared/dsPerfHud.js)
 const Sim = window.RTSim, RT = Sim.RT;
 const $ = (id) => document.getElementById(id);

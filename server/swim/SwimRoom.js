@@ -43,7 +43,6 @@
    a disconnect always did, and the seat that left loses. */
 
 const crypto = require('crypto');
-const freeWins = require('../freeWins');
 const S = require('../../shared/swimSim');
 const { Spawner } = require('./swimTraffic');
 const { SwimBot } = require('./swimBot');
@@ -462,7 +461,6 @@ class SwimRoom {
           this.onSettled({ roomId: this.id, winnerId: winnerId || null, why: why || '', pot, seats });
         } catch (e) { console.error('[SW] settle hook failed:', e.message); }
       }
-      freeWins.noteRoom(this, winnerId, pot, 'swim');   // a person's free win, for the lobby's Live wins (never a bot's)
     }
     const winSide = winnerId ? this.sideOf(winnerId) : null;
     /* The card's money, keyed by seat ('s0', 's1') so no socket id goes out. */
