@@ -143,7 +143,13 @@ function cleanName(raw, cap, sanitizeName) {
     const piece = '.' + chars.slice(i, i + HELPER_PIECE).join('') + '.';
     agrees = sanitizeName(piece) === piece;
   }
-  if (agrees) return chars.join('');
+  /* A rule the helper applies to the whole name only (night review 2026-10-29: a staff or brand name becomes Player)
+     can pass every piece ("DuelSerie" and "s"), so the whole name is asked too: when the helper turns it into its
+     Player fallback, so does agar. */
+  if (agrees) {
+    const whole = chars.join('');
+    return (whole !== 'Player' && sanitizeName(whole) === 'Player') ? 'Player' : whole;
+  }
   const s = sanitizeName(raw);
   if (typeof s !== 'string') return '';
   // sanitizeName cuts UTF-16 units, which can leave half of a character behind: drop any lone half.

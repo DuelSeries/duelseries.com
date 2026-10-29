@@ -46,7 +46,7 @@
 // handshake (no token, no wallet: the free door holds no money).
 //
 // Owner phone push (C_PUSH, SERVER-DESIGN 13 item 9): after a seat is given, at most one push per player name per
-// perNameMs AND at most maxPerWindow pushes per windowMs in total, the name as cleanNick left it.
+// perNameMs AND at most maxPerWindow pushes per windowMs in total, the name as seatNick left it.
 //
 // attachSlSockets(nsp, arenas, helpers): nsp is io.of('/sl') (null: attach sockets by hand, tests). arenas is
 // slArenas (join, leave, disconnect, input, hold, vis, chat, diag, isOpen, laws). helpers: { socketRL (required),
@@ -86,7 +86,7 @@
 const W = require('../../shared/slWire.js');
 const { assertLawsComplete } = require('./slLaws');
 const { createRng, streamSeed } = require('./slRng');
-const { cleanNick } = require('./slNames');
+const { seatNick } = require('./slNames');
 const { socketClientIp } = require('../clientAddr');
 const { botSkins } = require('./slBots');
 const { safeCall, safeAsync, safeTimeout, createSafeStats, REAL_TIMERS } = require('./slSafe');
@@ -471,7 +471,8 @@ function attachSlSockets(nsp, arenas, helpers) {
     if (st.watch && st.watch.money) return refuse(socket, 'not-open', stats); // a watcher never carries money
     if (!limited(socket, 'join')) return;
     const raw = msg === undefined ? '' : field(msg, 'nick');
-    const nick = cleanNick(typeof raw === 'string' ? raw : '', arenas.laws);
+    // their name rules, then no staff or brand name (seatNick, night review 2026-10-29)
+    const nick = seatNick(typeof raw === 'string' ? raw : '', arenas.laws);
     if (st.paid) {
       st.joined = true;
       stats.paidJoins++;

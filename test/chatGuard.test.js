@@ -39,6 +39,41 @@ test('links, invites, IPs and wallet addresses are refused; ordinary chat is not
   }
 });
 
+test('the ways round the link and scam rules found in the night review (2026-10-29) are closed; ordinary chat is not', () => {
+  for (const s of ['solgift . com', 'solgift .com', 'solgift. com', 'solgift.life', 'bonus.world', 'airdrop.space',
+    'claim.sbs', 'promo.zip', 'duelseries.me/claim', 'solgift' + ch(0x3002) + 'com', 'solgift' + ch(0xff61) + 'com', 't.me',
+    't . me', 'dm me on telegram @solgifts', 'add me on discord: scammer#1234', '@dsupport on tg',
+    'free 2 SOL airdrop for players at solgift . com']) {
+    assert.strictEqual(contentProblem(clean(s)), 'link', s);
+  }
+  for (const s of ['send me your seed', 'whats your 12 words', 'send me ur pk', 'give recovery code',
+    'what’s ur private key', 'support here, dm me on telegram @dsupport, send me your seed to restore your payout']) {
+    assert.strictEqual(contentProblem(clean(s)), 'secret', s);
+  }
+  for (const s of ['good game. gg', 'nice try. gg wp', 'ok. sol is up', 'nice recovery', 'need backup', "can't. me too",
+    'ok.so', 'gg.lol', 'wait ... gg', 'that was fun. win next', 'nice. top 3', 'lol. live again', 'close one. co op?',
+    'give me a sec', 'whats the score', 'send it', 'i lost 12 games', 'w/l ratio', '1/2 of it', 'and/or']) {
+    assert.strictEqual(contentProblem(clean(s)), null, s);
+  }
+});
+
+test('second pass (night review 2026-10-29): spelt endings and loose asks refused; the new false positives are chat', () => {
+  for (const s of ['solgift . c0m', 'sol gift .c o m', 'solgift,com', 'solgift,c0m', 'claim at s0lgift.c0m', 'owen.s0l',
+    'solgift. com/claim', 'go to solgift. com now', 'solgift. io', 'tele gram @sup', 'whats app @scam1', 'disc ord: scammer#1234']) {
+    assert.strictEqual(contentProblem(clean(s)), 'link', s);
+  }
+  for (const s of ['gimme ur seed', 'your 12 word', 'send recovery', 'give me your recovery', 'show me ur private key',
+    'paste your twelve words', 'send me ur 24 words']) {
+    assert.strictEqual(contentProblem(clean(s)), 'secret', s);
+  }
+  for (const s of ['Russia. Ru is big', 'im from Rio. Io is small', 'what is the score. com on', 'nice one . gg',
+    'type 12 words a sec', 'give me a sec, nice recovery', 'i got 12 kills', '0.10', '$1.10 won', 'x1.5k mass',
+    'v2.0 is out', 'won 0.5 sol', 'lvl.10', '3,000 points', 'hi,how are you', 'yes,net worth', 'gg,wp', 'lol,io',
+    'top.3s', 'ez.4u', '1.10', 'ok, com on']) {
+    assert.strictEqual(contentProblem(clean(s)), null, s);
+  }
+});
+
 test('slurs are refused however they are spelt; swear words are masked', () => {
   const slur = rot13('avttre');
   for (const s of [slur, 'you ' + slur, slur.toUpperCase(), 'n1gg3r', slur.split('').join(' '), slur.split('').join('.'),

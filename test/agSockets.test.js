@@ -163,8 +163,12 @@ test('L37 on the real table: names keep 15 characters of any kind; the shared sa
   const src = fs.readFileSync(path.join(__dirname, '..', 'server', 'index.js'), 'utf8');
   const m = /function sanitizeName\(name\) \{([\s\S]*?)\n\}/.exec(src);
   assert.ok(m, 'server/index.js sanitizeName found');
-  assert.ok(m[1].includes(".replace(/[<>]/g, '').trim().slice(0, 20)) || 'Player'"), 'shared helper unchanged');
+  // (night review 2026-10-29: it also strips invisible characters and turns staff names into Player, in playerName.js)
+  assert.ok(m[1].includes('playerName.cleanName(') && m[1].includes(').slice(0, 20);'), 'shared helper still cuts at 20 units');
   assert.strictEqual(sanitizeName(smile.repeat(15)), smile.repeat(10), 'the other games still get 20 units');
+  const real = new Function('playerName', m[0] + '\nreturn sanitizeName;')(require('../server/playerName'));
+  assert.strictEqual(real(smile.repeat(15)), smile.repeat(10), 'the server helper too');
+  assert.strictEqual(cleanName('Owen' + String.fromCharCode(0x200b), cap, real), 'Owen', 'an invisible character is dropped');
 });
 
 test('ag:target: integers only; wrong shapes and non-finite numbers never reach the sim', () => {
@@ -513,8 +517,9 @@ test('ag:join checks the rate limit before it cleans the name', () => {
   assert.strictEqual(a.roomOfSocket(s.id).seatOf(s.id).joined, false);
   allow = true;
   s.handlers['ag:join']({ name: big });
-  // one helper check per 9-character piece of the CAP-character name (L37 wrap in cleanName)
-  assert.strictEqual(cleaned, Math.ceil(CAP / 9));
+  // one helper check per 9-character piece of the CAP-character name (L37 wrap in cleanName), and one for the whole
+  // name (night review 2026-10-29: a staff name split across pieces)
+  assert.strictEqual(cleaned, Math.ceil(CAP / 9) + 1);
   assert.strictEqual(a.roomOfSocket(s.id).seatOf(s.id).name, 'x'.repeat(CAP));
 });
 

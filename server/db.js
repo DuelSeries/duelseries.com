@@ -1,5 +1,6 @@
 const { Pool } = require('pg');
 const playerStats = require('./playerStats');   // search, short-wallet profiles, win rate
+const playerName = require('./playerName');     // name cleaning + reserved names (night review 2026-10-29)
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -818,13 +819,47 @@ async function getTopEarners(n) {
 // row, or one with no real name yet; it never renames an account that has one. That name is the
 // player's (POST /api/my-name, checked for clashes), and a payout overwriting it with whatever the
 // game had, 'Player' when the game had none, is how a name "reset" on the next launch (2026-10-15).
+//
+// Night review 2026-10-29: the in-game name is whatever the client sent, and this skipped the clash
+// check /api/my-name runs. So a fresh wallet could stake, leave for the refund and come out as a
+// second "Bob" on the boards; and where the unique LOWER(name) index exists, every winner after the
+// first called 'Player' (or named like someone else) threw on that index, the earnings_history row
+// below was never written, and a real, landed cash-out vanished from every board. Now a payout
+// claims a name only when no other account has it, never 'Player' (NULL already shows as the short
+// wallet) and never a staff or brand name; two payouts racing for one free name retry nameless (a
+// failed statement wrote nothing, so total_earnings is still added exactly once).
+const EARNINGS_UPSERT = `INSERT INTO accounts (google_id, name, total_earnings)
+   VALUES ($1, CASE WHEN $2::text IS NOT NULL AND NOT EXISTS (
+       SELECT 1 FROM accounts b WHERE LOWER(b.name) = LOWER($2::text) AND b.google_id <> $1) THEN $2::text END, $3)
+   ON CONFLICT (google_id) DO UPDATE SET total_earnings = COALESCE(accounts.total_earnings, 0) + $3,
+     name = CASE WHEN (accounts.name IS NULL OR accounts.name = '' OR LOWER(accounts.name) = 'player') AND EXCLUDED.name IS NOT NULL
+                 THEN EXCLUDED.name ELSE accounts.name END`;
+// The statement from before the night review minus its name half, for when Postgres refuses EARNINGS_UPSERT itself
+// (an error of class 42: syntax, an unknown function, a type it cannot settle). EARNINGS_UPSERT had never run on a
+// real database when it shipped (there is none on the dev machine), and a refused statement writes nothing, so going
+// again with this adds total_earnings exactly once and the landed row below is still written: a cash-out never
+// vanishes from the boards over it, it only lands nameless (night review 2026-10-29).
+const EARNINGS_UPSERT_PLAIN = `INSERT INTO accounts (google_id, total_earnings) VALUES ($1, $2)
+   ON CONFLICT (google_id) DO UPDATE SET total_earnings = COALESCE(accounts.total_earnings, 0) + $2`;
+let earningsPlainSaid = false;
 async function recordEarnings(id, name, sol, cadAmount = 0) {
-  await pool.query(
-    `INSERT INTO accounts (google_id, name, total_earnings) VALUES ($1, $2, $3)
-     ON CONFLICT (google_id) DO UPDATE SET total_earnings = COALESCE(accounts.total_earnings, 0) + $3,
-       name = CASE WHEN accounts.name IS NULL OR accounts.name = '' OR accounts.name = 'Player' THEN $2 ELSE accounts.name END`,
-    [id, name || 'Player', sol]
-  );
+  const n = playerName.cleanName(name);
+  const want = (n && n.toLowerCase() !== 'player' && !playerName.isReservedName(n)) ? n : null;
+  try {
+    await pool.query(EARNINGS_UPSERT, [id, want, sol]);
+  } catch (e) {
+    const code = e && typeof e.code === 'string' ? e.code : '';
+    if (code.startsWith('42')) {
+      if (!earningsPlainSaid) {
+        earningsPlainSaid = true;
+        console.error(`[DB] CRITICAL earnings upsert refused (${code}: ${e.message}); earnings are recorded without names`);
+      }
+      await pool.query(EARNINGS_UPSERT_PLAIN, [id, sol]);
+    } else {
+      if (code !== '23505' || want === null) throw e;
+      await pool.query(EARNINGS_UPSERT, [id, null, sol]);
+    }
+  }
   await pool.query(`INSERT INTO earnings_history (google_id, amount, cad_amount) VALUES ($1, $2, $3)`, [id, sol, cadAmount]);
   for (const fn of earningsListeners) { try { fn(id); } catch (_) { /* a listener never touches the payout */ } }
 }
@@ -1005,10 +1040,15 @@ async function setAccountName(googleId, name) {
   }
 }
 
+// One account's display name, or null (the owner's, for the look-alike check in /api/my-name).
+async function getAccountName(googleId) {
+  const r = await pool.query(`SELECT name FROM accounts WHERE google_id = $1`, [googleId]);
+  return r.rows[0] ? r.rows[0].name : null;
+}
+
 async function getMyProfile(googleId) {
   const accRes = await pool.query(
-    `SELECT name, total_earnings, games_played, play_time_seconds, name_history,
-            created_at
+    `SELECT name, total_earnings, games_played, play_time_seconds, created_at
      FROM accounts WHERE google_id = $1`,
     [googleId]
   );
@@ -1042,7 +1082,8 @@ async function getMyProfile(googleId) {
     totalEarnings: parseFloat(row.total_earnings || 0),
     gamesPlayed: parseInt(row.games_played || 0),
     playTimeSeconds: parseInt(row.play_time_seconds || 0),
-    nameHistory: row.name_history || [],
+    /* No nameHistory (night review 2026-10-29): nothing has written name_history since June, no
+       page reads it, and the route answers for any wallet it is given. */
     /* When the account was opened. The earnings chart starts here rather than
        at the first cash-out, so a quiet first month reads as a quiet first
        month instead of being cropped out of the picture. */
@@ -1067,7 +1108,10 @@ async function getProfile(name) {
   if (!name) return null;
   const COLS = `SELECT google_id, name, total_earnings, games_played, play_time_seconds, created_at
      FROM accounts`;
-  let accRes = await pool.query(`${COLS} WHERE LOWER(name) = LOWER($1)`, [name]);
+  /* Oldest first, one row: names were not unique before the clash check, and payouts could still
+     write a taken name until the night review (2026-10-29), so a name can belong to two accounts.
+     The older one is the real owner of it, and rows[0] without an order was whichever came back. */
+  let accRes = await pool.query(`${COLS} WHERE LOWER(name) = LOWER($1) ORDER BY created_at ASC NULLS LAST, google_id LIMIT 1`, [name]);
   /* No such name: a player who never set one is on the board as their short
      wallet (C5cn…H3m9), so that opens their profile when it is exactly one
      account. The full address never goes back out: the name shown is the
@@ -1314,7 +1358,7 @@ module.exports = {
   recordEarnings,
   onEarningsRecorded,
   recordStake, walletsWithStakes, getTopEarners,
-  getProfile, getMyProfile, setAccountName, searchPlayerNames, getGlobalWinnings, getGlobalWinningsSplit,
+  getProfile, getMyProfile, getAccountName, setAccountName, searchPlayerNames, getGlobalWinnings, getGlobalWinningsSplit,
   addCosmetic, getOwnedCosmetics, ownsCosmetic,
   skinOpen, skinRow, skinSubmit, skinReopen, skinClose, skinGrant, skinDue, skinExpiredDue, skinExpire, skinExpireOpen,
   recordHouseRevenue, getHouseRevenueSummary, getRecentHouseRevenue, getHouseRevenueDaily,

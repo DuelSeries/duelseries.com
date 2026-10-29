@@ -183,6 +183,8 @@ test('a payout never renames an account that has a name (only a nameless or "Pla
   }
   const up = sent[0].sql.replace(/\s+/g, ' ');
   assert.match(up, /ON CONFLICT \(google_id\) DO UPDATE SET total_earnings = COALESCE\(accounts\.total_earnings, 0\) \+ \$3,/);
-  assert.match(up, /name = CASE WHEN accounts\.name IS NULL OR accounts\.name = '' OR accounts\.name = 'Player' THEN \$2 ELSE accounts\.name END/);
+  // night review 2026-10-29: and only with a name nobody else holds, never 'Player' itself (test/playerName.test.js)
+  assert.match(up, /name = CASE WHEN \(accounts\.name IS NULL OR accounts\.name = '' OR LOWER\(accounts\.name\) = 'player'\) AND EXCLUDED\.name IS NOT NULL THEN EXCLUDED\.name ELSE accounts\.name END/);
   assert.doesNotMatch(up, /, name = \$2/);
+  assert.deepStrictEqual(sent[0].params, ['W1', null, 1.5], "'Player' is no name");
 });
