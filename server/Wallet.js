@@ -31,9 +31,13 @@ try { console.log(`[WALLET] RPC endpoint: ${new URL(RPC_URL).host}`); } catch (_
    project or plan; https, like RPC_URL), strangers can only ever spend that one, and stake verifies, submits,
    payouts, the drainer, the sweeps and a send's blockhash keep RPC_URL's credits to themselves. Unset, it is
    RPC_URL and nothing changes. */
+/* Fourth pass (night review 2026-10-29): /api/sol-balance's SOL read has a Connection of its own that never resends a
+   429 by itself, even on the money key's URL. It was `connection` while PUBLIC_RPC_URL was unset, and web3.js resends a
+   throttled call up to 5 times inside one call, where no budget sees it, so a budgeted balance became about six
+   getBalance calls at a key already throttled. One request now; the route answers a failed read from the last one.
+   Stakes, payouts and the escrow's balances keep `connection` and its retries. */
 const PUBLIC_RPC_URL = process.env.PUBLIC_RPC_URL || RPC_URL;
-const publicConnection = PUBLIC_RPC_URL === RPC_URL ? connection
-  : new Connection(PUBLIC_RPC_URL, { commitment: 'confirmed', httpAgent: rpcAgent });
+const publicConnection = new Connection(PUBLIC_RPC_URL, { commitment: 'confirmed', httpAgent: rpcAgent, disableRetryOnRateLimit: true });
 if (PUBLIC_RPC_URL !== RPC_URL) { try { console.log(`[WALLET] public reads RPC endpoint: ${new URL(PUBLIC_RPC_URL).host}`); } catch (_) {} }
 
 function getEscrowKeypair() {
@@ -415,8 +419,8 @@ async function blockhashValid(blockhash) {
   return !!(r && r.value);
 }
 
-/* opts.lane 'public': a read a visitor asked for (/api/sol-balance), on PUBLIC_RPC_URL's key; the escrow's own
-   diagnostics stay on the money key. */
+/* opts.lane 'public': a read a visitor asked for (/api/sol-balance), on PUBLIC_RPC_URL's key, one request and no
+   retries (above); the escrow's own diagnostics stay on the money key. */
 async function getAddressBalance(address, opts) {
   const conn = opts && opts.lane === 'public' ? publicConnection : connection;
   return (await conn.getBalance(new PublicKey(address))) / LAMPORTS_PER_SOL;

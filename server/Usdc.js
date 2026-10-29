@@ -17,6 +17,7 @@ const {
 const _bs58 = require('bs58');
 const bs58  = (_bs58 && _bs58.default) ? _bs58.default : _bs58;
 const rpcBudget = require('./rpcBudget');   // the server-wide budget history reads take from (night review 2026-10-29)
+const rpcDay = require('./rpcDay');         // the shared key's day, kept across restarts (night review 2026-10-29, fourth pass)
 
 const NETWORK = process.env.SOLANA_NETWORK || 'mainnet-beta';
 const RPC_URL = process.env.RPC_URL || (NETWORK === 'mainnet-beta'
@@ -40,9 +41,13 @@ const connection = new Connection(RPC_URL, { commitment: 'confirmed', httpAgent:
 /* PUBLIC_RPC_URL (night review 2026-10-29, third pass; Wallet.js has the same line and says why): the reads any visitor
    can cause, history and /api/sol-balance's USDC, go to this key when it is set, so strangers can never spend the
    credits stakes and payouts run on. Unset, it is RPC_URL and nothing changes. */
+/* Fourth pass (night review 2026-10-29, review problem 0's low): /api/sol-balance's USDC read has a Connection of its own
+   that never resends a 429 by itself, even on the money key's URL, and no withRetry around it (usdcBalanceOf). It was
+   `connection` itself while PUBLIC_RPC_URL was unset, so one budgeted balance (two tokens) could become about 36
+   getAccount calls at a key already throttled, making the throttle worse for stakes and payouts; the route answers a
+   failed read from the address's last one instead. Stakes, payouts and the escrow's balances keep `connection`. */
 const PUBLIC_RPC_URL = process.env.PUBLIC_RPC_URL || RPC_URL;
-const publicConnection = PUBLIC_RPC_URL === RPC_URL ? connection
-  : new Connection(PUBLIC_RPC_URL, { commitment: 'confirmed', httpAgent: rpcAgent });
+const publicConnection = new Connection(PUBLIC_RPC_URL, { commitment: 'confirmed', httpAgent: rpcAgent, disableRetryOnRateLimit: true });
 const historyConnection = new Connection(PUBLIC_RPC_URL, { commitment: 'confirmed', httpAgent: rpcAgent, disableRetryOnRateLimit: true });
 
 // USDC mint. Mainnet = Circle USDC; devnet defaults to Circle's devnet USDC. Override with
@@ -100,13 +105,14 @@ function ataForOwnerCached(ownerAddress) {
   return a;
 }
 
-/* opts.lane 'public': a read a visitor asked for (/api/sol-balance), on PUBLIC_RPC_URL's key; anything else (the
-   escrow, the solvency monitor) stays on the money key. */
+/* opts.lane 'public': a read a visitor asked for (/api/sol-balance), on PUBLIC_RPC_URL's key, one request and no
+   retries (fourth pass, above); anything else (the escrow, the solvency monitor) stays on the money key with its
+   retries as before. */
 async function usdcBalanceOf(ownerAddress, opts) {
   const ata = ataForOwnerCached(ownerAddress);
-  const conn = opts && opts.lane === 'public' ? publicConnection : connection;
+  const pub = !!(opts && opts.lane === 'public');
   try {
-    const acc = await withRetry(() => getAccount(conn, ata));
+    const acc = pub ? await getAccount(publicConnection, ata) : await withRetry(() => getAccount(connection, ata));
     return toUsdc(acc.amount);
   } catch (e) {
     if (ataNotFound(e)) return 0;
@@ -223,10 +229,14 @@ const HISTORY_RPS = rpcBudget.envNumber('HISTORY_RPS', 2);
 const HISTORY_BURST = rpcBudget.envNumber('HISTORY_BURST', 60);
 const HISTORY_QUEUE_MAX = Math.max(40, Math.ceil(HISTORY_RPS * 30));
 const HISTORY_WAIT_MAX_MS = 15_000;
+/* Fourth pass (night review 2026-10-29, review problem 0): while history shares the money key (PUBLIC_RPC_URL unset),
+   it also takes from that key's day (server/rpcDay.js), the same day as /api/sol-balance and the relay, kept across
+   restarts. Spent, a read is refused at once ('history reads busy': the Wallet tab's "Tap refresh"); nothing that moves
+   money reads history. */
 const _historyBudget = rpcBudget.createBudget({ perSec: HISTORY_RPS, burst: HISTORY_BURST,
-  perKey: { perSec: HISTORY_RPS / 2, burst: HISTORY_BURST } });
+  perKey: { perSec: HISTORY_RPS / 2, burst: HISTORY_BURST }, day: rpcDay.day });
 const _historyBusy = rpcBudget.refusalLogs('history reads');
-rpcBudget.usageLog('history reads', _historyBudget);
+rpcBudget.usageLog('history reads', _historyBudget, { day: rpcDay.day });
 async function historyGate(fn) {
   if (_historyInFlight >= HISTORY_READS_AT_ONCE) {
     if (_historyQueue.length >= HISTORY_QUEUE_MAX) { _historyBusy.rate(); throw new Error('history reads busy'); }

@@ -76,6 +76,9 @@ Object.assign(process.env, {
   // Paid agar.io's money journal (server/ag/agJournal.js) for this run only, never the checkout's server/data.
   AG_JOURNAL_PATH: process.env.AG_JOURNAL_PATH ||
     path.join(fs.mkdtempSync(path.join(require('os').tmpdir(), 'dslocal-')), 'ag-money-journal.log'),
+  // The public reads' day on the shared key (server/rpcDay.js, night review 2026-10-29), likewise this run's own.
+  RPC_DAY_PATH: process.env.RPC_DAY_PATH ||
+    path.join(fs.mkdtempSync(path.join(require('os').tmpdir(), 'dslocal-')), 'rpc-day.json'),
 });
 
 // ─── 2. dotenv is a no-op here ─────────────────────────────────────────────────

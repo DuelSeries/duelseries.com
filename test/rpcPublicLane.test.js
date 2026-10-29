@@ -39,6 +39,9 @@ const W = Keypair.generate().publicKey.toString();
 test('PUBLIC_RPC_URL: a visitor\'s reads go to the public key, the money paths and a send\'s blockhash to RPC_URL', async () => {
   assert.notStrictEqual(Wallet.publicConnection, Wallet.connection);
   assert.notStrictEqual(Usdc.publicConnection, Usdc.connection);
+  // Fourth pass (night review 2026-10-29): with a key of their own there is no day's cap (server/rpcDay.js): strangers
+  // can only spend that key, so nothing is counted, saved or refused for a day.
+  assert.strictEqual(require('../server/rpcDay').day, null);
   seen.length = 0;
   assert.strictEqual(await Wallet.getAddressBalance(W, { lane: 'public' }), 2);
   assert.strictEqual(await Usdc.usdcBalanceOf(W, { lane: 'public' }), 0, 'no USDC account: 0, as always');

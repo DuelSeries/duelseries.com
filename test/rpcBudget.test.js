@@ -16,6 +16,9 @@
    deploy refilled them, and anyone could spend them, so a flood or three honest tabs could leave players without a
    balance for the rest of the day. A budget is now a rate that refills each second and each caller's share of it,
    and these tests show what that costs and what it no longer allows.
+   Fourth pass (review problem 0 again): while the public reads share the money key, a day kept on disk is back behind
+   both budgets (createDayCap, test/rpcDay.test.js); the budgets here are built without one, and refusalLogs has its
+   reason. The balance lane's reads now have Connections that never resend a 429 by themselves (tested below).
    The bucket and the budget first, with their own clock, then Usdc against stubbed connections (nothing leaves the
    process). */
 const test = require('node:test');
@@ -34,10 +37,16 @@ const { Keypair } = require('@solana/web3.js');
 const escrow = Keypair.generate();
 process.env.ESCROW_PRIVATE_KEY = Buffer.from(escrow.secretKey).toString('base64');
 delete process.env.RPC_URL;
+// The shared key's day (server/rpcDay.js) in a file of this run's own, never the checkout's server/data.
+process.env.RPC_DAY_PATH = require('path').join(require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), 'rpcb-')), 'rpc-day.json');
 process.env.HISTORY_RPS = '20';    // small numbers, so the pacing shows in about three seconds
 process.env.HISTORY_BURST = '5';
 const { createBucket, createBudget, callerShare, UNMETERED, envNumber, refusalLog, refusalLogs, usageLog } = require('../server/rpcBudget');
 const Usdc = require('../server/Usdc');
+const log0 = console.log;
+console.log = () => {};
+const Wallet = require('../server/Wallet');
+console.log = log0;
 
 test('a bucket: a burst, then its rate; a refusal takes nothing; a reservation waits its turn or gives up', () => {
   let t = 1000;
@@ -262,21 +271,40 @@ test('the cost of everything one address can do, a day, and of everyone at once:
 test('refusalLogs: one line per reason, so the log says which part bit', () => {
   const lines = [];
   const logs = refusalLogs('public RPC reads', { log: (x) => lines.push(x), now: () => 0 });
-  logs.rate(); logs.key();
-  assert.deepStrictEqual(Object.keys(logs).sort(), ['key', 'rate'], 'no day\'s reason any more');
+  logs.rate(); logs.key(); logs.day();
+  assert.deepStrictEqual(Object.keys(logs).sort(), ['day', 'key', 'rate'], 'the day is back (fourth pass), on the shared key only');
   assert.deepStrictEqual(lines, [
     '[RPC-BUDGET] public RPC reads: 1 refused (server-wide budget full)',
     '[RPC-BUDGET] public RPC reads: 1 refused (one address past its share)',
+    '[RPC-BUDGET] public RPC reads: 1 refused (the day\'s cap on the shared key is spent)',
   ]);
 });
 
 test('history reads have their own Connection, and it never resends a 429 by itself', async () => {
   assert.notStrictEqual(Usdc.historyConnection, Usdc.connection, 'the money paths keep their own Connection');
-  // No PUBLIC_RPC_URL (test/rpcPublicLane.test.js sets one): a visitor's balance reads use the money paths' key, as before.
-  assert.strictEqual(Usdc.publicConnection, Usdc.connection);
   const n = fetched.length;
   await assert.rejects(Usdc.historyConnection.getSlot(), /429/);
   assert.strictEqual(fetched.length - n, 1, 'one request for one throttled call (web3.js alone used to make five)');
+});
+
+test('the balance lane never multiplies a 429 either: one request a read, on the money key\'s URL (fourth pass)', async () => {
+  /* No PUBLIC_RPC_URL (test/rpcPublicLane.test.js sets one): a visitor's balance reads go to the money key's URL, as
+     before, but on Connections of their own that never resend a 429, and the USDC read without withRetry. A balance the
+     budget let through (two tokens) was about 6 getBalance and 36 getAccount calls at a throttled key. */
+  for (const c of [Usdc.publicConnection, Wallet.publicConnection]) {
+    assert.notStrictEqual(c, Usdc.connection);
+    assert.notStrictEqual(c, Wallet.connection);
+    assert.strictEqual(c.rpcEndpoint, Usdc.connection.rpcEndpoint, 'the same key as before');
+  }
+  const W = Keypair.generate().publicKey.toString();
+  let n = fetched.length;
+  const t0 = Date.now();
+  await assert.rejects(Usdc.usdcBalanceOf(W, { lane: 'public' }), /429/);
+  assert.strictEqual(fetched.length - n, 1, 'one getAccount');
+  n = fetched.length;
+  await assert.rejects(Wallet.getAddressBalance(W, { lane: 'public' }), /429/);
+  assert.strictEqual(fetched.length - n, 1, 'one getBalance');
+  assert.ok(Date.now() - t0 < 2000, 'and no backoff waited (withRetry\'s first wait alone is 600 ms)');
 });
 
 // A wallet with a long history on both its addresses (an exchange's): pages of 1000 for as far back as anyone asks.

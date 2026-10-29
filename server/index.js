@@ -43,6 +43,7 @@ const nameProof = require('./nameProof'); // a wallet signing for its own name c
 const ownerAuth = require('./ownerAuth'); // the owner wallet signing for an owner action
 const { isWalletString } = require('./b58Caps');     // a client address is a key's size before any decode
 const rpcBudget = require('./rpcBudget');            // server-wide budgets for the chain reads strangers can cause
+const rpcDay = require('./rpcDay');                  // their day on the shared key, kept across restarts (night review 2026-10-29)
 const Swap = require('./swap');                      // SOL <-> USDC in the player's own wallet
 const { TRUST_PROXY } = require('./clientAddr');     // X-Forwarded-For only from nginx (loopback / private)
 const { securityHeaders } = require('./securityHeaders');
@@ -541,28 +542,34 @@ const blockhashLimiter = rateLimit({ windowMs: 10 * 1000, max: 20, standardHeade
    Defaults suit Helius Free (10 calls a second): 3 here and 2 for history leave 5 a second for stakes and payouts.
    Before real traffic, raise the plan, and these with it (PUBLIC_RPC_RPS, PUBLIC_RPC_BURST, HISTORY_RPS in .env; the EU
    server on the same key spends its own, so split them while it runs); PUBLIC_RPC_URL (Wallet.js) moves all of these
-   reads to a key of their own, so a month-long flood at the rate cannot spend the money key's credits. */
+   reads to a key of their own, so a month-long flood at the rate cannot spend the money key's credits.
+   Fourth pass (night review 2026-10-29, review problem 0): with PUBLIC_RPC_URL unset (or the same key) a flood at the
+   rate still spent the money key's month in about two days, so in that case this budget and history's also take from
+   one day kept on disk across restarts (server/rpcDay.js: RPC_READS_PER_DAY, 10k by default, about 310k a month at
+   most). Spent, a balance answers from its address's last read (stale) or 503s and the relay 503s, until it refills;
+   no money path reads through here, so stakes, payouts and sends go on. With PUBLIC_RPC_URL set there is no day. */
 const PUBLIC_RPC_RPS = rpcBudget.envNumber('PUBLIC_RPC_RPS', 3);
 const PUBLIC_RPC_BURST = Math.max(4, rpcBudget.envNumber('PUBLIC_RPC_BURST', 40));
 const publicRpcBudget = rpcBudget.createBudget({ perSec: PUBLIC_RPC_RPS, burst: PUBLIC_RPC_BURST,
-  perKey: rpcBudget.callerShare({ perSec: PUBLIC_RPC_RPS, burst: PUBLIC_RPC_BURST }) });
+  perKey: rpcBudget.callerShare({ perSec: PUBLIC_RPC_RPS, burst: PUBLIC_RPC_BURST }), day: rpcDay.day });
 const publicRpcBusy = rpcBudget.refusalLogs('public RPC reads');
-rpcBudget.usageLog('public RPC reads', publicRpcBudget);
+rpcBudget.usageLog('public RPC reads', publicRpcBudget, { day: rpcDay.day });
 /* Who a public chain read is counted to: the owner's own session is UNMETERED (the rate only), anyone else their
    address as express-rate-limit keys it (an IPv6 address by its /56, so one home network is one caller). */
 function budgetKeyOf(req) {
   try { if (ownerSessions.fromRequest(req)) return rpcBudget.UNMETERED; } catch (_) { /* no session: an address */ }
   return ipKeyGenerator(String(req.ip || ''));
 }
-// null when `calls` provider calls fit the budget now (and were taken), otherwise why not ('key', 'rate'), logged.
+// null when `calls` provider calls fit the budget now (and were taken), otherwise why not ('key', 'rate', 'day'), logged.
 function publicRpcRefusal(req, calls) {
   const no = publicRpcBudget.take(calls, budgetKeyOf(req));
   if (no) publicRpcBusy[no]();
   return no;
 }
+// The shared key's day refills about one call in 9 s, so a refusal for it asks the browser to wait a minute.
 function sendPublicRpcRefusal(res, no) {
   if (no === 'key') res.set('Retry-After', '5').status(429).json({ error: 'Too many requests. Slow down.' });
-  else res.set('Retry-After', '1').status(503).json({ error: 'Busy, try again in a moment.' });
+  else res.set('Retry-After', no === 'day' ? '60' : '1').status(503).json({ error: 'Busy, try again in a moment.' });
 }
 // true when `calls` provider calls fit the budget now; otherwise the refusal is sent and false comes back.
 function publicRpcAllowed(req, res, calls) {
