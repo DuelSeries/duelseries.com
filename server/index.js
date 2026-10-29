@@ -422,7 +422,13 @@ app.all('/ingest/*', (req, res) => {
   req.pipe(upstream);
 });
 
-app.use(express.json());
+/* Compressed request bodies are refused with a 415 before any zlib stream exists (night review
+   2026-10-29). body-parser 1.20.8 left req piped into a finished gunzip, and the next read threw
+   with no listener: ONE request to any route ended the process. package.json now holds it at
+   1.20.9, and this keeps zlib out of reach either way. No client of ours sends a compressed body
+   (PostHog's compressed uploads go through /ingest above, untouched). The route-level parsers
+   below never see a JSON body this one has not already taken. */
+app.use(express.json({ inflate: false }));
 // (Phase B2: all /auth/* routes — Google OAuth, logout, /auth/me, the 2FA verify/resend
 // flow, and /auth/update-name — were removed. Login is Privy-only; the display name is a
 // client-side localStorage value, no longer a server-validated account field.)
