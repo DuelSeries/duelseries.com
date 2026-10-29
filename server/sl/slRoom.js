@@ -533,12 +533,14 @@ class SlRoom {
   // null when a seat can be given, else the refusal reason.
   // A gliding orphan is a live human snake, so it counts toward both caps until its glide ends (fixer pass,
   // 2026-10-10: join-then-close cycles from one address kept 773 live snakes against a cap of 20).
-  // info (a seat's, optional): its proven wallet, for the battle royale's one snake per person.
+  // info (a seat's, optional): its proven wallet, for the battle royale's one snake per person, and its address (ip).
   refusal(info) {
     if (this.stopped || this.closed) return 'closed';
     if (this.br && !this.br.acceptingPlayers()) return 'match'; // a battle royale match is under way
     // one snake per person in the battle royale: this wallet already has a living one here (brMatch.walletBusy)
     if (this.br && info && typeof this.br.walletBusy === 'function' && this.br.walletBusy(info.wallet)) return 'twice';
+    // and a few per network (night review 2026-10-29, brMatch.addrFull): one address's free wallets are not a team
+    if (this.br && info && typeof this.br.addrFull === 'function' && this.br.addrFull(info.ip)) return 'limit';
     const humans = this.seats.size + this.orphans.size;
     if (humans >= this.R.humanCap || humans >= this.R.roomCap) return 'full';
     return null;
@@ -618,7 +620,7 @@ class SlRoom {
     seat.queue.message(tick, this._keyMsg('seat', seat));
     if (this.top) seat.queue.message(tick, this.top);
     if (this.br) {
-      this.br.noteSeat(s.id, { wallet: inf.wallet, nick: s.nick });
+      this.br.noteSeat(s.id, { wallet: inf.wallet, nick: s.nick, ip: typeof inf.ip === 'string' ? inf.ip : '' });
       seat.queue.message(tick, this.br.joinMsg(s.id));
     }
   }

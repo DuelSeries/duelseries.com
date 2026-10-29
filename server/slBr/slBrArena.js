@@ -9,7 +9,8 @@
 //
 //   match            the battle royale (state, winner, startMatch, abandon, publicState, ...: what server/index.js
 //                    reads as the event's room when it runs on this engine)
-//   join(socket, info)   info { nick, cv, wallet }: true or the refusal ('closed', 'match', 'full')
+//   join(socket, info)   info { nick, cv, wallet, ip }: true or the refusal ('closed', 'match', 'twice', 'limit',
+//                        'full')
 //   watch(socket, info)  info { follow }: true or 'closed' / 'nobody' (nothing alive to watch)
 //   maxSliceMs()     the room's largest synchronous slice since the last call, read and reset
 
@@ -22,13 +23,15 @@ const RESTART_GAP_MS = 60 * 1000;
 
 class SlBrArena extends SlArenas {
   // opts: SlArenas' (region, governor, seed, clock, now, timers, autoTick, view, prey, log, bots) plus onDecided(match)
-  // (the server's prize hook), lastStore (brLastPodium.js: the last match's podium across restarts) and rand (tests).
+  // (the server's prize hook), lastStore (brLastPodium.js: the last match's podium across restarts), seatsPerAddr
+  // (brMatch BRM.SEATS_PER_ADDR) and rand (tests).
   constructor(laws, opts) {
     const o = opts || {};
     const region = typeof o.region === 'string' && o.region ? o.region : 'na';
     const label = 'sl_' + region + '_br';
     const match = createBrMatch({ laws, log: o.log, label, onDecided: o.onDecided, rand: o.rand, now: o.now,
-      isOwner: o.isOwner, lastStore: o.lastStore, journal: o.journal, onVoided: o.onVoided });
+      isOwner: o.isOwner, lastStore: o.lastStore, journal: o.journal, onVoided: o.onVoided,
+      seatsPerAddr: o.seatsPerAddr });
     super(laws, Object.assign({}, o, {
       makeRoom: (ro) => new SlRoom(laws, Object.assign({}, ro, { br: match, lobbyType: label })),
       botOpts: { holdFill: () => match.holdFill() },

@@ -80,10 +80,12 @@ function run(ft, room, ms) {
   }
 }
 
-// a human with a seat, its snake parked at the map centre heading nowhere in particular
-function human(room, nick, wallet) {
+// a human with a seat, its snake parked at the map centre heading nowhere in particular; each on its own network
+// unless ip says otherwise (the prize counts one network's wallets as one person, night review 2026-10-29)
+let humanAddrs = 0;
+function human(room, nick, wallet, ip) {
   const sock = bareSocket();
-  const seat = room.seat(sock, { nick, cv: 1, wallet });
+  const seat = room.seat(sock, { nick, cv: 1, wallet, ip: ip === undefined ? '203.0.113.' + (++humanAddrs % 250) : ip });
   assert.ok(seat, 'seated');
   return { sock, seat, id: seat.snakeId };
 }

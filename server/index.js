@@ -3474,12 +3474,18 @@ const { createBrJournal } = require('./slBr/brJournal');
 const brJournal = createBrJournal({
   file: process.env.BR_JOURNAL_PATH || path.join(path.dirname(agJournal.file), 'br-journal.json'),
 });
+/* Who counts as a different person for the house prize (night review 2026-10-29). */
+const brPrizeRule = require('./slBr/brPrizeRule');
 const slBr = slArenas ? new SlBrArena(slArenas.laws, {
   region: REGION,
   shippableOnly: slArenas.shippableOnly,
   governor: slArenas.governor,
   isOwner: (w) => OWNER_WALLETS.has(w),
   journal: brJournal,
+  /* Living snakes one network may hold in the arena (night review 2026-10-29,
+     brMatch BRM.SEATS_PER_ADDR, 4 unless BR_SEATS_PER_ADDR says otherwise; 0
+     turns it off). A whole number or nothing. */
+  seatsPerAddr: /^\d{1,3}$/.test(process.env.BR_SEATS_PER_ADDR || '') ? Number(process.env.BR_SEATS_PER_ADDR) : undefined,
   /* A match cut off by the room being replaced (anything but Owen's own Stop):
      no winner, no prize, and Owen is told who was in it. */
   onVoided: (was) => {
@@ -4301,6 +4307,33 @@ async function payBattleRoyaleWinner(room) {
     } catch (_) {}
     return;
   }
+  /* A proven wallet costs nothing (night review 2026-10-29): any keypair made
+     offline signs the proof, so free wallets (one person's second tab, or a
+     script's thirty sockets) passed the two-wallet rule and the house paid $20
+     to a throwaway key. Paid automatically only when the winner and at least
+     one other person in the match, on another network, have really played a
+     paid game (stakes_history: server/slBr/brPrizeRule.js). Anything else, a
+     lookup that failed included, is held for Owen like the rule above. The
+     seats are read before the lookup's await (the next match resets them),
+     and _brPaid already holds this match id, so nothing here can pay twice.
+     Tracked from here, so a shutdown waits for the lookup and the send. */
+  const seats = typeof room.startedSeats === 'function' ? room.startedSeats() : [];
+  return agInflight.track(brPrizeRule.stakedPeople({ seats, winner: w.wallet, lookup: (ws) => db.walletsWithStakes(ws) })
+    .then((who) => {
+      if (who.ok) return startBattleRoyalePrize(matchId, w);
+      const people = who.people === null ? 'unknown (the lookup failed)' : who.people;
+      const notWinner = who.winnerStaked || who.people === null ? '' : ' (the winner has not)';
+      console.warn(`[BR] ${matchId} won by ${w.name}: ${seats.length} proven wallet(s), ${people} person(s) who played paid` +
+        `${notWinner}: prize held`);
+      try { if (typeof room.holdPrize === 'function') room.holdPrize(matchId); } catch (_) {}
+      try {
+        notify.pushOwner(`${w.name} won ${matchId}: ${room.startedWith} players, ${seats.length} proven wallet(s), ${people} different people who have played paid before${notWinner}. The ${BR_PRIZE_USDC} USDC prize was not paid automatically. Settle it by hand if it was a real match.`,
+          { title: 'Battle Royale prize held', priority: 'high' });
+      } catch (_) {}
+    }));
+}
+/* The send itself, once every rule above has passed. */
+function startBattleRoyalePrize(matchId, w) {
   /* Written BEFORE the money moves: a restart from here until 'paid' or
      'failed' leaves 'paying', which the next boot pushes to Owen and never
      sends again (above). */
