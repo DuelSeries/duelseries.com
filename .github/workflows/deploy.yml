@@ -66,6 +66,10 @@ jobs:
         env:
           COMMIT_MSG: ${{ github.event.head_commit.message }}
           NA_RESULT: ${{ needs.deploy-na.result }}
+          # Night review 2026-10-29: an ntfy.sh topic is readable by anyone who knows its name, and this one is in
+          # git. Set the repo secret NTFY_DEPLOY_URL to a long random topic URL to move it; until then, today's
+          # topic. Only the commit's first line is sent: the body can describe a fix in detail.
+          NTFY_URL: ${{ secrets.NTFY_DEPLOY_URL || 'https://ntfy.sh/duelseries-deploy-8382' }}
         run: |
           if [ "$NA_RESULT" = "success" ]; then
             STATUS="deployed ✅"
@@ -75,5 +79,5 @@ jobs:
           curl -s \
             -H "Title: DuelSeries $STATUS" \
             -H "Tags: rocket" \
-            -d "$COMMIT_MSG" \
-            ntfy.sh/duelseries-deploy-8382
+            -d "$(printf '%s\n' "$COMMIT_MSG" | head -n 1)" \
+            "$NTFY_URL"
