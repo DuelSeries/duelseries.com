@@ -67,6 +67,12 @@ let myEntryToken = (() => {
 
 /* A bought skin (docs/skin-purchases.md): only carried across; the server wears it when the pass is genuine and
    lists it, and tells both screens what it chose (players[].skin). Read at each queue, so a Play again sees a change. */
+/* The head picked in the lobby's Customize (shared/hsHeads.js, stored under duel.headsoccer.head), sent with
+   hs:queue; the server wears it only if it is on that list. */
+function myHead() {
+  try { const L = window.DS_HS_HEADS, id = localStorage.getItem(L ? L.KEY : 'duel.headsoccer.head'); return L && L.byId(id) ? id : undefined; }
+  catch (_) { return undefined; }
+}
 function shopFields() {
   try {
     const shop = localStorage.getItem('duel.shop.headsoccer'), pass = localStorage.getItem('duel.skinpass');
@@ -772,6 +778,10 @@ function startMatch(m) {
     if (sk && sk.col && (p.side === 0 || p.side === 1)) cols[p.side] = sk.col;
   }
   art.setKits(cols);
+  // Each seat's head: a free head's id rides as its skin (shared/hsHeads.js); anything else is the seat's own face.
+  const HL = window.DS_HS_HEADS, heads = [null, null];
+  for (const p of players) if ((p.side === 0 || p.side === 1) && HL && HL.byId(p.skin)) heads[p.side] = p.skin;
+  art.setHeads(heads);
   score = Array.isArray(m.score) && m.score.length === 2 ? [m.score[0] | 0, m.score[1] | 0] : [0, 0];
   clockC = typeof m.msLeft === 'number' ? m.msLeft : HS.MATCH_MS; clockAt = performance.now(); clockShown = clockC;
   overShown = false; lastOver = null;
@@ -878,7 +888,7 @@ function queue(token, resume) {
   socket.emit('hs:queue', Object.assign({
     name: myName, wallet: myWallet,
     stake: myStake, entryToken: token || myEntryToken,
-    resume: resume || undefined,
+    resume: resume || undefined, head: myHead(),
   }, shopFields()));
   /* One use only. Re-sending it on a Play again would be asking the server to spend a token it has already
      burned, and the seat would be refused with nothing to show for it. */

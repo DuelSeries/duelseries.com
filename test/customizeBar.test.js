@@ -50,7 +50,7 @@ test('every game shows the bar, built or not (BACKLOG 2.2: one layout for every 
   const games = [...html.matchAll(/\{id:'(\w+)'[^}]*\}/g)];
   const withLook = games.filter((m) => /\blook:1/.test(m[0])).map((m) => m[1]);
   assert.deepStrictEqual(withLook, ['snake']);
-  assert.ok(html.includes("const hasLook=g=>!!(g&&(g.look||(window.V2Shop&&V2Shop.game(g.id))||(g.id==='crossy'&&CR_LOOKS.length)||(g.id==='pool8'&&P8_LOOKS.length)||(g.id==='rooftop'&&RT_LOOKS.length)||(g.id==='swim'&&SW_LOOKS.length)));"),
+  assert.ok(html.includes("const hasLook=g=>!!(g&&(g.look||(window.V2Shop&&V2Shop.game(g.id))||(g.id==='crossy'&&CR_LOOKS.length)||(g.id==='pool8'&&P8_LOOKS.length)||(g.id==='rooftop'&&RT_LOOKS.length)||(g.id==='swim'&&SW_LOOKS.length)||(g.id==='headsoccer'&&HS_LOOKS.length)));"),
     'a game has a chooser if it saves a skin, the Shop has skins for it, or (8 Ball Pool, Crossy Road, Rooftop, Swim) it has free looks');
   assert.ok(/function openLook\(\)\{\s*if\(!hasLook\(cur\)\)return;/.test(html), 'and does not open otherwise');
   assert.ok(html.includes("det.classList.toggle('nolook',!hasLook(cur));"), 'the shut bar is a class');

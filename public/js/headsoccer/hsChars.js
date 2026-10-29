@@ -17,61 +17,14 @@
   const HS = root.HSSim.HS;
   const TAU = Math.PI * 2;
   const U = 0.5 / 0.45;                               // S: imageScale .45, player and ball sprites at scale .5
-  // Measured colours (atlas frames, see SP/hs-tools/notes-c.md).
-  const INK = '#440201', INK2 = '#571813';            // every outline; the softer inner line
-  const WHITE = '#f8f7fd', WSHADE = '#d4c7d5', WMID = '#ddd6e2', WLITE = '#ece7ef';   // socks, wristbands, teeth, eyes
+  // The pen and the measured colours are public/js/headsoccer/hsFaces.js (the heads, loaded before this file).
+  const F = root.HSFaces, { INK, INK2, WHITE, WSHADE, WMID, WLITE, hexRgb, rgbHex, mix, kitOf, trace, shape, line, clipTo, dots } = F.pen;
   const SOLE = '#840f0c', STUD = '#ad1613', SOLELIT = '#ee3937';
-  // Kit triples measured on their blue (France) and red kits; any other kit colour is shaded by mixing.
-  const KITS = {
-    '#393295': { base: '#393295', dark: '#3b2f73', deep: '#332655', light: '#4c48a9' },
-    '#ad1613': { base: '#ad1613', dark: '#840f0c', deep: '#680906', light: '#ee3937' },
-  };
   const DEFAULT_KIT = ['#ad1613', '#393295'];          // seat 0 red, seat 1 blue (their palette)
   let kits = [null, null];
-
-  /* ── small helpers ──────────────────────────────────────────────────────── */
-  function hexRgb(h) {
-    const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(String(h || '').trim());
-    if (!m) return null;
-    let s = m[1]; if (s.length === 3) s = s.split('').map(c => c + c).join('');
-    return [0, 2, 4].map(i => parseInt(s.slice(i, i + 2), 16));
-  }
-  const rgbHex = (c) => '#' + c.map(v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('');
-  const mix = (a, b, t) => rgbHex(a.map((v, i) => v + (b[i] - v) * t));
-  function kitPal(side) {
-    const want = kits[side] || DEFAULT_KIT[side], key = String(want).toLowerCase();
-    if (KITS[key]) return KITS[key];
-    const c = hexRgb(want) || hexRgb(DEFAULT_KIT[side]);
-    return { base: rgbHex(c), dark: mix(c, [40, 8, 30], 0.32), deep: mix(c, [30, 4, 20], 0.5), light: mix(c, [255, 255, 255], 0.14) };
-  }
-  // A smooth path through points (Catmull-Rom); a point with a third value 1 is a sharp corner.
-  function trace(g, P, closed) {
-    const n = P.length, tan = (i) => {
-      const p = P[i];
-      if (p[2] === 1) return [0, 0];
-      const a = closed ? P[(i - 1 + n) % n] : P[Math.max(0, i - 1)], b = closed ? P[(i + 1) % n] : P[Math.min(n - 1, i + 1)];
-      return [(b[0] - a[0]) / 2, (b[1] - a[1]) / 2];
-    };
-    g.moveTo(P[0][0], P[0][1]);
-    for (let i = 0; i < (closed ? n : n - 1); i++) {
-      const j = (i + 1) % n, p = P[i], q = P[j], t0 = tan(i), t1 = tan(j);
-      g.bezierCurveTo(p[0] + t0[0] / 3, p[1] + t0[1] / 3, q[0] - t1[0] / 3, q[1] - t1[1] / 3, q[0], q[1]);
-    }
-    if (closed) g.closePath();
-  }
-  function shape(g, P, fill, lw, stroke) {
-    g.beginPath(); trace(g, P, true);
-    if (fill) { g.fillStyle = fill; g.fill(); }
-    if (lw) { g.strokeStyle = stroke || INK; g.lineWidth = lw; g.stroke(); }
-  }
-  function line(g, P, lw, col) { g.beginPath(); trace(g, P, false); g.strokeStyle = col || INK; g.lineWidth = lw; g.stroke(); }
-  function clipTo(g, P) { g.beginPath(); trace(g, P, true); g.clip(); }
-  // Halftone dots (their shading texture), in a staggered grid over a box.
-  function dots(g, x0, y0, x1, y1, step, r, col) {
-    g.fillStyle = col; g.beginPath();
-    for (let y = y0, row = 0; y <= y1; y += step, row++) for (let x = x0 + (row & 1) * step / 2; x <= x1; x += step) { g.moveTo(x + r, y); g.arc(x, y, r, 0, TAU); }
-    g.fill();
-  }
+  // The face each seat wears (shared/hsHeads.js ids); null is the seat's own.
+  let heads = [null, null];
+  function kitPal(side) { return kitOf(kits[side] || DEFAULT_KIT[side], DEFAULT_KIT[side]); }
 
   /* ── offscreen cache: one canvas per part per screen scale ──────────────── */
   const M = 4;                                        // margin around a frame for the outline, atlas px
@@ -93,178 +46,10 @@
   // Draw a cached frame with its anchor (ax, ay of the frame) at the origin.
   function blit(g, c, w, h, ax, ay) { g.drawImage(c, -(ax * w + M) * U, -(ay * h + M) * U, (w + 2 * M) * U, (h + 2 * M) * U); }
 
-  /* ── the heads ──────────────────────────────────────────────────────────── */
-  // Frame sizes are the reference's head frames for the same seats (131 x 187 and 132 x 167 atlas px, drawn
-  // 145.6 x 207.8 and 146.7 x 185.6 units), anchored at (.5, .8) like theirs, built the way theirs are: 3/4 view,
-  // tipped forward, big cranium over a jutting jaw, squinting eyes under heavy brows, a toothy grin, the collar
-  // under the chin. The two faces are our own invented players. Colours are entries of their atlas (notes-c.md).
-  const HEADS = [
-    { w: 131, h: 187, skin: '#75504c', shade: '#5d473d', deep: '#4d352d', dot: '#514239', lite: '#806870', lip: '#7e6570',
-      scalp: '#6d5a52', hair: '#1d1e25', hairMid: '#2a2a33', hairLite: '#554d48', iris: '#2a2a33' },
-    { w: 132, h: 167, skin: '#eabfa8', shade: '#da958a', deep: '#b47c6e', dot: '#d18c81', lite: '#e2b09d', lip: '#da958a',
-      hair: '#ae8b66', hairMid: '#9a724b', hairDark: '#7b6352', hairLite: '#d2c097', iris: '#7b6352' },
-  ];
-
-  // The shirt collar under the jaw, in the kit colours (their heads carry the collar too).
-  function collar(g, kp, dx, dy) {
-    const P = [[10, 112], [7, 138], [18, 160], [42, 173], [72, 179], [98, 177], [110, 169], [98, 164], [74, 158], [50, 146], [32, 132], [24, 114]]
-      .map(p => [p[0] + dx, p[1] + dy]);
-    shape(g, P, kp.base);
-    g.save(); clipTo(g, P);
-    g.fillStyle = kp.deep; g.beginPath(); trace(g, [[0, 100 + dy], [30 + dx, 120 + dy], [36 + dx, 150 + dy], [50 + dx, 190 + dy], [0, 190 + dy]], true); g.fill();
-    line(g, [[14 + dx, 150 + dy], [38 + dx, 167 + dy], [68 + dx, 174 + dy], [100 + dx, 172 + dy]], 6, kp.light);
-    g.restore();
-    shape(g, P, null, 2.7);
-  }
-  function ear(g, H, P, inner) {
-    shape(g, P, H.skin);
-    g.save(); clipTo(g, P); g.fillStyle = H.shade; g.beginPath(); trace(g, inner[0], true); g.fill(); g.restore();
-    line(g, inner[1], 2); line(g, inner[2], 1.8);
-    shape(g, P, null, 2.5);
-  }
-  // A squinting eye: a small white under a heavy lid, the iris tucked under it, a lower-lid crease.
-  function eye(g, H, white, iris, r, lid, under) {
-    shape(g, white, WMID);
-    g.save(); clipTo(g, white);
-    g.fillStyle = H.iris; g.beginPath(); g.arc(iris[0], iris[1], r, 0, TAU); g.fill();
-    g.fillStyle = '#1d1e25'; g.beginPath(); g.arc(iris[0] + r * 0.25, iris[1], r * 0.55, 0, TAU); g.fill();
-    g.fillStyle = 'rgba(68,2,1,0.35)'; g.fillRect(iris[0] - 12, white[1][1] - 2, 24, 3);              // the lid's shadow
-    g.restore();
-    shape(g, white, null, 1.3, INK2);
-    line(g, lid, 3.6);
-    if (under) line(g, under, 1.4, INK2);
-  }
-  // Painted hair clumps: strokes from a base line toward the tips, darker at the root, lit along one side.
-  function clumps(g, list, dark, lite, w) {
-    for (const [x0, y0, x1, y1] of list) {
-      line(g, [[x0, y0], [x1, y1]], w, dark);
-      line(g, [[x0 + (x1 - x0) * 0.25 + 1.5, y0 + (y1 - y0) * 0.25 - 1.5], [x0 + (x1 - x0) * 0.8 + 1, y1 + (y0 - y1) * 0.2 - 1]], w * 0.45, lite);
-    }
-  }
-  // A toothy grin: dark mouth, an upper row of teeth with gaps, lower lip.
-  function grin(g, H, MO, TEETH, gaps, lower, lip) {
-    shape(g, MO, INK);
-    g.save(); clipTo(g, MO);
-    shape(g, TEETH, WHITE);
-    line(g, TEETH.slice(2), 2.4, WSHADE);
-    for (const [x, y0, y1] of gaps) line(g, [[x, y0], [x + 0.5, y1]], 1.1, WSHADE);
-    if (lower) shape(g, lower, WSHADE);
-    g.restore();
-    shape(g, MO, null, 2.2);
-    if (lip) shape(g, lip, H.lip, 1.6);
-  }
-
-  // Seat 0: dark skin, a shaved head, a thick short beard.
-  function headA(g, kp) {
-    const H = HEADS[0];
-    collar(g, kp, 0, 0);
-    const SK = [[16, 70], [22, 44], [38, 22], [60, 11], [86, 10], [104, 17], [116, 31], [121, 50], [123, 64], [129, 79], [124, 89], [126, 99],
-      [131, 110, 1], [123, 117], [125, 124], [123, 134], [120, 146], [119, 157], [113, 167], [99, 173], [80, 169], [58, 157], [38, 143], [21, 127], [13, 105], [12, 86]];
-    shape(g, SK, H.skin);
-    g.save(); clipTo(g, SK);
-    // Three tones: the shadow side (back and below), the brow's shadow over the eyes, the lit forehead and nose.
-    const SH = [[0, 30], [40, 26], [46, 52], [50, 80], [56, 106], [66, 128], [90, 150], [130, 150], [130, 190], [0, 190]];
-    g.fillStyle = H.shade; g.beginPath(); trace(g, SH, true); g.fill();
-    g.save(); g.beginPath(); trace(g, SH, true); g.clip(); dots(g, 0, 26, 130, 190, 3.6, 0.9, H.deep); g.restore();
-    g.beginPath(); trace(g, [[58, 88], [84, 86], [104, 90], [122, 88], [122, 98], [104, 101], [80, 101], [62, 102]], true); g.fill();
-    g.beginPath(); trace(g, [[64, 104], [82, 108], [94, 120], [80, 122], [68, 114]], true); g.fill();
-    g.fillStyle = H.deep; g.beginPath(); trace(g, [[104, 114], [122, 116], [116, 121], [106, 120]], true); g.fill();
-    // The shaved scalp: a cooler tone above the hairline, speckled with stubble, a shine on the crown.
-    const SC = [[0, 96], [10, 60], [24, 30], [46, 14], [74, 8], [100, 12], [114, 24], [120, 42], [108, 46], [88, 44], [70, 48], [56, 58], [48, 74], [42, 92], [30, 98]];
-    g.fillStyle = H.scalp; g.beginPath(); trace(g, SC, true); g.fill();
-    g.save(); g.beginPath(); trace(g, SC, true); g.clip(); dots(g, 0, 4, 124, 100, 2.6, 0.6, H.deep); g.restore();
-    g.fillStyle = H.lite; g.beginPath(); trace(g, [[56, 20], [80, 15], [98, 20], [84, 24], [64, 26]], true); g.fill();
-    g.beginPath(); trace(g, [[88, 52], [108, 54], [114, 62], [98, 60]], true); g.fill();
-    g.beginPath(); trace(g, [[118, 100], [127, 106], [126, 111], [119, 107]], true); g.fill();
-    g.restore();
-    shape(g, SK, null, 2.7);
-    line(g, [[110, 46], [90, 44], [70, 48], [56, 58], [48, 74], [43, 90]], 1.4, INK2);                    // the shave line
-    ear(g, H, [[24, 94], [12, 88], [3, 96], [2, 112], [8, 128], [20, 138], [30, 134], [32, 120]],
-      [[[8, 96], [16, 92], [24, 100], [24, 126], [16, 132], [8, 122]], [[12, 100], [8, 112], [12, 124], [22, 130]], [[17, 106], [21, 114], [18, 122]]]);
-    // The thick short beard: from the sideburn along the jaw round the chin, the moustache over the lip.
-    const BD = [[32, 98], [42, 94, 1], [48, 106], [58, 120], [72, 128], [84, 129], [92, 122], [104, 119], [118, 119], [128, 120, 1], [126, 131], [123, 142],
-      [122, 154], [119, 164], [112, 172], [99, 177], [80, 173], [58, 161], [40, 147], [26, 131], [24, 116]];
-    shape(g, BD, H.hairMid);
-    g.save(); clipTo(g, BD);
-    g.fillStyle = H.hair; g.beginPath(); trace(g, [[0, 120], [30, 130], [60, 160], [100, 178], [130, 160], [130, 190], [0, 190]], true); g.fill();
-    clumps(g, [[34, 104, 30, 122], [40, 112, 36, 132], [50, 124, 46, 146], [60, 134, 58, 156], [72, 142, 72, 164], [86, 146, 88, 170],
-      [100, 150, 104, 172], [112, 146, 116, 166], [120, 138, 122, 156], [96, 121, 92, 126], [110, 120, 108, 125], [121, 121, 120, 126]], H.hair, H.hairLite, 3);
-    g.restore();
-    shape(g, BD, null, 2.7);
-    // Brows: heavy and low, pulled down to the nose; forehead creases.
-    shape(g, [[56, 86], [68, 77], [90, 76], [104, 83], [100, 89], [84, 85], [66, 90]], H.hair, 2);
-    shape(g, [[107, 85], [117, 78], [128, 80], [127, 88], [116, 89]], H.hair, 2);
-    line(g, [[60, 60], [76, 55], [94, 58]], 1.6, INK2); line(g, [[64, 68], [80, 64], [98, 66]], 1.6, INK2);
-    line(g, [[102, 68], [100, 78]], 1.6, INK2);
-    eye(g, H, [[70, 95.5], [79, 92.5], [90, 92.5], [95, 95], [86, 97.5], [75, 97.5]], [87, 95.5], 2.8, [[66, 95], [78, 91.5], [92, 91.5], [98, 94]], [[74, 101], [86, 102], [94, 99]]);
-    eye(g, H, [[108, 95], [114, 92.5], [121, 93.5], [120, 96.5], [111, 97]], [116.5, 95], 2.3, [[105, 94.5], [114, 91.5], [124, 92.5]]);
-    // The nose: bridge, a big wing, the cheek fold.
-    line(g, [[104, 94], [106, 104]], 2);
-    line(g, [[100, 108], [97, 114], [104, 119], [117, 116]], 2.4);
-    line(g, [[94, 106], [84, 116], [80, 126]], 2.2);
-    line(g, [[64, 104], [74, 110]], 1.6, INK2);
-    // The grin, cut into the beard.
-    grin(g, H, [[82, 129], [96, 124], [112, 122], [125, 124], [124, 132], [118, 143], [106, 150], [94, 147], [85, 137]],
-      [[80, 124], [126, 120], [125, 134], [108, 138], [90, 137]], [[94, 126, 136], [103, 124, 137], [112, 123, 136], [120, 123, 134]],
-      [[96, 146], [104, 143], [116, 141], [112, 149], [100, 151]], [[92, 150], [106, 153], [118, 146], [116, 154], [104, 158], [93, 155]]);
-  }
-
-  // Seat 1: light skin, short spiky light-brown hair, a stubbly jaw.
-  function headB(g, kp) {
-    const H = HEADS[1];
-    collar(g, kp, 0, -19);
-    const SK = [[24, 40], [36, 20], [56, 8], [80, 8], [100, 14], [114, 26], [121, 40], [124, 54], [128, 66], [131, 75], [126, 84], [128, 92],
-      [131, 99, 1], [125, 106], [127, 112], [123, 122], [119, 134], [116, 146], [110, 156], [94, 160], [74, 152], [52, 138], [32, 122], [16, 104],
-      [10, 82], [12, 60], [18, 48]];
-    shape(g, SK, H.skin);
-    g.save(); clipTo(g, SK);
-    const SH = [[0, 30], [44, 40], [42, 64], [46, 90], [54, 112], [68, 130], [96, 146], [130, 140], [130, 170], [0, 170]];
-    g.fillStyle = H.shade; g.beginPath(); trace(g, SH, true); g.fill();
-    g.save(); g.beginPath(); trace(g, SH, true); g.clip(); dots(g, 0, 30, 130, 170, 3.6, 0.7, H.dot); g.restore();
-    g.beginPath(); trace(g, [[58, 72], [84, 70], [104, 74], [122, 72], [122, 82], [104, 84], [80, 84], [62, 86]], true); g.fill();   // under the brow
-    g.fillStyle = H.lite; g.beginPath(); trace(g, [[66, 92], [84, 96], [94, 108], [80, 110], [70, 102]], true); g.fill();          // under the cheekbone
-    g.fillStyle = H.shade; g.beginPath(); trace(g, [[50, 36], [80, 32], [118, 34], [118, 44], [80, 42], [54, 48]], true); g.fill();                       // the hair's shadow
-    g.fillStyle = H.deep; g.beginPath(); trace(g, [[106, 102], [124, 104], [118, 109], [108, 108]], true); g.fill();
-    // Stubble over the jaw, chin and upper lip.
-    const ST = [[36, 100], [50, 110], [64, 122], [80, 124], [92, 112], [110, 108], [130, 108], [130, 170], [30, 170]];
-    g.fillStyle = '#e0a493'; g.beginPath(); trace(g, ST, true); g.fill();
-    g.save(); g.beginPath(); trace(g, ST, true); g.clip(); dots(g, 30, 100, 130, 170, 2, 0.45, H.deep); g.restore();
-    g.restore();
-    shape(g, SK, null, 2.7);
-    ear(g, H, [[24, 76], [12, 70], [3, 78], [2, 94], [8, 110], [20, 120], [30, 116], [32, 102]],
-      [[[8, 78], [16, 74], [24, 82], [24, 108], [16, 114], [8, 104]], [[12, 82], [8, 94], [12, 106], [22, 112]], [[17, 88], [21, 96], [18, 104]]]);
-    // Short spiky hair: a cap of chunky spikes, the fringe pushed up and forward.
-    const HR = [[10, 78], [6, 52], [8, 34], [4, 22, 1], [16, 20], [15, 8, 1], [28, 12], [33, 2, 1], [44, 8], [54, 1, 1], [62, 8], [74, 2, 1], [82, 9],
-      [94, 4, 1], [100, 12], [112, 8, 1], [114, 19], [126, 17, 1], [120, 27], [130, 29, 1], [118, 34], [104, 33], [86, 31], [70, 35], [58, 43], [50, 56],
-      [46, 72], [44, 84], [36, 78], [24, 80]];
-    shape(g, HR, H.hair);
-    g.save(); clipTo(g, HR);
-    g.fillStyle = H.hairMid; g.beginPath(); trace(g, [[0, 40], [30, 36], [56, 40], [64, 50], [50, 90], [0, 90]], true); g.fill();
-    dots(g, 4, 40, 60, 90, 3, 0.8, H.hairDark);
-    clumps(g, [[16, 40, 6, 24], [22, 34, 16, 10], [32, 30, 33, 4], [44, 28, 54, 3], [56, 26, 74, 4], [70, 26, 94, 6], [84, 26, 112, 10], [96, 28, 126, 19],
-      [104, 30, 129, 29], [36, 44, 20, 30], [50, 40, 40, 20]], H.hairDark, H.hairLite, 2.6);
-    g.restore();
-    shape(g, HR, null, 2.7);
-    line(g, [[44, 84], [45, 72]], 1.6, INK2);
-    // Brows, crow's feet, squinting eyes.
-    shape(g, [[58, 71], [70, 64], [92, 63], [104, 69], [99, 73], [80, 70], [64, 76]], H.hairMid, 2);
-    shape(g, [[108, 70], [118, 64], [129, 66], [128, 72], [116, 74]], H.hairMid, 2);
-    eye(g, H, [[72, 82.5], [80, 80.3], [90, 80.3], [94, 82.3], [86, 84], [76, 84]], [87, 82.5], 2.6, [[66, 82], [78, 78.5], [92, 78.5], [98, 81]], [[74, 88], [86, 89], [94, 86]]);
-    eye(g, H, [[108, 82], [114, 79.5], [121, 80.5], [120, 83.5], [111, 84]], [116.5, 82], 2.3, [[105, 81.5], [114, 78.5], [124, 79.5]]);
-    line(g, [[60, 82], [55, 86]], 1.4, INK2); line(g, [[61, 88], [56, 92]], 1.4, INK2);
-    line(g, [[100, 56], [98, 64]], 1.4, INK2);
-    // The nose, the cheek fold, the grin.
-    line(g, [[104, 84], [106, 94]], 1.9);
-    line(g, [[100, 98], [97, 104], [104, 109], [117, 106]], 2.2);
-    line(g, [[96, 98], [86, 108], [82, 120], [86, 132]], 2);
-    grin(g, H, [[90, 120], [102, 116], [114, 114], [124, 115], [123, 122], [117, 130], [105, 134], [96, 131], [91, 126]],
-      [[88, 116], [126, 112], [125, 123], [108, 126], [92, 125]], [[100, 117, 125], [107, 115, 125], [114, 114, 124], [120, 114, 122]],
-      [[100, 131], [107, 128], [117, 127], [112, 133], [102, 135]], [[98, 136], [108, 138], [117, 133], [115, 139], [106, 143], [98, 140]]);
-    line(g, [[100, 150], [108, 149]], 1.6, INK2);
-  }
+  /* ── the heads: public/js/headsoccer/hsFaces.js ───────────────────────── */
   function headSprite(side, k) {
-    const H = HEADS[side], kp = kitPal(side);
-    return sprite('h' + side + kp.base, H.w, H.h, k, (g) => (side ? headB : headA)(g, kp));
+    const id = F.faceOf(heads[side], side), fr = F.frame(id), kp = kitPal(side);
+    return { c: sprite('h' + id + kp.base, fr.w, fr.h, k, (g) => F.paint(g, id, kp)), fr };
   }
 
   /* ── hands: a fist with a white wristband (hand-front 66 x 66, hand-back 73 x 62 atlas px) ── */
@@ -308,9 +93,10 @@
     line(g, [[46, 30], [58, 31], [69, 33]], 2.2); line(g, [[44, 44], [56, 45], [66, 50]], 2.2);
     cuff(g, 30, 25, -2.55, 22, 11);
   }
+  // The hands take the skin of the face the seat wears.
   function handSprite(side, front, k) {
-    const H = HEADS[side];
-    return front ? sprite('hf' + side, 66, 66, k, (g) => handFront(g, H)) : sprite('hb' + side, 73, 62, k, (g) => handBack(g, H));
+    const id = F.faceOf(heads[side], side), H = F.skin(id);
+    return front ? sprite('hf' + id, 66, 66, k, (g) => handFront(g, H)) : sprite('hb' + id, 73, 62, k, (g) => handBack(g, H));
   }
 
   /* ── boots: sock, kit-coloured upper, white laces, red heel tab, studded sole (71 x 59 atlas px) ── */
@@ -481,10 +267,10 @@
     if (mood > 0) ({ hb, hf, hbA, hfA } = cheerArms(now - W.moodAt));
     // Head: faces the ball; after a goal it faces the way the body does, and the sad one tips 45 deg (x facing).
     const look = mood ? a : (ballX > x ? 1 : -1), headA = mood < 0 ? 45 * a : 0;
-    const sb = handSprite(side, false, k), sf = handSprite(side, true, k), bt = bootSprite(side, k), hd = headSprite(side, k), H = HEADS[side];
+    const sb = handSprite(side, false, k), sf = handSprite(side, true, k), bt = bootSprite(side, k), hd = headSprite(side, k);
     g.save(); g.translate(x + hb[0] * a, y + hb[1]); g.rotate(hbA * a * D); g.scale(a, 1); blit(g, sb, 73, 62, 0.5, 0.5); g.restore();
     g.save(); g.translate(x + (32.5 + lx) * a, y + 130 + ly); g.rotate(lAng * D); g.scale(a, 1); blit(g, bt, 71, 59, 0.5, 0.5); g.restore();
-    g.save(); g.translate(x, y + 55); g.rotate(headA * D); g.scale(look, 1); blit(g, hd, H.w, H.h, 0.5, 0.8); g.restore();
+    g.save(); g.translate(x, y + 55); g.rotate(headA * D); g.scale(look, 1); blit(g, hd.c, hd.fr.w, hd.fr.h, hd.fr.ax, hd.fr.ay); g.restore();
     g.save(); g.translate(x + kx * a, y + ky); g.rotate(kAng * D); g.scale(a * ksc, ksc); blit(g, bt, 71, 59, 0.5, 0.5); g.restore();
     g.save(); g.translate(x + hf[0] * a, y + hf[1]); g.rotate(hfA * a * D); g.scale(a, 1); blit(g, sf, 66, 66, 0.5, 0.5); g.restore();
   }
@@ -492,5 +278,7 @@
   root.HSChars = {
     player, ball: paintBall, ballBack, ballFront, BALL_R,
     setKits(cols) { kits = [cols && cols[0] || null, cols && cols[1] || null]; cache.clear(); },
+    // ids: the face each seat wears (shared/hsHeads.js), null or unknown for the seat's own.
+    setHeads(ids) { heads = [ids && ids[0] || null, ids && ids[1] || null]; },
   };
 })(window);

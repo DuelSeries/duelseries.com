@@ -448,9 +448,17 @@
     else { q = (ph - 0.66) / 0.34; back = -0.15 * (1 - q) * (1 - q); }
     var ex = m + rw * 0.02, ey = h * 0.66, dx = ex - bx, dy = ey - by, dl = Math.hypot(dx, dy);
     var ux = dx / dl, uy = dy / dl, gap = br * 1.25, pull = br * 1.6, len = dl - gap - pull * 0.5;
-    var LK = root.DS_POOL8_LOOKS, ws = Math.max(5, Math.min(w, h) * 0.075) / 8.4;
+    var LK = root.DS_POOL8_LOOKS, ws = Math.max(5, Math.min(w, h) * 0.09) / 8.4;
     var Q = cu.style ? cu : { shaft: cu.shaft, joint: cu.joint, fore: cu.butt, wrap: cu.butt, wrapLine: cu.butt, sleeve: cu.butt, trim: cu.butt };
     if (!LK || !LK.paintCue) return;
+    if (w / h > 2.2 || h < 90) {
+      // Too small for the whole cue: its back half fills the strip, sliding with the same stroke.
+      var L2 = w * 1.9, ws2 = h * 0.5 / 8.4;
+      ctx.save(); ctx.translate(w + L2 * 0.42 + back * w * 0.08, h / 2); ctx.rotate(Math.PI);
+      LK.paintCue(ctx, L2, Q, ws2);
+      ctx.restore();
+      return;
+    }
     ctx.save();
     ctx.translate(bx + ux * (gap + back * pull), by + uy * (gap + back * pull)); ctx.rotate(Math.atan2(uy, ux));
     ctx.fillStyle = 'rgba(0,0,0,0.22)'; ctx.fillRect(0, ws * 3, len, ws * 5);   // its shadow on the cloth
@@ -557,6 +565,40 @@
     ctx.save(); ctx.translate(fx, fy - lift); ctx.scale(sx, sy);
     ctx.drawImage(S.cv, -S.ax, -S.ay);
     ctx.restore();
+  }
+
+  /* ── Head Soccer: the head you wear (public/js/headsoccer/hsFaces.js, the game's own painters, Owen 2026-10-28: a
+     head chooser), facing right in the left seat's red kit, bobbing and nodding on a perfect 2 s loop. No head is
+     Classic, each seat's own face: both of them, facing each other as at kick-off. Each face is painted once per
+     size into a sprite. ───────────────────────────────────────────────────── */
+  var HS_SPRITE = {};
+  function hsSprite(id, side, px) {
+    var HF = root.HSFaces, key = id + ':' + side + ':' + px;
+    if (HS_SPRITE[key]) return HS_SPRITE[key];
+    var fr = HF.frame(id), sc = px / 167, m = 4;
+    var c = document.createElement('canvas');
+    c.width = Math.ceil((fr.w + 2 * m) * sc); c.height = Math.ceil((fr.h + 2 * m) * sc);
+    var g = c.getContext('2d');
+    g.setTransform(sc, 0, 0, sc, m * sc, m * sc); g.lineJoin = 'round'; g.lineCap = 'round';
+    HF.paint(g, id, HF.pen.kitOf(side ? '#393295' : '#ad1613'));
+    return (HS_SPRITE[key] = { c: c, ax: (fr.ax * fr.w + m) * sc, ay: (fr.ay * fr.h + m) * sc });
+  }
+  function paintHeadsoccer(cv, k, t, big, bare) {
+    var ctx = cv.getContext('2d'), w = cv.width, h = cv.height, HF = root.HSFaces;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    if (bare) ctx.clearRect(0, 0, w, h); else { ctx.fillStyle = '#12261a'; ctx.fillRect(0, 0, w, h); }
+    if (!HF) return;
+    var ph = (t % 2) / 2 * 6.2832;
+    var pair = !HF.faceOf(k.id) || k.id === 'classic' || !k.id;
+    var px = Math.round(Math.min(h * 0.62, w * (pair ? 0.36 : 0.62)));
+    function one(id, side, x, ph0) {
+      var S = hsSprite(id, side, px), bob = Math.sin(ph + ph0) * h * 0.025, nod = Math.sin(2 * (ph + ph0)) * 0.05;
+      ctx.save(); ctx.translate(x, h * 0.64 + bob); ctx.rotate(side ? -nod : nod); ctx.scale(side ? -1 : 1, 1);
+      ctx.drawImage(S.c, -S.ax, -S.ay);
+      ctx.restore();
+    }
+    if (pair) { one('beard', 0, w * 0.3, 0); one('spikes', 1, w * 0.7, Math.PI); }
+    else one(k.id, 0, w / 2, 0);
   }
 
   /* ── Rooftop Snipers ─────────────────────────────────────────────────── */
@@ -705,7 +747,7 @@
     ctx.restore();
   }
 
-  var PAINT = { crossy: paintCrossy, snake: paintSnake, airhockey: paintAirhockey, agar: paintAgar, paper: paintPaper, chomp: paintChomp, knockout: paintKnockout,
+  var PAINT = { headsoccer: paintHeadsoccer, crossy: paintCrossy, snake: paintSnake, airhockey: paintAirhockey, agar: paintAgar, paper: paintPaper, chomp: paintChomp, knockout: paintKnockout,
     battleship: paintBattleship, omgshooter: paintShooter, tanks: paintTanks, pool8: paintPool8, rooftop: paintRooftop, swim: paintSwim };
   /* Which previews move. The rest are painted once per size, which keeps a
      page of forty-odd canvases off the frame budget. */

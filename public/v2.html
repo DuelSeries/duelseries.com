@@ -3427,6 +3427,8 @@ body.scr-anim { overflow-x:hidden }
 <script src="/shared/pool8Looks.js"></script>
 <script src="/shared/crossyLooks.js"></script>
 <script src="/shared/crossyCast.js"></script>
+<script src="/shared/hsHeads.js"></script>
+<script src="/js/headsoccer/hsFaces.js"></script>
 <script src="/shared/rtLooks.js"></script>
 <script src="/shared/swimLooks.js"></script>
 <script src="/shared/shopSkins.js"></script>
@@ -4160,7 +4162,7 @@ const skin=()=>LOOKS.find(s=>s.id===skinId)||null;
    duel.ag.skin, which /ag sends in its handshake (public/js/ag/agMain.js) and
    the server checks against the same list (server/ag/agRoom.js skinOf).
    Every other game keeps dealing its own look, as it does today. */
-const hasLook=g=>!!(g&&(g.look||(window.V2Shop&&V2Shop.game(g.id))||(g.id==='crossy'&&CR_LOOKS.length)||(g.id==='pool8'&&P8_LOOKS.length)||(g.id==='rooftop'&&RT_LOOKS.length)||(g.id==='swim'&&SW_LOOKS.length)));
+const hasLook=g=>!!(g&&(g.look||(window.V2Shop&&V2Shop.game(g.id))||(g.id==='crossy'&&CR_LOOKS.length)||(g.id==='pool8'&&P8_LOOKS.length)||(g.id==='rooftop'&&RT_LOOKS.length)||(g.id==='swim'&&SW_LOOKS.length)||(g.id==='headsoccer'&&HS_LOOKS.length)));
 const AGS=window.DS_AG_SKINS;
 const AG_LOOKS=(AGS?AGS.SKINS:[]).map(s=>({id:'ag:'+s.id,game:'agar',ag:s,name:s.name,col:AGS.hex(s)}));
 let agSkinId='';
@@ -4189,6 +4191,14 @@ try{p8LookId=String(localStorage.getItem(P8L?P8L.KEY:'')||'').trim()}catch(_){}
 if(!P8_LOOKS.some(s=>s.p8.id===p8LookId))p8LookId='';
 /* Crossy Road keeps one of its free animals (shared/crossyLooks.js) the same way, under duel.crossy.skin, sent by
    /crossy with cr:queue and checked by its server (server/crossy/crossyWire.js). */
+/* Head Soccer keeps one of its free heads (shared/hsHeads.js, the faces in public/js/headsoccer/hsFaces.js) the same
+   way, under duel.headsoccer.head, sent by /headsoccer with hs:queue and worn by the server only if listed. Nothing
+   stored is Classic: each seat's own face. */
+const HSL=window.DS_HS_HEADS;
+const HS_LOOKS=(HSL&&window.HSFaces?HSL.HEADS:[]).map(h=>({id:'hs:'+h.id,game:'headsoccer',hs:h,name:h.name}));
+let hsHeadId='';
+try{hsHeadId=String(localStorage.getItem(HSL?HSL.KEY:'')||'').trim()}catch(_){}
+if(!HS_LOOKS.some(s=>s.hs.id===hsHeadId))hsHeadId='';
 const CRL=window.DS_CROSSY_LOOKS;
 const CR_LOOKS=(CRL?CRL.SKINS:[]).map(s=>({id:'cr:'+s.id,game:'crossy',cr:s,name:s.name,col:s.col}));
 let crSkinId='';
@@ -4248,6 +4258,9 @@ const SAVED={
     put:s=>{swCarId=s&&s.sw?s.sw.id:'';
       try{if(swCarId)localStorage.setItem(SWL.KEY,swCarId);else localStorage.removeItem(SWL.KEY)}catch(_){}}},
 };
+SAVED.headsoccer={worn:()=>HS_LOOKS.find(s=>s.hs.id===hsHeadId)||null,
+  put:s=>{hsHeadId=s&&s.hs?s.hs.id:'';
+    try{if(hsHeadId)localStorage.setItem(HSL.KEY,hsHeadId);else localStorage.removeItem(HSL.KEY)}catch(_){}}};
 SAVED.pool8={worn:()=>P8_LOOKS.find(s=>s.p8.id===p8LookId)||null,
   put:s=>{p8LookId=s&&s.p8?s.p8.id:'';
     try{if(p8LookId)localStorage.setItem(P8L.KEY,p8LookId);else localStorage.removeItem(P8L.KEY)}catch(_){}}};
@@ -4267,7 +4280,7 @@ function lookList(g){
   }):[];
   /* Every free skin first, then every paid one: one run of each. */
   const free=g.look?LOOKS:g.id==='swim'?SW_LOOKS
-    :[{id:'default',game:g.id,name:g.id==='rooftop'?'Random':g.id==='pool8'?'Classic blue':g.id==='crossy'?'Chicken':S.defaultName(g.id)}].concat(g.id==='rooftop'?RT_LOOKS:g.id==='agar'?AG_LOOKS:g.id==='chomp'?CH_LOOKS:g.id==='airhockey'?AH_LOOKS:g.id==='pool8'?P8_LOOKS:g.id==='crossy'?CR_LOOKS:[]);
+    :[{id:'default',game:g.id,name:g.id==='rooftop'?'Random':g.id==='pool8'?'Classic blue':g.id==='crossy'?'Chicken':g.id==='headsoccer'?'Classic':S.defaultName(g.id)}].concat(g.id==='headsoccer'?HS_LOOKS:g.id==='rooftop'?RT_LOOKS:g.id==='agar'?AG_LOOKS:g.id==='chomp'?CH_LOOKS:g.id==='airhockey'?AH_LOOKS:g.id==='pool8'?P8_LOOKS:g.id==='crossy'?CR_LOOKS:[]);
   return free.concat(paid);
 }
 let LK=[];   /* what the open chooser lists, from lookList */
@@ -4313,6 +4326,7 @@ function paintLook(cv){
     if(window.V2Shop){if(cur.id==='rooftop')V2Shop.paintWith(cv,'rooftop',{look:s&&s.rt?s.rt.id:''},lookT,false,true);
       else if(cur.id==='swim')V2Shop.paintWith(cv,'swim',{car:s&&s.sw?s.sw.id:''},lookT,false,true);
       else if(cur.id==='pool8')V2Shop.paintWith(cv,cur.id,s&&s.p8?s.p8:{},lookT,false,true);
+      else if(cur.id==='headsoccer')V2Shop.paintWith(cv,cur.id,{id:s&&s.hs?s.hs.id:''},lookT,false,true);
       else if(cur.id==='crossy')V2Shop.paintWith(cv,cur.id,{col:s&&s.cr?s.col:'#f8f8f3',id:s&&s.cr?s.cr.id:'chicken'},lookT,false,true);
       else if(s&&(s.ag||s.ch||s.ah))V2Shop.paintWith(cv,cur.id,{col:s.col},lookT,false,true);
       else V2Shop.paint(cv,cur.id,s&&s.shop?s.shop.id:'default',lookT,false,true)}
@@ -4321,6 +4335,7 @@ function paintLook(cv){
     if(s.game==='rooftop')V2Shop.paintWith(cv,'rooftop',{look:s.rt?s.rt.id:''},lookT,false,true);
     else if(s.game==='swim')V2Shop.paintWith(cv,'swim',{car:s.sw?s.sw.id:''},lookT,false,true);
     else if(s.game==='pool8')V2Shop.paintWith(cv,s.game,s.p8||{},lookT,false,true);
+    else if(s.game==='headsoccer')V2Shop.paintWith(cv,s.game,{id:s.hs?s.hs.id:''},lookT,false,true);
     else if(s.game==='crossy')V2Shop.paintWith(cv,s.game,{col:s.cr?s.col:'#f8f8f3',id:s.cr?s.cr.id:'chicken'},lookT,false,true);
     else if(s.ag||s.ch||s.ah)V2Shop.paintWith(cv,s.game,{col:s.col},lookT,false,true);
     else V2Shop.paint(cv,s.game,s.shop?s.shop.id:'default',lookT,false,true);

@@ -593,8 +593,9 @@
     ctx.restore();
   }
   function setKits(cols) { P.setKits(cols); }
+  function setHeads(ids) { P.setHeads(ids); }
 
   const art = { bg: false, build, field, goalFronts, ballAt, player: P.player, hudDraw, countText, goalFlash, flashText, youMark,
-                button, note, setKits, pauseAt: PAUSE_AT, viewW: () => VW };
+                button, note, setKits, setHeads, pauseAt: PAUSE_AT, viewW: () => VW };
   root.HSArt = { create: () => art };
 })(window);

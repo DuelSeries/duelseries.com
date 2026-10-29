@@ -16,6 +16,7 @@ const { AirHockeyLobby } = require('./AirHockeyLobby'); // Air Hockey, the same 
 const { RooftopLobby } = require('./RooftopLobby');       // Rooftop Snipers, the same queue and money (shared/rtSim.js)
 const crossyWire = require('./crossy/crossyWire');        // Crossy Road, a duel on one seeded map (server/crossy)
 const P8Looks = require('../shared/pool8Looks'); // its free looks (a cloth and a cue), chosen in the lobby's Customize
+const HSHeads = require('../shared/hsHeads');      // Head Soccer's free heads, the ids its hs:queue may ask for
 const rtLooks = require('../shared/rtLooks');             // Rooftop's free looks, the ids its rt:queue may ask for
 const { BattleshipLobby } = require('./BattleshipLobby'); // the two-grid duel
 const { SwimLobby } = require('./swim/SwimLobby');       // the traffic race (Swim, shared/swimSim.js)
@@ -5674,7 +5675,7 @@ io.on('connection', (socket) => {
      A real-time duel. The queue and the paid door are Knockout's, line for line (the handler below is that one
      with hs: names); the room runs the physics and the client only says what it is pressing: held arrows and
      counts of jump, kick and power presses (HeadSoccerRoom.setInput clamps all of it). */
-  on('hs:queue', ({ name, wallet, stake, entryToken, shop, skinPass, resume } = {}) => {
+  on('hs:queue', ({ name, wallet, stake, entryToken, shop, skinPass, resume, head } = {}) => {
     if (!socketRL(socket, 'hsq', 1000)) return;
     if (ops.get().maintenance) { socket.emit('maintenance', ops.get()); return; }
     /* Already at a table that is still being played: a second seat from the same socket would leave the first table
@@ -5707,7 +5708,7 @@ io.on('connection', (socket) => {
     const skin = skinPasses.wornFrom('headsoccer', {
       shop: typeof shop === 'string' ? shop : null,
       skinPass: typeof skinPass === 'string' ? skinPass : null,
-    });
+    }) || (HSHeads.byId(head) ? head : null);   // else a free head, only one on shared/hsHeads.js (cosmetic)
 
     /* A PAID SEAT IS PROVED, NOT CLAIMED. The stake is whatever the server
        recorded when it verified the on-chain transfer and minted a one-time
