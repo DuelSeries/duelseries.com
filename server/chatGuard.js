@@ -88,8 +88,38 @@ const SECRET_RE = /\b(?:seed|recovery|secret|mnemonic|backup|wallet)\s*(?:phrase
 // a lure off site to a handle ("dm me on telegram @x", "discord: name#1234"). Read on the text as typed: undoing
 // look-alikes would turn "12" into "i2". A bare "recovery" or "backup" stays chat ("nice recovery", "need backup").
 // (night review 2026-10-29)
-const SECRET_ASK_RE = /\b(?:send|give|share|tell|dm|paste|enter|type|whats|what['’]?s)\b.{0,24}\b(?:seed|recovery\s*(?:code|key)s?|backup\s*codes?|pk|priv(?:ate)?\s*keys?|(?:12|24)\s*words?)\b/i;
-const CONTACT_RE = /\b(?:telegram|tg|whatsapp|discord|signal)\b.{0,30}(?:@[a-z0-9_]{3,}|#\d{4}\b)|(?:@[a-z0-9_]{3,}|#\d{4}\b).{0,30}\b(?:telegram|tg|whatsapp|discord|signal)\b/i;
+// Second pass (night review 2026-10-29): "gimme" and "show" ask too; the 12 or 24 words count only as someone's
+// ("your 12 word", "send me ur 24 words"), so "type 12 words a sec" is chat; a bare "recovery" straight after the ask
+// ("send recovery", "give me your recovery") is refused while "give me a sec, nice recovery" is not; and the chat
+// apps spelt in two ("tele gram", "whats app").
+const SECRET_ASK_RE = /\b(?:send|give|gimme|share|show|tell|dm|paste|enter|type|whats|what['’]?s)\b.{0,24}\b(?:seed|recovery\s*(?:code|key)s?|backup\s*codes?|pk|priv(?:ate)?\s*keys?)\b/i;
+const SECRET_WORDS_RE = /\b(?:your|ur|yo|ya|the|me)\s+(?:12|24|twelve|twenty[\s-]*four)[\s-]*words?\b/i;
+const SECRET_BARE_RE = /\b(?:send|give|gimme|share|show|paste|enter|type)\s+(?:(?:me|us|ur|your|yo|ya|the)\s+){0,2}recovery\b/i;
+const APPS = 'tele\\s*gram|tg|whats\\s*app|disc\\s*ord|signal';
+const CONTACT_RE = new RegExp('\\b(?:' + APPS + ')\\b.{0,30}(?:@[a-z0-9_]{3,}|#\\d{4}\\b)|(?:@[a-z0-9_]{3,}|#\\d{4}\\b).{0,30}\\b(?:' +
+  APPS + ')\\b', 'i');
+
+// A link ending spelt round LINK_RES (night review 2026-10-29): a digit or symbol for one of its letters
+// ("solgift.c0m"), its letters spaced out ("sol gift .c o m"), or a comma for the dot ("solgift,com", only the
+// endings that are no word). The host must hold a letter and the ending a letter, so amounts and versions ("0.10",
+// "$1.10", "x1.5k", "v2.0") stay chat, and an ending typed plainly is LINK_RES's call alone ("ok.so", "gg.lol").
+const TLD_ONLY = new RegExp('^(?:' + TLDS + ')$');
+const COMMA_ENDS = /^(?:com|org|xyz)$/;
+const SPELT_RE = /([a-z0-9-]*[a-z][a-z0-9-]*)([.,])([a-z0-9@$!|](?: [a-z0-9@$!|]){1,7}|[a-z0-9@$!|]{2,8})(?![a-z0-9@$!|])/gi;
+function speltLink(s) {
+  for (const m of s.matchAll(SPELT_RE)) {
+    const end = m[3];
+    if (!/[a-z]/i.test(end)) continue;
+    const plain = end.replace(/ /g, '');
+    const folded = unlook(plain);
+    if (m[2] === ',') {
+      if (COMMA_ENDS.test(folded)) return true;
+    } else if ((end.includes(' ') || /[^a-z]/i.test(plain)) && TLD_ONLY.test(folded)) {
+      return true;
+    }
+  }
+  return false;
+}
 
 const B58 = /^[1-9A-HJ-NP-Za-km-z]+$/;
 function hasAddress(text) {
@@ -166,15 +196,22 @@ function clean(raw) {
 function contentProblem(text) {
   const lookless = unlook(text);
   if (SECRET_RE.test(text) || SECRET_RE.test(lookless)) return 'secret';
-  if (SECRET_ASK_RE.test(text)) return 'secret';
+  if (SECRET_ASK_RE.test(text) || SECRET_WORDS_RE.test(text) || SECRET_BARE_RE.test(text)) return 'secret';
   /* The ways round the link rules (night review 2026-10-29): the ideographic full stops a browser reads as a dot; a
-     space BEFORE the dot ("solgift .com", "solgift . com"; prose never puts one there, so it is closed up for every
-     ending); a space only after it for the scam endings that are not words ("solgift. com", while "good game. gg"
-     stays chat); any host with a path whatever its ending ("x.me/claim"); and a handle on a chat app. */
-  const linky = text.replace(/[。｡]/g, '.').replace(/\s+\.\s*/g, '.');
-  for (const re of LINK_RES) if (re.test(text) || re.test(linky)) return 'link';
-  if (/\b[a-z0-9][a-z0-9-]*\.\s+(?:com|org|xyz|io|ru|cn)\b/i.test(text)) return 'link';
+     space only BEFORE the dot ("solgift .com"; prose never puts one there, so it is closed up for every ending); a
+     space on both sides ("solgift . com") for the endings that are no chat word, so "nice one . gg" stays chat; a
+     space only after it for com, org and xyz ("solgift. com now", but not "the score. com on") and for io, ru and cn
+     only when nothing follows but the end of the line or a path ("solgift. io", while "Russia. Ru is big" and "Rio.
+     Io is small" stay chat); any host with a path whatever its ending
+     ("x.me/claim"); an ending spelt with look-alikes, spaces or a comma (speltLink); and a handle on a chat app. */
+  const dotted = text.replace(/[。｡]/g, '.');
+  const linky = dotted.replace(/\s+\.\s*/g, '.');
+  const tight = dotted.replace(/\s+\.(?=\S)/g, '.');
+  for (const re of LINK_RES) if (re.test(text) || re.test(re === LINK_RES[2] ? tight : linky)) return 'link';
+  if (/\b[a-z0-9][a-z0-9-]*\s+\.\s+(?:com|net|org|xyz|io|ru|cn)\b/i.test(dotted)) return 'link';
+  if (/\b[a-z0-9][a-z0-9-]*\.\s+(?:(?:com|org|xyz)\b(?!\s+on\b)|(?:io|ru|cn)\s*(?:$|\/))/i.test(dotted)) return 'link';
   if (/\b[a-z0-9][a-z0-9-]{1,62}\.[a-z]{2,24}\/\S/i.test(linky)) return 'link';
+  if (speltLink(linky)) return 'link';
   if (CONTACT_RE.test(text)) return 'link';
   if (hasAddress(text)) return 'addr';
   if (isAbuse(text)) return 'abuse';

@@ -57,6 +57,23 @@ test('the ways round the link and scam rules found in the night review (2026-10-
   }
 });
 
+test('second pass (night review 2026-10-29): spelt endings and loose asks refused; the new false positives are chat', () => {
+  for (const s of ['solgift . c0m', 'sol gift .c o m', 'solgift,com', 'solgift,c0m', 'claim at s0lgift.c0m', 'owen.s0l',
+    'solgift. com/claim', 'go to solgift. com now', 'solgift. io', 'tele gram @sup', 'whats app @scam1', 'disc ord: scammer#1234']) {
+    assert.strictEqual(contentProblem(clean(s)), 'link', s);
+  }
+  for (const s of ['gimme ur seed', 'your 12 word', 'send recovery', 'give me your recovery', 'show me ur private key',
+    'paste your twelve words', 'send me ur 24 words']) {
+    assert.strictEqual(contentProblem(clean(s)), 'secret', s);
+  }
+  for (const s of ['Russia. Ru is big', 'im from Rio. Io is small', 'what is the score. com on', 'nice one . gg',
+    'type 12 words a sec', 'give me a sec, nice recovery', 'i got 12 kills', '0.10', '$1.10 won', 'x1.5k mass',
+    'v2.0 is out', 'won 0.5 sol', 'lvl.10', '3,000 points', 'hi,how are you', 'yes,net worth', 'gg,wp', 'lol,io',
+    'top.3s', 'ez.4u', '1.10', 'ok, com on']) {
+    assert.strictEqual(contentProblem(clean(s)), null, s);
+  }
+});
+
 test('slurs are refused however they are spelt; swear words are masked', () => {
   const slur = rot13('avttre');
   for (const s of [slur, 'you ' + slur, slur.toUpperCase(), 'n1gg3r', slur.split('').join(' '), slur.split('').join('.'),
