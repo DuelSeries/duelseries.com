@@ -42,6 +42,18 @@ const WATCH_TEXT = {
 
 const TOKEN_MAX_LEN = 256; // a real token is a UUID; anything longer names no seat
 
+// pp:need's limits (night review 2026-10-29). Per id: the 250 ms (one square) and 2000 ms (id 0, everything) the page
+// keeps itself (paperNet.js NEED_UNIT_MS, NEED_ALL_MS). They live in one small Map per socket, never a socket._rl key
+// per id the client names: at most NEED_IDS_MAX ids (the oldest goes), and a bucket of NEED_BURST refilled at
+// NEED_PER_SEC caps every pp:need of a socket. A page asks for at most 4 squares a frame, each at most 4 times a
+// second, or for everything every 2 s, so it never meets the bucket.
+const NEED_UNIT_MS = 250;
+const NEED_ALL_MS = 2000;
+const NEED_IDS_MAX = 64;
+const NEED_BURST = 30;
+const NEED_PER_SEC = 30;
+const PING_MIN_MS = 250; // pp:ping: the page pings at 1 Hz (paperNet.js PING_MS)
+
 function isObject(v) {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
 }
@@ -71,7 +83,9 @@ module.exports = function createPaperSockets({
   // paid seat's push rides the arenas' onStake instead (the buy-in counts once the player steers).
   onFreeJoin = null,
   // the shared in-game chat guard (server/chatGuard.js); a test passes its own
-  chatGuard = require('./chatGuard').shared
+  chatGuard = require('./chatGuard').shared,
+  // the clock of pp:need's own limits; a test passes its own
+  now = Date.now
 }) {
   function refuse(socket, why, extra) {
     socket.emit('pp:refused', Object.assign({ why, text: TEXT[why] || why, refunded: false }, extra || {}));
@@ -451,13 +465,33 @@ module.exports = function createPaperSockets({
     room.setInput(socket.id, n);
   }
 
+  // pp:need's limits for one socket (see NEED_* above). -> true when this ask may be answered.
+  function needAllowed(socket, id) {
+    const t = now();
+    let st = socket._ppNeed;
+    if (!st) st = socket._ppNeed = { tokens: NEED_BURST, at: t, last: new Map() };
+    const last = st.last.get(id);
+    if (last !== undefined && t - last < (id ? NEED_UNIT_MS : NEED_ALL_MS)) return false;
+    st.tokens = Math.min(NEED_BURST, st.tokens + Math.max(0, t - st.at) * NEED_PER_SEC / 1000);
+    st.at = t;
+    if (st.tokens < 1) return false;
+    st.tokens -= 1;
+    st.last.delete(id); // re-set below: the Map's order is oldest ask first
+    if (st.last.size >= NEED_IDS_MAX) st.last.delete(st.last.keys().next().value);
+    st.last.set(id, t);
+    return true;
+  }
+
   // A watcher resyncs like a player: the same geometry reply, the same rate limits.
+  // Only a live square's id is answered (night review 2026-10-29): geo answers any other id empty, and a made-up id
+  // must never cost a reply or a limit entry.
   function onNeed(socket, msg) {
     if (!isObject(msg)) return;
     const room = socket._ppRoom || socket._ppWatch;
     if (!room) return;
     const id = Number.isInteger(msg.id) && msg.id > 0 ? msg.id : 0;
-    if (!socketRL(socket, 'ppneed' + id, id ? 250 : 2000)) return;
+    if (id && !(room.game && room.game.byId && room.game.byId.has(id))) return;
+    if (!needAllowed(socket, id)) return;
     socket.emit('pp:geo', MP.packBin(room.geo(id)));
   }
 
@@ -473,6 +507,7 @@ module.exports = function createPaperSockets({
 
   function onPing(socket, msg) {
     if (!isObject(msg) || typeof msg.t !== 'number' || !Number.isFinite(msg.t)) return;
+    if (!socketRL(socket, 'ppping', PING_MIN_MS)) return; // a flood is not echoed (night review 2026-10-29)
     const room = socket._ppRoom;
     socket.emit('pp:pong', { t: msg.t, tick: room ? room.game.tick : 0 });
   }

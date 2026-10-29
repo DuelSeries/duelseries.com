@@ -355,3 +355,119 @@ test('pp:chat: a link or an address is refused with a note to the sender only; t
   a.fire('pp:chat', { text: 'and again right away' });
   assert.strictEqual(chats().length, 1, 'the second line inside the minimum gap is held back');
 });
+
+// pp:need's limits (night review 2026-10-29, findings results[7]): the rate-limit key was 'ppneed' + the client's id, so
+// every made-up id passed and left one socket._rl key forever (unbounded memory, geo without limit). Now only a live
+// square's id is answered, the per-id limits live in one small Map per socket, and a bucket caps every pp:need.
+function needWorld() {
+  const w = world();
+  w.deps.now = w.clock.now;
+  w.paper = createPaperSockets(w.deps);
+  return w;
+}
+// A watched room whose squares are ids 1..n; geo answers like the real one for a live id.
+function stubRoom(n) {
+  const byId = new Map();
+  for (let id = 1; id <= n; id++) byId.set(id, { id });
+  const asked = [];
+  return { asked, game: { byId, tick: 7 }, geo(id) { asked.push(id); return { tick: 7, ev: [] }; } };
+}
+
+test('pp:need: an id that is no live square gets no reply and no limit entry; a flood of them grows nothing', () => {
+  const w = needWorld();
+  const s = sock(w);
+  s.fire('pp:join', { name: 'free', stake: 0 });
+  const you = s.last('pp:joined').you;
+  const geos = () => s.got.filter((x) => x[0] === 'pp:geo').length;
+  for (let id = 1; id <= 20000; id++) {
+    if (s._ppRoom.game.byId.has(id)) continue;
+    s.fire('pp:need', { id });
+  }
+  s.fire('pp:need', { id: 2 ** 40 });
+  assert.strictEqual(geos(), 0, 'no reply for an id that is not a live square');
+  assert.ok(!s._ppNeed || s._ppNeed.last.size === 0, 'no limit entry for them');
+  assert.ok(!s._rl || !Object.keys(s._rl).some((k) => k.startsWith('ppneed')), 'nothing in the shared socket._rl');
+  s.fire('pp:need', { id: you });
+  assert.strictEqual(geos(), 1, 'the live square is answered');
+  assert.ok(s.last('pp:geo').ev.some((e) => e[0] === 'b' && e[1] === you));
+});
+
+test('pp:need: 250 ms per square, 2000 ms for everything, as the page keeps them', () => {
+  const w = needWorld();
+  const s = sock(w);
+  s.fire('pp:join', { name: 'free', stake: 0 });
+  const you = s.last('pp:joined').you;
+  const geos = () => s.got.filter((x) => x[0] === 'pp:geo').length;
+  s.fire('pp:need', { id: you });
+  s.fire('pp:need', { id: you });
+  assert.strictEqual(geos(), 1, 'the same square twice at once: one reply');
+  w.clock.advance(249);
+  s.fire('pp:need', { id: you });
+  assert.strictEqual(geos(), 1);
+  w.clock.advance(1);
+  s.fire('pp:need', { id: you });
+  assert.strictEqual(geos(), 2, 'again after 250 ms');
+  s.fire('pp:need', { id: 0 });
+  s.fire('pp:need', { id: 0 });
+  assert.strictEqual(geos(), 3, 'everything twice at once: one reply');
+  w.clock.advance(1999);
+  s.fire('pp:need', { id: 0 });
+  assert.strictEqual(geos(), 3);
+  w.clock.advance(1);
+  s.fire('pp:need', { id: 0 });
+  assert.strictEqual(geos(), 4, 'again after 2000 ms');
+});
+
+test('pp:need: a bucket caps a socket; the limit Map stays small; a page\'s own pace is never refused', () => {
+  const w = needWorld();
+  const s = sock(w);
+  const room = stubRoom(500);
+  s._ppWatch = room;
+  for (let id = 1; id <= 500; id++) s.fire('pp:need', { id });
+  assert.strictEqual(room.asked.length, 30, 'a burst of 500 live ids at once: the bucket answers 30');
+  assert.ok(s._ppNeed.last.size <= 64, 'the limit Map keeps at most 64 ids');
+  w.clock.advance(1000);
+  for (let id = 1; id <= 500; id++) s.fire('pp:need', { id });
+  assert.strictEqual(room.asked.length, 60, 'refilled at 30 a second');
+  assert.ok(s._ppNeed.last.size <= 64);
+
+  // The page (paperNet.js): at most 4 squares a frame, each at most every 250 ms, everything every 2 s.
+  const w2 = needWorld();
+  const p = sock(w2);
+  const r2 = stubRoom(40);
+  p._ppWatch = r2;
+  let sent = 0;
+  for (let ms = 0; ms < 20000; ms += 250) {
+    for (let k = 0; k < 4; k++) {
+      p.fire('pp:need', { id: 1 + ((ms / 250) * 4 + k) % 40 });
+      sent++;
+    }
+    if (ms % 2000 === 0) {
+      p.fire('pp:need', { id: 0 });
+      sent++;
+    }
+    w2.clock.advance(250);
+  }
+  assert.strictEqual(r2.asked.length, sent, 'every ask of a page at its own limits is answered');
+});
+
+test('pp:ping is rate limited (a flood is not echoed); the page\'s 1 Hz ping always is', () => {
+  const w = needWorld();
+  w.deps.socketRL = (socket, key, minMs) => {
+    const t = w.clock.now();
+    if (!socket._rl) socket._rl = {};
+    if (socket._rl[key] && t - socket._rl[key] < minMs) return false;
+    socket._rl[key] = t;
+    return true;
+  };
+  w.paper = createPaperSockets(w.deps);
+  const s = sock(w);
+  const pongs = () => s.got.filter((x) => x[0] === 'pp:pong').length;
+  for (let i = 0; i < 1000; i++) s.fire('pp:ping', { t: i });
+  assert.strictEqual(pongs(), 1, 'a burst gets one pong');
+  for (let i = 0; i < 10; i++) {
+    w.clock.advance(1000);
+    s.fire('pp:ping', { t: i });
+  }
+  assert.strictEqual(pongs(), 11, 'one a second: every one answered');
+});
