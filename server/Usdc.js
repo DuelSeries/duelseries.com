@@ -16,6 +16,7 @@ const {
 } = require('@solana/spl-token');
 const _bs58 = require('bs58');
 const bs58  = (_bs58 && _bs58.default) ? _bs58.default : _bs58;
+const rpcBudget = require('./rpcBudget');   // the server-wide budget history reads take from (night review 2026-10-29)
 
 const NETWORK = process.env.SOLANA_NETWORK || 'mainnet-beta';
 const RPC_URL = process.env.RPC_URL || (NETWORK === 'mainnet-beta'
@@ -30,6 +31,13 @@ const RPC_URL = process.env.RPC_URL || (NETWORK === 'mainnet-beta'
 const _https = require('https');
 const rpcAgent = new _https.Agent({ keepAlive: true, keepAliveMsecs: 30_000, maxSockets: 16 });
 const connection = new Connection(RPC_URL, { commitment: 'confirmed', httpAgent: rpcAgent });
+/* The Wallet tab's history reads (usdcHistory, usdcTransfers) have a Connection of their own that never resends a 429
+   by itself (night review 2026-10-29, findings 1 and 22). web3.js retries a throttled call up to 5 times inside one
+   call, where no budget can see it, and withRetry wrapped that up to 6 times, so one history read became up to 30
+   requests at a key that was already throttled. Here each attempt is one request, and every one takes a token from
+   the history budget below (historyRead, historySigPage). Stakes, payouts and balances keep `connection` and its
+   retries exactly as they were. */
+const historyConnection = new Connection(RPC_URL, { commitment: 'confirmed', httpAgent: rpcAgent, disableRetryOnRateLimit: true });
 
 // USDC mint. Mainnet = Circle USDC; devnet defaults to Circle's devnet USDC. Override with
 // USDC_MINT (e.g. point at a self-minted test token on devnet during development).
@@ -184,10 +192,24 @@ const _historyRows = new Map();        // owner + ':' + signature -> row, or nul
    and payouts, which must never be the ones left waiting. */
 let _historyInFlight = 0;
 const _historyQueue = [];
-const HISTORY_QUEUE_MAX = 600;          // ~30 s of reads waiting; past it a page fails fast (502)
+/* Night review 2026-10-29 (findings 1, 2 and 22): the gate capped how many reads were in flight, never how many a
+   second, so it refilled as fast as the provider answered (about 28 a second from ONE IP asking /api/my-transfers for
+   an exchange's wallet every 2 s), and the 1000-signature pages went around it. Every history call (signature pages
+   and transaction reads alike, each retry too) now also takes a token from one server-wide bucket: HISTORY_RPS a
+   second (3 by default) after a burst of HISTORY_BURST (60, about one long wallet screen opening at full speed as
+   before). However many people or scripts ask, history is held to that, and the rest of the key stays with stake
+   verifies, submits and payouts, which never touch it. Raise both in .env with a bigger Helius plan.
+   The queue is about 30 s of reads at that rate; past it, or when a token is more than 15 s away, the call fails at
+   once ('history reads busy': the route's 502, and the Wallet tab's "Tap refresh"). */
+const HISTORY_RPS = rpcBudget.envNumber('HISTORY_RPS', 3);
+const HISTORY_BURST = rpcBudget.envNumber('HISTORY_BURST', 60);
+const HISTORY_QUEUE_MAX = Math.max(40, Math.ceil(HISTORY_RPS * 30));
+const HISTORY_WAIT_MAX_MS = 15_000;
+const _historyBudget = rpcBudget.createBucket({ perSec: HISTORY_RPS, burst: HISTORY_BURST });
+const _historyBusy = rpcBudget.refusalLog('history reads');
 async function historyGate(fn) {
   if (_historyInFlight >= HISTORY_READS_AT_ONCE) {
-    if (_historyQueue.length >= HISTORY_QUEUE_MAX) throw new Error('history reads busy');
+    if (_historyQueue.length >= HISTORY_QUEUE_MAX) { _historyBusy(); throw new Error('history reads busy'); }
     await new Promise(r => _historyQueue.push(r));
   }
   _historyInFlight++;
@@ -196,6 +218,23 @@ async function historyGate(fn) {
     const next = _historyQueue.shift();
     if (next) next();
   }
+}
+// A token from the history budget, waited for in turn; a flood that would wait past HISTORY_WAIT_MAX_MS fails at once.
+async function historyToken() {
+  const wait = _historyBudget.reserve(1, HISTORY_WAIT_MAX_MS);
+  if (wait < 0) { _historyBusy(); throw new Error('history reads busy'); }
+  if (wait > 0) await new Promise(r => setTimeout(r, wait));
+}
+/* One transaction read: a gate slot, then a token for each attempt (a retry is a request too). */
+function historyRead(fn) {
+  return historyGate(() => withRetry(async () => { await historyToken(); return fn(); }));
+}
+/* One signature page: a token for each attempt, no gate slot. A page is what an ask needs before any of its reads, so
+   it never waits behind them: asked while the transaction list's reads are still under way, the add funds list
+   shares those instead of reading them again, as it always has. The budget is what bounds pages; a waiting page
+   holds no slot. */
+function historySigPage(fn) {
+  return withRetry(async () => { await historyToken(); return fn(); });
 }
 
 // Who was on the other side of `owner`'s change: the holder of the same mint whose balance
@@ -244,8 +283,8 @@ function historyRow(owner, sig, escrow) {
   return p;
 }
 async function readHistoryRow(owner, sig, escrow, key) {
-  const tx = await historyGate(() => withRetry(() => connection.getTransaction(sig.signature,
-    { commitment: 'confirmed', maxSupportedTransactionVersion: 0 })));
+  const tx = await historyRead(() => historyConnection.getTransaction(sig.signature,
+    { commitment: 'confirmed', maxSupportedTransactionVersion: 0 }));
   if (!tx) return null;                 // not visible yet: asked again next time, never kept
   const row = (tx.meta && !tx.meta.err) ? historyRowOf(tx, owner, escrow, sig) : null;
   if (_historyRows.size >= HISTORY_ROWS_MAX) _historyRows.delete(_historyRows.keys().next().value);
@@ -399,7 +438,7 @@ async function usdcHistory(ownerAddress, opts) {
   for (let pages = 0; pages < 3; pages++) {
     let sigs;
     try {
-      sigs = await withRetry(() => connection.getSignaturesForAddress(ata, { limit, before }));
+      sigs = await historySigPage(() => historyConnection.getSignaturesForAddress(ata, { limit, before }));
     } catch (e) {
       if (ataNotFound(e)) return { rows: [], next: null };   // never held USDC: no account, no history
       throw e;
@@ -434,7 +473,10 @@ async function usdcHistory(ownerAddress, opts) {
    most (a player's own transfers, years of them): every answer is kept in memory a while, so a
    wallet with thousands of transfers (an exchange's, asked for on purpose) must not be able to
    make one answer that size. */
-const TRANSFER_SIGS_MAX = 5000;
+/* The newest 2000 signatures of each address at most, two pages each (night review 2026-10-29, finding 1): 5000 was
+   ten 1000-signature pages an ask for any busy wallet, about 2 MB held per ask while it waited on the budget. 2000 is
+   a thousand games of stakes and payouts, far more than a player's own list has needed. */
+const TRANSFER_SIGS_MAX = 2000;
 const TRANSFER_READS_PER_ASK = 60;
 const TRANSFER_ROWS_MAX = 200;
 async function usdcTransfers(ownerAddress, opts) {
@@ -452,7 +494,7 @@ async function usdcTransfers(ownerAddress, opts) {
     for (;;) {
       let page;
       try {
-        page = await withRetry(() => connection.getSignaturesForAddress(addr, { limit: 1000, before }));
+        page = await historySigPage(() => historyConnection.getSignaturesForAddress(addr, { limit: 1000, before }));
       } catch (e) {
         if (ataNotFound(e)) break;            // never held USDC: no account, nothing there
         throw e;
@@ -651,7 +693,7 @@ async function attemptPayout(row, onFreshTx) {
 }
 
 module.exports = {
-  connection, NETWORK, USDC_MINT, USDC_DECIMALS, toUnits, toUsdc, withRetry, ataNotFound,
+  connection, historyConnection, HISTORY_RPS, HISTORY_BURST, HISTORY_QUEUE_MAX, TRANSFER_SIGS_MAX, NETWORK, USDC_MINT, USDC_DECIMALS, toUnits, toUsdc, withRetry, ataNotFound,
   escrowKeypair, escrowPubkey, escrowAta, stakeTargets,
   usdcBalanceOf, escrowUsdcBalance, verifyUsdcStake, verifyUsdcCredit, stakeDeltaUnits, ataFor,
   usdcHistory, usdcTransfers, markHouseAddress, TRANSFER_ROWS_MAX, historyRowOf, SOL_DUST,

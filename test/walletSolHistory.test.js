@@ -149,8 +149,8 @@ test('the list walks both addresses: one row per transaction, newest first, game
   };
   const txs = { conv: convert, mp: moonpay, dust, out: solOut, stake, wsol: withdrawSol };
   const reads = [];
-  Usdc.connection.getSignaturesForAddress = async (addr) => (lists[addr.toString()] || []).slice();
-  Usdc.connection.getTransaction = async (s) => { reads.push(s); return txs[s]; };
+  Usdc.historyConnection.getSignaturesForAddress = async (addr) => (lists[addr.toString()] || []).slice();
+  Usdc.historyConnection.getTransaction = async (s) => { reads.push(s); return txs[s]; };
   const priced = [];
   const page = await Usdc.usdcTransfers(OWNER, { priceOn: async (ms) => { priced.push(ms); return 200; } });
   assert.strictEqual(page.complete, true);
@@ -165,7 +165,7 @@ test('the list walks both addresses: one row per transaction, newest first, game
   await Usdc.usdcTransfers(OWNER, { priceOn: async () => { priced.push('again'); return 999; } });
   assert.ok(!priced.includes('again'));
   // The Transactions list stays the USDC that moved: no SOL-only rows there.
-  Usdc.connection.getSignaturesForAddress = async (addr) => (addr.toString() === ata ? lists[ata].slice() : []);
+  Usdc.historyConnection.getSignaturesForAddress = async (addr) => (addr.toString() === ata ? lists[ata].slice() : []);
   const hist = await Usdc.usdcHistory(OWNER, { limit: 20 });
   assert.deepStrictEqual(hist.rows.map((r) => r.signature), ['conv', 'stake', 'wsol']);
 });
