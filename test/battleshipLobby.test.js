@@ -280,3 +280,60 @@ test('a finished room is cleared away', () => {
   assert.strictEqual(lob.rooms.size, 0);
   assert.strictEqual(lob.roomOf('A'), null);
 });
+
+/* ── leaving on a sunk fleet (night review 2026-10-29) ──────────────────────
+   The last ship sinking holds the board up for three seconds before the card.
+   The match is won by then, so leaving in that hold must never change who is
+   paid: before this, the winner closing the tab handed the pot to the loser. */
+function sunkFleet() {
+  const { lob, settled, refunds } = lobby();
+  lob.enqueue(sock('A'), 'Owen', 'W1', 1, 1);
+  lob.enqueue(sock('B'), 'Nia', 'W2', 1, 1);
+  const room = lob.roomOf('A');
+  room.start(1000);
+  room.tick(1000 + BS.PLACE_MS);                     // both fleets laid for them
+  room.tick(1000 + BS.PLACE_MS + BS.COUNTDOWN_MS);
+  assert.strictEqual(room.state, 'playing');
+  let t = 1000 + BS.PLACE_MS + BS.COUNTDOWN_MS + 10;
+  for (const s of room.boards.get('B').ships) for (const c of s.cells) { room.turn = 'A'; room.fire('A', c, t); t += 10; }
+  assert.strictEqual(room.state, 'settling', 'the sunk fleet is held up');
+  assert.strictEqual(settled.length, 0, 'nothing paid yet');
+  return { lob, settled, refunds, room };
+}
+
+test('the winner leaving while the sunk fleet is held up is still paid, not the player whose fleet sank', () => {
+  const { lob, settled, refunds, room } = sunkFleet();
+  lob.leave('A');                                    // bs:leave, the exit button and a dropped socket all route here
+  assert.strictEqual(refunds.length, 0);
+  assert.strictEqual(settled.length, 1);
+  assert.strictEqual(settled[0].winnerId, 'A', 'paid to the one who sank the fleet');
+  assert.strictEqual(settled[0].why, 'fleet sunk');
+  assert.strictEqual(settled[0].pot, 2);
+  assert.deepStrictEqual(settled[0].seats.map(s => s.wallet).sort(), ['W1', 'W2'], 'both seats present when it settled');
+  assert.strictEqual(room.state, 'over');
+});
+
+test('the loser leaving during the hold pays the same winner, once', () => {
+  const { lob, settled, room } = sunkFleet();
+  lob.leave('B');
+  room.tick(room.phaseEndsAt + 1);
+  lob.leave('A');
+  assert.strictEqual(settled.length, 1, 'settled exactly once');
+  assert.strictEqual(settled[0].winnerId, 'A');
+  assert.strictEqual(settled[0].why, 'fleet sunk');
+});
+
+test('leaving mid-match, before any fleet is sunk, is still a forfeit', () => {
+  const { lob, settled } = lobby();
+  lob.enqueue(sock('A'), 'Owen', 'W1', 1, 1);
+  lob.enqueue(sock('B'), 'Nia', 'W2', 1, 1);
+  const room = lob.roomOf('A');
+  room.start(1000);
+  room.tick(1000 + BS.PLACE_MS);
+  room.tick(1000 + BS.PLACE_MS + BS.COUNTDOWN_MS);
+  assert.strictEqual(room.state, 'playing');
+  lob.leave('A');
+  assert.strictEqual(settled.length, 1);
+  assert.strictEqual(settled[0].winnerId, 'B');
+  assert.strictEqual(settled[0].why, 'opponent left');
+});
