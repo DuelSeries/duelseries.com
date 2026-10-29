@@ -5393,7 +5393,10 @@ io.on('connection', (socket) => {
     });
   });
 
+  /* One press of Play again after a death (game.js doRespawn, guarded by isDead). Half a second is under any
+     death-to-click a person makes, and drops a flood before any lookup (night review 2026-10-29). */
   on(C.EVENTS.RESPAWN, ({ entryToken } = {}) => {
+    if (!socketRL(socket, 'respawn', 500)) return;
     if (!socket._room) return;
     const existing = socket._room.snakes.get(socket.id);
     if (existing && existing.alive) return; // block respawn while alive
@@ -5429,11 +5432,20 @@ io.on('connection', (socket) => {
       }
       room.respawnPlayer(socket.id, entry.worth);
       const _rs = room.snakes.get(socket.id);
-      notify.pushOwner(
-        `${(_rs && _rs.name) || 'A player'} pressed play again in the ${roomLabel} lobby` +
-          (entry.worth ? ` for ${entry.worth} ${money.unit}` : ' (free)'),
-        { title: 'Player respawned: slither.io', tags: 'arrows_counterclockwise' }
-      );
+      /* A paid play again is a real stake, so it stays the loud push it was. A free one goes through joinAlerts like
+         every free join (the muted free topic, capped, once per name per 10 min): it used to be a direct push to the
+         owner's phone each time, and a free die-and-respawn loop from many sockets flooded it and spent this box's
+         ntfy.sh budget, silencing the payout and solvency alerts behind it (night review 2026-10-29). */
+      if (entry.worth > 0) {
+        notify.pushOwner(
+          `${(_rs && _rs.name) || 'A player'} pressed play again in the ${roomLabel} lobby for ${entry.worth} ${money.unit}`,
+          { title: 'Player respawned: slither.io', tags: 'arrows_counterclockwise' }
+        );
+      } else {
+        const _rg = /^([a-z]{2})_/.exec(String(room.lobbyType || ''));
+        joinAlerts.joined({ game: room.isBattleRoyale ? 'br' : 'snake', stake: 0, name: (_rs && _rs.name) || 'Player',
+          region: _rg ? _rg[1] : REGION });
+      }
     }, (why) => {
       socket.emit(C.EVENTS.ERROR, { message: ENTRY_REFUSED[why] || 'Entry fee not verified. Please return to the lobby and try again.' });
     });

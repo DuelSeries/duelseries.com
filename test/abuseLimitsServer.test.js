@@ -184,3 +184,29 @@ test('a loop of lobby:join is not a LOBBY_STATE per message to every lobby socke
     assert.ok(alive(), died());
   } finally { watcher.s.close(); flooder.s.close(); }
 });
+
+/* ── finding 31: free RESPAWN, a direct owner phone push every time, no rate limit ───────────────── */
+test('play again still works, and a free one goes through the capped join alerts, not straight to the owner\'s phone', { timeout: 60000 }, async () => {
+  const c = await connect();
+  try {
+    c.s.emit('play', { name: 'again', lobbyType: 'free', region: 'na' });
+    assert.ok(await until(() => c.count('game_joined') === 1, 5000), 'seated');
+    c.s.emit('cashout:start');   // a free snake's hold ends it after CASHOUT_HOLD_MS
+    const C = require('../shared/constants');
+    await sleep(C.CASHOUT_HOLD_MS + 600);
+    c.s.emit('respawn', {});
+    c.s.emit('respawn', {});
+    assert.ok(await handled(c.s));
+    assert.ok(await until(() => c.count('game_joined') === 2, 3000), 'one press of Play again is one respawn');
+    await sleep(300);
+    assert.strictEqual(c.count('game_joined'), 2, 'the second press, inside half a second, did nothing');
+    assert.ok(alive(), died());
+  } finally { c.s.close(); }
+  const fs = require('fs');
+  const src = fs.readFileSync(path.join(ROOT, 'server', 'index.js'), 'utf8');
+  const h = src.slice(src.indexOf('on(C.EVENTS.RESPAWN'), src.indexOf("on('ping_check'"));
+  assert.match(h, /^on\(C\.EVENTS\.RESPAWN, \(\{ entryToken \} = \{\}\) => \{\s*if \(!socketRL\(socket, 'respawn', 500\)\) return;/);
+  assert.match(h, /if \(entry\.worth > 0\) \{\s*notify\.pushOwner\(/, 'only a paid play again pushes directly');
+  assert.match(h, /\} else \{[\s\S]*joinAlerts\.joined\(\{ game: room\.isBattleRoyale \? 'br' : 'snake', stake: 0,/, 'a free one is a capped join alert');
+  assert.strictEqual((h.match(/notify\.pushOwner\(/g) || []).length, 1);
+});
