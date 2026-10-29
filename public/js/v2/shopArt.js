@@ -101,20 +101,6 @@
   }
 
   /* ── agar.io ──────────────────────────────────────────────────────────── */
-  /* agar's membrane (agRender.js wobble): past the small-cell case a cell is a
-     ring of points whose radii breathe, and the ring turns at now/10000, 0.1
-     radians a second. The preview keeps that look with three slow sines per
-     point instead of their random walk, which needs a running world. */
-  function membrane(ctx, x, y, R, t) {
-    var n = 48;
-    ctx.beginPath();
-    for (var i = 0; i <= n; i++) {
-      var a = i / n * 6.2832 + t * 0.1;
-      var rr = R * (1 + 0.012 * Math.sin(a * 5 + t * 2.3) + 0.008 * Math.sin(a * 3 - t * 1.5) + 0.005 * Math.sin(a * 9 + t * 3.1));
-      if (i) ctx.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); else ctx.moveTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
-    }
-    ctx.closePath();
-  }
   function paintAgar(cv, k, t, big, bare) {
     var ctx = cv.getContext('2d'), w = cv.width, h = cv.height;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -143,65 +129,124 @@
     SK.agarArt(ctx, k, x, y, R);
     ctx.restore();
   }
-  /* Customize's cell: the membrane, drifting on a slow loop the way a cell
-     coasts after the mouse, its rim at 0.9 of the colour as in play. */
+  /* Customize's cell (Owen 2026-10-28): agar's split as a perfect loop. The cell splits in two, the new half
+     shoots out and slows the way a split cell does, the pair coasts, then they pull back together and merge into
+     the one cell it started as. Two halves keep the cell's area (radius R / sqrt 2), and every motion is a
+     function of the loop's phase with whole-number harmonics, so the last frame runs into the first with nothing
+     to jump. Rims first, then fills: where the halves overlap they read as one body, the way merging cells do.
+     The rim is 0.9 of the colour as in play. A look with several colours glides to the next while the cell is
+     whole, once a loop. */
+  var AG_LOOP = 4.2;
+  function agWobble(ctx, x, y, R, P, amp, seed) {
+    var n = 48;
+    ctx.beginPath();
+    for (var i = 0; i <= n; i++) {
+      var a = i / n * 6.2832;
+      var rr = R * (1 + amp * (0.012 * Math.sin(a * 5 + 2 * P + seed) + 0.008 * Math.sin(a * 3 - P + 2 * seed) + 0.005 * Math.sin(a * 9 + 3 * P)));
+      if (i) ctx.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); else ctx.moveTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
+    }
+    ctx.closePath();
+  }
+  // loops: the clock in loops. A look with several colours glides to its next one in the last eighth of a loop.
+  function loopCol(k, loops) {
+    if (!k.cols) return k.col;
+    var n = k.cols.length, i = Math.floor(loops) % n, p = loops - Math.floor(loops), f = p < 0.88 ? 0 : (p - 0.88) / 0.12;
+    return f ? mix(k.cols[i], k.cols[(i + 1) % n], f * f * (3 - 2 * f)) : k.cols[i];
+  }
+  // A bump that rises and falls back to zero inside [a, a + len] of the loop.
+  function bump(p, a, len) { return p > a && p < a + len ? Math.sin((p - a) / len * 3.1416) : 0; }
   function paintAgarCell(ctx, k, t, w, h) {
-    var R = Math.min(w, h) * 0.34;
-    var x = w / 2 + Math.sin(t * 0.8) * R * 0.14, y = h / 2 + Math.sin(t * 1.15) * R * 0.07;
-    var col = colOf(k, t), c = hexRgb(col), ring = Math.max(2, R * 0.07);
+    var p = ((t / AG_LOOP) % 1 + 1) % 1, P = p * 6.2832;
+    var R = Math.min(Math.min(w, h) * 0.34, w * 0.29), r = R * Math.SQRT1_2, D = 2.3 * r, d = 0, f;
+    if (p >= 0.1 && p < 0.3) { f = (p - 0.1) / 0.2; d = D * (1 - Math.pow(1 - f, 3)); }   // shot out, slowing
+    else if (p >= 0.3 && p < 0.55) d = D * (1 + 0.04 * bump(p, 0.3, 0.25));                // coasting
+    else if (p >= 0.55 && p < 0.85) { f = (p - 0.55) / 0.3; d = D * (1 - f * f * (3 - 2 * f)); }   // back together
+    // Each half's radius: the whole cell's while they overlap completely, a half's once they are apart.
+    var rad = r + (R - r) * Math.pow(Math.max(0, 1 - d / (2 * r)), 2), ring = Math.max(2, rad * 0.07);
+    // The membranes jiggle harder just after the split and just after the merge, and are one membrane when whole.
+    var amp = 1 + 1.6 * bump(p, 0.1, 0.3) + 2 * bump(p, 0.82, 0.18), sd = Math.min(1, d / r);
+    var cx = w / 2 + Math.sin(P) * R * 0.05, cy = h / 2 + Math.sin(2 * P) * R * 0.05;
+    var C = [[cx - 0.4 * d, cy, 0.9 * sd], [cx + 0.6 * d, cy, -1.3 * sd]];
+    var col = loopCol(k, t / AG_LOOP), c = hexRgb(col);
     ctx.fillStyle = rgbHex([Math.trunc(c[0] * 0.9), Math.trunc(c[1] * 0.9), Math.trunc(c[2] * 0.9)]);
-    membrane(ctx, x, y, R + ring, t); ctx.fill();
+    C.forEach(function (q) { agWobble(ctx, q[0], q[1], rad + ring, P, amp, q[2]); ctx.fill(); });
     ctx.fillStyle = col;
-    membrane(ctx, x, y, R, t); ctx.fill();
+    C.forEach(function (q) { agWobble(ctx, q[0], q[1], rad, P, amp, q[2]); ctx.fill(); });
     if (!k.art) return;
-    ctx.save(); membrane(ctx, x, y, R, t); ctx.clip();
-    SK.agarArt(ctx, k, x, y, R);
-    ctx.restore();
+    C.forEach(function (q) {
+      ctx.save(); agWobble(ctx, q[0], q[1], rad, P, amp, q[2]); ctx.clip();
+      SK.agarArt(ctx, k, q[0], q[1], rad);
+      ctx.restore();
+    });
   }
 
   /* ── Paper.io ─────────────────────────────────────────────────────────── */
+  /* The game as one perfect loop (Owen 2026-10-28): land along the top, the head running a square wave under it.
+     It leaves its land, runs a box out and back in, the box becomes land, it crosses a strip of its own land and
+     goes again, while the view pans with it at a steady speed. One loop pans exactly one box along, so the last
+     frame is the first. In the game's world units: the trail trackWidth 8 wide with round caps in main at 0.6, the
+     head 8 across with its 80 percent centre, every top lifted baseHeight 2 over its side in `back`. */
+  var PP_LOOP = 3.0;
   function paintPaper(cv, k, t, big, bare) {
     var ctx = cv.getContext('2d'), w = cv.width, h = cv.height;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     if (bare) ctx.clearRect(0, 0, w, h);
     else { ctx.fillStyle = '#e7fff4'; ctx.fillRect(0, 0, w, h); }   // paper-arena.css body
-    var main = colOf(k, t), back = hsvScale(main, 0.75), nick = hsvScale(main, 0.5);
-    var u = bare ? Math.min(w / 30, h / 22) : Math.min(w, h) / 30;   // world units: trackWidth 8, baseHeight 2
-    var s = u * 15, x0 = (w - 30 * u) / 2, y0 = (h - s) / 2 + u;
-    /* Territory: its side in `back`, then the top lifted baseHeight. */
-    ctx.fillStyle = back; ctx.fillRect(x0, y0, s, s);
-    ctx.fillStyle = main; ctx.fillRect(x0, y0 - 2 * u, s, s);
-    SK.paperArt(ctx, k, x0, y0 - 2 * u, s, k.art === 'stars' ? '#ffffff' : back);
-    /* The game in one loop: the head leaves its land, runs a box out and back,
-       and the box it drew becomes land, then it starts again. The trail is
-       main at 0.6, trackWidth wide with round caps. */
-    var ty = y0 - 2 * u, P = [[x0 + s - 3 * u, ty + s * 0.74], [x0 + s + 9 * u, ty + s * 0.74],
-      [x0 + s + 9 * u, ty + s * 0.16], [x0 + s - 3 * u, ty + s * 0.16]];
-    var seg = [12 * u, s * 0.58, 12 * u], total = seg[0] + seg[1] + seg[2];
-    var CYCLE = 3.2, RUN = 0.78, ph = (t % CYCLE) / CYCLE;
-    var run = Math.min(1, ph / RUN), d = run * total, i = 0;
-    while (i < 2 && d > seg[i]) { d -= seg[i]; i++; }
-    var f = Math.min(1, d / seg[i]);
-    var hx = P[i][0] + (P[i + 1][0] - P[i][0]) * f, hy = P[i][1] + (P[i + 1][1] - P[i][1]) * f;
-    if (ph >= RUN) {
-      /* Captured: the box is land now, side and top like the rest. */
-      var bx = x0 + s - 0.5 * u, bw = 9 * u + 4 * u, byy = ty + s * 0.16 - 4 * u, bh = s * 0.58 + 8 * u;
-      ctx.globalAlpha = Math.min(1, (ph - RUN) / 0.06);
-      ctx.fillStyle = back; ctx.fillRect(bx, byy + 2 * u, bw, bh);
-      ctx.fillStyle = main; ctx.fillRect(bx, byy, bw, bh);
-      ctx.globalAlpha = 1;
-    } else {
-      ctx.globalAlpha = 0.6; ctx.strokeStyle = main; ctx.lineWidth = 8 * u; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-      ctx.beginPath(); ctx.moveTo(P[0][0], P[0][1]);
-      for (var q = 1; q <= i; q++) ctx.lineTo(P[q][0], P[q][1]);
-      ctx.lineTo(hx, hy); ctx.stroke(); ctx.globalAlpha = 1;
+    var p = ((t / PP_LOOP) % 1 + 1) % 1;
+    var main = loopCol(k, t / PP_LOOP), back = hsvScale(main, 0.75), nick = hsvScale(main, 0.5);
+    var u = bare ? Math.min(w / 30, h / 22) : Math.min(w, h) / 30;
+    // The box's depth below the land, the head's depth inside it, the box's length and the land between boxes.
+    var TW = 8, HB = 6, DIN = 5, L = 10, G = 14, PITCH = L + G, LEG = HB + DIN, S = 2 * LEG + L + G;
+    var yb = h / 2 - u, cam = (p - 0.16) * PITCH;   // the land's edge in pixels; the world x at the centre
+    function X(x) { return w / 2 + (x - cam) * u; }
+    function Y(y) { return yb + y * u; }
+    // The head along the wave at a steady speed: down out of the land, along, up into it, along inside it.
+    var s = p * S, hx, hy;
+    if (s < LEG) { hx = 0; hy = s - DIN; }
+    else if (s < LEG + L) { hx = s - LEG; hy = HB; }
+    else if (s < 2 * LEG + L) { hx = L; hy = HB - (s - LEG - L); }
+    else { hx = L + s - 2 * LEG - L; hy = -DIN; }
+    // The box closes when the head is back over the edge; it fills in as the trail fades.
+    var sCap = 2 * LEG + L - DIN, fa = s < sCap ? 0 : Math.min(1, (s - sCap) / (S * 0.05));
+    var k0 = Math.floor((cam - w / 2 / u) / PITCH) - 1;
+    function lands(lift, cur) {
+      ctx.beginPath();
+      if (!cur) {
+        ctx.rect(0, 0, w, Y(-lift));
+        for (var b = k0; b < 0; b++) ctx.rect(X(b * PITCH - TW / 2), Y(-lift), (L + TW) * u, (HB + TW / 2) * u);
+      } else ctx.rect(X(-TW / 2), Y(-lift), (L + TW) * u, (HB + TW / 2) * u);
     }
-    /* The head: the nick square, then the back square with its main centre,
-       lifted baseHeight, 8 units across. */
-    var hs = 8 * u;
-    ctx.fillStyle = nick; ctx.fillRect(hx - hs / 2, hy - hs / 2 + 2 * u, hs, hs);
-    ctx.fillStyle = back; ctx.fillRect(hx - hs / 2, hy - hs / 2, hs, hs);
-    ctx.fillStyle = main; ctx.fillRect(hx - hs * 0.4, hy - hs * 0.4, hs * 0.8, hs * 0.8);
+    function art(cur) {
+      if (!k.art) return;
+      ctx.save(); lands(2, cur); ctx.clip();
+      // Tiles fixed to the world, one box pitch square, so the pattern pans with the land.
+      for (var tx = k0; tx <= 1; tx++) for (var ty = -2; ty <= 0; ty++)
+        SK.paperArt(ctx, k, X(tx * PITCH - TW / 2), Y(ty * PITCH + HB), PITCH * u, k.art === 'stars' ? '#ffffff' : back);
+      ctx.restore();
+    }
+    ctx.fillStyle = back; lands(0, false); ctx.fill();
+    ctx.fillStyle = main; lands(2, false); ctx.fill();
+    art(false);
+    if (fa) {
+      ctx.globalAlpha = fa;
+      ctx.fillStyle = back; lands(0, true); ctx.fill();
+      ctx.fillStyle = main; lands(2, true); ctx.fill();
+      art(true);
+      ctx.globalAlpha = 1;
+    }
+    // The trail, from where the head left the land.
+    if (s > DIN && fa < 1) {
+      ctx.globalAlpha = 0.6 * (1 - fa); ctx.strokeStyle = main; ctx.lineWidth = TW * u; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      ctx.beginPath(); ctx.moveTo(X(0), Y(0));
+      if (s > LEG) ctx.lineTo(X(0), Y(HB));
+      if (s > LEG + L) ctx.lineTo(X(L), Y(HB));
+      ctx.lineTo(X(hx), Y(Math.max(0, hy))); ctx.stroke(); ctx.globalAlpha = 1;
+    }
+    /* The head: the nick square, then the back square with its main centre, lifted baseHeight, 8 units across. */
+    var hs = 8 * u, px = X(hx), py = Y(hy);
+    ctx.fillStyle = nick; ctx.fillRect(px - hs / 2, py - hs / 2 + 2 * u, hs, hs);
+    ctx.fillStyle = back; ctx.fillRect(px - hs / 2, py - hs / 2, hs, hs);
+    ctx.fillStyle = main; ctx.fillRect(px - hs * 0.4, py - hs * 0.4, hs * 0.8, hs * 0.8);
   }
 
   /* ── Knockout ─────────────────────────────────────────────────────────── */
