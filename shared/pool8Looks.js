@@ -27,19 +27,19 @@
     // fore: the forearm (the cue's design), wrap: the grip with its weave in wrapLine, sleeve: the butt with trim rings.
     { id: 'ebony', name: 'Ebony and brass', col: '#c9a23a',
       cue: { style: 'points', shaft: '#e8cf9f', joint: '#c9a23a', fore: '#1d1512', inlay: '#c9a23a', trim: '#e9d9a8',
-        wrap: '#141414', wrapLine: '#3a3a3a', sleeve: '#1d1512' } },
+        wrap: '#141414', wrapLine: '#3a3a3a', sleeve: '#1d1512', band: '#c9a23a' } },
     { id: 'tiger', name: 'Tiger maple', col: '#d99a4e',
       cue: { style: 'curl', shaft: '#ecd3a2', joint: '#2a1a12', fore: '#dca35a', inlay: '#8e4f1e', trim: '#2a1a12',
         wrap: '#7a4a2b', wrapLine: '#5b351d', sleeve: '#4a2c1a' } },
     { id: 'ocean', name: 'Ocean lacquer', col: '#1f5fae',
       cue: { style: 'wave', shaft: '#e6d2a8', joint: '#d7dee8', fore: '#143f80', inlay: '#d7dee8', trim: '#d7dee8',
         wrap: '#eef2f6', wrapLine: '#1f5fae', sleeve: '#143f80' } },
-    { id: 'ember', name: 'Ember', col: '#c4291f',
-      cue: { style: 'diamonds', shaft: '#e9cf9c', joint: '#111111', fore: '#a3201a', inlay: '#111111', trim: '#f2e6d0',
-        wrap: '#111111', wrapLine: '#5a1410', sleeve: '#a3201a' } },
+    { id: 'ember', name: 'Ember', col: '#e0521d',
+      cue: { style: 'flames', shaft: '#e9cf9c', joint: '#111111', fore: '#141414', inlay: '#d8361e', trim: '#f2a23a',
+        wrap: '#1c1c1c', wrapLine: '#4a1a10', sleeve: '#141414' } },
     { id: 'zebra', name: 'Zebrawood', col: '#c8a86a',
-      cue: { style: 'stripes', shaft: '#ead19f', joint: '#1a120c', fore: '#d9bd84', inlay: '#3b2716', trim: '#1a120c',
-        wrap: '#2c2c2c', wrapLine: '#555048', sleeve: '#d9bd84' } },
+      cue: { style: 'stripes', shaft: '#ead19f', joint: '#1a120c', fore: '#e6cc96', inlay: '#4a3220', trim: '#1a120c',
+        wrap: '#8a6440', wrapLine: '#6a4a2c', sleeve: '#e6cc96' } },
   ];
   var BY = {};
   LOOKS.forEach(function (s) { BY[s.id] = s; });
@@ -75,6 +75,7 @@
       }
     });
     band(SEC.wrap, SEC.sleeve, Q.sleeve);
+    if (Q.band) band(SEC.wrap + 0.025, SEC.wrap + 0.07, Q.band);                // a wide metal band on the butt
     ring(SEC.joint + 0.003, Q.trim); ring(SEC.fore, Q.trim); ring(SEC.wrap, Q.trim);
     ring(SEC.wrap + 0.02, Q.trim); ring(SEC.sleeve - 0.012, Q.trim);
     band(SEC.sleeve, 1, '#151515');
@@ -97,14 +98,32 @@
         g.fillStyle = Q.inlay; g.fill();
       });
     },
-    // Curly maple: soft dark bands across the grain, each one bent.
+    // Tiger maple: dark stripes across the grain at uneven spacing, each fat in the middle and tapering to the edges.
     curl: function (g, a, b, w, Q) {
-      g.strokeStyle = Q.inlay; g.globalAlpha = 0.5;
-      for (var x = a + w * 0.3, i = 0; x < b; x += w * 0.62, i++) {
-        g.lineWidth = w * (0.16 + 0.08 * (i % 3));
-        g.beginPath(); g.moveTo(x, -w); g.quadraticCurveTo(x + w * 0.35, 0, x - w * 0.05, w); g.stroke();
-      }
+      var L = b - a, AT = [0.04, 0.11, 0.15, 0.27, 0.33, 0.47, 0.52, 0.63, 0.76, 0.81, 0.92], WD = [0.5, 0.25, 0.4, 0.6, 0.3, 0.45, 0.2, 0.55, 0.35, 0.25, 0.5];
+      g.fillStyle = Q.inlay;
+      AT.forEach(function (f, i) {
+        var x = a + L * f, s = w * WD[i] * 0.45, k = (i % 2 ? 1 : -1) * w * 0.18;
+        g.globalAlpha = 0.45 + 0.25 * (i % 3) / 2;
+        g.beginPath(); g.moveTo(x, -w * 0.6);
+        g.quadraticCurveTo(x + k + s, 0, x + w * 0.1, w * 0.6); g.quadraticCurveTo(x + k - s * 0.4, 0, x, -w * 0.6);
+        g.fill();
+      });
       g.globalAlpha = 1;
+    },
+    // Flames licking up the forearm from the grip: red tongues, orange inside them, yellow at the heart.
+    flames: function (g, a, b, w, Q) {
+      var L = b - a, T = [[-0.3, 0.92], [0.02, 0.7], [0.3, 0.84], [-0.05, 0.45]];
+      [[Q.inlay, 1, 1], ['#f08a1c', 0.72, 0.62], ['#ffd34a', 0.42, 0.32]].forEach(function (layer) {
+        g.fillStyle = layer[0];
+        T.forEach(function (t) {
+          var y = t[0] * w, len = L * t[1] * layer[1], hw = w * 0.3 * layer[2];
+          g.beginPath(); g.moveTo(b + 1, y - hw);
+          g.bezierCurveTo(b - len * 0.4, y - hw * 1.2, b - len * 0.7, y + hw * 0.7, b - len, y - hw * 0.3);
+          g.bezierCurveTo(b - len * 0.6, y + hw * 0.3, b - len * 0.3, y + hw * 1.3, b + 1, y + hw);
+          g.closePath(); g.fill();
+        });
+      });
     },
     // A silver wave inlaid down the middle with a dot in every crest.
     wave: function (g, a, b, w, Q) {
