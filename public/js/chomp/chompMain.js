@@ -74,10 +74,20 @@
     var s = snaps[snaps.length - 1];
     if (s) s.ghosts.forEach(function (g, i) { if (g.state === 3 || g.state === 4) ghostHome.add(i); });
   }
-  function blueForMe(i, g) { return myPower > 0 && predicting && g.state !== 3 && g.state !== 4 && !ghostHome.has(i); }
+  function blueForMe(i, g) { return myPower > 0 && predicting && g.state !== 3 && g.state !== 4 && g.state !== AWAY && !ghostHome.has(i); }
+  // a ghost outside the window a big paid arena sends this page (shared/chompWire.js AWAY): a place in the list only
+  var AWAY = Wire.AWAY != null ? Wire.AWAY : 5;
   var stats = { checks: 0, fixes: 0, fixDist: 0 };       // prediction health, read by the test harness
 
   // ---- sizing
+  // Night review 2026-10-29: a paid arena wider or taller than R.PAID_SEND_TILES sends this page only what is within
+  // half that of the chomper it plays or follows (server/chomp/chompRoom.js snapshotFor), so the page shows at most
+  // R.PAID_VIEW_TILES across or down there: a very wide or very short window zooms in that far instead of showing
+  // corridors with their ghosts left out. Usual screens show less already; everywhere else nothing changes (0).
+  var capNow = 0;
+  function viewCap() {
+    return stakeNow > 0 && A && A.wrap && (A.W > R.PAID_SEND_TILES || A.H > R.PAID_SEND_TILES) ? R.PAID_VIEW_TILES : 0;
+  }
   function resize() {
     if (!draw) return;
     var w = window.innerWidth, h = window.innerHeight, dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -85,8 +95,13 @@
     // CHOSEN: a computer shows 33 rows top to bottom (the arcade screen's 36 less its score lines); a phone held
     // upright shows 28.5 columns across, the arcade's own width, as the arcade cabinet's screen stands.
     var portrait = h > w;
-    if (draw.L.id === 'pixel') draw.resize(w, h, dpr);
-    else draw.resize(w, h, dpr, portrait ? (w * dpr / 28.5) : (h * dpr / 33));
+    capNow = viewCap();
+    if (draw.L.id === 'pixel') draw.resize(w, h, dpr, capNow);
+    else {
+      var S = portrait ? (w * dpr / 28.5) : (h * dpr / 33);
+      if (capNow) S = Math.max(S, w * dpr / capNow, h * dpr / capNow);
+      draw.resize(w, h, dpr, S);
+    }
   }
   window.addEventListener('resize', resize);
 
@@ -241,7 +256,7 @@
       A = Maze.build(m.mx, m.my, { wrap: !!m.wrap });
       draw = lookName === 'pixel' && window.ChompPixel ? new window.ChompPixel(canvas, A) : new Draw(canvas, A, lookName);
       resize();
-    }
+    } else if (viewCap() !== capNow) resize();
     dotsServer = new Uint8Array(m.dots);
     dotsView = new Uint8Array(dotsServer);
     pending.clear();
@@ -409,6 +424,8 @@
     if (!list.length) { watchId = 0; watchName = null; if (bar) bar.empty(); return; }
     var i = list.indexOf(watchId);
     watchId = list[i < 0 ? 0 : (i + d + list.length) % list.length];
+    // a paid room sends a watcher the window round the one it follows (server/chomp/chompRoom.js watch)
+    if (stakeNow > 0 && socket && socket.connected) socket.emit('c:watch', { id: watchId });
     var meta = metas.get(watchId);
     watchName = meta ? meta.n : '';
     if (bar) bar.watching(watchName || 'Player');
@@ -639,6 +656,7 @@
     var flashOn = Math.floor(now / (TK.flash * STEP_MS)) % 2 === 1;
     if (w) {
       w.b.ghosts.forEach(function (gb, i) {
+        if (gb.state === AWAY) return;
         var ga = w.a.ghosts[i];
         var pos = lerp(ga, gb, w.k);
         var mode = 0;

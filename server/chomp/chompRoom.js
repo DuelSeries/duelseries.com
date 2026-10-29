@@ -34,6 +34,8 @@ const COLORS = 8;                       // chomper colour slots (the page owns t
 const NAME_MAX = 15;
 const DROP_REACH = 6;                   // CHOSEN: coins land on path tiles at most this many steps from the death tile
 const EMERGENCY_FAIL_TICKS = 3;         // agRoom's: this many throwing ticks in a row close a room for good
+const LATE_LOG_OF = 20;                 // CHOSEN (night review 2026-10-29): a paid seat's late turns looked at together,
+const LATE_LOG_DEEP = 15;               //   and how many of them near the limit get it logged (_noteLateTurn)
 
 function mulberry(seed) {
   return function () {
@@ -90,6 +92,7 @@ class ChompRoom {
     this.onSeatless = typeof opts.onSeatless === 'function' ? opts.onSeatless : null;
     this.paidBots = opts.paidBots === true && this.stake > 0;
     this.watchers = new Map();              // socket id -> socket: a paid room's read-only sockets
+    this.watchAt = new Map();               // socket id -> { id?, x, y }: where a watcher's window is (_watchCentre)
     this.shielded = new Set();
     this.still = new Set();
     this.moneyFacts = [];
@@ -198,13 +201,18 @@ class ChompRoom {
 
   // The page pressed in tile (c, r), which we went through in the last LATE_TURN_TICKS ticks without changing
   // direction: take the turn at the first tile from there that has the opening (where the page turned) and move on
-  // from it. Movement only, and only where the same rules would have turned, so lying about (c, r) gains nothing.
+  // from it. Movement only, and only where the same rules would have turned.
+  // Lying about (c, r) still buys time: a page can hold a turn back and name the tile later, after seeing where the
+  // ghosts went. So a paid room (night review 2026-10-29) takes a turn back only LATE_TURN_TICKS_PAID ticks, never
+  // through a ghost or a powered chomper on the way (_lateTurnThreat), and logs a seat whose turns keep landing near
+  // that limit (_noteLateTurn). A turn it does not take back waits for the next opening, as one sent too late always did.
   lateTurn(p, d, c, r) {
     const h = p.hist;
-    let i = h.length - 1, first = -1;
-    for (; i >= 0; i--) {
+    const lo = this.money ? Math.max(0, h.length - R.LATE_TURN_TICKS_PAID) : 0;
+    let i = h.length - 1, first = -1, last = -1;
+    for (; i >= lo; i--) {
       if (h[i].dir !== p.dir) break;
-      if (Math.floor(h[i].x) === c && Math.floor(h[i].y) === r) first = i;
+      if (Math.floor(h[i].x) === c && Math.floor(h[i].y) === r) { first = i; if (last < 0) last = i; }
       else if (first >= 0) break;
     }
     if (first < 0) return;
@@ -212,12 +220,56 @@ class ChompRoom {
     for (; j < h.length; j++) if (Move.canGo(this.A, Math.floor(h[j].x), Math.floor(h[j].y), d)) break;
     if (j >= h.length) return;
     const speed = this.speedOf(p);
-    p.x = h[j].x; p.y = h[j].y; p.dir = d;
+    // the move on from the turn, worked out first on a copy (a paid room checks it before anything moves)
+    const t = { x: h[j].x, y: h[j].y, dir: d, moving: p.moving };
+    const path = [];
     for (let k = j + 1; k < h.length; k++) {
-      if (!h[k].paused) Move.advance(p, this.A, speed * DT);
-      h[k] = { x: p.x, y: p.y, dir: p.dir, paused: h[k].paused };
+      if (!h[k].paused) Move.advance(t, this.A, speed * DT);
+      path.push({ x: t.x, y: t.y, dir: t.dir, paused: h[k].paused });
     }
+    if (this.money) {
+      if (this._lateTurnThreat(p, path)) return;
+      this._noteLateTurn(p, h.length - 1 - last);
+    }
+    p.x = t.x; p.y = t.y; p.dir = d; p.moving = t.moving;
+    for (let k = 0; k < path.length; k++) h[j + 1 + k] = path[k];
     p.face = p.dir;
+  }
+
+  // Would the turn taken back carry p through something that catches it? The move on checks no catch, so a ghost
+  // (not blue for p) or, p unpowered, a powered chomper standing now on a tile of that path says no. A chomper
+  // blinking safe or shielded meets nothing.
+  _lateTurnThreat(p, path) {
+    if (!path.length || p.safe > 0 || this.shielded.has(p.id)) return false;
+    const W = this.A.W, tiles = new Set();
+    for (const s of path) tiles.add(Math.floor(s.y) * W + Math.floor(s.x));
+    for (const g of this.ghosts) {
+      if (g.state === 'active' && !this.blueFor(p, g) && tiles.has(Math.floor(g.y) * W + Math.floor(g.x))) return true;
+    }
+    if (p.power > 0) return false;
+    for (const q of this.players.values()) {
+      if (q === p || q.power <= 0 || q.dying || q.over || this.shielded.has(q.id)) continue;
+      if (tiles.has(Math.floor(q.y) * W + Math.floor(q.x))) return true;
+    }
+    return false;
+  }
+
+  // A paid seat's last LATE_LOG_OF turns taken back, by how late each came (ticks since we left the tile it named).
+  // An honest page is lined up with us and comes late only by its jitter; a page that keeps landing within 3 ticks of
+  // the limit looks like one holding its turns back on purpose (or a device far too slow to keep time): logged once a
+  // seat, for the owner to look at.
+  _noteLateTurn(p, late) {
+    const ring = p.lateTurns || (p.lateTurns = []);
+    ring.push(late);
+    if (ring.length > LATE_LOG_OF) ring.shift();
+    if (p.lateLogged || ring.length < LATE_LOG_OF) return;
+    const near = R.LATE_TURN_TICKS_PAID - 4;
+    const deep = ring.filter((n) => n >= near).length;
+    if (deep < LATE_LOG_DEEP) return;
+    p.lateLogged = true;
+    this.log.warn('[CHOMP] LATE-TURN pattern ' + this.lobbyType + ' pid ' + p.id + ' ' + JSON.stringify(p.name) + ': ' +
+      deep + ' of its last ' + LATE_LOG_OF + ' turns came ' + near + '+ ticks after it left the tile (limit ' +
+      (R.LATE_TURN_TICKS_PAID - 1) + ')');
   }
 
   // ---- placement
@@ -654,7 +706,8 @@ class ChompRoom {
   }
 
   // ---- what goes out
-  snapshot() {
+  // Every chomper in play and every ghost, as the wire carries them.
+  snapParts() {
     const ps = [];
     for (const p of this.players.values()) {
       if (p.over) continue;
@@ -666,7 +719,91 @@ class ChompRoom {
       });
     }
     const gs = this.ghosts.map(g => ({ x: g.x, y: g.y, dir: g.dir, look: g.plan >= 0 ? g.plan : g.dir, kind: g.ki, state: Ghosts.STATE[g.state] }));
+    return { ps, gs };
+  }
+
+  snapshot() {
+    const { ps, gs } = this.snapParts();
     return Wire.encode(this.tick, this.mode === 'chase' ? 1 : 0, ps, gs);
+  }
+
+  // Night review 2026-10-29: one snapshot for the whole room showed every page every chomper and ghost on the maze,
+  // their power and each ghost's next turn, far past any screen. A paid room whose arena is wider or taller than
+  // PAID_SEND_TILES (a torus of 4 or more modules on an axis) sends each page its own instead: snapshotFor round the
+  // chomper it plays, or for a watcher the one it follows (_watchCentre). A smaller arena fits every page's window
+  // whole and keeps the one shared snapshot.
+  culls() {
+    return !!this.money && this.A.wrap && (this.A.W > R.PAID_SEND_TILES || this.A.H > R.PAID_SEND_TILES);
+  }
+
+  inWindow(centre, x, y) {
+    const half = R.PAID_SEND_TILES / 2;
+    return Math.abs(this.A.dx(centre.x, x)) <= half && Math.abs(this.A.dy(centre.y, y)) <= half;
+  }
+
+  // The chompers within the window round centre ({ x, y }, a chomper's own always in), and every ghost slot: a ghost
+  // outside is AWAY, set half the arena off (never on any screen), so each keeps its place in the list.
+  snapshotFor(centre, parts) {
+    const A = this.A;
+    const ps = parts.ps.filter((q) => q.id === centre.id || this.inWindow(centre, q.x, q.y));
+    const fx = A.wx(centre.x + A.W / 2), fy = A.wy(centre.y + A.H / 2);
+    const gs = parts.gs.map((g) => (this.inWindow(centre, g.x, g.y) ? g
+      : { x: fx, y: fy, dir: 0, look: 0, kind: g.kind, state: Wire.AWAY }));
+    return Wire.encode(this.tick, this.mode === 'chase' ? 1 : 0, ps, gs);
+  }
+
+  // The chomper a Spectate page follows first: the board's top (the richest), else any chomper in play.
+  leader() {
+    const top = this.board()[0];
+    const p = top ? this.players.get(top[0]) : null;
+    if (p && !p.over) return p;
+    for (const q of this.players.values()) if (!q.over) return q;
+    return null;
+  }
+
+  // The middle of a watcher's window: the chomper its page follows (c:watch), else the spot its own seat ended on, else
+  // the room's leader. null when nobody is in play (nothing to cut).
+  _watchCentre(socketId, lead) {
+    const w = this.watchAt.get(socketId);
+    if (w) {
+      const q = w.id ? this.players.get(w.id) : null;
+      if (q && !q.over) { w.x = q.x; w.y = q.y; return q; }
+      if (w.x != null) return w;
+    }
+    return lead;
+  }
+
+  // A watcher's page follows chomper id now (its Spectate bar, chompBoot c:watch): its window moves with it. Only to a
+  // chomper inside the window it is sent (the ones its page can pick), so a watcher cannot jump across the arena.
+  watch(socketId, id) {
+    if (!this.money || this.stopped || !this.watchers.has(socketId) || this.bySocket.has(socketId)) return false;
+    const q = this.players.get(id);
+    if (!q || q.over) return false;
+    if (this.culls()) {
+      const c = this._watchCentre(socketId, this.leader());
+      if (c && !this.inWindow(c, q.x, q.y)) return false;
+    }
+    this.watchAt.set(socketId, { id, x: q.x, y: q.y });
+    return true;
+  }
+
+  // One volatile snapshot a socket of this room, each cut to its own window.
+  _flushCulled() {
+    const ids = this.nsp.adapter && this.nsp.adapter.rooms ? this.nsp.adapter.rooms.get(this.ioRoom) : null;
+    if (!ids || !ids.size) return;
+    const parts = this.snapParts();
+    const lead = this.leader();
+    let whole = null;
+    for (const sid of ids) {
+      const s = this.nsp.sockets.get(sid);
+      if (!s) continue;
+      const seat = this.bySocket.get(sid);
+      const centre = seat && !seat.over ? seat : this._watchCentre(sid, lead);
+      let buf;
+      if (centre) buf = this.snapshotFor(centre, parts);
+      else buf = whole || (whole = Wire.encode(this.tick, this.mode === 'chase' ? 1 : 0, parts.ps, parts.gs));
+      s.volatile.emit('c:s', Buffer.from(buf));
+    }
   }
 
   // Free: the top 10 by score, [[id, score]]. Paid: by money, [[id, micro]] (people and bounty bots alike).
@@ -721,7 +858,8 @@ class ChompRoom {
     const to = () => this.nsp.to(this.ioRoom);
     // a resize first: every position after it is in the new arena's numbers
     if (this.arenaMsg) { to().emit('c:arena', this.arenaMsg); this.arenaMsg = null; }
-    to().volatile.emit('c:s', Buffer.from(this.snapshot()));
+    if (this.culls()) this._flushCulled();
+    else to().volatile.emit('c:s', Buffer.from(this.snapshot()));
     const d = this.drain();
     if (d.dots) to().emit('c:dots', d.dots);
     if (d.events) to().emit('c:ev', d.events);
@@ -853,6 +991,7 @@ class ChompRoom {
       throw err;
     }
     this.watchers.delete(socket.id);
+    this.watchAt.delete(socket.id);
     this.attach(socket);
     return acct;
   }
@@ -873,6 +1012,7 @@ class ChompRoom {
       if (old) {
         this._emit(old, 'c:replaced', {});
         this.watchers.set(old.id, old);
+        this.watchAt.set(old.id, { x: p.x, y: p.y });   // its page stays on the spot it left
         if (this.onSeatless) this._safe(() => this.onSeatless(old, this, 'replaced'));
       }
     }
@@ -881,6 +1021,7 @@ class ChompRoom {
     p.socket = socket;
     this.bySocket.set(socket.id, p);
     this.watchers.delete(socket.id);
+    this.watchAt.delete(socket.id);
     this.attach(socket);
     this._emit(socket, 'c:joined', this.joinedPayload(acct, true));
     return true;
@@ -923,6 +1064,7 @@ class ChompRoom {
   // (an unconfirmed one is refunded at once, agMoney beginGrace); a free player leaves at once.
   removeSocket(socketId) {
     this.watchers.delete(socketId);
+    this.watchAt.delete(socketId);
     const p = this.bySocket.get(socketId);
     if (!p) return null;
     this.bySocket.delete(socketId);
@@ -959,6 +1101,7 @@ class ChompRoom {
       // 'cashedout' and 'settled': the payout tells the page (c:cashedout, then c:paid or c:payerror)
       if (outcome !== 'aborted') {
         this.watchers.set(sid, socket);
+        if (p) this.watchAt.set(sid, { x: p.x, y: p.y });   // its page stays on the spot it ended on
         if (this.onSeatless) this._safe(() => this.onSeatless(socket, this, outcome));
       }
     }
