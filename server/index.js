@@ -40,6 +40,7 @@ const Usdc  = require('./Usdc');  // USDC primitives — used directly by the co
 const notify = require('./notify'); // owner phone pushes (ntfy) — e.g. new-player alerts
 const analytics = require('./analytics'); // server-side PostHog capture (money events)
 const nameProof = require('./nameProof'); // a wallet signing for its own name change
+const playerName = require('./playerName'); // name cleaning + the reserved staff/brand names (night review 2026-10-29)
 const ownerAuth = require('./ownerAuth'); // the owner wallet signing for an owner action
 const { isWalletString } = require('./b58Caps');     // a client address is a key's size before any decode
 const Swap = require('./swap');                      // SOL <-> USDC in the player's own wallet
@@ -101,9 +102,13 @@ function socketRL(socket, key, minMs) {
 // or control chars in the first place. Falls back to 'Player' if nothing usable remains.
 // A string or a number only: String() on a client-built object THROWS ({"toString":1} has no
 // callable toString), and inside a socket handler a throw ends the whole process.
+// It only removed < > until the night review (2026-10-29): zero-width, bidi and control characters
+// went straight through, so "Owen" plus an invisible space was a new name. playerName.cleanName
+// strips them now, and a name that reads as the site or its staff ("DuelSeries Support", "Admin")
+// becomes Player: an in-game name comes with no proof of who sent it.
 function sanitizeName(name) {
-  const s = typeof name === 'string' ? name : (typeof name === 'number' ? String(name) : '');
-  return (s.replace(/[<>]/g, '').trim().slice(0, 20)) || 'Player';
+  const s = playerName.cleanName(typeof name === 'string' ? name : (typeof name === 'number' ? String(name) : '')).slice(0, 20);
+  return (s && !playerName.isReservedName(s)) ? s : 'Player';
 }
 
 /* ─── What a socket message may be ───────────────────────────────────────────
@@ -1326,20 +1331,39 @@ app.get('/api/players/search', socialLimiter, async (req, res) => {
   }
 });
 
-app.get('/api/my-profile', async (req, res) => {
+/* socialLimiter (night review 2026-10-29): it had none, so a script could walk a list of wallets
+   (every staker is on-chain) and read each one's name, payouts and stakes with no limit. The same
+   count as /api/profile and search; the lobby asks once on a name sync and once per Wallet tab. */
+app.get('/api/my-profile', socialLimiter, async (req, res) => {
   // Identity is the Privy wallet now — the client passes its address. Stats/earnings are
   // recorded under the wallet (recordGameResult / recordEarnings), so this resolves them.
   const wallet = strOr(req.query.wallet, '').trim();   // a string only: ?wallet[]=a threw
   if (!wallet) return res.status(401).json({ error: 'No wallet' });
   try {
     const profile = await db.getMyProfile(wallet);
-    if (!profile) return res.json({ totalEarnings: 0, gamesPlayed: 0, playTimeSeconds: 0, nameHistory: [], games: [] });
+    if (!profile) return res.json({ totalEarnings: 0, gamesPlayed: 0, playTimeSeconds: 0, games: [] });
     res.json(profile);
   } catch (e) {
     console.error('[MY-PROFILE]', e.message);
     res.status(500).json({ error: 'Server error' });
   }
 });
+
+/* The owner's own account name as a playerName.nameKey, so nobody else can name themselves a
+   look-alike of it ("0wen", an O from another alphabet, a dot in the middle): setAccountName
+   only refuses the exact name. One read, kept ten minutes, dropped when the owner renames. With
+   no database there is nothing to protect. (night review 2026-10-29) */
+let ownerNameKeyCache = { at: 0, key: null };
+async function ownerNameKey() {
+  if (!process.env.DATABASE_URL || typeof db.getAccountName !== 'function') return null;
+  if (Date.now() - ownerNameKeyCache.at < 10 * 60 * 1000) return ownerNameKeyCache.key;
+  try {
+    const n = await db.getAccountName(OWNER_WALLET);
+    const key = (typeof n === 'string' && n.trim().toLowerCase() !== 'player') ? playerName.nameKey(n) : '';
+    ownerNameKeyCache = { at: Date.now(), key: key || null };
+  } catch (_) { /* the database is busy: the last answer stands, and setAccountName still refuses the exact name */ }
+  return ownerNameKeyCache.key;
+}
 
 /* Set the display name for the signed-in account.
 
@@ -1360,10 +1384,20 @@ app.post('/api/my-name', sigLimiter, async (req, res) => {
      what sent this round in circles: every distinct cause read as "could not
      reach your account", so there was nothing to act on. */
   if (!wallet) return res.status(401).json({ error: 'Sign in first', reason });
-  const name = sanitizeName(req.body && req.body.name);
+  /* Cleaned the way sanitizeName cleans, but without its Player fallback: a name that was all
+     invisible characters is too short, not quietly saved as Player. A name that reads as the
+     site, its staff or the owner is refused for everyone but the owner, as 409 so the lobby
+     says it is taken and keeps the account's name (night review 2026-10-29). */
+  const raw = req.body && req.body.name;
+  const name = playerName.cleanName(typeof raw === 'string' ? raw : (typeof raw === 'number' ? String(raw) : '')).slice(0, 20);
   if (!name || name.length < 3) return res.status(400).json({ error: 'Name too short' });
+  const isOwner = OWNER_WALLETS.has(wallet);
+  if (!isOwner && (playerName.isReservedName(name) || playerName.nameKey(name) === await ownerNameKey())) {
+    return res.status(409).json({ error: 'Name not allowed' });
+  }
   try {
     await db.setAccountName(wallet, name);
+    if (wallet === OWNER_WALLET) ownerNameKeyCache.at = 0;   // his new name is the one protected from now on
     res.json({ ok: true, name });
   } catch (e) {
     if (e && e.code === 'NAME_TAKEN') return res.status(409).json({ error: 'Name taken' });

@@ -35,6 +35,7 @@ const fs = require('fs');
 const path = require('path');
 const CONFIG = require('./config');
 const { TOP_ROWS } = require('../sl/slTopCashout');
+const { INVISIBLE_RE } = require('../chatGuard');
 
 const SINCE = TOP_ROWS.C_TOP_SINCE.value;
 const LANDED = TOP_ROWS.C_TOP_LANDED.value;
@@ -129,8 +130,10 @@ function shortWallet(w) {
 }
 
 // The display name, or a short wallet. 'Player' is the payers' own fallback, so it means "no name set".
+// Zero-width and bidi characters go too (night review 2026-10-29): a name stored before names were
+// cleaned could hold a right-to-left override that flips how the rest of its row reads.
 function displayName(name, wallet) {
-  const n = String(name == null ? '' : name).replace(/[\u0000-\u001f\u007f]/g, '').trim();
+  const n = String(name == null ? '' : name).replace(/[\u0000-\u001f\u007f]/g, '').replace(INVISIBLE_RE, '').trim();
   if (!n || n.toLowerCase() === 'player') return shortWallet(wallet);
   return n.length > NAME_MAX ? n.slice(0, NAME_MAX) : n;
 }
