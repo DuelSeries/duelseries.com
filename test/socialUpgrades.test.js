@@ -272,8 +272,8 @@ test('preview: fifty sample players, a few dollars to a few thousand, and profil
   assert.ok(classes.includes('ph-no-capture'), 'kept out of analytics and session replay');
 });
 
-test('preview: opening the link once keeps it on in that browser, ?leaderboard=off clears it', () => {
-  const store = {};
+test('preview: only the visit with the link; no browser keeps it or wears LIVE (Owen 2026-10-28)', () => {
+  const store = { dsLbPreview: '1' };
   const ls = { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); },
                removeItem: (k) => { delete store[k]; } };
   const open = (search, storage) => {
@@ -284,14 +284,13 @@ test('preview: opening the link once keeps it on in that browser, ?leaderboard=o
     vm.runInContext(read('public/js/v2/socialPreview.js'), win);
     return win.V2SocialPreview;
   };
-  assert.strictEqual(open('', ls).on, false, 'a fresh browser sees only the real board');
+  assert.strictEqual(open('', ls).on, false, 'an old kept flag no longer turns it on');
+  assert.deepStrictEqual(store, {}, 'the old flag is cleared');
   assert.strictEqual(open('?leaderboard=preview', ls).on, true);
-  assert.deepStrictEqual(store, { dsLbPreview: '1' }, 'only the on flag is stored, never the players');
-  assert.strictEqual(open('', ls).on, true, 'stays on without the link');
-  assert.strictEqual(open('', ls).liveLook, true, 'the LIVE look is for the browser that opened the link');
+  assert.deepStrictEqual(store, {}, 'nothing is stored');
+  assert.strictEqual(open('?leaderboard=preview', ls).liveLook, false, 'never LIVE, even with the link');
+  assert.strictEqual(open('', ls).on, false, 'gone without the link');
   assert.strictEqual(open('?leaderboard=off', ls).on, false);
-  assert.deepStrictEqual(store, {}, 'off clears it');
-  assert.strictEqual(open('', ls).on, false);
   const broken = { getItem() { throw new Error('blocked'); }, setItem() { throw new Error('blocked'); },
                    removeItem() { throw new Error('blocked'); } };
   assert.strictEqual(open('?leaderboard=preview', broken).on, true, 'blocked storage still shows the link');
@@ -304,8 +303,8 @@ test('preview: the sample players never leave the browser', () => {
     assert.ok(!src.includes(bad), 'socialPreview.js has no ' + bad);
   }
   assert.deepStrictEqual(src.match(/localStorage\.\w+\([^)]*\)/g),
-    ["localStorage.removeItem(KEY)", "localStorage.setItem(KEY, '1')", "localStorage.getItem(KEY)"],
-    'the one stored thing is the on flag');
+    ["localStorage.removeItem(KEY)"],
+    'nothing is stored; the old flag is only cleared');
   assert.ok(/if \(pv\) \{ drawWin\(\{ on: true, total: pv\.total\(\), preview: pv \}\); return; \}/.test(read('public/js/v2/social.js')),
     'Global player winnings in the preview is drawn without asking the server, tagged Sample');
   const lead = read('public/js/v2/leaders.js');

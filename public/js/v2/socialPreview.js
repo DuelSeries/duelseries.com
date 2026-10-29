@@ -9,16 +9,16 @@
    answers the link with X-Robots-Tag: noindex, so it is never a page a search
    engine keeps.
 
-   Sticky in that one browser (Owen, 2026-10-26: his top earners "didn't
-   save"): opening the link once keeps one flag, dsLbPreview = '1', in this
-   browser's localStorage, and ?leaderboard=off removes it. The flag is the
-   only thing stored; the players are made again from the seed on each load.
-   Every other browser, and the server, only ever see the real board.
+   Only for the visit that has ?leaderboard=preview in the URL. It used to
+   stick in the browser (dsLbPreview in localStorage) and wear LIVE there, so
+   the owner's own screen differed from every player's; Owen 2026-10-28: his
+   screen must look exactly like everyone else's. The old flag is cleared on
+   load, and nothing here ever differs by browser.
 
    For everyone (Owen, 2026-10-26, to get feedback on the full board in the
    real game): config.js SAMPLE_BOARD = true turns it on for every visitor.
    Then every place it shows says "Sample" and "Sample players to preview the
-   board.", and never LIVE (only Owen's own preview browser sees LIVE, liveLook): sample winnings on a real-money site are only ever
+   board.", and never LIVE: sample winnings on a real-money site are only ever
    shown labelled as sample data. The lobby strip, Wallet and server stay real.
 
    Fifty players, a long tail from a few dollars up to a few thousand with a
@@ -30,12 +30,9 @@
 (function () {
   const KEY = 'dsLbPreview';
   const has = v => new RegExp('(^|[?&])leaderboard=' + v + '(&|$)').test(location.search);
-  // MINE: this browser opened the preview link (now, or before and kept).
-  const MINE = (function () {
-    if (has('off')) { try { localStorage.removeItem(KEY); } catch (_) {} return false; }
-    if (has('preview')) { try { localStorage.setItem(KEY, '1'); } catch (_) {} return true; }
-    try { return localStorage.getItem(KEY) === '1'; } catch (_) { return false; }
-  })();
+  // MINE: this visit's URL asks for the preview. The old sticky flag is dropped.
+  try { localStorage.removeItem(KEY); } catch (_) {}
+  const MINE = has('preview');
   const ON = MINE || (!has('off') && !!window.DSConfig && window.DSConfig.SAMPLE_BOARD === true);   // config.js: everyone
   // Every screen showing these players carries this tag and this line (leaders.js, social.js).
   const TAG = 'Sample';
@@ -185,11 +182,10 @@
 
   window.V2SocialPreview = {
     on: ON,
-    /* Owen's own look (2026-10-26, "just to see how this looks"): in the
-       browser that opened the link, the board and Global player winnings wear
-       LIVE instead of Sample. Never for SAMPLE_BOARD visitors: fake players
-       marked LIVE on a real-money site would deceive them. */
-    liveLook: MINE,
+    /* Always false (Owen 2026-10-28): the owner sees exactly what players see,
+       so no browser wears LIVE on sample players. Kept as a field because
+       leaders.js, social.js and v2.html read it. */
+    liveLook: false,
     board: board, search: search, profile: profile, amountOf: amountOf, rankOf: rankOf, total: total, tag: TAG, note: NOTE,
   };
 })();
