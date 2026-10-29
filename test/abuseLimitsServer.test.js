@@ -165,3 +165,22 @@ test('/api/debug/tick is the owner\'s: anyone else gets a quick 403 and no repor
   assert.strictEqual(mine.status, 200);
   assert.ok(mine.json && mine.json.rooms && Object.keys(mine.json.rooms).length > 0 && mine.json.heap, 'the full report for the owner');
 });
+
+/* ── finding 29: a loop of lobby:join, each one a full LOBBY_STATE to every lobby socket ─────────── */
+test('a loop of lobby:join is not a LOBBY_STATE per message to every lobby socket', { timeout: 60000 }, async () => {
+  const watcher = await connect(), flooder = await connect();
+  try {
+    watcher.s.emit('lobby:join', {});
+    assert.ok(await until(() => watcher.count('lobby_state') >= 2, 3000), 'the watcher is told the lobby changed (its own join)');
+    const before = watcher.count('lobby_state');
+    for (let i = 0; i < 2000; i++) flooder.s.emit('lobby:join', {});
+    assert.ok(await handled(flooder.s));
+    await sleep(1500);
+    const sent = watcher.count('lobby_state') - before;
+    assert.ok(sent >= 1, 'the flooder\'s first join still reaches the lobby');
+    assert.ok(sent <= 3, sent + ' LOBBY_STATEs for 2000 lobby:join');
+    const last = watcher.got.filter((g) => g[0] === 'lobby_state').pop()[1];
+    assert.ok(last.lobbyCount >= 2, 'and it carries the count as it is now');
+    assert.ok(alive(), died());
+  } finally { watcher.s.close(); flooder.s.close(); }
+});

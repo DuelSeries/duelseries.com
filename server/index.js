@@ -4982,15 +4982,29 @@ function totalInGame() {
 /* LOBBY_STATE used to carry the old agar.io game's agarPlayerCount, agarLobbyCount and
    agarLeaderboard as well. No lobby code read any of them (the cards count from /api/live), so
    they went with that game. */
+/* At most one send every LOBBY_STATE_MS, whoever asks and however often (night review 2026-10-29).
+   Every join, leave and disconnect asked for one, each a separate reliable emit to every lobby
+   socket, so one socket looping lobby:join was a copy per message per lobby socket, queued without
+   end for sockets that stopped reading: about 1 GB in seconds. Now a burst of asks is one send, a
+   moment later (half a second), of the state as it is then; volatile, so a socket that cannot
+   keep up drops it instead of queueing it; and the EU push to NA follows the same beat. No browser
+   page reads LOBBY_STATE (the cards count from /api/live); a connecting socket still gets its own
+   at once. */
+var _lobbyStateTimer = null;   // var: broadcastLobbyState is hoisted, and a call before this line must not hit a TDZ
 function broadcastLobbyState() {
-  const state = {
-    playerCount:      totalInGame()     + (remoteStats.playerCount     || 0),
-    lobbyCount:       lobbyConnections.size,
-    leaderboard:      allTimeLb.getTop(3),
-    region:           REGION,
-  };
-  for (const sock of lobbyConnections) sock.emit(C.EVENTS.LOBBY_STATE, state);
-  pushStatsToNA();
+  if (_lobbyStateTimer) return;
+  _lobbyStateTimer = setTimeout(() => {
+    _lobbyStateTimer = null;
+    const state = {
+      playerCount:      totalInGame()     + (remoteStats.playerCount     || 0),
+      lobbyCount:       lobbyConnections.size,
+      leaderboard:      allTimeLb.getTop(3),
+      region:           REGION,
+    };
+    for (const sock of lobbyConnections) sock.volatile.emit(C.EVENTS.LOBBY_STATE, state);
+    pushStatsToNA();
+  }, 500);
+  if (_lobbyStateTimer.unref) _lobbyStateTimer.unref();
 }
 
 io.on('connection', (socket) => {
@@ -5014,12 +5028,17 @@ io.on('connection', (socket) => {
      and the owner's live alerts only from ownerProof (an owner signature over the action
      'owner:alerts', ownerAuth) or ownerTicket (one use, from POST /api/owner/ticket with the
      owner session). Without them the socket is an anonymous lobby watcher. */
+  /* Once a connect from its one sender (the owner console, public/js/ownerAlerts.js), so one a second is plenty,
+     and only a socket new to the lobby changes the count worth telling anyone (night review 2026-10-29: a loop of
+     these was a full LOBBY_STATE to every lobby socket per message). */
   on('lobby:join', ({ idProof, ownerProof, ownerTicket } = {}) => {
+    if (!socketRL(socket, 'lobbyjoin', 1000)) return;
+    const fresh = !lobbyConnections.has(socket);
     lobbyConnections.add(socket);
     socketIdentity.fromProof(socket, idProof);
     socketIdentity.ownerAlerts(socket, ownerProof);
     socketIdentity.ownerAlertsByTicket(socket, ownerTicket);
-    broadcastLobbyState();
+    if (fresh) broadcastLobbyState();
   });
 
   /* walletAddress and googleId are the client's claims and are NOT used for identity or for
