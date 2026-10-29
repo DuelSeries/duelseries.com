@@ -155,6 +155,14 @@ class KnockoutLobby {
   /* paid: what landed on-chain for this seat (the entry token's paid), which bounds a refund.
      skin: the bought skin this seat wears, already proved against the skin pass by the caller; null is the free look. */
   enqueue(socket, name, wallet, stake, worth, now, paid, skin) {
+    /* ALREADY AT A TABLE STILL BEING PLAYED: one seat per socket, SwimLobby's rule (night review 2026-10-29). Every
+       re-queue used to get a table of its own after the bot wait and moved bySocket to it, so the old table kept
+       running with the same socket seated where nothing could count it (the free seat count reads roomOf, the
+       newest), and outlived the socket (leave only reaches roomOf's table). Not taken and nothing touched, so a paid
+       caller refunds it through the stake row; the handlers refuse it before this with "in a match already". A table
+       that is over is no seat: Play again from it queues as always. */
+    const seated = this.roomOf(socket.id);
+    if (seated && seated.state !== 'over') return false;
     /* Queueing again from a socket that already waits on a PAID seat gives that one back first: dequeue
        alone forgot a stake that had already settled on-chain (Fable review 2026-10-21). */
     const prior = this.queue.find(e => e.socket.id === socket.id);
@@ -188,7 +196,8 @@ class KnockoutLobby {
       }
     }
     /* Taken: waiting, at a table, or (a match that could not start) already refunded by startMatch. Only a
-       stopping lobby says false, having touched nothing, so the caller refunds it through the stake row. */
+       stopping lobby, or a socket still at a table, says false, having touched nothing, so the caller refunds it
+       through the stake row. */
     return true;
   }
 

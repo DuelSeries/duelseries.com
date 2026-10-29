@@ -5080,6 +5080,7 @@ io.use((socket, next) => {
 {
   const cap = (n) => envCount('FREE_DUEL_ROOM_CAP', n);
   knockoutLobby.freeRoomCap = cap(100);
+  battleshipLobby.freeRoomCap = cap(100);   // turn-based like Knockout, and it had no ceiling at all (night review 2026-10-29)
   headSoccerLobby.freeRoomCap = cap(40);
   swimLobby.freeRoomCap = cap(40);
   pool8Lobby.freeRoomCap = cap(60);
@@ -5689,6 +5690,12 @@ io.on('connection', (socket) => {
   on('ko:queue', ({ name, wallet, stake, entryToken, shop, skinPass, resume } = {}) => {
     if (!socketRL(socket, 'koq', 1000)) return;
     if (ops.get().maintenance) { socket.emit('maintenance', ops.get()); return; }
+    /* Already at a table that is still being played: refused before anything else, hs:queue's rule (night review
+       2026-10-29). Each re-queue used to get a table of its own after the bot wait and leave the last one running
+       with this socket seated, where neither the free seat count nor a disconnect could reach it, so one address
+       could fill every free table. Play again sends ko:leave first, so an honest page never meets this. */
+    const seated = knockoutLobby.roomOf(socket.id);
+    if (seated && seated.state !== 'over') { socket.emit('ko:refused', { why: 'You are in a match already.' }); return; }
 
     /* A RECONNECT WHILE WAITING takes its seat back by the key only that seat was sent
        (server/duelQueue.js resumeSeat): the same place, minute and stake, no new token. A paid seat
@@ -6505,6 +6512,9 @@ io.on('connection', (socket) => {
   on('bs:queue', ({ name, wallet, stake, entryToken, shop, skinPass, resume } = {}) => {
     if (!socketRL(socket, 'bsq', 1000)) return;
     if (ops.get().maintenance) { socket.emit('maintenance', ops.get()); return; }
+    // Already at a table that is still being played: refused before anything else (see ko:queue, night review 2026-10-29).
+    const seated = battleshipLobby.roomOf(socket.id);
+    if (seated && seated.state !== 'over') { socket.emit('bs:refused', { why: 'You are in a match already.' }); return; }
 
     // A reconnect while waiting takes its seat back (see ko:queue).
     const back = battleshipLobby.resume(socket, resume, freeMoveOk(socket, battleshipLobby));

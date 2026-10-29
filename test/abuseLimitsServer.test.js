@@ -370,3 +370,52 @@ test('free seats cannot be carried past an address limit by their resume or rejo
     assert.ok(alive(), died());
   } finally { for (const c of all) c.s.close(); }
 });
+
+/* The second review of finding 13 (night review 2026-10-29): Knockout and Battleship took a queue from a socket already
+   seated at a live table. Each re-queue got a bot table of its own after the wait and moved the socket's seat to it,
+   leaving the last table running with the socket still in it, where neither the free seat count nor a disconnect
+   reached it (reproduced: one socket was sent bs:state from four free Battleship tables). Now refused like hs:queue. */
+test('a socket seated at a Knockout or Battleship table cannot queue again; it stays at its one table, and Play again still works', { timeout: 90000 }, async () => {
+  const all = [];
+  const ids = (c, evs) => new Set(c.got.filter((g) => evs.includes(g[0]) && g[1] && g[1].id).map((g) => g[1].id));
+  try {
+    const ka = await connect(), kb = await connect(), ba = await connect(), bb = await connect();
+    all.push(ka, kb, ba, bb);
+    ka.s.emit('ko:queue', { name: 'koA', wallet: 'KoWa11etA' });
+    ba.s.emit('bs:queue', { name: 'bsA', wallet: 'BsWa11etA' });
+    assert.ok(await handled(ka.s) && await handled(ba.s));
+    kb.s.emit('ko:queue', { name: 'koB', wallet: 'KoWa11etB' });
+    bb.s.emit('bs:queue', { name: 'bsB', wallet: 'BsWa11etB' });
+    assert.ok(await until(() => ka.count('ko:start') === 1 && ba.count('bs:state') > 0, 5000), 'both pairs are at a table');
+    // Seated, they queue again (past the once-a-second limit), the free seat and a paid ask alike.
+    const cards = { ko: ka.count('ko:queued'), bs: ba.count('bs:queued') };   // each was sent one while it waited
+    await sleep(1100);
+    ka.s.emit('ko:queue', { name: 'koA', wallet: 'KoWa11etA' });
+    ba.s.emit('bs:queue', { name: 'bsA', wallet: 'BsWa11etA' });
+    assert.ok(await handled(ka.s) && await handled(ba.s));
+    for (const [c, ev] of [[ka, 'ko'], [ba, 'bs']]) {
+      const r = c.got.find((g) => g[0] === ev + ':refused');
+      assert.ok(r && /in a match already/.test(r[1].why), ev + ': refused, with a reason');
+      assert.strictEqual(c.count(ev + ':queued'), cards[ev], ev + ': no wait card');
+    }
+    await sleep(1100);
+    ka.s.emit('ko:queue', { name: 'koA', stake: 0.5, entryToken: 'x'.repeat(40) });
+    assert.ok(await handled(ka.s));
+    assert.strictEqual(ka.got.filter((g) => g[0] === 'ko:refused' && /in a match already/.test(g[1].why)).length, 2,
+      'a paid ask is refused the same way, before its token is touched');
+    // Past the bot wait: no second table was made for either socket.
+    await sleep(require('../shared/duelWait') + 1500);
+    assert.strictEqual(ka.count('ko:start'), 1, 'ko: one table');
+    assert.strictEqual(ids(ka, ['ko:start', 'ko:state', 'ko:turn']).size, 1, 'ko: every message from the one table');
+    assert.strictEqual(ids(ba, ['bs:state']).size, 1, 'bs: every bs:state from the one table');
+    // Play again as the pages do it: leave first, then queue. Taken as always.
+    ka.s.emit('ko:leave');
+    ba.s.emit('bs:leave');
+    ka.s.emit('ko:queue', { name: 'koA', wallet: 'KoWa11etA' });
+    ba.s.emit('bs:queue', { name: 'bsA', wallet: 'BsWa11etA' });
+    assert.ok(await handled(ka.s) && await handled(ba.s));
+    assert.strictEqual(ka.count('ko:queued'), cards.ko + 1, 'ko: Play again queues');
+    assert.strictEqual(ba.count('bs:queued'), cards.bs + 1, 'bs: Play again queues');
+    assert.ok(alive(), died());
+  } finally { for (const c of all) c.s.close(); }
+});

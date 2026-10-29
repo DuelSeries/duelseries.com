@@ -295,3 +295,97 @@ test('a free seat the ceiling holds past its bot time is told, once each countdo
     lob.stop();
   }
 });
+
+/* ── the second review of the fix (night review 2026-10-29) ──────────────────────────────────────────────────────
+   Knockout and Battleship took a queue from a socket already seated at a live table: after the bot wait it got a new
+   table and its seat (bySocket) moved there, so the old table kept running with the socket in it. freeSeatsAt reads
+   roomOf (the newest table), so a stack of them counted as one seat, and leave() only reached the newest, so the rest
+   outlived the socket. Both lobbies now take one seat per socket, and Battleship has the free table ceiling too. */
+test('a socket seated at a live Knockout or Battleship table cannot queue again; it keeps one table, and leaving ends it', () => {
+  for (const [Lobby, q] of [
+    [KnockoutLobby, (lob, s, stake, T) => lob.enqueue(s, 'p', 'W' + s.id, stake, stake, T)],
+    [BattleshipLobby, (lob, s, stake) => lob.enqueue(s, 'p', 'W' + s.id, stake, stake)],
+  ]) {
+    const name = Lobby.name;
+    const gate = createAddrGate(50);
+    const lob = new Lobby(io);
+    const refunds = [];
+    lob.onRefund = (r) => refunds.push(r);
+    const IP = '198.51.100.150';
+    const s = sock(IP); gate.add(s);
+    let T = Date.now();
+    assert.strictEqual(q(lob, s, 0, T), true);
+    for (const e of lob.queue) e.since = T;
+    lob.tick(T += FREE_WAIT_MS + 1);
+    const first = lob.roomOf(s.id);
+    assert.ok(first && first.bot && first.state !== 'over', name + ': at a bot table');
+    // The repro: queue again and again, each time past the bot wait. Every one is refused and nothing is touched.
+    for (let i = 0; i < 6; i++) {
+      assert.strictEqual(q(lob, s, 0, T), false, name + ': a free re-queue while seated is not taken');
+      assert.strictEqual(q(lob, s, 0.5, T), false, name + ': nor a paid one (the caller refunds its stake row)');
+      assert.strictEqual(lob.queue.length, 0, name + ': nothing waits');
+      lob.tick(T += FREE_WAIT_MS + 1);
+    }
+    assert.strictEqual(lob.rooms.size, 1, name + ': one table, not seven');
+    assert.strictEqual(lob.roomOf(s.id), first, name + ': the same one');
+    assert.strictEqual(refunds.length, 0, name + ': the lobby refunded nothing it never took');
+    const asker = sock(IP); gate.add(asker);
+    assert.strictEqual(freeSeatsAt(gate, asker, [lob], lob), 1, name + ': counted as the one seat it is');
+    // The socket goes: its one table goes with it.
+    lob.leave(s.id);
+    assert.strictEqual(lob.rooms.size, 0, name + ': nothing left running after the socket is gone');
+    // Two people at a table: the same refusal, and the table and its opponent are left alone.
+    const a = sock('198.51.100.151'), b = sock('198.51.100.152');
+    q(lob, a, 0, T); q(lob, b, 0, T);
+    const both = lob.roomOf(a.id);
+    assert.ok(both && both.players.has(b.id) && !both.bot, name + ': a and b are at a table');
+    assert.strictEqual(q(lob, a, 0, T), false);
+    lob.tick(T += FREE_WAIT_MS + 1);
+    assert.strictEqual(lob.roomOf(a.id), both);
+    assert.strictEqual(lob.roomOf(b.id), both);
+    assert.strictEqual(lob.rooms.size, 1);
+    // Play again from a table that is over queues as always (the pages also send <ev>:leave first).
+    both.state = 'over';
+    assert.strictEqual(q(lob, a, 0, T), true, name + ': a table that is over is no seat');
+    assert.ok(lob.queue.some((e) => e.socket.id === a.id), name + ': queued');
+    lob.stop();
+  }
+});
+
+test('Battleship takes the free table ceiling: free pairs and bots wait, the held seat is told, paid tables are never held', () => {
+  const lob = new BattleshipLobby(io);
+  lob.freeRoomCap = 2;
+  const T0 = Date.now();
+  const seats = [];
+  for (let i = 0; i < 6; i++) { const s = rsock('198.51.100.' + (160 + i)); seats.push(s); lob.enqueue(s, 'p' + i, 'B' + i, 0, 0); }
+  assert.strictEqual(lob.freeRoomsRunning(), 2, 'three pairs, two tables');
+  assert.deepStrictEqual(lob.queue.map((e) => e.socket.id), [seats[4].id, seats[5].id], 'the third pair is still queued');
+  for (const e of lob.queue) e.since = T0;
+  lob.tick(T0 + FREE_WAIT_MS + 1);
+  assert.strictEqual(lob.freeRoomsRunning(), 2, 'no table, bot or pair, past the ceiling');
+  assert.strictEqual(lob.queue.length, 2, 'they keep waiting rather than being dropped');
+  const note = sentOf(seats[4], 'bs:queued').filter((m) => m.p.busy);
+  assert.strictEqual(note.length, 1, 'a held seat is told once');
+  assert.strictEqual(note[0].p.waitMs - note[0].p.waitingMs, FREE_WAIT_MS, 'with a fresh countdown');
+  assert.strictEqual(note[0].p.resumeKey, lob.resumeKeyOf(seats[4].id));
+  lob.tick(T0 + FREE_WAIT_MS + 500);
+  assert.strictEqual(sentOf(seats[4], 'bs:queued').filter((m) => m.p.busy).length, 1, 'not again while that countdown runs');
+  // Paid seats pair whatever the free tables are doing.
+  const pa = rsock('198.51.100.170'), pb = rsock('198.51.100.171');
+  lob.enqueue(pa, 'pa', 'PA', 0.5, 0.5);
+  lob.enqueue(pb, 'pb', 'PB', 0.5, 0.5);
+  assert.ok(lob.roomOf(pa.id) && lob.roomOf(pa.id) === lob.roomOf(pb.id), 'the paid pair is at a table');
+  // A free table ends: the waiting pair meets on the next tick.
+  lob.roomOf(seats[0].id).state = 'over';
+  lob.tick(T0 + FREE_WAIT_MS + 600);
+  assert.strictEqual(lob.queue.length, 0);
+  const last = lob.roomOf(seats[4].id);
+  assert.ok(last && last.players.has(seats[5].id) && !last.bot, 'the waiting pair is at a table together');
+  // Without a ceiling (the default) nothing is held: three pairs and a bot table, as before.
+  const open = new BattleshipLobby(io);
+  for (let i = 0; i < 7; i++) open.enqueue(sock('198.51.100.' + (180 + i)), 'q' + i, 'Q' + i, 0, 0);
+  for (const e of open.queue) e.since = T0;
+  open.tick(T0 + FREE_WAIT_MS + 1);
+  assert.strictEqual(open.freeRoomsRunning(), 4);
+  lob.stop(); open.stop();
+});
