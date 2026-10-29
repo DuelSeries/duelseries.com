@@ -150,8 +150,9 @@ class BattleshipLobby {
     }
   }
 
-  /* A reconnect taking its seat back by the key it was sent (duelQueue.resumeSeat), and that key. */
-  resume(socket, key) { return duelQueue.resumeSeat(this, socket, key); }
+  /* A reconnect taking its seat back by the key it was sent (duelQueue.resumeSeat, which asks mayTakeFree before a
+     free seat changes socket), and that key. */
+  resume(socket, key, mayTakeFree) { return duelQueue.resumeSeat(this, socket, key, mayTakeFree); }
   resumeKeyOf(socketId) {
     const e = this.queue.find(q => q.socket.id === socketId);
     return e ? e.resumeKey : null;

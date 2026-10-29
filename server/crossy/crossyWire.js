@@ -96,8 +96,11 @@ function create(deps) {
       const seated = lobby.roomOf(socket.id);
       if (seated && seated.state !== 'over') { socket.emit('cr:refused', { why: 'You are in a match already.' }); return; }
 
-      /* A RECONNECT WHILE WAITING takes its seat back by the key only that seat was sent (duelQueue resumeSeat). */
-      const back = lobby.resume(socket, resume);
+      /* A RECONNECT WHILE WAITING takes its seat back by the key only that seat was sent (duelQueue resumeSeat). A free
+         seat whose key would carry it past this address's free seats stays where it is (index.js freeMoveOk, night
+         review 2026-10-29). */
+      const back = lobby.resume(socket, resume, typeof h.freeMoveOk === 'function' ? h.freeMoveOk(socket, lobby) : undefined);
+      if (back && back.refused) { socket.emit('cr:refused', { why: h.FREE_DUELS_BUSY }); return; }
       if (back && back.resumed) {
         const e = back.resumed;
         if (e.worth > 0 && e.wallet) socket._walletAddress = e.wallet;
@@ -174,7 +177,7 @@ function create(deps) {
     on('cr:rejoin', ({ key } = {}) => {
       if (!h.socketRL(socket, 'crrejoin', 1000)) return;
       try {
-        const r = lobby.rejoin(socket, key, Date.now());
+        const r = lobby.rejoin(socket, key, Date.now(), typeof h.freeMoveOk === 'function' ? h.freeMoveOk(socket, lobby) : undefined);
         if (r && r.ok && r.worth > 0 && r.wallet) socket._walletAddress = r.wallet;
       } catch (e) {
         console.error('[CR] rejoin threw:', e && e.stack ? e.stack : e);

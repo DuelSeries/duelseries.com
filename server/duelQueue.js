@@ -154,12 +154,19 @@ function newResumeKey() {
 
 const isKey = (k) => typeof k === 'string' && /^[0-9a-f]{32}$/.test(k);
 
-// { resumed: entry } | { refunded: true } | null (nothing to take back: queue as new).
-function resumeSeat(lobby, socket, key) {
+/* mayTakeFree (night review 2026-10-29): asked only for a FREE seat moving to a different socket, with the seat's
+   current socket id; false leaves the seat where it is and answers { refused: true }. index.js uses it for the free
+   seats per address limit, which a key would otherwise carry to any address. A paid seat is never asked or refused:
+   its stake moves with the key exactly as before. */
+// { resumed: entry } | { refunded: true } | { refused: true } | null (nothing to take back: queue as new).
+function resumeSeat(lobby, socket, key, mayTakeFree) {
   if (!isKey(key) || lobby.stopping || !socket) return null;
   const e = lobby.queue.find(q => q.resumeKey === key);
   if (e) {
     if (e.socket.id !== socket.id && lobby.holds(socket.id)) return null;   // this socket already has a seat
+    if (e.socket.id !== socket.id && !(e.stake > 0) && typeof mayTakeFree === 'function' && !mayTakeFree(e.socket.id)) {
+      return { refused: true };
+    }
     if (typeof lobby.unwatch === 'function') lobby.unwatch(socket.id);
     e.socket = socket;
     return { resumed: e };

@@ -136,3 +136,162 @@ test('Swim takes the same ceiling', () => {
   assert.strictEqual(lob.queue.length, 1);
   lob.stop();
 });
+
+/* ── the review of the fix (night review 2026-10-29) ─────────────────────────────────────────────────────────────
+   A resume key (a waiting seat) or a rejoin key (a seat at a table) moves a seat to ANY socket, and the queue
+   handlers take a resume before the free seat count is reached, so one address could queue its free seats, hand them
+   to a second address by their keys, and queue more. The lobbies now ask index.js (freeMoveOk) before a FREE seat
+   changes socket; a paid seat is never asked. Also: the count is linear, a held free seat is told, and the moved
+   seat itself is never counted against the socket taking it. */
+const { RooftopLobby } = require('../server/RooftopLobby');
+const { BattleshipLobby } = require('../server/BattleshipLobby');
+const duelQueue = require('../server/duelQueue');
+
+// A socket that keeps what it was sent.
+function rsock(xff) { const s = sock(xff); s.sent = []; s.emit = (e, p) => s.sent.push({ e, p }); return s; }
+const sentOf = (s, e) => s.sent.filter((m) => m.e === e);
+
+test('a seat being moved is left out of the count of the socket taking it; the count is the same per seat as before', () => {
+  const gate = createAddrGate(50);
+  const ko = new KnockoutLobby(io), hs = new HeadSoccerLobby(io);
+  const lobbies = [ko, hs];
+  const A = '198.51.100.80', B = '198.51.100.81';
+  const a1 = sock(A), a2 = sock(A), b1 = sock(B), b2 = sock(B);
+  for (const s of [a1, a2, b1, b2]) gate.add(s);
+  const T0 = Date.now();
+  ko.enqueue(a1, 'a1', 'SAME', 0, 0, T0);
+  hs.enqueue(a1, 'a1', 'SAME', 0, 0, T0);
+  hs.enqueue(b1, 'b1', 'SAME', 0, 0, T0);
+  // a2 taking a1's Knockout seat (a reconnect from the same address): that seat is not an extra one.
+  assert.strictEqual(freeSeatsAt(gate, a2, lobbies, ko), 2, 'without movingId both seats of a1 count');
+  assert.strictEqual(freeSeatsAt(gate, a2, lobbies, ko, a1.id), 1, 'the seat being moved is left out');
+  assert.strictEqual(freeSeatsAt(gate, a2, lobbies, hs, a1.id), 1, 'only in the lobby it is moved in');
+  // b2 taking a1's seat across addresses: what B holds is b1's seat.
+  assert.strictEqual(freeSeatsAt(gate, b2, lobbies, ko, a1.id), 1);
+  // The same answer holdsFreeSeat gives, socket by socket and lobby by lobby.
+  let byHand = 0;
+  for (const s of [a1, a2]) for (const lb of lobbies) if (holdsFreeSeat(lb, s.id)) byHand++;
+  const a3 = sock(A); gate.add(a3);
+  assert.strictEqual(freeSeatsAt(gate, a3, lobbies, null), byHand);
+  ko.stop(); hs.stop();
+});
+
+test('a resume asks mayTakeFree only for a free seat changing socket; a refusal leaves the seat where it is', () => {
+  for (const Lobby of [KnockoutLobby, HeadSoccerLobby, BattleshipLobby, SwimLobby]) {
+    const lob = new Lobby(io);
+    const T0 = Date.now();
+    const s1 = sock('198.51.100.90');
+    lob.enqueue(s1, 'free', 'F1', 0, 0, T0);
+    const key = lob.resumeKeyOf(s1.id);
+    assert.match(key, /^[0-9a-f]{32}$/);
+    const asked = [];
+    const no = (id) => { asked.push(id); return false; };
+    const s2 = sock('198.51.100.91');
+    assert.deepStrictEqual(lob.resume(s2, key, no), { refused: true }, Lobby.name + ': refused');
+    assert.deepStrictEqual(asked, [s1.id], 'asked with the id of the socket holding it now');
+    assert.strictEqual(lob.queue.find((e) => e.resumeKey === key).socket, s1, 'the seat stays with its socket');
+    assert.ok(lob.resume(s1, key, no).resumed, 'the same socket showing its key again is not a move, never asked');
+    assert.strictEqual(asked.length, 1);
+    assert.strictEqual(lob.resume(s2, key, () => true).resumed.socket, s2, 'allowed: moved as before');
+    const s3 = sock('198.51.100.92');
+    assert.strictEqual(lob.resume(s3, key).resumed.socket, s3, 'no guard: the old rule');
+    // A paid seat always moves: never asked, never refused.
+    const p1 = sock('198.51.100.93');
+    lob.enqueue(p1, 'paid', 'P1', 0.5, 0.5, T0, 0.5);
+    const pkey = lob.resumeKeyOf(p1.id);
+    const p2 = sock('198.51.100.94');
+    const back = lob.resume(p2, pkey, no);
+    assert.ok(back && back.resumed && back.resumed.socket === p2, Lobby.name + ': a paid seat moves');
+    assert.strictEqual(asked.length, 1, 'and nobody was asked');
+    lob.stop();
+  }
+});
+
+test('a rejoin asks mayTakeFree only for a seat at a free table; a refusal is a rejoinfail and the seat stays', () => {
+  const STEP = 1000 / 60;
+  // Rooftop (KnockoutLobby.rejoin): a free bot table.
+  {
+    const lob = new RooftopLobby(io);
+    const a = rsock('198.51.100.100');
+    lob.enqueue(a, 'Ann', null, 0, 0, 0);
+    let t = duelQueue.FREE_WAIT_MS + 1;
+    lob.tick(t);
+    const room = lob.roomOf(a.id);
+    assert.ok(room && room.bot);
+    for (const end = t + 2000; t < end; t += STEP) lob.tick(t);
+    const key = sentOf(a, 'rt:seat').pop().p.key;
+    const b = rsock('198.51.100.101');
+    const asked = [];
+    const r = lob.rejoin(b, key, t, (id) => { asked.push(id); return false; });
+    assert.strictEqual(r.ok, false);
+    assert.deepStrictEqual(asked, [a.id]);
+    assert.strictEqual(sentOf(b, 'rt:rejoinfail').length, 1, 'the page is told, and does what a failed reconnect does');
+    assert.strictEqual(lob.roomOf(a.id), room, 'the seat stays where it was');
+    assert.strictEqual(lob.roomOf(b.id), null);
+    assert.ok(lob.rejoin(b, key, t, () => true).ok, 'allowed: the key still works');
+    assert.strictEqual(lob.roomOf(b.id), room);
+    lob.stop();
+  }
+  // Rooftop: a paid table always rejoins, never asked.
+  {
+    const lob = new RooftopLobby(io);
+    const a = rsock('198.51.100.102'), b = rsock('198.51.100.103');
+    lob.enqueue(a, 'Ann', 'WA', 1, 1, 0, 1);
+    lob.enqueue(b, 'Bob', 'WB', 1, 1, 0, 1);
+    let t = 0;
+    for (const end = 3000; t < end; t += STEP) lob.tick(t);
+    const key = sentOf(a, 'rt:seat').pop().p.key;
+    let asked = 0;
+    const a2 = rsock('198.51.100.104');
+    assert.ok(lob.rejoin(a2, key, t, () => { asked++; return false; }).ok, 'a paid seat is never refused here');
+    assert.strictEqual(asked, 0);
+    lob.stop();
+  }
+  // Swim (SwimLobby.rejoin): a free race between two people.
+  {
+    const lob = new SwimLobby(io);
+    const a = rsock('198.51.100.105'), b = rsock('198.51.100.106');
+    lob.enqueue(a, 'Ann', 'WA', 0, 0, 0);
+    lob.enqueue(b, 'Bob', 'WB', 0, 0, 0);
+    const room = lob.roomOf(a.id);
+    assert.ok(room);
+    const key = sentOf(a, 'sw:seat').pop().p.key;
+    const c = rsock('198.51.100.107');
+    assert.strictEqual(lob.rejoin(c, key, 0, () => false).ok, false);
+    assert.strictEqual(sentOf(c, 'sw:rejoinfail').length, 1);
+    assert.strictEqual(lob.roomOf(a.id), room);
+    assert.ok(lob.rejoin(c, key, 0, () => true).ok);
+    assert.strictEqual(lob.roomOf(c.id), room);
+    lob.stop();
+  }
+});
+
+test('a free seat the ceiling holds past its bot time is told, once each countdown, with a fresh one', () => {
+  for (const [Lobby, ev, wait] of [[KnockoutLobby, 'ko', BOT_AFTER_MS], [HeadSoccerLobby, 'hs', BOT_AFTER_MS], [SwimLobby, 'sw', FREE_WAIT_MS]]) {
+    const lob = new Lobby(io);
+    lob.freeRoomCap = 1;
+    const T0 = Date.now();
+    lob.enqueue(rsock('198.51.100.110'), 'p', 'WP', 0, 0, T0);
+    lob.enqueue(rsock('198.51.100.111'), 'q', 'WQ', 0, 0, T0);
+    assert.strictEqual(lob.freeRoomsRunning(), 1, ev + ': the one free table is taken');
+    const lone = rsock('198.51.100.112');
+    lob.enqueue(lone, 'l', 'WL', 0, 0, T0);
+    lob.tick(T0 + wait - 1);
+    assert.strictEqual(sentOf(lone, ev + ':queued').length, 0, 'nothing before its countdown runs out');
+    lob.tick(T0 + wait + 1);
+    assert.ok(!lob.roomOf(lone.id), 'held: no bot past the ceiling');
+    const notes = sentOf(lone, ev + ':queued');
+    assert.strictEqual(notes.length, 1, ev + ': told once');
+    const n = notes[0].p;
+    assert.strictEqual(n.busy, true);
+    assert.strictEqual(n.stake, 0);
+    assert.strictEqual(n.resumeKey, lob.resumeKeyOf(lone.id), 'its own key, to its own socket');
+    assert.strictEqual(n.waitMs - n.waitingMs, FREE_WAIT_MS, 'the page counts down a fresh wait');
+    lob.tick(T0 + wait + 500);
+    lob.tick(T0 + wait + FREE_WAIT_MS - 1);
+    assert.strictEqual(sentOf(lone, ev + ':queued').length, 1, 'not again while that countdown runs');
+    lob.tick(T0 + wait + FREE_WAIT_MS + 2);
+    assert.strictEqual(sentOf(lone, ev + ':queued').length, 2, 'again when it runs out');
+    lob.stop();
+  }
+});

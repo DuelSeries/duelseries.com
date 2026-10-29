@@ -5041,8 +5041,11 @@ function broadcastLobbyState() {
    60 Hz bot matches on the loop every paid game shares. Three limits, each far above any person or household,
    each an env number on the box (a bad or missing value is the default):
    - MAIN_SOCKETS_PER_IP (40): sockets one address may hold here. A lobby tab, a game and a spectate are three.
-   - FREE_DUELS_PER_IP (6): free duel seats, queued or at a table, one address may hold across the eight duels.
-     Paid seats are never counted: each is a real stake.
+   - FREE_DUELS_PER_IP (10): free duel seats, queued or at a table, one address may hold across the eight duels,
+     whether asked for or moved onto a socket by a resume or rejoin key (freeMoveOk). Paid seats are never counted:
+     each is a real stake. It was 6; a campus or carrier NAT puts many people behind one address, so it is 10 for the
+     launch, and every refusal is logged (logLimit) so a real shared address meeting it shows up (night review
+     2026-10-29).
    - FREE_DUEL_ROOM_CAP: the most free tables each duel runs at once (Head Soccer and Swim 40, the others 60,
      Knockout 100; Battleship is turn-based and not capped). At the ceiling a free seat keeps waiting until a
      table ends. Paid tables are never held.
@@ -5052,10 +5055,26 @@ const envCount = (name, dflt) => {
   return Number.isFinite(n) && n > 0 ? n : dflt;
 };
 const MAIN_SOCKETS_PER_IP = envCount('MAIN_SOCKETS_PER_IP', 40);
-const FREE_DUELS_PER_IP = envCount('FREE_DUELS_PER_IP', 6);
+const FREE_DUELS_PER_IP = envCount('FREE_DUELS_PER_IP', 10);
 const mainGate = addrLimits.createAddrGate(MAIN_SOCKETS_PER_IP);
+/* Each refusal by these limits is logged as a [LIMIT] line, once a minute per limit and address, so a real shared address
+   (a campus or a carrier NAT) meeting them shows up in the logs rather than as players quietly turned away, and a
+   flood of refusals is a few lines, not one per message (night review 2026-10-29). */
+const _limitLogged = new Map();   // limit + address -> when it was last logged
+function logLimit(what, key, detail) {
+  if (!key) return;
+  const t = Date.now(), k = what + ' ' + key;
+  if (t - (_limitLogged.get(k) || 0) < 60000) return;
+  if (_limitLogged.size >= 5000) {
+    for (const [kk, at] of _limitLogged) if (t - at >= 60000) _limitLogged.delete(kk);
+    if (_limitLogged.size >= 5000) _limitLogged.clear();
+  }
+  _limitLogged.set(k, t);
+  console.warn('[LIMIT] ' + what + ' refused for ' + key + (detail ? ' (' + detail + ')' : ''));
+}
 io.use((socket, next) => {
   if (!mainGate.full(socket)) return next();
+  logLimit('main socket', addrLimits.addrKey(socket), MAIN_SOCKETS_PER_IP + ' open');
   next(Object.assign(new Error('too many connections from this address'), { data: { why: 'limit' } }));
 });
 {
@@ -5069,14 +5088,30 @@ io.use((socket, next) => {
   crossy.lobby.freeRoomCap = cap(60);
 }
 const FREE_DUELS_BUSY = 'Too many free games from your connection right now. Finish one first.';
+const DUEL_LOBBIES = [knockoutLobby, battleshipLobby, headSoccerLobby, pool8Lobby, airHockeyLobby, rooftopLobby, swimLobby, crossy.lobby];
 /* A free duel seat this socket may not take: its address already holds FREE_DUELS_PER_IP of them (its own seat in
    this lobby left out, since queueing again replaces it). Says so with <ev>:refused and answers true. */
 function freeDuelRefused(socket, lobby, ev) {
-  const held = addrLimits.freeSeatsAt(mainGate, socket,
-    [knockoutLobby, battleshipLobby, headSoccerLobby, pool8Lobby, airHockeyLobby, rooftopLobby, swimLobby, crossy.lobby], lobby);
+  const held = addrLimits.freeSeatsAt(mainGate, socket, DUEL_LOBBIES, lobby);
   if (held === null || held < FREE_DUELS_PER_IP) return false;
+  logLimit('free duel seat', mainGate.keyOf(socket), held + ' held');
   socket.emit(ev + ':refused', { why: FREE_DUELS_BUSY });
   return true;
+}
+/* The same limit for a free seat MOVED onto this socket by its resume key (a waiting seat, duelQueue.resumeSeat) or its
+   rejoin key (a seat at a table, the lobbies' rejoin) (night review 2026-10-29). A key moves a seat to any socket,
+   even while the old one is still connected, and the queue handlers take a resume before freeDuelRefused is reached,
+   so one address could queue its seats, hand them to sockets on a second address by their keys, queue more, and so
+   on without end. The moved seat itself is left out of the count (movingId, the socket that holds it now), so a
+   reconnect from the same address, or from a phone's new address, brings no extra seat and always passes. Asked
+   only for a free seat: a paid seat always moves, as before. Answers whether this socket may take it. */
+function freeMoveOk(socket, lobby) {
+  return (movingId) => {
+    const held = addrLimits.freeSeatsAt(mainGate, socket, DUEL_LOBBIES, lobby, movingId);
+    if (held === null || held < FREE_DUELS_PER_IP) return true;
+    logLimit('free duel seat moved', mainGate.keyOf(socket), held + ' held');
+    return false;
+  };
 }
 
 io.on('connection', (socket) => {
@@ -5441,10 +5476,22 @@ io.on('connection', (socket) => {
     });
   });
 
-  /* One press of Play again after a death (game.js doRespawn, guarded by isDead). Half a second is under any
-     death-to-click a person makes, and drops a flood before any lookup (night review 2026-10-29). */
-  on(C.EVENTS.RESPAWN, ({ entryToken } = {}) => {
-    if (!socketRL(socket, 'respawn', 500)) return;
+  /* One press of Play again after a death (game.js doRespawn, guarded by isDead). Once each half second, which drops a
+     flood before any lookup (night review 2026-10-29). A press inside the half second is KEPT, not dropped: the page
+     has already cleared isDead and hidden its death screen when it sends, so a player who died within half a second
+     of a respawn and pressed at once was left with no snake and no death screen until a reload. It runs when the half
+     second is up (one waits at most, so a flood is still one), and if the press before it already brought the snake
+     back it finds it alive and does nothing, as a second press always did. */
+  on(C.EVENTS.RESPAWN, (msg) => {
+    if (socketRL(socket, 'respawn', 500)) { respawn(msg); return; }
+    if (socket._respawnLater) return;
+    const wait = Math.max(5, 505 - (Date.now() - ((socket._rl && socket._rl.respawn) || 0)));
+    socket._respawnLater = setTimeout(() => {
+      socket._respawnLater = null;
+      if (socket.connected && socketRL(socket, 'respawn', 500)) respawn(msg);
+    }, wait);
+  });
+  function respawn({ entryToken } = {}) {
     if (!socket._room) return;
     const existing = socket._room.snakes.get(socket.id);
     if (existing && existing.alive) return; // block respawn while alive
@@ -5497,7 +5544,7 @@ io.on('connection', (socket) => {
     }, (why) => {
       socket.emit(C.EVENTS.ERROR, { message: ENTRY_REFUSED[why] || 'Entry fee not verified. Please return to the lobby and try again.' });
     });
-  });
+  }
 
   on('ping_check', () => socket.emit('pong_check'));
 
@@ -5647,7 +5694,9 @@ io.on('connection', (socket) => {
        (server/duelQueue.js resumeSeat): the same place, minute and stake, no new token. A paid seat
        the old socket's drop already refunded is told so, rather than refused as unpaid. Anything
        else falls through to an ordinary queue. */
-    const back = knockoutLobby.resume(socket, resume);
+    const back = knockoutLobby.resume(socket, resume, freeMoveOk(socket, knockoutLobby));
+    // A free seat whose key would carry it past this address's free seats stays where it is (freeMoveOk).
+    if (back && back.refused) { socket.emit('ko:refused', { why: FREE_DUELS_BUSY }); return; }
     if (back && back.resumed) {
       const e = back.resumed;
       if (e.worth > 0 && e.wallet) socket._walletAddress = e.wallet;
@@ -5819,7 +5868,9 @@ io.on('connection', (socket) => {
        (server/duelQueue.js resumeSeat): the same place, minute and stake, no new token. A paid seat
        the old socket's drop already refunded is told so, rather than refused as unpaid. Anything
        else falls through to an ordinary queue. */
-    const back = headSoccerLobby.resume(socket, resume);
+    const back = headSoccerLobby.resume(socket, resume, freeMoveOk(socket, headSoccerLobby));
+    // A free seat whose key would carry it past this address's free seats stays where it is (freeMoveOk).
+    if (back && back.refused) { socket.emit('hs:refused', { why: FREE_DUELS_BUSY }); return; }
     if (back && back.resumed) {
       const e = back.resumed;
       if (e.worth > 0 && e.wallet) socket._walletAddress = e.wallet;
@@ -5972,7 +6023,9 @@ io.on('connection', (socket) => {
        (server/duelQueue.js resumeSeat): the same place, minute and stake, no new token. A paid seat
        the old socket's drop already refunded is told so, rather than refused as unpaid. Anything
        else falls through to an ordinary queue. */
-    const back = pool8Lobby.resume(socket, resume);
+    const back = pool8Lobby.resume(socket, resume, freeMoveOk(socket, pool8Lobby));
+    // A free seat whose key would carry it past this address's free seats stays where it is (freeMoveOk).
+    if (back && back.refused) { socket.emit('p8:refused', { why: FREE_DUELS_BUSY }); return; }
     if (back && back.resumed) {
       const e = back.resumed;
       if (e.worth > 0 && e.wallet) socket._walletAddress = e.wallet;
@@ -6102,7 +6155,8 @@ io.on('connection', (socket) => {
   const duelRejoin = (lobby, ev) => ({ key } = {}) => {
     if (!socketRL(socket, ev + 'rejoin', 1000)) return;
     try {
-      const r = lobby.rejoin(socket, key, Date.now());
+      // A free seat whose key would carry it past this address's free seats stays where it is (freeMoveOk).
+      const r = lobby.rejoin(socket, key, Date.now(), freeMoveOk(socket, lobby));
       if (r && r.ok && r.worth > 0 && r.wallet) socket._walletAddress = r.wallet;
     } catch (e) {
       console.error('[' + ev.toUpperCase() + '] rejoin threw:', e && e.stack ? e.stack : e);
@@ -6132,7 +6186,7 @@ io.on('connection', (socket) => {
   });
   /* ── Crossy Road ── the queue, hops, chat and watching (server/crossy/crossyWire.js). */
   crossy.sockets(socket, on, { socketRL, sanitizeName, rungOf, enterPaid, consumePaidEntryAtStake, strOr, ENTRY_REFUSED,
-    RETIRED_BUYIN, DUEL_PAID_CLOSED, isStake, chatGuard, joinAlerts, ops, freeDuelRefused });
+    RETIRED_BUYIN, DUEL_PAID_CLOSED, isStake, chatGuard, joinAlerts, ops, freeDuelRefused, freeMoveOk, FREE_DUELS_BUSY });
 
   /* ── Air Hockey ──────────────────────────────────────────────────────────
      A real-time duel. The queue and the paid door are Knockout's, line for line (the handler below is that one
@@ -6150,7 +6204,9 @@ io.on('connection', (socket) => {
        (server/duelQueue.js resumeSeat): the same place, minute and stake, no new token. A paid seat
        the old socket's drop already refunded is told so, rather than refused as unpaid. Anything
        else falls through to an ordinary queue. */
-    const back = airHockeyLobby.resume(socket, resume);
+    const back = airHockeyLobby.resume(socket, resume, freeMoveOk(socket, airHockeyLobby));
+    // A free seat whose key would carry it past this address's free seats stays where it is (freeMoveOk).
+    if (back && back.refused) { socket.emit('ah:refused', { why: FREE_DUELS_BUSY }); return; }
     if (back && back.resumed) {
       const e = back.resumed;
       if (e.worth > 0 && e.wallet) socket._walletAddress = e.wallet;
@@ -6304,7 +6360,9 @@ io.on('connection', (socket) => {
        (server/duelQueue.js resumeSeat): the same place, minute and stake, no new token. A paid seat
        the old socket's drop already refunded is told so, rather than refused as unpaid. Anything
        else falls through to an ordinary queue. */
-    const back = rooftopLobby.resume(socket, resume);
+    const back = rooftopLobby.resume(socket, resume, freeMoveOk(socket, rooftopLobby));
+    // A free seat whose key would carry it past this address's free seats stays where it is (freeMoveOk).
+    if (back && back.refused) { socket.emit('rt:refused', { why: FREE_DUELS_BUSY }); return; }
     if (back && back.resumed) {
       const e = back.resumed;
       if (e.worth > 0 && e.wallet) socket._walletAddress = e.wallet;
@@ -6449,7 +6507,9 @@ io.on('connection', (socket) => {
     if (ops.get().maintenance) { socket.emit('maintenance', ops.get()); return; }
 
     // A reconnect while waiting takes its seat back (see ko:queue).
-    const back = battleshipLobby.resume(socket, resume);
+    const back = battleshipLobby.resume(socket, resume, freeMoveOk(socket, battleshipLobby));
+    // A free seat whose key would carry it past this address's free seats stays where it is (freeMoveOk).
+    if (back && back.refused) { socket.emit('bs:refused', { why: FREE_DUELS_BUSY }); return; }
     if (back && back.resumed) {
       const e = back.resumed;
       if (e.worth > 0 && e.wallet) socket._walletAddress = e.wallet;
@@ -6580,7 +6640,9 @@ io.on('connection', (socket) => {
     if (v !== SWIM_VERSION) { socket.emit('sw:refused', { why: 'the game was updated, reload the page' }); return; }
 
     // A reconnect while waiting takes its seat back (see ko:queue).
-    const back = swimLobby.resume(socket, resume);
+    const back = swimLobby.resume(socket, resume, freeMoveOk(socket, swimLobby));
+    // A free seat whose key would carry it past this address's free seats stays where it is (freeMoveOk).
+    if (back && back.refused) { socket.emit('sw:refused', { why: FREE_DUELS_BUSY }); return; }
     if (back && back.resumed) {
       const e = back.resumed;
       if (e.worth > 0 && e.wallet) socket._walletAddress = e.wallet;
@@ -6660,7 +6722,7 @@ io.on('connection', (socket) => {
     if (!socketRL(socket, 'swrejoin', 1000)) return;
     if (v !== SWIM_VERSION) { socket.emit('sw:rejoinfail', {}); return; }
     try {
-      const r = swimLobby.rejoin(socket, key, Date.now());
+      const r = swimLobby.rejoin(socket, key, Date.now(), freeMoveOk(socket, swimLobby));   // freeMoveOk: see duelRejoin
       if (r && r.ok && r.worth > 0 && r.wallet) socket._walletAddress = r.wallet;
     } catch (e) {
       console.error('[SW] rejoin threw:', e && e.stack ? e.stack : e);
