@@ -308,6 +308,21 @@ test('recent wins: the owner counts (Owen 2026-10-28), the revenue wallet never,
   assert.deepStrictEqual(await none.recentList(), { ok: false, wins: [] });
 });
 
+test('recent wins: the owner cash-outs count from 2026-10-28 ET on, nobody else is cut', async () => {
+  const q = fakeQuery([
+    { wallet: OWNER, game: 'snake', rake: '0.05', name: 'MrPeanutK', at: new Date('2026-10-29T02:10:00Z') },
+    { wallet: A, game: 'paper', rake: '0.1', name: 'neo', at: new Date('2026-10-20T12:00:00Z') },
+    { wallet: OWNER, game: 'chomp', rake: '0.1', name: 'MrPeanutK', at: new Date('2026-10-27T23:00:00Z') },
+    { wallet: OWNER, game: 'paper', rake: '0.1', name: 'MrPeanutK', at: null },
+  ]);
+  const e = createEarnings({ query: q, excludeWallets: [OWNER, REV], previewExclude: [REV], config: CFG, log: quiet });
+  assert.deepStrictEqual(await e.recentList(), { ok: true, wins: [
+    { name: 'MrPeanutK', game: 'snake', amount: 0.45 },
+    { name: 'neo', game: 'paper', amount: 0.9 },
+  ] }, 'old owner test cash-outs stay off; an older win by a player stays on');
+  assert.match(RECENT_SQL, /h\.created_at AS at/);
+});
+
 test('recent wins: hidden with the strip (SHOW false), and reads nothing then', async () => {
   const q = fakeQuery([{ wallet: A, game: 'paper', rake: '0.1', name: 'neo' }]);
   const e = createEarnings({ query: q, excludeWallets: [OWNER, REV], previewExclude: [REV], config: Object.assign({}, CFG, { SHOW: false }), log: quiet });

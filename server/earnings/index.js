@@ -84,9 +84,14 @@ function earningsParams(exclude, timeZone) {
    What leaves the server per win is the display name (or the short wallet the board shows), the lobby's game id
    and the take-home amount. No wallet, no time, no signature. */
 const RECENT_N = 50;   // the row shows the last 50 wins (Owen 2026-10-28)
+/* The owner's own cash-outs count on the row from here on: midnight Eastern, 2026-10-28, the night Owen started
+   playing the owner account for real. Before it, every owner cash-out was testing, and 50 of those would fill the
+   whole row with one name. Never a reason to leave anyone else out. */
+const OWNER_WINS_SINCE = Date.parse('2026-10-28T04:00:00Z');
 const RECENT_SQL = `SELECT h.player_wallet AS wallet,
        COALESCE(h.game, '') AS game,
        h.amount_usdc::text AS rake,
+       h.created_at AS at,
        a.name AS name
 ${EARNINGS_SQL.slice(EARNINGS_SQL.indexOf('  FROM house_revenue h'), EARNINGS_SQL.indexOf('\n GROUP BY'))}
  ORDER BY h.created_at DESC
@@ -249,6 +254,10 @@ function createEarnings({ query, excludeWallets, previewExclude, switchFile = nu
   };
   const exclude = list(excludeWallets);
   const pExclude = list(previewExclude);
+  // The owner wallets: left out of the strip, let onto the wins row from OWNER_WINS_SINCE.
+  const owners = exclude.filter((w) => !pExclude.includes(w));
+  const ownerSince = (rows) => (Array.isArray(rows) ? rows.filter((r) =>
+    !(r && owners.includes(r.wallet) && !(r.at != null && new Date(r.at).getTime() >= OWNER_WINS_SINCE))) : rows);
   if (typeof query === 'function' && (exclude.length < 2 || pExclude.length < 1)) {
     throw new Error('earnings: excludeWallets must name the owner and revenue wallets, previewExclude the revenue wallet');
   }
@@ -268,7 +277,7 @@ function createEarnings({ query, excludeWallets, previewExclude, switchFile = nu
         try {
           const res = recent ? await query(RECENT_SQL, recentParams(ex))
             : await query(EARNINGS_SQL, earningsParams(ex, config.TIME_ZONE));
-          const v = recent ? recentWins(res && res.rows) : summarize(res && res.rows);
+          const v = recent ? recentWins(ownerSince(res && res.rows)) : summarize(res && res.rows);
           if (!v) { stats.fails++; log.warn('[EARN] unusable rows, keeping the last value'); return value; }
           stats.reads++;
           value = v;
