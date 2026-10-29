@@ -127,6 +127,23 @@ test('the turn resolves early once both players have locked in', () => {
   assert.strictEqual(r.state, 'resolving', 'both ready and it goes');
 });
 
+test('a lock-in is news once a turn: a repeat says nothing, so it cannot be rebroadcast', () => {
+  /* Night review 2026-10-29 (finding 12): index.js broadcasts ko:ready (to both seats and every watcher) each
+     time lockIn says true, and it said true to every repeat, so a loop of ko:lock was a flood aimed at the
+     opponent's socket during their fifteen seconds. */
+  const { r } = room();
+  runTo(r, 1000 + KO.COUNTDOWN_MS);
+  assert.strictEqual(r.lockIn('A'), true, 'the first lock of the turn is news');
+  for (let i = 0; i < 1000; i++) assert.strictEqual(r.lockIn('A'), false, 'a repeat is not');
+  assert.deepStrictEqual([...r.ready], ['A']);
+  assert.strictEqual(r.lockIn('B'), true, 'the other seat still locks in');
+  const t = 1000 + KO.COUNTDOWN_MS;
+  r.tick(t + 100);
+  assert.strictEqual(r.state, 'resolving', 'both ready and it goes, as before');
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'server', 'index.js'), 'utf8');
+  assert.match(src, /on\('ko:lock', \(\) => \{\s*if \(!socketRL\(socket, 'kolock', 250\)\) return;/, 'the handler is rate limited before any lookup');
+});
+
 test('a turn always ends, even if nobody aims at all', () => {
   const { r } = room();
   runTo(r, 1000 + KO.COUNTDOWN_MS);

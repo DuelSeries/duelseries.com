@@ -92,3 +92,46 @@ test('/api/broadcast refuses anything but a short base64 string, at once', async
   assert.strictEqual(ok.status, 400);
   assert.notStrictEqual(ok.json && ok.json.error, 'Missing signed transaction');
 });
+
+/* A socket.io client, from an address of its own unless one is given (null: no header, a local socket). */
+function connect(ip, opts) {
+  const { io } = require('socket.io-client');
+  const headers = ip === null ? {} : { 'x-forwarded-for': ip || nextIp() };
+  const s = io(`http://127.0.0.1:${port}`, Object.assign({ transports: ['websocket'], forceNew: true, reconnection: false,
+    timeout: 5000, extraHeaders: headers }, opts || {}));
+  const got = [];
+  s.onAny((ev, p) => got.push([ev, p]));
+  return new Promise((res, rej) => {
+    const bail = setTimeout(() => rej(new Error('socket never connected' + (alive() ? '' : ': ' + died()))), 8000);
+    s.on('connect', () => { clearTimeout(bail); res({ s, got, count: (ev) => got.filter((g) => g[0] === ev).length }); });
+    s.on('connect_error', (e) => { clearTimeout(bail); rej(e); });
+  });
+}
+// Messages on one socket are handled in order: an answered ping means everything before it was handled.
+function handled(s) {
+  return new Promise((resolve) => {
+    const t = setTimeout(() => resolve(false), 8000);
+    s.once('pong_check', () => { clearTimeout(t); resolve(true); });
+    s.emit('ping_check');
+  });
+}
+async function until(fn, ms) {
+  for (let i = 0; i < ms / 50; i++) { if (fn()) return true; await sleep(50); }
+  return fn();
+}
+
+/* ── finding 12: ko:lock repeated in a loop during the opponent's aim ────────────────────────────── */
+test('a loop of ko:lock tells the opponent once, not once per packet', { timeout: 60000 }, async () => {
+  const a = await connect(), b = await connect();
+  try {
+    a.s.emit('ko:queue', { name: 'lockA' });
+    await sleep(1100);   // ko:queue is one a second per socket; b queues after a is waiting
+    b.s.emit('ko:queue', { name: 'lockB' });
+    assert.ok(await until(() => a.count('ko:turn') > 0 && b.count('ko:turn') > 0, 10000), 'the two met and the first turn began');
+    for (let i = 0; i < 500; i++) a.s.emit('ko:lock');
+    assert.ok(await handled(a.s));
+    await sleep(300);
+    assert.strictEqual(b.count('ko:ready'), 1, 'one ko:ready for one lock-in, however many packets');
+    assert.ok(alive(), died());
+  } finally { a.s.close(); b.s.close(); }
+});

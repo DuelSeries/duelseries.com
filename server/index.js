@@ -5643,7 +5643,11 @@ io.on('connection', (socket) => {
     socket.emit('ko:aimed', { count: r.count });
   });
 
+  /* Once a turn from an honest page (its `locked` flag). Throttled like ko:aim, and lockIn says true only for the
+     lock that changes something, so a loop of these is no longer a ko:ready flood at the opponent and fifty
+     watchers (night review 2026-10-29). */
   on('ko:lock', () => {
+    if (!socketRL(socket, 'kolock', 250)) return;
     const room = knockoutLobby.roomOf(socket.id);
     if (!room) return;
     if (room.lockIn(socket.id)) room.broadcast('ko:ready', { ready: [...room.ready] });

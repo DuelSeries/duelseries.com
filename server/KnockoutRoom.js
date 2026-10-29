@@ -441,8 +441,12 @@ class KnockoutRoom {
   /* Locking in early. The fifteen seconds is a DEADLINE, not a wait: when both
      players are done there is nothing left to look at, and against a bot that
      would be twelve seconds of staring at a timer every single turn. */
+  /* True only for the lock that changes something, the first of the turn (night review 2026-10-29):
+     it used to say true to every repeat, and each true is a reliable ko:ready to both seats and up
+     to fifty watchers, so a loop of ko:lock flooded the opponent's socket during their aim. */
   lockIn(socketId) {
     if (this.state !== 'aiming' || !this.players.has(socketId)) return false;
+    if (this.ready.has(socketId)) return false;
     this.ready.add(socketId);
     return true;
   }
