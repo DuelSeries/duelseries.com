@@ -49,11 +49,10 @@
      and the drag has to travel 12px before it claims anything, so a tap to
      focus and type still works exactly as before.
 
-     The winners ticker is not exempt either. It is a CSS marquee with no
-     controls of any kind by design, so there is no gesture of its own to
-     protect — and it is a wide band sitting in the middle of the home screen,
-     so exempting it carved a dead stripe across the most swiped page. */
-  const EXEMPT = '.chartbox, .apscreen, #game-frame';
+     The home wins row is exempt now (Owen 2026-10-28): it scrolls through the
+     last 50 wins by hand, so a sideways swipe over it is that scroll, not a
+     tab change. It used to be a marquee with no gesture of its own. */
+  const EXEMPT = '.chartbox, .apscreen, #game-frame, .tickerwrap.top .ticker';
 
   const TABS = ['play', 'wallet', 'events', 'social', 'settings'];
   const SCREEN_IDS = ['home', 'allgames', 'detail', 'settings-screen',

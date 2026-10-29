@@ -743,15 +743,15 @@ test('swipe navigation exempts anything that owns its own horizontal drag', () =
   // would make the chart unusable and change tabs mid-read.
   const src = fs.readFileSync(path.join(ROOT, 'public/js/v2/swipe.js'), 'utf8');
   const ex = src.slice(src.indexOf('const EXEMPT'), src.indexOf('const TABS'));
-  for (const sel of ['.chartbox', '.apscreen', '#game-frame'])
+  /* The home wins row is exempt since Owen 2026-10-28: it scrolls through the
+     last 50 wins by hand, so it now owns its sideways gesture. (It was kept
+     off this list while it was a marquee with no gesture of its own.) */
+  for (const sel of ['.chartbox', '.apscreen', '#game-frame', '.tickerwrap.top .ticker'])
     assert.ok(ex.includes(sel), `${sel} is exempt`);
   /* These are NOT exempt and must not be re-added. Form fields were, and the
      player search box on Social ate every swipe starting over it — a wide
-     target sitting exactly where a thumb lands. The winners ticker was too,
-     which carved a dead stripe across the middle of the most swiped screen;
-     it is a CSS marquee with no controls by design, so it has no gesture of
-     its own to protect. */
-  for (const f of ['input', 'textarea', 'select', '.ticker'])
+     target sitting exactly where a thumb lands. */
+  for (const f of ['input', 'textarea', 'select'])
     assert.ok(!ex.includes(f), `${f} is not exempt`);
   assert.ok(/railwrap/.test(src), 'the games rail gets the swipe instead of the tabs');
   // A mostly-vertical drag is a scroll, not a swipe.

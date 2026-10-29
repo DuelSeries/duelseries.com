@@ -296,13 +296,13 @@ test('recent wins: only a name, a lobby game id and the take-home leave; never a
   assert.strictEqual(recentWins([{ wallet: A, game: 'paper', rake: '-1' }]), null);
 });
 
-test('recent wins: the public exclusions (owner and revenue), never the preview\'s, and ok:false without a database', async () => {
+test('recent wins: the owner counts (Owen 2026-10-28), the revenue wallet never, and ok:false without a database', async () => {
   const q = fakeQuery([{ wallet: A, game: 'paper', rake: '0.1', name: 'neo' }]);
   const e = createEarnings({ query: q, excludeWallets: [OWNER, REV], previewExclude: [REV], config: CFG, log: quiet });
   const r = await e.recentList();
   assert.deepStrictEqual(r, { ok: true, wins: [{ name: 'neo', game: 'paper', amount: 0.9 }] });
   assert.strictEqual(q.calls[0].sql, RECENT_SQL);
-  assert.deepStrictEqual(q.calls[0].params[1].slice().sort(), [OWNER, REV].sort());
+  assert.deepStrictEqual(q.calls[0].params[1].slice(), [REV], 'only the revenue wallet is left out; the owner plays like anyone');
   assert.strictEqual(q.calls[0].params.length, 4);
   const none = createEarnings({ config: CFG, log: quiet });
   assert.deepStrictEqual(await none.recentList(), { ok: false, wins: [] });

@@ -681,8 +681,8 @@ body.ingame>.howveil,body.ingame>.meveil,body.ingame>.apscreen,body.ingame>.bshe
 }
 /* Owen's pick A (2026-10-27), Rainbet's Live Wins row, on PC and phone. Each win is the game's card art, the name under it and
    the amount in green under that. It holds still; only a new real cash-out slides in at the left and pushes the row
-   right (Owen 2026-10-28: the samples never move). The "Live wins" tag is a small pill over the top-left of the first card, never over a name
-   or an amount. The wins are the ones the old line of text showed (WINS, drawTicker). */
+   right (Owen 2026-10-28: the samples never move). The pill sits over the top-left of a card's art (the first card,
+   and the first sample after real wins), never over a name or an amount. The wins are the ones the old line of text showed (WINS, drawTicker). */
 .ltag{display:none}
 .tickerwrap.top .ltag{display:inline-flex;align-items:center;gap:4px;position:absolute;left:2px;top:2px;z-index:2;
   padding:3px 5px 3px 4px;border-radius:var(--rf);background:rgba(16,14,11,.84);color:var(--tx);
@@ -702,7 +702,12 @@ body.ingame>.howveil,body.ingame>.meveil,body.ingame>.apscreen,body.ingame>.bshe
 .tickerwrap.top .ticker{-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 96px),transparent);
           mask-image:linear-gradient(90deg,#000 calc(100% - 96px),transparent)}
 .tkrun.cards{animation:none;transition:transform .55s cubic-bezier(.16,1,.3,1)}
-.tkc{flex:none;width:70px;margin-right:9px;text-align:center}
+/* Scrolled through by hand (Owen 2026-10-28): a finger or trackpad natively, a mouse by dragging (tkSlide's
+   neighbour in the script). No scrollbar; the right-hand fade above still says there is more. */
+.tickerwrap.top .ticker{overflow-x:auto;overflow-y:hidden;scrollbar-width:none;overscroll-behavior-x:contain;cursor:grab}
+.tickerwrap.top .ticker::-webkit-scrollbar{display:none}
+.tickerwrap.top .ticker.drag{cursor:grabbing;user-select:none}
+.tkc{flex:none;width:70px;margin-right:9px;text-align:center;position:relative}
 /* The whole card, its name and DUELSERIES line showing (Owen 2026-10-28, back from the picture-only crop). */
 .tkc img{display:block;width:70px;height:98px;object-fit:cover;border-radius:8px;background:var(--s2)}
 .tkc .nm{display:flex;align-items:center;justify-content:center;gap:4px;margin-top:6px;font-size:11.5px;color:var(--tx2);
@@ -2562,10 +2567,9 @@ body.scr-anim { overflow-x:hidden }
 <!-- ══ HOME ══ -->
 <main id="home" class="wrap">
   <!-- Above the Games row on PC and phone alike (Owen 2026-10-27, PC first, then phones too).
-       Read-only decoration: it exists to show the board is alive and people
-       are winning. No controls of any kind, by explicit instruction. -->
+       It shows the last 50 wins and scrolls by hand (Owen 2026-10-28); no
+       buttons. Each card's pill is drawn by tkPill in the script. -->
   <div class="tickerwrap top">
-    <span class="ltag" aria-hidden="true"><span class="dot"></span>Live wins</span>
     <div class="ticker"><div class="tkrun" id="tkrun"></div></div>
   </div>
 
@@ -5151,64 +5155,76 @@ window.repaintAll=repaintAll;
    paid table (the ladder games and the paid duels); a game that gains one
    starts appearing here on its own. */
 /* Real results: the most recent landed paid payouts from /api/earnings/recent (server/earnings, the strip's own
-   landed rule, never the owner, test wallets or bots), filled by loadRealWins below. Empty until a real player
-   cashes out, and then the row shows only these. */
+   landed rule; the owner's own cash-outs count, test wallets and bots never), newest first, up to 50, filled by
+   loadRealWins below. */
 let REAL_WINS=[];
 
 const NAMES=['PEPIK','hashim','degenmonkey','qesku','tungsahur','quietfox',
  'driftwood','wenmoon','noodlearm','grasshopper','lilbogdan','sn4kepit','vorpal',
  'mikoto','bagholder','0xhydra','pixelmaw','tinyfangs','coilcoil','nomnom',
- 'slithy','pogface','cashcow','ghostbyte'];
+ 'slithy','pogface','cashcow','ghostbyte','saltydog','bricktop','zephyr_k','mangolassi',
+ 'HOLLOWAY','r3dline','frostbyte','kumquat','lowkeyluka','spud','JAXX','orinoco','thimble',
+ 'vantablk','mochi99','grizz','dunebuggy','pocketaces','sorrel','neonmoth','bigmeech',
+ 'tallulah','crumpet','w1ldcard','fizzbang','okeydoke'];
 /* Sample amounts a real win in that game could actually be (Owen 2026-10-28), off the real buy-ins
    ($0.50 and $1) and the 10% house cut:
      · duels: the winner takes both seats less the cut, so $0.90 or $1.80 and nothing else;
      · Paper.io: you leave with your own stake plus every stake you took, less the cut, so a whole
        number of $0.45 (the $0.50 room) or $0.90 (the $1 room);
      · Slither.io, Agar.io and Pac-Man: any amount from $0.45 to $8.50, smaller ones more often. */
-function madeUpAmount(id){
-  const g=G(id), dollar=Math.random()<0.4;
-  if(g&&g.duel)return dollar?1.8:0.9;
-  if(id==='paper')return Math.round((1+Math.floor(Math.pow(Math.random(),1.6)*8))*(dollar?90:45))/100;
-  return Math.round((0.45+Math.pow(Math.random(),1.7)*8.05)*100)/100;
+// Seeded (mulberry32), so the samples are the same 50 on every load and in every browser (Owen 2026-10-28).
+function tkRng(seed){
+  return function(){
+    seed|=0; seed=seed+0x6D2B79F5|0;
+    let t=Math.imul(seed^seed>>>15,1|seed);
+    t=t+Math.imul(t^t>>>7,61|t)^t;
+    return ((t^t>>>14)>>>0)/4294967296;
+  };
 }
-/* An empty ticker is worse than no ticker, so when there are no real results
-   the row shows plausible examples rather than sitting blank, and its pill says
-   "Sample wins" (WINS_REAL below). Real and made-up wins are never mixed: once
-   any real result exists the row shows only those, under "Live wins". Made-up
-   wins can only ever name a game that is actually playable. */
-// Every sample name once: enough cards to fill a wide screen now that the row is not drawn twice over.
-const MIN_TICKER=NAMES.length;
-let WINS_REAL=false;
-function buildWins(){
-  const live=REAL_WINS.filter(w=>{const g=G(w.g); return g&&!g.soon});
-  WINS_REAL=live.length>0;
-  if(live.length)return live;
-  // Only games that take a buy-in can have a cash-out: the ladder games and the paid duels.
+function madeUpAmount(id,r){
+  const g=G(id), dollar=r()<0.4;
+  if(g&&g.duel)return dollar?1.8:0.9;
+  if(id==='paper')return Math.round((1+Math.floor(Math.pow(r(),1.6)*8))*(dollar?90:45))/100;
+  return Math.round((0.45+Math.pow(r(),1.7)*8.05)*100)/100;
+}
+/* The row is always the last TK_N wins (Owen 2026-10-28), and can be scrolled through: real cash-outs first,
+   newest at the left, then samples filling the rest until there are TK_N real ones. Every new real win goes in
+   at the front and the last sample drops off the back. The split is always marked, never passed off as real:
+   the first card's pill says "Live wins" only when that card is a real cash-out ("Sample wins" when the row is
+   all samples), and the first sample after real ones carries its own "Sample" pill (tkPill). Samples only ever
+   name a game with a paid table (the ladder games and the paid duels). */
+const TK_N=50;
+const SAMPLES=(function(){
   const playable=GAMES.filter(g=>!g.soon&&(g.ladder||(g.duel&&g.paid)));
-  if(!playable.length)return live;
-  const pool=NAMES.slice(), out=[];
-  while(out.length<MIN_TICKER&&pool.length){
-    const who=pool.splice(Math.floor(Math.random()*pool.length),1)[0];
-    const id=playable[Math.floor(Math.random()*playable.length)].id;
-    out.push({who,g:id,amt:madeUpAmount(id)});
+  if(!playable.length)return [];
+  const r=tkRng(20261028), pool=NAMES.slice(), out=[];
+  while(out.length<TK_N&&pool.length){
+    const who=pool.splice(Math.floor(r()*pool.length),1)[0];
+    const id=playable[Math.floor(r()*playable.length)].id;
+    out.push({who,g:id,amt:madeUpAmount(id,r),sample:true});
   }
   return out;
+})();
+function buildWins(){
+  const live=REAL_WINS.filter(w=>{const g=G(w.g); return g&&!g.soon}).slice(0,TK_N);
+  return live.concat(SAMPLES.slice(0,TK_N-live.length));
 }
 let WINS=buildWins();
 /* Asked on load and every 20 s. The server answers from memory and a landed cash-out refreshes it at once, so a
-   real win reaches the row within seconds. A failed read keeps what is showing. */
-let _realKey='[]';
+   real win reaches the row within seconds. A failed read keeps what is showing. What is already there when the
+   page opens is drawn still, so a reload shows the same row; after that, only a new real win moves it: it
+   slides in at the left. */
+let _realKey='[]', _tkFirst=true;
 function loadRealWins(){
   fetch('/api/earnings/recent',{cache:'no-store'}).then(r=>r.json()).then(d=>{
     if(!d||d.ok!==true||!Array.isArray(d.wins))return;
     const next=d.wins.filter(w=>w&&typeof w.name==='string'&&typeof w.game==='string'&&Number(w.amount)>0)
       .map(w=>({who:w.name.slice(0,24),g:w.game,amt:Number(w.amount)}));
+    const first=_tkFirst; _tkFirst=false;
     const key=JSON.stringify(next); if(key===_realKey)return;
-    const wasReal=WINS_REAL, was=WINS;
+    const was=WINS;
     _realKey=key; REAL_WINS=next; WINS=buildWins();
-    /* Only a new real win moves the row (Owen 2026-10-28): it slides in at the left. The first real win
-       replaces the samples in one go, and anything else is drawn still. */
-    if(wasReal&&WINS_REAL)tkSlide(tkNew(was,WINS)); else drawTicker();
+    if(first)drawTicker(); else tkSlide(tkNew(was,WINS));
   }).catch(()=>{});
 }
 setInterval(loadRealWins,20000);
@@ -5216,46 +5232,73 @@ setInterval(loadRealWins,20000);
 const TK_RANK='<svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true"><path d="M6 .8 11.2 6 6 11.2.8 6Z" fill="#c9915a"/><path d="M6 .8 11.2 6H.8Z" fill="#e8b47c"/></svg>';
 // Real names are player input: escaped before they go into the row's HTML.
 const tkEsc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
-const tkCard=w=>`<div class="tkc"><img src="${artSrc(w.g)}" alt="${G(w.g).name}" width="70" height="98" decoding="async">
+const tkCard=w=>`<div class="tkc"><img src="${artSrc(w.g)}" alt="${G(w.g).name}" width="70" height="98" decoding="async" draggable="false">
     <div class="nm">${TK_RANK}<b>${tkEsc(w.who)}</b></div><div class="am num">$${w.amt.toFixed(2)}</div></div>`;
-// "Sample wins" while the row is made up, "Live wins" with its dot once it shows real cash-outs.
-function tkTag(){
-  const tag=document.querySelector('.tickerwrap.top .ltag'); if(!tag)return;
-  if(!WINS_REAL&&!tag.classList.contains('sample')){tag.classList.add('sample');tag.textContent='Sample wins';}
-  if(WINS_REAL&&tag.classList.contains('sample')){tag.classList.remove('sample');tag.innerHTML='<span class="dot"></span>Live wins';}
+/* The pill a card wears, by its place in WINS: the first card names what the row starts with, and the first
+   sample after real wins is marked where the samples begin. */
+function tkPill(i){
+  const w=WINS[i]; if(!w)return '';
+  if(i===0)return w.sample?'<span class="ltag sample">Sample wins</span>':'<span class="ltag"><span class="dot"></span>Live wins</span>';
+  return w.sample&&!WINS[i-1].sample?'<span class="ltag sample">Sample</span>':'';
 }
-// The row, still: it moves only in tkSlide.
+function tkPills(run){
+  [...run.children].forEach((c,i)=>{
+    const old=c.querySelector('.ltag'); if(old)old.remove();
+    const p=tkPill(i); if(p)c.insertAdjacentHTML('afterbegin',p);
+  });
+}
+// The row, still: it moves only in tkSlide (and when someone scrolls it).
 function drawTicker(){
   const run=document.getElementById('tkrun');
-  tkTag();
   run.classList.add('cards'); run.style.transition='none'; run.style.transform='';
   run.innerHTML=WINS.map(tkCard).join('');
+  tkPills(run);
 }
 /* How many wins at the front of now are new: where was's first few (newest first) start again in now. 0 when
    they cannot be found, and the row is then just redrawn. */
-const tkKey=w=>w.who+'|'+w.g+'|'+w.amt;
+const tkKey=w=>(w.sample?'s':'r')+'|'+w.who+'|'+w.g+'|'+w.amt;
 function tkNew(was,now){
   const n=Math.min(3,was.length), head=was.slice(0,n).map(tkKey).join();
   if(!n)return 0;
   for(let k=1;k<now.length;k++)if(now.slice(k,k+n).map(tkKey).join()===head)return k;
   return 0;
 }
-// The k newest wins slide in at the left and push the row right; the oldest drop off the end.
+/* The k newest wins go in at the left and push the row right; the last ones drop off the end. They slide in
+   when the row is at its start; someone scrolled further along keeps their place instead. */
 function tkSlide(k){
-  const run=document.getElementById('tkrun');
+  const run=document.getElementById('tkrun'), box=run.parentElement;
   if(!(k>0)||document.hidden||document.body.classList.contains('ingame')||!run.offsetParent||!run.children.length){drawTicker();return;}
-  tkTag();
-  const box=document.createElement('div'); box.innerHTML=WINS.slice(0,k).map(tkCard).join('');
-  const cards=[...box.children];
+  const tmp=document.createElement('div'); tmp.innerHTML=WINS.slice(0,k).map(tkCard).join('');
+  const cards=[...tmp.children];
   run.prepend(...cards);
   while(run.children.length>WINS.length)run.lastElementChild.remove();
+  tkPills(run);
   const gap=parseFloat(getComputedStyle(cards[0]).marginRight)||0;
   const dx=cards.reduce((s,c)=>s+c.offsetWidth+gap,0);
+  if(box.scrollLeft>4){box.scrollLeft+=dx;return;}
   cards.forEach(c=>c.classList.add('new'));
   run.style.transition='none'; run.style.transform=`translateX(${-dx}px)`;
   run.getBoundingClientRect();
   run.style.transition=''; run.style.transform='';
 }
+/* Scrolling through the last 50 (Owen 2026-10-28): a finger or a trackpad scrolls it natively; a mouse drags
+   it. A drag only claims the pointer after 4px, so a plain click is still a click. */
+(function(){
+  const box=document.querySelector('.tickerwrap.top .ticker'); if(!box)return;
+  let id=null, x0=0, s0=0, moved=false;
+  box.addEventListener('pointerdown',e=>{
+    if(e.pointerType!=='mouse'||e.button!==0)return;
+    id=e.pointerId; x0=e.clientX; s0=box.scrollLeft; moved=false;
+  });
+  box.addEventListener('pointermove',e=>{
+    if(e.pointerId!==id)return;
+    const dx=e.clientX-x0;
+    if(!moved){ if(Math.abs(dx)<4)return; moved=true; box.setPointerCapture(id); box.classList.add('drag'); }
+    box.scrollLeft=s0-dx;
+  });
+  const end=e=>{ if(e.pointerId!==id)return; id=null; box.classList.remove('drag'); };
+  box.addEventListener('pointerup',end); box.addEventListener('pointercancel',end);
+})();
 
 /* The lobby list is V2Board now, polling /api/live. Three rows are visible;
    hovering the list and scrolling runs through the rest without moving the

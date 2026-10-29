@@ -76,11 +76,14 @@ function earningsParams(exclude, timeZone) {
 
 /* The lobby's "Live wins" row (site sweep 2026-10-28): the most recent landed paid payouts, one row each, newest
    first. The strip's own FROM and WHERE, cut out of EARNINGS_SQL, so a win counts here exactly when it counts in
-   the strip: landed, never the owner, the revenue wallet or a C_TOP_EXCLUDE test wallet, and never a bot (bots
-   have no wallet and make no rake row). Only $1..$4: the time zone is the grouping's, not the filter's.
+   the strip: landed, never the revenue wallet or a C_TOP_EXCLUDE test wallet, and never a bot (bots have no wallet
+   and make no rake row). The owner's own cash-outs DO count here (Owen 2026-10-28: he plays for real on the owner
+   account and wants his wins on the row like anyone's), so this reads with the preview's exclusions; the strip,
+   its total and the board still leave the owner out. Only $1..$4: the time zone is the grouping's, not the
+   filter's.
    What leaves the server per win is the display name (or the short wallet the board shows), the lobby's game id
    and the take-home amount. No wallet, no time, no signature. */
-const RECENT_N = 20;
+const RECENT_N = 50;   // the row shows the last 50 wins (Owen 2026-10-28)
 const RECENT_SQL = `SELECT h.player_wallet AS wallet,
        COALESCE(h.game, '') AS game,
        h.amount_usdc::text AS rake,
@@ -299,7 +302,7 @@ function createEarnings({ query, excludeWallets, previewExclude, switchFile = nu
   }
   const pub = typeof query === 'function' ? cache(exclude) : null;
   const pre = typeof query === 'function' ? cache(pExclude) : null;
-  const rec = typeof query === 'function' ? cache(exclude, 'recent') : null;   // never the preview's owner
+  const rec = typeof query === 'function' ? cache(pExclude, 'recent') : null;   // the owner counts on the wins row
 
   const OFF = Object.freeze({ on: false });
   function shown() { return !!config.SHOW && !sw.hidden(); }
