@@ -249,6 +249,24 @@ test('submitStake runs beforeSend first and sends nothing when it throws; withou
   assert.strictEqual(n, 3);
 });
 
+/* Night review 2026-10-29 (finding 20): /api/broadcast passed a client object straight to Buffer.from, and
+   {"length":1e8} became a 100 MB buffer that the RPC client then base64-copied on the game thread. submitStake
+   itself now takes the bytes of one transaction (at most 1232) or nothing, before anything is encoded or sent. */
+test('submitStake refuses anything but the bytes of one transaction, before anything is sent', async () => {
+  const conn = Wallet.connection;
+  const sent = [];
+  conn.sendRawTransaction = async (raw) => { sent.push(raw); return 'x'; };
+  for (const bad of [{ length: 1e8 }, 'AAAA', null, undefined, [1, 2, 3], Buffer.alloc(0), Buffer.alloc(1233)]) {
+    await assert.rejects(Wallet.submitStake(bad), /Not a signed transaction/);
+    await assert.rejects(Wallet.submitStake(bad, { beforeSend: async () => { sent.push('claimed'); } }), /Not a signed transaction/);
+  }
+  assert.deepStrictEqual(sent, [], 'nothing was claimed or broadcast');
+  conn.getSignatureStatus = async () => ({ value: { confirmationStatus: 'confirmed', err: null } });
+  const { raw } = signedTransfer(Keypair.generate());
+  assert.ok(raw.length <= 1232);
+  assert.strictEqual(await Wallet.submitStake(raw), 'x', 'a real signed transfer still goes through');
+});
+
 /* ---- the SQL (no Postgres on the dev machine) and the wiring ---------------------------------- */
 
 test('db.js: each pending-verify step is one conditional statement on state = verifying', () => {

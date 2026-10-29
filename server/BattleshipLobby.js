@@ -82,6 +82,34 @@ class BattleshipLobby {
     this.watchers = new Map();
     this.liveKey = '';
     this.timer = null;
+    /* The most FREE tables this lobby runs at once: KnockoutLobby.freeRoomCap, the same rule (night review
+       2026-10-29). A bot game against a player who never shoots runs for minutes, every table is kept in memory and
+       sends reliable bs:state, and a free seat needs no login, so without a ceiling enough sockets queued for free play
+       could fill the process every paid game shares. At the ceiling a free pair or a free seat due its bot keeps
+       waiting until a table ends. Paid tables are never counted or held. Infinity is the old rule; index.js sets the
+       live number. */
+    this.freeRoomCap = Infinity;
+  }
+
+  /* Free tables still being played (see freeRoomCap). */
+  freeRoomsRunning() {
+    let n = 0;
+    for (const r of this.rooms.values()) if (!(r.stake > 0) && r.state !== 'over') n++;
+    return n;
+  }
+
+  /* A FREE SEAT THE CEILING HOLDS PAST ITS BOT TIME IS TOLD (KnockoutLobby.noteHeld, night review 2026-10-29): each
+     time the countdown it was shown runs out, bs:queued again with a fresh FREE_WAIT_MS on the clock and busy: true.
+     Free seats only: a paid seat is never held. */
+  noteHeld(e, t) {
+    if (!e || e.stake > 0) return;
+    if (typeof e.heldNoteAt === 'number' && t - e.heldNoteAt < FREE_WAIT_MS) return;
+    e.heldNoteAt = t;
+    const waited = Math.max(0, t - e.since);
+    send(e.socket, 'bs:queued', {
+      waitingMs: waited, stake: 0, worth: 0, resumeKey: e.resumeKey,
+      waitMs: waited + FREE_WAIT_MS, botAfterMs: waited + FREE_WAIT_MS, paidWaitMs: 0, busy: true,
+    });
   }
 
   start() {
@@ -95,6 +123,12 @@ class BattleshipLobby {
   /* paid: what landed on-chain for this seat (the entry token's paid), which bounds a refund.
      skin: the bought skin this seat wears, already proved against the skin pass by the caller; null is the free look. */
   enqueue(socket, name, wallet, stake, worth, paid, skin) {
+    /* Already at a table still being played: one seat per socket (KnockoutLobby.enqueue, night review 2026-10-29).
+       Each re-queue used to get a bot table of its own and leave the last one running with the socket still seated,
+       out of reach of the free seat count and of leave(). Not taken and nothing touched, so a paid caller refunds it
+       through the stake row; bs:queue refuses it before this with "in a match already". */
+    const seated = this.roomOf(socket.id);
+    if (seated && seated.state !== 'over') return false;
     /* Queueing again from a socket that already waits on a PAID seat gives that one back first: dequeue
        alone forgot a stake that had already settled on-chain (Fable review 2026-10-21). */
     const prior = this.queue.find(e => e.socket.id === socket.id);
@@ -124,7 +158,8 @@ class BattleshipLobby {
       }
     }
     /* Taken: waiting, at a table, or (a match that could not start) already refunded by startMatch. Only a
-       stopping lobby says false, having touched nothing, so the caller refunds it through the stake row. */
+       stopping lobby, or a socket still at a table, says false, having touched nothing, so the caller refunds it
+       through the stake row. */
     return true;
   }
 
@@ -145,13 +180,16 @@ class BattleshipLobby {
     if (this.stopping) return;
     // Same rung, two different people (two tabs of one wallet never meet), oldest first.
     for (const [a, b] of duelQueue.pairUp(this.queue)) {
+      // A free pair waits while the free tables are full (freeRoomCap); both stay queued, oldest first.
+      if (!(a.stake > 0) && this.freeRoomCap < Infinity && this.freeRoomsRunning() >= this.freeRoomCap) continue;
       this.dequeue(a.socket.id); this.dequeue(b.socket.id);
       this.startMatch([a, b]);
     }
   }
 
-  /* A reconnect taking its seat back by the key it was sent (duelQueue.resumeSeat), and that key. */
-  resume(socket, key) { return duelQueue.resumeSeat(this, socket, key); }
+  /* A reconnect taking its seat back by the key it was sent (duelQueue.resumeSeat, which asks mayTakeFree before a
+     free seat changes socket), and that key. */
+  resume(socket, key, mayTakeFree) { return duelQueue.resumeSeat(this, socket, key, mayTakeFree); }
   resumeKeyOf(socketId) {
     const e = this.queue.find(q => q.socket.id === socketId);
     return e ? e.resumeKey : null;
@@ -199,6 +237,7 @@ class BattleshipLobby {
        on enqueue, which is exactly the moment the second of them was not there
        yet. */
     this.pump();
+    let free = -1;   // free tables running, counted once a tick and only when a bot is due (freeRoomCap)
     for (const e of [...this.queue]) {
       if (e.stake > 0) {
         // Past its minute it keeps looking (Owen 2026-10-21); only an abandoned seat is given up.
@@ -210,6 +249,11 @@ class BattleshipLobby {
       /* The minute set at enqueue; an entry without one (made by hand) waits the same. */
       const wait = typeof e.botWait === 'number' && Number.isFinite(e.botWait) ? e.botWait : BOT_AFTER_MS;
       if (t - e.since < wait) continue;
+      if (this.freeRoomCap < Infinity) {
+        if (free < 0) free = this.freeRoomsRunning();
+        if (free >= this.freeRoomCap) { this.noteHeld(e, t); continue; }   // the free tables are full: it keeps waiting
+        free++;
+      }
       this.dequeue(e.socket.id);
       this.startMatch([e], true, t);
     }

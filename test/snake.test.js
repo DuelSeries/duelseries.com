@@ -197,3 +197,43 @@ test('growth is integrated, so one big meal is worth exactly what many small one
   assert.ok(Math.abs(oneGo.length - nibbling.length) <= 1,
     'one mouthful gave ' + oneGo.length + ', four hundred gave ' + nibbling.length);
 });
+
+/* A client-sent heading of any finite size must not stall the tick (night review 2026-10-29, finding 15).
+   The turn loop took one pass per full turn of delta, so 1e12 cost minutes a tick and 1e16 and up never
+   returned, which froze every game on the process. And an honest heading must turn exactly as before. */
+test('a huge target angle turns the snake in microseconds, and honest headings turn exactly as before', () => {
+  for (const a of [1e8, -1e8, 1e12, 1e16, 1e17, -1e300, 1e300, Number.MAX_VALUE, -Number.MAX_VALUE]) {
+    const s = new Snake('h', 'H', 0, 0, '#fff');
+    s.setInput(a, false);
+    const t0 = process.hrtime.bigint();
+    for (let i = 0; i < 60; i++) s.update();
+    const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+    assert.ok(ms < 500, 'angle ' + a + ': 60 ticks took ' + ms.toFixed(1) + ' ms');
+    assert.ok(Number.isFinite(s.angle) && Number.isFinite(s.head.x) && Number.isFinite(s.head.y),
+      'angle ' + a + ' left the snake at a finite heading and position');
+  }
+  /* The old rule, verbatim, against the new one for every delta an honest player (or a bot's slowly
+     accumulating target) can produce: the same angle after one update, to the bit. */
+  const oldTurn = (s) => {
+    let delta = s.targetAngle - s.angle;
+    while (delta >  Math.PI) delta -= Math.PI * 2;
+    while (delta < -Math.PI) delta += Math.PI * 2;
+    const tr = s.turnRate;
+    return Math.abs(delta) > tr ? s.angle + Math.sign(delta) * tr : s.targetAngle;
+  };
+  let seed = 7;
+  const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+  for (let i = 0; i < 2000; i++) {
+    const s = new Snake('h', 'H', 0, 0, '#fff');
+    s.angle = (rnd() - 0.5) * 40;
+    s.setInput((rnd() - 0.5) * 2 * Math.PI, false);
+    const want = oldTurn(s);
+    s.update();
+    assert.strictEqual(s.angle, want, 'angle ' + s.angle + ' toward ' + s.targetAngle);
+  }
+});
+
+test('index.js: the INPUT handler drops an angle that is not a heading', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'server', 'index.js'), 'utf8');
+  assert.match(src, /on\(C\.EVENTS\.INPUT, \(\{ angle, boost \} = \{\}\) => \{\s*if \(typeof angle !== 'number' \|\| !Number\.isFinite\(angle\) \|\| Math\.abs\(angle\) > 1e6\) return;/);
+});

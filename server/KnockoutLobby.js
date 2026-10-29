@@ -119,6 +119,19 @@ class KnockoutLobby {
        old rule: a drop is a leave at once. Knockout and Head Soccer pass nothing and are exactly what they were. */
     this.graceMs = Number(o.graceMs) > 0 ? Number(o.graceMs) : 0;
     this.ended = new Map();       // seat key -> { over, side, you, at }: matches that ended, for a late reconnect
+    /* The most FREE tables this lobby runs at once (night review 2026-10-29). Every table is physics on the one
+       event loop every paid game shares, and a free seat needs no login, so without a ceiling enough sockets
+       queued for free play could slow every paid match on the box. At the ceiling a free pair or a free seat due
+       its bot simply keeps waiting until a table ends. Paid tables are never counted or held. Infinity (the
+       default) is the old rule; index.js sets the live numbers. */
+    this.freeRoomCap = Number(o.freeRoomCap) > 0 ? Number(o.freeRoomCap) : Infinity;
+  }
+
+  /* Free tables still being played (see freeRoomCap). */
+  freeRoomsRunning() {
+    let n = 0;
+    for (const r of this.rooms.values()) if (!(r.stake > 0) && r.state !== 'over') n++;
+    return n;
   }
 
   start() {
@@ -142,6 +155,14 @@ class KnockoutLobby {
   /* paid: what landed on-chain for this seat (the entry token's paid), which bounds a refund.
      skin: the bought skin this seat wears, already proved against the skin pass by the caller; null is the free look. */
   enqueue(socket, name, wallet, stake, worth, now, paid, skin) {
+    /* ALREADY AT A TABLE STILL BEING PLAYED: one seat per socket, SwimLobby's rule (night review 2026-10-29). Every
+       re-queue used to get a table of its own after the bot wait and moved bySocket to it, so the old table kept
+       running with the same socket seated where nothing could count it (the free seat count reads roomOf, the
+       newest), and outlived the socket (leave only reaches roomOf's table). Not taken and nothing touched, so a paid
+       caller refunds it through the stake row; the handlers refuse it before this with "in a match already". A table
+       that is over is no seat: Play again from it queues as always. */
+    const seated = this.roomOf(socket.id);
+    if (seated && seated.state !== 'over') return false;
     /* Queueing again from a socket that already waits on a PAID seat gives that one back first: dequeue
        alone forgot a stake that had already settled on-chain (Fable review 2026-10-21). */
     const prior = this.queue.find(e => e.socket.id === socket.id);
@@ -175,12 +196,14 @@ class KnockoutLobby {
       }
     }
     /* Taken: waiting, at a table, or (a match that could not start) already refunded by startMatch. Only a
-       stopping lobby says false, having touched nothing, so the caller refunds it through the stake row. */
+       stopping lobby, or a socket still at a table, says false, having touched nothing, so the caller refunds it
+       through the stake row. */
     return true;
   }
 
-  /* A reconnect taking its seat back by the key it was sent (duelQueue.resumeSeat), and that key. */
-  resume(socket, key) { return duelQueue.resumeSeat(this, socket, key); }
+  /* A reconnect taking its seat back by the key it was sent (duelQueue.resumeSeat, which asks mayTakeFree before a
+     free seat changes socket), and that key. */
+  resume(socket, key, mayTakeFree) { return duelQueue.resumeSeat(this, socket, key, mayTakeFree); }
   resumeKeyOf(socketId) {
     const e = this.queue.find(q => q.socket.id === socketId);
     return e ? e.resumeKey : null;
@@ -244,6 +267,8 @@ class KnockoutLobby {
     if (this.stopping) return;
     // Same rung, two different people (two tabs of one wallet never meet), oldest first.
     for (const [a, b] of duelQueue.pairUp(this.queue)) {
+      // A free pair waits while the free tables are full (freeRoomCap); both stay queued, oldest first.
+      if (!(a.stake > 0) && this.freeRoomCap < Infinity && this.freeRoomsRunning() >= this.freeRoomCap) continue;
       this.dequeue(a.socket.id); this.dequeue(b.socket.id);
       this.startMatch([a, b], false, now);
     }
@@ -257,6 +282,7 @@ class KnockoutLobby {
        on enqueue, which is exactly the moment the second of them was not there
        yet. */
     this.pump(t);
+    let free = -1;   // free tables running, counted once a tick and only when a bot is due (freeRoomCap)
     for (const e of [...this.queue]) {
       /* A paid seat waits for a person, and then gives up and gets its money
          back. A free one gets a bot, because there is nothing to lose. */
@@ -270,6 +296,11 @@ class KnockoutLobby {
       /* The minute set at enqueue; an entry without one (made by hand) waits the same. */
       const wait = typeof e.botWait === 'number' && Number.isFinite(e.botWait) ? e.botWait : BOT_AFTER_MS;
       if (t - e.since < wait) continue;
+      if (this.freeRoomCap < Infinity) {
+        if (free < 0) free = this.freeRoomsRunning();
+        if (free >= this.freeRoomCap) { this.noteHeld(e, t); continue; }   // the free tables are full: it keeps waiting
+        free++;
+      }
       this.dequeue(e.socket.id);
       this.startMatch([e], true, t);
     }
@@ -284,6 +315,22 @@ class KnockoutLobby {
       this.expire(room, t);
     }
     this.tickWatchers();
+  }
+
+  /* A FREE SEAT THE CEILING HOLDS PAST ITS BOT TIME IS TOLD (night review 2026-10-29). The page counted down to the
+     bot it was promised and then sat on "Playing a bot" with nothing coming while the free tables were full. Each
+     time the countdown it was shown runs out, it gets <ev>:queued again with a fresh FREE_WAIT_MS on the clock (every
+     duel page already reads that as "still looking for a player") and busy: true. Free seats only: a paid seat is
+     never held. */
+  noteHeld(e, t) {
+    if (!e || e.stake > 0) return;
+    if (typeof e.heldNoteAt === 'number' && t - e.heldNoteAt < FREE_WAIT_MS) return;
+    e.heldNoteAt = t;
+    const waited = Math.max(0, t - e.since);
+    send(e.socket, this.ev + ':queued', {
+      waitingMs: waited, stake: 0, worth: 0, resumeKey: e.resumeKey,
+      waitMs: waited + FREE_WAIT_MS, botAfterMs: waited + FREE_WAIT_MS, paidWaitMs: 0, busy: true,
+    });
   }
 
   /* ── a dropped connection mid-match (KnockoutRoom's "a dropped connection") ─────────────────────────── */
@@ -326,8 +373,11 @@ class KnockoutLobby {
      another. On success the new socket gets the match as it is now (<ev>:rejoined: the start message's shape, plus
      its side and anything the game adds) and a fresh key, and the used one is dead. A key whose match has ended gets
      that match's result instead (it may have been decided while the link was down); anything else is refused, and
-     the page does what a reconnect did before. Returns { ok, room, wallet, worth } for the caller's socket record. */
-  rejoin(socket, key, now) {
+     the page does what a reconnect did before. Returns { ok, room, wallet, worth } for the caller's socket record.
+     mayTakeFree (night review 2026-10-29): asked only for a seat at a FREE table, with the id of the socket that holds
+     it now; false refuses (<ev>:rejoinfail, the seat stays where it is), so a key cannot carry free seats past the
+     per-address limit (duelQueue.resumeSeat). A paid seat is never asked or refused. */
+  rejoin(socket, key, now, mayTakeFree) {
     const fail = (extra) => { send(socket, this.ev + ':rejoinfail', extra || {}); return { ok: false }; };
     if (!(this.graceMs > 0)) return fail();
     // Restarting: every paid seat was turned into an owed refund (shutdownSettle), so the page can say so.
@@ -341,6 +391,7 @@ class KnockoutLobby {
         return fail(room.overMsg ? { over: room.overMsg, side: room.seatKeys.get(key), you: found ? room.publicId(found.id) : null } : null);
       }
       const oldId = found.id;
+      if (!(room.stake > 0) && typeof mayTakeFree === 'function' && !mayTakeFree(oldId)) return fail();
       if (!room.rekey(oldId, socket)) return fail();
       this.bySocket.delete(oldId);
       this.bySocket.set(socket.id, room.id);

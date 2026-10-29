@@ -45,6 +45,7 @@ const ownerAuth = require('./ownerAuth'); // the owner wallet signing for an own
 const { isWalletString } = require('./b58Caps');     // a client address is a key's size before any decode
 const Swap = require('./swap');                      // SOL <-> USDC in the player's own wallet
 const { TRUST_PROXY } = require('./clientAddr');     // X-Forwarded-For only from nginx (loopback / private)
+const addrLimits = require('./addrLimits');          // sockets and free duel seats per address on the main namespace
 const { securityHeaders } = require('./securityHeaders');
 const ops       = require('./ops');       // maintenance mode
 const { createSkinShop, liveChain } = require('./skinShop');   // buying skins with USDC
@@ -297,6 +298,24 @@ if (!privyServer) {
 // hold an owner grant, or an account identity, past the moment it stopped being true.
 const _walletForUser = new Map();
 const WALLET_CACHE_MS = 10 * 60 * 1000;
+/* Accounts Privy said have no Solana wallet, and when (night review 2026-10-29). Read only by the owner check
+   (isOwnerToken, which a socket can ask once a second): a token from a wallet-less account used to cost one
+   Privy REST lookup per message, enough to get the app throttled by Privy. The HTTP sign-in paths do not read
+   it, so a player who has just made a wallet is seen at once there, exactly as before. */
+const _noWalletAt = new Map();
+const NO_WALLET_HOLD_MS = 60 * 1000;
+/* The [AUTH] warnings below, at most one per 30 s, naming how many more there were (night review 2026-10-29):
+   one per rejected token let any caller turn a junk string into a log line, unbounded, until the disk filled. */
+let _authWarnAt = 0, _authWarnHeld = 0;
+function authWarn(what, e) {
+  const now = Date.now();
+  if (now - _authWarnAt < 30000) { _authWarnHeld++; return; }
+  const held = _authWarnHeld;
+  _authWarnAt = now; _authWarnHeld = 0;
+  const msg = e && e.message;
+  if (held) console.warn('[AUTH] ' + what + ':', msg, '(+' + held + ' more in the last 30 s)');
+  else console.warn('[AUTH] ' + what + ':', msg);
+}
 
 /* Resolve the Solana wallet behind a Privy login.
  *
@@ -309,7 +328,8 @@ const WALLET_CACHE_MS = 10 * 60 * 1000;
  * carries the linked accounts with it and is not rate limited; the access token is the
  * fallback, since identity tokens have to be switched on for the app and an older
  * cached login only has the access one. */
-async function walletFromIdToken(accessToken, identityToken) {
+/* opts.holdMiss: answer a wallet-less account from _noWalletAt for a minute instead of asking Privy again. */
+async function walletFromIdToken(accessToken, identityToken, opts) {
   if (!privyServer) return { wallet: null, reason: 'privy-not-configured' };
   if (!accessToken && !identityToken) return { wallet: null, reason: 'no-token' };
 
@@ -332,7 +352,7 @@ async function walletFromIdToken(accessToken, identityToken) {
       // Fall through to the access token rather than failing here: an identity token
       // is only present when the app has them enabled, and a stale one is not a reason
       // to reject a login that is otherwise good.
-      console.warn('[AUTH] identity token rejected:', e.message);
+      authWarn('identity token rejected', e);
     }
   }
 
@@ -345,18 +365,26 @@ async function walletFromIdToken(accessToken, identityToken) {
   try {
     claims = await privyServer.verifyAuthToken(bearer);        // local JWT check
   } catch (e) {
-    console.warn('[AUTH] access token rejected:', e.message);
+    authWarn('access token rejected', e);
     return { wallet: null, reason: accessToken ? 'bad-token' : 'bad-identity-token' };
   }
   const hit = _walletForUser.get(claims.userId);
   if (hit && Date.now() - hit.at < WALLET_CACHE_MS) return { wallet: hit.wallet, reason: 'ok' };
+  const missAt = opts && opts.holdMiss ? _noWalletAt.get(claims.userId) : 0;
+  if (missAt && Date.now() - missAt < NO_WALLET_HOLD_MS) return { wallet: null, reason: 'no-solana-wallet' };
   try {
     const wallet = solanaOf(await privyServer.getUser(claims.userId));
-    if (!wallet) return { wallet: null, reason: 'no-solana-wallet' };
+    if (!wallet) {
+      _noWalletAt.delete(claims.userId);   // re-set, so the Map stays oldest first
+      _noWalletAt.set(claims.userId, Date.now());
+      if (_noWalletAt.size > 5000) _noWalletAt.delete(_noWalletAt.keys().next().value);
+      return { wallet: null, reason: 'no-solana-wallet' };
+    }
+    _noWalletAt.delete(claims.userId);
     _walletForUser.set(claims.userId, { wallet, at: Date.now() });
     return { wallet, reason: 'ok' };
   } catch (e) {
-    console.warn('[AUTH] getUser failed:', e.message);
+    authWarn('getUser failed', e);
     return { wallet: null, reason: 'privy-lookup-failed' };
   }
 }
@@ -371,7 +399,7 @@ function tokensFrom(req) {
 }
 async function isOwnerToken(idToken) {
   if (!idToken || typeof idToken !== 'string') return false;   // the client's: a token is text
-  const { wallet } = await walletFromIdToken(idToken, null);
+  const { wallet } = await walletFromIdToken(idToken, null, { holdMiss: true });
   return !!wallet && OWNER_WALLETS.has(wallet);
 }
 /* An owner-signed action, or null. The signature is checked first because it
@@ -863,9 +891,15 @@ app.get('/api/blockhash', rpcLimiter, async (req, res) => {
 
 // Broadcast a user-signed transaction (e.g. a self-custody Cash Out: wallet → external wallet).
 // The tx is already signed by the player's own wallet; we just relay it + confirm over HTTP.
+/* signedTx is base64 TEXT of one transaction, at most 1232 bytes (1644 characters), and nothing
+   else (night review 2026-10-29): {"signedTx":{"length":1e8}} made Buffer.from build a 100 MB
+   buffer on the game thread, seconds of every room frozen per 40-byte request, and then a
+   base64 copy of it for the RPC. 4096 is skinShop's MAX_SIGNED_B64: room to spare for every
+   honest Cash Out and linked-wallet send, which all send a string. */
+const MAX_BROADCAST_B64 = 4096;
 app.post('/api/broadcast', walletWithdrawLimiter, express.json({ limit: '256kb' }), async (req, res) => {
   const { signedTx } = req.body || {};
-  if (!signedTx) return res.status(400).json({ error: 'Missing signed transaction' });
+  if (typeof signedTx !== 'string' || !signedTx || signedTx.length > MAX_BROADCAST_B64) return res.status(400).json({ error: 'Missing signed transaction' });
   try {
     const sig = await Wallet.submitStake(Buffer.from(signedTx, 'base64'));
     res.json({ ok: true, sig });
@@ -4901,12 +4935,18 @@ app.get('/api/debug/profile', sigLimiter, async (req, res) => {
   res.json(profiler.report());
 });
 
-/* /api/debug/tick below and /wallet/debug above stay unauthenticated on purpose:
-   scripts/loadtest.js reads /api/debug/tick with no credentials for its server-tick columns,
-   and test/durableStakeServer.test.js reads /wallet/debug's ledger flags the same way (the
-   owner's no-login check that paid stakes are durable). Neither carries a secret. */
+/* /wallet/debug above stays unauthenticated on purpose: test/durableStakeServer.test.js reads its
+   ledger flags with no credentials (the owner's no-login check that paid stakes are durable). It
+   carries no secret.
 
-app.get('/api/debug/tick', (req, res) => {
+   /api/debug/tick below is owner only, like /api/debug/profile (night review 2026-10-29). It was
+   open for scripts/loadtest.js, but every read sorts each agar room's 60 s tick ring several times
+   on the game thread (and ?recent=all serialises every raw tick, hundreds of KB), so a loop of
+   anonymous GETs stalled every room. The owner's console cookie skips sigLimiter as everywhere;
+   loadtest sends one from LT_OWNER_COOKIE. */
+
+app.get('/api/debug/tick', sigLimiter, async (req, res) => {
+  if (!(await isOwnerReq(req))) return res.status(403).json({ error: 'Forbidden' });
   const mem = process.memoryUsage();
   const out = {
     now: Date.now(), tickRate: C.TICK_RATE, upSec: Math.round(process.uptime()),
@@ -5126,18 +5166,115 @@ function totalInGame() {
 /* LOBBY_STATE used to carry the old agar.io game's agarPlayerCount, agarLobbyCount and
    agarLeaderboard as well. No lobby code read any of them (the cards count from /api/live), so
    they went with that game. */
+/* At most one send every LOBBY_STATE_MS, whoever asks and however often (night review 2026-10-29).
+   Every join, leave and disconnect asked for one, each a separate reliable emit to every lobby
+   socket, so one socket looping lobby:join was a copy per message per lobby socket, queued without
+   end for sockets that stopped reading: about 1 GB in seconds. Now a burst of asks is one send, a
+   moment later (half a second), of the state as it is then; volatile, so a socket that cannot
+   keep up drops it instead of queueing it; and the EU push to NA follows the same beat. No browser
+   page reads LOBBY_STATE (the cards count from /api/live); a connecting socket still gets its own
+   at once. */
+var _lobbyStateTimer = null;   // var: broadcastLobbyState is hoisted, and a call before this line must not hit a TDZ
 function broadcastLobbyState() {
-  const state = {
-    playerCount:      totalInGame()     + (remoteStats.playerCount     || 0),
-    lobbyCount:       lobbyConnections.size,
-    leaderboard:      allTimeLb.getTop(3),
-    region:           REGION,
+  if (_lobbyStateTimer) return;
+  _lobbyStateTimer = setTimeout(() => {
+    _lobbyStateTimer = null;
+    const state = {
+      playerCount:      totalInGame()     + (remoteStats.playerCount     || 0),
+      lobbyCount:       lobbyConnections.size,
+      leaderboard:      allTimeLb.getTop(3),
+      region:           REGION,
+    };
+    for (const sock of lobbyConnections) sock.volatile.emit(C.EVENTS.LOBBY_STATE, state);
+    pushStatsToNA();
+  }, 500);
+  if (_lobbyStateTimer.unref) _lobbyStateTimer.unref();
+}
+
+/* ─── Per-address limits on this namespace (night review 2026-10-29, server/addrLimits.js) ─────────────
+   /ag, /sl and /chomp cap sockets per address; this namespace (the lobby, the old snake rooms, all eight duels)
+   had no cap, and a free duel seat needs no login, so a few hundred sockets from one machine were a few hundred
+   60 Hz bot matches on the loop every paid game shares. Three limits, each far above any person or household,
+   each an env number on the box (a bad or missing value is the default):
+   - MAIN_SOCKETS_PER_IP (40): sockets one address may hold here. A lobby tab, a game and a spectate are three.
+   - FREE_DUELS_PER_IP (10): free duel seats, queued or at a table, one address may hold across the eight duels,
+     whether asked for or moved onto a socket by a resume or rejoin key (freeMoveOk). Paid seats are never counted:
+     each is a real stake. It was 6; a campus or carrier NAT puts many people behind one address, so it is 10 for the
+     launch, and every refusal is logged (logLimit) so a real shared address meeting it shows up (night review
+     2026-10-29).
+   - FREE_DUEL_ROOM_CAP: the most free tables each duel runs at once (Head Soccer and Swim 40, the others 60,
+     Knockout 100; Battleship is turn-based and not capped). At the ceiling a free seat keeps waiting until a
+     table ends. Paid tables are never held.
+   A loopback or private address (this box, its own network) is never counted, so nothing local is limited. */
+const envCount = (name, dflt) => {
+  const n = Math.floor(Number(process.env[name]));
+  return Number.isFinite(n) && n > 0 ? n : dflt;
+};
+const MAIN_SOCKETS_PER_IP = envCount('MAIN_SOCKETS_PER_IP', 40);
+const FREE_DUELS_PER_IP = envCount('FREE_DUELS_PER_IP', 10);
+const mainGate = addrLimits.createAddrGate(MAIN_SOCKETS_PER_IP);
+/* Each refusal by these limits is logged as a [LIMIT] line, once a minute per limit and address, so a real shared address
+   (a campus or a carrier NAT) meeting them shows up in the logs rather than as players quietly turned away, and a
+   flood of refusals is a few lines, not one per message (night review 2026-10-29). */
+const _limitLogged = new Map();   // limit + address -> when it was last logged
+function logLimit(what, key, detail) {
+  if (!key) return;
+  const t = Date.now(), k = what + ' ' + key;
+  if (t - (_limitLogged.get(k) || 0) < 60000) return;
+  if (_limitLogged.size >= 5000) {
+    for (const [kk, at] of _limitLogged) if (t - at >= 60000) _limitLogged.delete(kk);
+    if (_limitLogged.size >= 5000) _limitLogged.clear();
+  }
+  _limitLogged.set(k, t);
+  console.warn('[LIMIT] ' + what + ' refused for ' + key + (detail ? ' (' + detail + ')' : ''));
+}
+io.use((socket, next) => {
+  if (!mainGate.full(socket)) return next();
+  logLimit('main socket', addrLimits.addrKey(socket), MAIN_SOCKETS_PER_IP + ' open');
+  next(Object.assign(new Error('too many connections from this address'), { data: { why: 'limit' } }));
+});
+{
+  const cap = (n) => envCount('FREE_DUEL_ROOM_CAP', n);
+  knockoutLobby.freeRoomCap = cap(100);
+  battleshipLobby.freeRoomCap = cap(100);   // turn-based like Knockout, and it had no ceiling at all (night review 2026-10-29)
+  headSoccerLobby.freeRoomCap = cap(40);
+  swimLobby.freeRoomCap = cap(40);
+  pool8Lobby.freeRoomCap = cap(60);
+  airHockeyLobby.freeRoomCap = cap(60);
+  rooftopLobby.freeRoomCap = cap(60);
+  crossy.lobby.freeRoomCap = cap(60);
+}
+const FREE_DUELS_BUSY = 'Too many free games from your connection right now. Finish one first.';
+const DUEL_LOBBIES = [knockoutLobby, battleshipLobby, headSoccerLobby, pool8Lobby, airHockeyLobby, rooftopLobby, swimLobby, crossy.lobby];
+/* A free duel seat this socket may not take: its address already holds FREE_DUELS_PER_IP of them (its own seat in
+   this lobby left out, since queueing again replaces it). Says so with <ev>:refused and answers true. */
+function freeDuelRefused(socket, lobby, ev) {
+  const held = addrLimits.freeSeatsAt(mainGate, socket, DUEL_LOBBIES, lobby);
+  if (held === null || held < FREE_DUELS_PER_IP) return false;
+  logLimit('free duel seat', mainGate.keyOf(socket), held + ' held');
+  socket.emit(ev + ':refused', { why: FREE_DUELS_BUSY });
+  return true;
+}
+/* The same limit for a free seat MOVED onto this socket by its resume key (a waiting seat, duelQueue.resumeSeat) or its
+   rejoin key (a seat at a table, the lobbies' rejoin) (night review 2026-10-29). A key moves a seat to any socket,
+   even while the old one is still connected, and the queue handlers take a resume before freeDuelRefused is reached,
+   so one address could queue its seats, hand them to sockets on a second address by their keys, queue more, and so
+   on without end. The moved seat itself is left out of the count (movingId, the socket that holds it now), so a
+   reconnect from the same address, or from a phone's new address, brings no extra seat and always passes. Asked
+   only for a free seat: a paid seat always moves, as before. Answers whether this socket may take it. */
+function freeMoveOk(socket, lobby) {
+  return (movingId) => {
+    const held = addrLimits.freeSeatsAt(mainGate, socket, DUEL_LOBBIES, lobby, movingId);
+    if (held === null || held < FREE_DUELS_PER_IP) return true;
+    logLimit('free duel seat moved', mainGate.keyOf(socket), held + ' held');
+    return false;
   };
-  for (const sock of lobbyConnections) sock.emit(C.EVENTS.LOBBY_STATE, state);
-  pushStatsToNA();
 }
 
 io.on('connection', (socket) => {
+  /* Counted here, after the handshake check above (a socket that never connects is never counted). Two that
+     passed together past the limit: the late one is let go at once, before it has a handler. */
+  if (!mainGate.add(socket)) { socket.disconnect(true); return; }
   console.log(`[+] Connected: ${socket.id}`);
 
   // Every client message goes through here: anything but nothing-or-a-plain-object is dropped
@@ -5158,12 +5295,17 @@ io.on('connection', (socket) => {
      and the owner's live alerts only from ownerProof (an owner signature over the action
      'owner:alerts', ownerAuth) or ownerTicket (one use, from POST /api/owner/ticket with the
      owner session). Without them the socket is an anonymous lobby watcher. */
+  /* Once a connect from its one sender (the owner console, public/js/ownerAlerts.js), so one a second is plenty,
+     and only a socket new to the lobby changes the count worth telling anyone (night review 2026-10-29: a loop of
+     these was a full LOBBY_STATE to every lobby socket per message). */
   on('lobby:join', ({ idProof, ownerProof, ownerTicket } = {}) => {
+    if (!socketRL(socket, 'lobbyjoin', 1000)) return;
+    const fresh = !lobbyConnections.has(socket);
     lobbyConnections.add(socket);
     socketIdentity.fromProof(socket, idProof);
     socketIdentity.ownerAlerts(socket, ownerProof);
     socketIdentity.ownerAlertsByTicket(socket, ownerTicket);
-    broadcastLobbyState();
+    if (fresh) broadcastLobbyState();
   });
 
   /* walletAddress and googleId are the client's claims and are NOT used for identity or for
@@ -5417,8 +5559,11 @@ io.on('connection', (socket) => {
 
   // speedMult is no longer read from the client: the only thing it carried was
   // the cash-out slowdown, and the server times that itself now.
+  /* An angle is a heading in radians: atan2's [-pi, pi], or the snake's own angle, which is a
+     few turns at most. Anything past a million is not a heading (night review 2026-10-29: 1e300
+     hung Snake.update and with it the whole process; Snake.update is bounded itself now too). */
   on(C.EVENTS.INPUT, ({ angle, boost } = {}) => {
-    if (typeof angle !== 'number' || !Number.isFinite(angle)) return;
+    if (typeof angle !== 'number' || !Number.isFinite(angle) || Math.abs(angle) > 1e6) return;
     if (socket._room) socket._room.handleInput(socket.id, angle, !!boost);
   });
 
@@ -5496,7 +5641,22 @@ io.on('connection', (socket) => {
     });
   });
 
-  on(C.EVENTS.RESPAWN, ({ entryToken } = {}) => {
+  /* One press of Play again after a death (game.js doRespawn, guarded by isDead). Once each half second, which drops a
+     flood before any lookup (night review 2026-10-29). A press inside the half second is KEPT, not dropped: the page
+     has already cleared isDead and hidden its death screen when it sends, so a player who died within half a second
+     of a respawn and pressed at once was left with no snake and no death screen until a reload. It runs when the half
+     second is up (one waits at most, so a flood is still one), and if the press before it already brought the snake
+     back it finds it alive and does nothing, as a second press always did. */
+  on(C.EVENTS.RESPAWN, (msg) => {
+    if (socketRL(socket, 'respawn', 500)) { respawn(msg); return; }
+    if (socket._respawnLater) return;
+    const wait = Math.max(5, 505 - (Date.now() - ((socket._rl && socket._rl.respawn) || 0)));
+    socket._respawnLater = setTimeout(() => {
+      socket._respawnLater = null;
+      if (socket.connected && socketRL(socket, 'respawn', 500)) respawn(msg);
+    }, wait);
+  });
+  function respawn({ entryToken } = {}) {
     if (!socket._room) return;
     const existing = socket._room.snakes.get(socket.id);
     if (existing && existing.alive) return; // block respawn while alive
@@ -5532,19 +5692,32 @@ io.on('connection', (socket) => {
       }
       room.respawnPlayer(socket.id, entry.worth);
       const _rs = room.snakes.get(socket.id);
-      notify.pushOwner(
-        `${(_rs && _rs.name) || 'A player'} pressed play again in the ${roomLabel} lobby` +
-          (entry.worth ? ` for ${entry.worth} ${money.unit}` : ' (free)'),
-        { title: 'Player respawned: slither.io', tags: 'arrows_counterclockwise' }
-      );
+      /* A paid play again is a real stake, so it stays the loud push it was. A free one goes through joinAlerts like
+         every free join (the muted free topic, capped, once per name per 10 min): it used to be a direct push to the
+         owner's phone each time, and a free die-and-respawn loop from many sockets flooded it and spent this box's
+         ntfy.sh budget, silencing the payout and solvency alerts behind it (night review 2026-10-29). */
+      if (entry.worth > 0) {
+        notify.pushOwner(
+          `${(_rs && _rs.name) || 'A player'} pressed play again in the ${roomLabel} lobby for ${entry.worth} ${money.unit}`,
+          { title: 'Player respawned: slither.io', tags: 'arrows_counterclockwise' }
+        );
+      } else {
+        const _rg = /^([a-z]{2})_/.exec(String(room.lobbyType || ''));
+        joinAlerts.joined({ game: room.isBattleRoyale ? 'br' : 'snake', stake: 0, name: (_rs && _rs.name) || 'Player',
+          region: _rg ? _rg[1] : REGION });
+      }
     }, (why) => {
       socket.emit(C.EVENTS.ERROR, { message: ENTRY_REFUSED[why] || 'Entry fee not verified. Please return to the lobby and try again.' });
     });
-  });
+  }
 
   on('ping_check', () => socket.emit('pong_check'));
 
+  /* The owner's typed 'bot N' in the game's console (game.js), by hand. Once a second, before the token is even
+     looked at (night review 2026-10-29): anyone can send this, and each one was a token check, a log line and, for
+     a real wallet-less Privy account, a Privy REST call. */
   on('admin:spawnbot', async ({ count, idToken } = {}) => {
+    if (!socketRL(socket, 'spawnbot', 1000)) return;
     if (!(await isOwnerToken(idToken))) return;
     const n = Math.min(Math.max(1, parseInt(count) || 1), 10);
     const room = socket._room || gameRooms[REGION].free;
@@ -5681,12 +5854,20 @@ io.on('connection', (socket) => {
   on('ko:queue', ({ name, wallet, stake, entryToken, shop, skinPass, resume } = {}) => {
     if (!socketRL(socket, 'koq', 1000)) return;
     if (ops.get().maintenance) { socket.emit('maintenance', ops.get()); return; }
+    /* Already at a table that is still being played: refused before anything else, hs:queue's rule (night review
+       2026-10-29). Each re-queue used to get a table of its own after the bot wait and leave the last one running
+       with this socket seated, where neither the free seat count nor a disconnect could reach it, so one address
+       could fill every free table. Play again sends ko:leave first, so an honest page never meets this. */
+    const seated = knockoutLobby.roomOf(socket.id);
+    if (seated && seated.state !== 'over') { socket.emit('ko:refused', { why: 'You are in a match already.' }); return; }
 
     /* A RECONNECT WHILE WAITING takes its seat back by the key only that seat was sent
        (server/duelQueue.js resumeSeat): the same place, minute and stake, no new token. A paid seat
        the old socket's drop already refunded is told so, rather than refused as unpaid. Anything
        else falls through to an ordinary queue. */
-    const back = knockoutLobby.resume(socket, resume);
+    const back = knockoutLobby.resume(socket, resume, freeMoveOk(socket, knockoutLobby));
+    // A free seat whose key would carry it past this address's free seats stays where it is (freeMoveOk).
+    if (back && back.refused) { socket.emit('ko:refused', { why: FREE_DUELS_BUSY }); return; }
     if (back && back.resumed) {
       const e = back.resumed;
       if (e.worth > 0 && e.wallet) socket._walletAddress = e.wallet;
@@ -5769,7 +5950,10 @@ io.on('connection', (socket) => {
       // After the queue holds the seat (never between the token and it): joinAlerts never throws.
       joinAlerts.joined({ game: 'knockout', stake: rung, name: sanitizeName(name), wallet: payTo, queued: true });
     };
-    if (!(wants > 0)) return seat(null);
+    if (!(wants > 0)) {
+      if (freeDuelRefused(socket, knockoutLobby, 'ko')) return;   // the address holds enough free seats already
+      return seat(null);
+    }
     // Off the ladder (the retired 0.1 too): refused before the token is touched, so it stays unspent.
     if (!want) { socket.emit('ko:refused', { why: RETIRED_BUYIN }); return; }
     // The owner's paid door (ko:paid:off), before the token is touched: the player keeps it, and
@@ -5798,7 +5982,11 @@ io.on('connection', (socket) => {
     socket.emit('ko:aimed', { count: r.count });
   });
 
+  /* Once a turn from an honest page (its `locked` flag). Throttled like ko:aim, and lockIn says true only for the
+     lock that changes something, so a loop of these is no longer a ko:ready flood at the opponent and fifty
+     watchers (night review 2026-10-29). */
   on('ko:lock', () => {
+    if (!socketRL(socket, 'kolock', 250)) return;
     const room = knockoutLobby.roomOf(socket.id);
     if (!room) return;
     if (room.lockIn(socket.id)) room.broadcast('ko:ready', { ready: [...room.ready] });
@@ -5851,7 +6039,9 @@ io.on('connection', (socket) => {
        (server/duelQueue.js resumeSeat): the same place, minute and stake, no new token. A paid seat
        the old socket's drop already refunded is told so, rather than refused as unpaid. Anything
        else falls through to an ordinary queue. */
-    const back = headSoccerLobby.resume(socket, resume);
+    const back = headSoccerLobby.resume(socket, resume, freeMoveOk(socket, headSoccerLobby));
+    // A free seat whose key would carry it past this address's free seats stays where it is (freeMoveOk).
+    if (back && back.refused) { socket.emit('hs:refused', { why: FREE_DUELS_BUSY }); return; }
     if (back && back.resumed) {
       const e = back.resumed;
       if (e.worth > 0 && e.wallet) socket._walletAddress = e.wallet;
@@ -5938,7 +6128,10 @@ io.on('connection', (socket) => {
       // After the queue holds the seat (never between the token and it): joinAlerts never throws.
       joinAlerts.joined({ game: 'headsoccer', stake: rung, name: sanitizeName(name), wallet: payTo, queued: true });
     };
-    if (!(wants > 0)) return seat(null);
+    if (!(wants > 0)) {
+      if (freeDuelRefused(socket, headSoccerLobby, 'hs')) return;   // the address holds enough free seats already
+      return seat(null);
+    }
     // Off the ladder (the retired 0.1 too): refused before the token is touched, so it stays unspent.
     if (!want) { socket.emit('hs:refused', { why: RETIRED_BUYIN }); return; }
     // The owner's paid door (ko:paid:off), before the token is touched: the player keeps it, and
@@ -6001,7 +6194,9 @@ io.on('connection', (socket) => {
        (server/duelQueue.js resumeSeat): the same place, minute and stake, no new token. A paid seat
        the old socket's drop already refunded is told so, rather than refused as unpaid. Anything
        else falls through to an ordinary queue. */
-    const back = pool8Lobby.resume(socket, resume);
+    const back = pool8Lobby.resume(socket, resume, freeMoveOk(socket, pool8Lobby));
+    // A free seat whose key would carry it past this address's free seats stays where it is (freeMoveOk).
+    if (back && back.refused) { socket.emit('p8:refused', { why: FREE_DUELS_BUSY }); return; }
     if (back && back.resumed) {
       const e = back.resumed;
       if (e.worth > 0 && e.wallet) socket._walletAddress = e.wallet;
@@ -6088,7 +6283,10 @@ io.on('connection', (socket) => {
       // After the queue holds the seat (never between the token and it): joinAlerts never throws.
       joinAlerts.joined({ game: 'pool8', stake: rung, name: sanitizeName(name), wallet: payTo, queued: true });
     };
-    if (!(wants > 0)) return seat(null);
+    if (!(wants > 0)) {
+      if (freeDuelRefused(socket, pool8Lobby, 'p8')) return;   // the address holds enough free seats already
+      return seat(null);
+    }
     // Off the ladder (the retired 0.1 too): refused before the token is touched, so it stays unspent.
     if (!want) { socket.emit('p8:refused', { why: RETIRED_BUYIN }); return; }
     // The owner's paid door (ko:paid:off), before the token is touched: the player keeps it, and
@@ -6128,7 +6326,8 @@ io.on('connection', (socket) => {
   const duelRejoin = (lobby, ev) => ({ key } = {}) => {
     if (!socketRL(socket, ev + 'rejoin', 1000)) return;
     try {
-      const r = lobby.rejoin(socket, key, Date.now());
+      // A free seat whose key would carry it past this address's free seats stays where it is (freeMoveOk).
+      const r = lobby.rejoin(socket, key, Date.now(), freeMoveOk(socket, lobby));
       if (r && r.ok && r.worth > 0 && r.wallet) socket._walletAddress = r.wallet;
     } catch (e) {
       console.error('[' + ev.toUpperCase() + '] rejoin threw:', e && e.stack ? e.stack : e);
@@ -6158,7 +6357,7 @@ io.on('connection', (socket) => {
   });
   /* ── Crossy Road ── the queue, hops, chat and watching (server/crossy/crossyWire.js). */
   crossy.sockets(socket, on, { socketRL, sanitizeName, rungOf, enterPaid, consumePaidEntryAtStake, strOr, ENTRY_REFUSED,
-    RETIRED_BUYIN, DUEL_PAID_CLOSED, isStake, chatGuard, joinAlerts, ops });
+    RETIRED_BUYIN, DUEL_PAID_CLOSED, isStake, chatGuard, joinAlerts, ops, freeDuelRefused, freeMoveOk, FREE_DUELS_BUSY });
 
   /* ── Air Hockey ──────────────────────────────────────────────────────────
      A real-time duel. The queue and the paid door are Knockout's, line for line (the handler below is that one
@@ -6176,7 +6375,9 @@ io.on('connection', (socket) => {
        (server/duelQueue.js resumeSeat): the same place, minute and stake, no new token. A paid seat
        the old socket's drop already refunded is told so, rather than refused as unpaid. Anything
        else falls through to an ordinary queue. */
-    const back = airHockeyLobby.resume(socket, resume);
+    const back = airHockeyLobby.resume(socket, resume, freeMoveOk(socket, airHockeyLobby));
+    // A free seat whose key would carry it past this address's free seats stays where it is (freeMoveOk).
+    if (back && back.refused) { socket.emit('ah:refused', { why: FREE_DUELS_BUSY }); return; }
     if (back && back.resumed) {
       const e = back.resumed;
       if (e.worth > 0 && e.wallet) socket._walletAddress = e.wallet;
@@ -6259,7 +6460,10 @@ io.on('connection', (socket) => {
       // After the queue holds the seat (never between the token and it): joinAlerts never throws.
       joinAlerts.joined({ game: 'airhockey', stake: rung, name: sanitizeName(name), wallet: payTo, queued: true });
     };
-    if (!(wants > 0)) return seat(null);
+    if (!(wants > 0)) {
+      if (freeDuelRefused(socket, airHockeyLobby, 'ah')) return;   // the address holds enough free seats already
+      return seat(null);
+    }
     // Off the ladder (the retired 0.1 too): refused before the token is touched, so it stays unspent.
     if (!want) { socket.emit('ah:refused', { why: RETIRED_BUYIN }); return; }
     // The owner's paid door (ko:paid:off), before the token is touched: the player keeps it, and
@@ -6327,7 +6531,9 @@ io.on('connection', (socket) => {
        (server/duelQueue.js resumeSeat): the same place, minute and stake, no new token. A paid seat
        the old socket's drop already refunded is told so, rather than refused as unpaid. Anything
        else falls through to an ordinary queue. */
-    const back = rooftopLobby.resume(socket, resume);
+    const back = rooftopLobby.resume(socket, resume, freeMoveOk(socket, rooftopLobby));
+    // A free seat whose key would carry it past this address's free seats stays where it is (freeMoveOk).
+    if (back && back.refused) { socket.emit('rt:refused', { why: FREE_DUELS_BUSY }); return; }
     if (back && back.resumed) {
       const e = back.resumed;
       if (e.worth > 0 && e.wallet) socket._walletAddress = e.wallet;
@@ -6410,7 +6616,10 @@ io.on('connection', (socket) => {
       // After the queue holds the seat (never between the token and it): joinAlerts never throws.
       joinAlerts.joined({ game: 'rooftop', stake: rung, name: sanitizeName(name), wallet: payTo, queued: true });
     };
-    if (!(wants > 0)) return seat(null);
+    if (!(wants > 0)) {
+      if (freeDuelRefused(socket, rooftopLobby, 'rt')) return;   // the address holds enough free seats already
+      return seat(null);
+    }
     // Off the ladder (the retired 0.1 too): refused before the token is touched, so it stays unspent.
     if (!want) { socket.emit('rt:refused', { why: RETIRED_BUYIN }); return; }
     // The owner's paid door (ko:paid:off), before the token is touched: the player keeps it, and
@@ -6467,9 +6676,14 @@ io.on('connection', (socket) => {
   on('bs:queue', ({ name, wallet, stake, entryToken, shop, skinPass, resume } = {}) => {
     if (!socketRL(socket, 'bsq', 1000)) return;
     if (ops.get().maintenance) { socket.emit('maintenance', ops.get()); return; }
+    // Already at a table that is still being played: refused before anything else (see ko:queue, night review 2026-10-29).
+    const seated = battleshipLobby.roomOf(socket.id);
+    if (seated && seated.state !== 'over') { socket.emit('bs:refused', { why: 'You are in a match already.' }); return; }
 
     // A reconnect while waiting takes its seat back (see ko:queue).
-    const back = battleshipLobby.resume(socket, resume);
+    const back = battleshipLobby.resume(socket, resume, freeMoveOk(socket, battleshipLobby));
+    // A free seat whose key would carry it past this address's free seats stays where it is (freeMoveOk).
+    if (back && back.refused) { socket.emit('bs:refused', { why: FREE_DUELS_BUSY }); return; }
     if (back && back.resumed) {
       const e = back.resumed;
       if (e.worth > 0 && e.wallet) socket._walletAddress = e.wallet;
@@ -6532,7 +6746,10 @@ io.on('connection', (socket) => {
       // After the queue holds the seat (never between the token and it): joinAlerts never throws.
       joinAlerts.joined({ game: 'battleship', stake: rung, name: sanitizeName(name), wallet: payTo, queued: true });
     };
-    if (!(wants > 0)) return seat(null);
+    if (!(wants > 0)) {
+      if (freeDuelRefused(socket, battleshipLobby, 'bs')) return;   // the address holds enough free seats already
+      return seat(null);
+    }
     if (!want) { socket.emit('bs:refused', { why: RETIRED_BUYIN }); return; }   // token left unspent
     if (!bsPaidOpen) { socket.emit('bs:refused', { why: DUEL_PAID_CLOSED }); return; }   // bs:paid:off, token left unspent
     // A paid seat is queued only once its stake row is claimed (enterPaid, STATUS item 7a).
@@ -6597,7 +6814,9 @@ io.on('connection', (socket) => {
     if (v !== SWIM_VERSION) { socket.emit('sw:refused', { why: 'the game was updated, reload the page' }); return; }
 
     // A reconnect while waiting takes its seat back (see ko:queue).
-    const back = swimLobby.resume(socket, resume);
+    const back = swimLobby.resume(socket, resume, freeMoveOk(socket, swimLobby));
+    // A free seat whose key would carry it past this address's free seats stays where it is (freeMoveOk).
+    if (back && back.refused) { socket.emit('sw:refused', { why: FREE_DUELS_BUSY }); return; }
     if (back && back.resumed) {
       const e = back.resumed;
       if (e.worth > 0 && e.wallet) socket._walletAddress = e.wallet;
@@ -6654,7 +6873,10 @@ io.on('connection', (socket) => {
       // After the queue holds the seat (never between the token and it): joinAlerts never throws.
       joinAlerts.joined({ game: 'swim', stake: rung, name: sanitizeName(name), wallet: payTo, queued: true });
     };
-    if (!(wants > 0)) return seat(null);
+    if (!(wants > 0)) {
+      if (freeDuelRefused(socket, swimLobby, 'sw')) return;   // the address holds enough free seats already
+      return seat(null);
+    }
     if (!want) { socket.emit('sw:refused', { why: RETIRED_BUYIN }); return; }   // token left unspent
     if (!swPaidOpen) { socket.emit('sw:refused', { why: DUEL_PAID_CLOSED }); return; }   // sw:paid:off, token left unspent
     // A paid seat is queued only once its stake row is claimed (enterPaid, STATUS item 7a).
@@ -6674,7 +6896,7 @@ io.on('connection', (socket) => {
     if (!socketRL(socket, 'swrejoin', 1000)) return;
     if (v !== SWIM_VERSION) { socket.emit('sw:rejoinfail', {}); return; }
     try {
-      const r = swimLobby.rejoin(socket, key, Date.now());
+      const r = swimLobby.rejoin(socket, key, Date.now(), freeMoveOk(socket, swimLobby));   // freeMoveOk: see duelRejoin
       if (r && r.ok && r.worth > 0 && r.wallet) socket._walletAddress = r.wallet;
     } catch (e) {
       console.error('[SW] rejoin threw:', e && e.stack ? e.stack : e);
@@ -6776,6 +6998,7 @@ io.on('connection', (socket) => {
   paper.attach(socket);
 
   socket.on('disconnect', async () => {
+    mainGate.remove(socket);                     // its place under its address's MAIN_SOCKETS_PER_IP
     /* Dropping out of a duel hands the other player the win, and takes this
        socket out of the queue if it never got into one. Without it a closed tab
        leaves an opponent staring at a turn that will never come. */

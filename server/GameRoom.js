@@ -262,7 +262,7 @@ class GameRoom {
       worldCx: this.worldCx,
       worldCy: this.worldCy,
       snakeColor: snake.color,
-      food: this.foodManager.getAll(),
+      food: this.foodAround(socket, x, y),
       snake: snake.serialize(),
     });
 
@@ -356,7 +356,7 @@ class GameRoom {
       worldCx: this.worldCx,
       worldCy: this.worldCy,
       snakeColor: snake.color,
-      food: this.foodManager.getAll(),
+      food: snake.head ? this.foodAround(newSocket, snake.head.x, snake.head.y) : [],
       snake: snake.serialize(),
     });
     return snake;
@@ -808,9 +808,28 @@ class GameRoom {
       worldCx: this.worldCx,
       worldCy: this.worldCy,
       snakeColor: snake.color,
-      food: this.foodManager.getAll(),
+      food: this.foodAround(player.socket, x, y),
       snake: snake.serialize(),
     });
+  }
+
+  /* THE FOOD A SNAKE APPEARS WITH (GAME_JOINED on Play, Play again and a reconnect). The page draws it only until the
+     first snapshot replaces it a thirtieth of a second later, and that snapshot carries the food within the
+     socket's interest cell plus its view (broadcastSnapshot: a 2000 cell, the reported view radius or 3000, a 400
+     margin). This sends the pellets within that reach of the spawn, a square at least as wide as anything the first
+     snapshot shows, so the first frame looks exactly as it did. It was the whole world's food, about 600 KB, on every
+     Play again (night review 2026-10-29); spectate:join already sends none. */
+  foodAround(socket, x, y) {
+    const all = this.foodManager.getAll();
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return all;
+    const view = socket && typeof socket._viewR === 'number' && Number.isFinite(socket._viewR) ? socket._viewR : 3000;
+    const reach = 2000 + view + 400;
+    const out = [];
+    for (let i = 0; i < all.length; i++) {
+      const f = all[i];
+      if (Math.abs(f.x - x) <= reach && Math.abs(f.y - y) <= reach) out.push(f);
+    }
+    return out;
   }
 
   /* Called on every broadcast, 30 times a second. The chained form read well

@@ -121,7 +121,7 @@ function createSocketIdentity({ verifyIdentityProof, walletForAction, walletForI
   // read before the signature is, so a signature meant for another action is never spent here).
   function ownerAlerts(socket, ownerProof) {
     if (!socket || !isPlain(ownerProof) || ownerProof.action !== OWNER_ALERTS_ACTION) return false;
-    // one signature check per socket, like the identity proof (lobby:join is not rate limited)
+    // one signature check per socket, like the identity proof (lobby:join may come again; once a second since 2026-10-29)
     if (socket._ownerChecked) return socket._ownerAlerts === true;
     socket._ownerChecked = true;
     let w = null;

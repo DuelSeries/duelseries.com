@@ -62,6 +62,32 @@ class SwimLobby {
     this.ended = new Map();       // seat key -> { over, side, at }: races that ended, for a late reconnect
     this.liveKey = '';
     this.timer = null;
+    /* The most FREE races run at once: KnockoutLobby.freeRoomCap, the same rule (night review 2026-10-29).
+       Infinity is the old rule; index.js sets the live number. */
+    this.freeRoomCap = Infinity;
+  }
+
+  /* A FREE SEAT THE CEILING HOLDS PAST ITS BOT TIME IS TOLD (night review 2026-10-29). The page counted down to the
+     bot it was promised and then sat on "Playing a bot" with nothing coming while the free races were full. Each
+     time the countdown it was shown runs out, it gets sw:queued again with a fresh FREE_WAIT_MS on the clock (every
+     duel page already reads that as "still looking for a player") and busy: true. Free seats only: a paid seat is
+     never held. */
+  noteHeld(e, t) {
+    if (!e || e.stake > 0) return;
+    if (typeof e.heldNoteAt === 'number' && t - e.heldNoteAt < FREE_WAIT_MS) return;
+    e.heldNoteAt = t;
+    const waited = Math.max(0, t - e.since);
+    send(e.socket, 'sw:queued', {
+      waitingMs: waited, stake: 0, worth: 0, resumeKey: e.resumeKey,
+      waitMs: waited + FREE_WAIT_MS, botAfterMs: waited + FREE_WAIT_MS, paidWaitMs: 0, busy: true,
+    });
+  }
+
+  /* Free races still being run (see freeRoomCap). */
+  freeRoomsRunning() {
+    let n = 0;
+    for (const r of this.rooms.values()) if (!(r.stake > 0) && r.state !== 'over') n++;
+    return n;
   }
 
   start() {
@@ -105,7 +131,8 @@ class SwimLobby {
     return true;
   }
 
-  resume(socket, key) { return duelQueue.resumeSeat(this, socket, key); }
+  // duelQueue.resumeSeat asks mayTakeFree before a free seat changes socket (night review 2026-10-29).
+  resume(socket, key, mayTakeFree) { return duelQueue.resumeSeat(this, socket, key, mayTakeFree); }
   resumeKeyOf(socketId) {
     const e = this.queue.find(q => q.socket.id === socketId);
     return e ? e.resumeKey : null;
@@ -146,6 +173,8 @@ class SwimLobby {
   pump(now) {
     if (this.stopping) return;
     for (const [a, b] of duelQueue.pairUp(this.queue)) {
+      // A free pair waits while the free races are full (freeRoomCap); both stay queued.
+      if (!(a.stake > 0) && this.freeRoomCap < Infinity && this.freeRoomsRunning() >= this.freeRoomCap) continue;
       this.dequeue(a.socket.id); this.dequeue(b.socket.id);
       this.startMatch([a, b], false, now);
     }
@@ -154,6 +183,7 @@ class SwimLobby {
   tick(now) {
     const t = typeof now === 'number' ? now : Date.now();
     this.pump(t);
+    let free = -1;   // free races running, counted once a tick and only when a bot is due (freeRoomCap)
     for (const e of [...this.queue]) {
       if (e.stake > 0) {
         if (t - e.since < PAID_GIVE_UP_MS) continue;
@@ -163,6 +193,11 @@ class SwimLobby {
       }
       const wait = typeof e.botWait === 'number' && Number.isFinite(e.botWait) ? e.botWait : BOT_AFTER_MS;
       if (t - e.since < wait) continue;
+      if (this.freeRoomCap < Infinity) {
+        if (free < 0) free = this.freeRoomsRunning();
+        if (free >= this.freeRoomCap) { this.noteHeld(e, t); continue; }   // the free races are full: it keeps waiting
+        free++;
+      }
       this.dequeue(e.socket.id);
       this.startMatch([e], true, t);
     }
@@ -226,8 +261,9 @@ class SwimLobby {
      place already cannot take another. On success the new socket gets the race
      as it is now (sw:rejoined, sw:start's shape plus its side) and a fresh key,
      and the used one is dead. A key whose race has ended gets that race's
-     result instead (it may have been decided while the link was down). */
-  rejoin(socket, key, now) {
+     result instead (it may have been decided while the link was down).
+     mayTakeFree: KnockoutLobby.rejoin's, the same rule (night review 2026-10-29). */
+  rejoin(socket, key, now, mayTakeFree) {
     const fail = (extra) => { send(socket, 'sw:rejoinfail', extra || {}); return { ok: false }; };
     // Restarting: every paid seat was turned into an owed refund (shutdownSettle), so the page says so.
     if (this.stopping) return fail({ restart: true });
@@ -240,6 +276,7 @@ class SwimLobby {
         return fail(room.overMsg ? { over: room.overMsg, side: room.keys.get(key) } : null);
       }
       const oldId = found.id;
+      if (!(room.stake > 0) && typeof mayTakeFree === 'function' && !mayTakeFree(oldId)) return fail();
       if (!room.rekey(oldId, socket)) return fail();
       this.bySocket.delete(oldId);
       this.bySocket.set(socket.id, room.id);
