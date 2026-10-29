@@ -291,73 +291,13 @@ const coinGeo = () => geo('coin', () => boxes([
   B(0, 0.1, 0.05, 0.06, 0.06, 0.04, COL.coinDark), B(0, 0.34, 0.05, 0.06, 0.06, 0.04, COL.coinDark),
 ]));
 
-/* ── the critters: OUR characters, not anybody else's ───────────────────────
-   Nugget (the default): our own hen. A plump golden-buff body wider than it is tall, a separate cream head set
-   forward, a three-lobed rose comb lying front to back, a short gold beak with a red wattle, brown wings and an
-   upswept dark tail. About 0.5 wide, 0.95 tall and 0.7 deep like the reference's hopper, facing -z.
-   Pepper: the same hen in grey, worn by the rival when both seats wear Nugget. Sprout, Bloop, Pebble: free looks. */
-const HEN = {
-  nugget: { body: 0xfbd88e, body2: 0xfbd88e, head: 0xfff0c8, wing: 0xf0b85c, tail: 0xe9a24c, speck: 0xeab25c, leg: 0xf4b23a },
-  pepper: { body: 0xc6d2e2, body2: 0xbccadc, head: 0xe9eef5, wing: 0x7d8ea6, tail: 0x5f7190, speck: 0x9fb0c6, leg: 0xf4b23a },
-};
-function henGeo(p) {
-  // Built at 0.92 and drawn 1.08 times bigger: 0.52 wide, about 1.0 tall with the comb.
-  const comb = 0xe8475e, comb2 = 0xc93349, beak = 0xf2a21b, eye = 0x241610;
-  const L = [];
-  for (const sx of [-1, 1]) {
-    L.push(B(sx * 0.11, 0, 0.02, 0.06, 0.14, 0.06, p.leg));                                     // legs
-    L.push(B(sx * 0.11, 0, -0.04, 0.12, 0.04, 0.16, p.leg));                                    // feet
-  }
-  L.push(B(0, 0.12, 0.05, 0.48, 0.4, 0.52, p.body, { sides: p.body2 }));                       // the body
-  L.push(B(0, 0.52, 0.12, 0.4, 0.06, 0.38, p.body, { sides: p.body2 }));
-  L.push(B(0, 0.16, -0.21, 0.36, 0.3, 0.02, p.head));                                          // the cream breast
-  for (const sx of [-1, 1]) L.push(B(sx * 0.245, 0.24, 0.1, 0.03, 0.22, 0.34, p.wing));         // folded wings
-  L.push(B(0, 0.44, 0.31, 0.28, 0.2, 0.1, p.tail), B(0, 0.6, 0.35, 0.18, 0.16, 0.08, p.tail)); // the tail, swept up
-  L.push(B(0, 0.46, -0.12, 0.34, 0.36, 0.3, p.head));                                          // the head, set forward
-  L.push(B(-0.07, 0.82, -0.2, 0.08, 0.08, 0.08, comb), B(-0.07, 0.82, -0.1, 0.08, 0.13, 0.08, comb2), B(-0.07, 0.82, 0.0, 0.08, 0.08, 0.08, comb));
-  L.push(B(0, 0.6, -0.3, 0.12, 0.07, 0.08, beak, { top: 0xffc24a }));                         // the beak
-  L.push(B(0, 0.5, -0.285, 0.06, 0.1, 0.04, comb));                                            // the wattle
-  for (const sx of [-1, 1]) L.push(B(sx * 0.172, 0.66, -0.17, 0.01, 0.07, 0.07, eye));          // eyes, one each side
-  L.push(B(0.12, 0.53, 0.2, 0.06, 0.005, 0.06, p.speck), B(-0.08, 0.53, 0.26, 0.06, 0.005, 0.06, p.speck), B(0.02, 0.53, 0.08, 0.05, 0.005, 0.05, p.speck));
-  return boxes(L).scale(1.08, 1.08, 1.08);
-}
-function critterGeo(kind) {
-  if (HEN[kind]) return henGeo(HEN[kind]);
-  const L = [];
-  if (kind === 'pebble') {
-    // Pebble: a round grey stone with a cap of moss, two bright eyes and stubby feet.
-    const s = 0x9aa3ad, s2 = 0x7b848f, moss = 0x6fbf4a, moss2 = 0x4f9a33;
-    L.push(B(0, 0.1, 0, 0.54, 0.5, 0.58, s, { side: s2 }));
-    L.push(B(0, 0.6, 0, 0.44, 0.14, 0.48, s, { side: s2 }));
-    L.push(B(0, 0.74, 0.02, 0.36, 0.08, 0.4, moss, { side: moss2 }));
-    L.push(B(-0.08, 0.82, 0.06, 0.12, 0.06, 0.12, moss, { side: moss2 }));
-    L.push(B(-0.12, 0.42, -0.3, 0.13, 0.13, 0.03, 0xffffff), B(0.12, 0.42, -0.3, 0.13, 0.13, 0.03, 0xffffff));
-    L.push(B(-0.1, 0.44, -0.32, 0.06, 0.07, 0.02, 0x111820), B(0.14, 0.44, -0.32, 0.06, 0.07, 0.02, 0x111820));
-    L.push(B(-0.14, 0, -0.04, 0.16, 0.1, 0.2, s2), B(0.14, 0, -0.04, 0.16, 0.1, 0.2, s2));
-  } else if (kind === 'sprout') {
-    const g = 0x62c84a, g2 = 0x48a838, belly = 0xd8f2a8;
-    L.push(B(0, 0.1, 0, 0.5, 0.62, 0.56, g, { side: g2 }));
-    L.push(B(0, 0.72, 0.02, 0.42, 0.12, 0.48, g, { side: g2 }));
-    L.push(B(0, 0.18, -0.29, 0.3, 0.34, 0.02, belly));
-    L.push(B(-0.12, 0.5, -0.29, 0.12, 0.14, 0.03, 0xffffff), B(0.12, 0.5, -0.29, 0.12, 0.14, 0.03, 0xffffff));
-    L.push(B(-0.1, 0.52, -0.31, 0.06, 0.08, 0.02, 0x15201a), B(0.14, 0.52, -0.31, 0.06, 0.08, 0.02, 0x15201a));
-    L.push(B(0, 0.84, 0.02, 0.06, 0.16, 0.06, 0x3b7d2a));
-    L.push(B(0.11, 0.96, 0.02, 0.2, 0.06, 0.14, 0x8fe05a, { side: 0x5fb83a }));
-    L.push(B(-0.08, 0.98, 0.02, 0.14, 0.05, 0.1, 0x8fe05a, { side: 0x5fb83a }));
-    L.push(B(-0.13, 0, -0.06, 0.14, 0.1, 0.24, 0xff9a2e, { side: 0xe07a12 }), B(0.13, 0, -0.06, 0.14, 0.1, 0.24, 0xff9a2e, { side: 0xe07a12 }));
-  } else {
-    const v = 0x9b6cff, v2 = 0x7a4fe0, pale = 0xe9dcff;
-    L.push(B(0, 0.08, 0, 0.56, 0.6, 0.6, v, { side: v2 }));
-    L.push(B(0, 0.68, 0, 0.46, 0.1, 0.5, v, { side: v2 }));
-    L.push(B(0, 0.36, -0.31, 0.3, 0.26, 0.03, 0xffffff));
-    L.push(B(0, 0.4, -0.33, 0.14, 0.14, 0.02, 0x1b1230));
-    L.push(B(0.04, 0.48, -0.34, 0.05, 0.05, 0.01, 0xffffff));
-    L.push(B(0, 0.16, -0.31, 0.2, 0.05, 0.02, pale));
-    L.push(B(-0.15, 0.78, 0, 0.08, 0.16, 0.08, pale), B(0.15, 0.78, 0, 0.08, 0.16, 0.08, pale));
-    L.push(B(-0.14, 0, 0, 0.16, 0.08, 0.2, v2), B(0.14, 0, 0, 0.16, 0.08, 0.2, v2));
-  }
-  return boxes(L);
-}
+/* ── the animals: OUR characters, not anybody else's ─────────────────────
+   Owen 2026-10-28: a chicken (the default), a cat, a dog, a pig and a frog, all our own voxel designs. Their boxes are
+   shared/crossyCast.js, the same ones the lobby's Customize draws. A look is an animal's id, with ':alt' for its second
+   coat (the rival's, when both seats wear the same animal). */
+const CAST = window.DS_CROSSY_CAST;
+function castOf(look) { const [id, alt] = String(look || 'chicken').split(':'); return { id, alt: alt === 'alt' }; }
+function critterGeo(look) { const c = castOf(look); return boxes(CAST.model(c.id, c.alt)); }
 
 // The eagle: our own bird (a slate hawk), wings out, 2.9 across like the reference's.
 function eagleGeo() {
@@ -634,7 +574,7 @@ export function createScene(canvas) {
 
   /* ── the hoppers ─────────────────────────────────────────────────────── */
   const crit = [0, 1].map(() => {
-    const solid = new THREE.Mesh(critterGeo('nugget'), MAT);
+    const solid = new THREE.Mesh(critterGeo('chicken'), MAT);
     const holder = new THREE.Group();
     holder.add(solid);
     const sh = shadow(scene, -0.25, 0.25 + 0.95, -0.3, 0.3, 0);
@@ -645,13 +585,14 @@ export function createScene(canvas) {
   const eagle = new THREE.Mesh(eagleGeo(), MAT);
   eagle.visible = false;
   scene.add(eagle);
-  // The splash (70 blue boxes, the reference's drown burst) and the feathers (our hen's, in her own colours).
+  // The splash (70 blue boxes, the reference's drown burst) and the feathers (the chicken's, in its own colours).
   const splash = [0, 1].map(() => makeBurst(scene, 70, 0x449eff, [0.15, 0.15, 0.15], { acc: 1.9, grav: 0.3, size: 0.9, dir: [0, 1.5, 0], ground: true }));
   const feathers = [0, 1].map(() => ({}));
+  // null for an animal with no feathers.
   function featherBurst(k, look) {
-    const p = HEN[look] || HEN.nugget;
-    const key = look in HEN ? look : 'nugget';
-    if (!feathers[k][key]) feathers[k][key] = makeBurst(scene, 40, p.body, [0.1, 0.004, 0.02], { acc: 0.4, grav: 0.02, size: 1.6, dir: [3.5, 2, -3], spin: 3 });
+    const c = castOf(look), col = CAST.feathers(c.id, c.alt), key = c.id + (c.alt ? ':alt' : '');
+    if (col == null) return null;
+    if (!feathers[k][key]) feathers[k][key] = makeBurst(scene, 40, col, [0.1, 0.004, 0.02], { acc: 0.4, grav: 0.02, size: 1.6, dir: [3.5, 2, -3], spin: 3 });
     return feathers[k][key];
   }
 
@@ -728,13 +669,14 @@ export function createScene(canvas) {
       if (best) c.carry = { mesh: best, lastX: best.position.x, off: best.position.x - b.x, side: true };
     }
     if (dead.type === 'water' || dead.type === 'log') splash[k].fire(b.x, 0.5, b.z);
-    if ((dead.type === 'car' || dead.type === 'train') && (c.look in HEN || !c.look)) featherBurst(k, c.look).fire(b.x, b.y + 0.4, b.z);
+    const fb = (dead.type === 'car' || dead.type === 'train') ? featherBurst(k, c.look) : null;
+    if (fb) fb.fire(b.x, b.y + 0.4, b.z);
   }
-  /* Each seat's look (shared/crossyLooks.js ids; null = Nugget). When both seats wear Nugget, the one that is not
-     yours (seat 1 for a watcher) wears Pepper, so the two hens tell apart at a glance. */
+  /* Each seat's look (shared/crossyLooks.js ids; null = the chicken). When both seats wear the same animal, the one
+     that is not yours (seat 1 for a watcher) wears its second coat, so the two tell apart at a glance. */
   function setLooks(ids, mySeat) {
-    const want = [0, 1].map(k => (ids && ids[k]) || 'nugget');
-    if (want[0] === 'nugget' && want[1] === 'nugget') want[mySeat === 1 ? 0 : 1] = 'pepper';
+    const want = [0, 1].map(k => (ids && ids[k]) || 'chicken');
+    if (want[0] === want[1]) want[mySeat === 1 ? 0 : 1] += ':alt';
     for (let k = 0; k < 2; k++) {
       const c = crit[k];
       if (c.look === want[k]) continue;

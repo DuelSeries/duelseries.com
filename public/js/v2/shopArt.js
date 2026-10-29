@@ -458,45 +458,105 @@
     ctx.restore();
   }
 
-  /* Crossy Road: the critter as a voxel block seen the game's way (top, front, right face), hopping on the spot. Not a
-     Shop game (nothing is sold for it yet), so Customize draws it through paintWith only, { col } of a look. */
+  /* Crossy Road: the animal you play (shared/crossyCast.js, the same boxes the game builds), drawn in 2D turned three
+     quarters to you and seen a little from above, hopping on the spot on a perfect 0.9 s loop: a crouch, the hop,
+     the landing squash. Not a Shop game (nothing is sold for it), so Customize draws it through paintWith with
+     { id } of a look (shared/crossyLooks.js). The model is drawn once per size into a sprite: the boxes in an order
+     where nothing is drawn over what stands in front of it (disjoint boxes, sorted by the axis that separates
+     them), each with its faces lit from the upper left; the hop only moves and squashes that sprite. */
+  var CR_YAW = Math.PI - 0.6, CR_TILT = 0.5, CR_SPRITE = {};
+  function crossySprite(id, w, h) {
+    var key = id + ':' + w + 'x' + h;
+    if (CR_SPRITE[key]) return CR_SPRITE[key];
+    var CAST = root.DS_CROSSY_CAST;
+    if (!CAST) return null;
+    var L = CAST.model(id), cy = Math.cos(CR_YAW), sy = Math.sin(CR_YAW), ct = Math.cos(CR_TILT), st = Math.sin(CR_TILT);
+    // Model space to the view: turned by the yaw about the up axis, then tipped toward you.
+    function rot(x, z) { return [x * cy + z * sy, -x * sy + z * cy]; }
+    function proj(x, y, z) { var r = rot(x, z); return [r[0], -y * ct + r[1] * st]; }
+    // The view direction in model space (toward you), for which side of a box is nearer.
+    var v = [-sy * ct, st, cy * ct];
+    var LIGHT = [-0.45, 1, 0.55], ll = Math.hypot(LIGHT[0], LIGHT[1], LIGHT[2]);
+    var FACE = [
+      { k: 'top', n: [0, 1, 0], c: function (b) { return [[b[0], b[4], b[2]], [b[3], b[4], b[2]], [b[3], b[4], b[5]], [b[0], b[4], b[5]]]; } },
+      { k: 'front', n: [0, 0, 1], c: function (b) { return [[b[0], b[1], b[5]], [b[3], b[1], b[5]], [b[3], b[4], b[5]], [b[0], b[4], b[5]]]; } },
+      { k: 'back', n: [0, 0, -1], c: function (b) { return [[b[0], b[1], b[2]], [b[3], b[1], b[2]], [b[3], b[4], b[2]], [b[0], b[4], b[2]]]; } },
+      { k: 'side', n: [1, 0, 0], c: function (b) { return [[b[3], b[1], b[2]], [b[3], b[1], b[5]], [b[3], b[4], b[5]], [b[3], b[4], b[2]]]; } },
+      { k: 'left', n: [-1, 0, 0], c: function (b) { return [[b[0], b[1], b[2]], [b[0], b[1], b[5]], [b[0], b[4], b[5]], [b[0], b[4], b[2]]]; } },
+    ].filter(function (f) { return f.n[0] * v[0] + f.n[1] * v[1] + f.n[2] * v[2] > 1e-6; });
+    // Screen bounds of each box, to fit the model and to know which pairs overlap on screen.
+    var bb = L.map(function (b) {
+      var mn = [1e9, 1e9], mx = [-1e9, -1e9];
+      for (var i = 0; i < 8; i++) {
+        var p = proj(i & 1 ? b[3] : b[0], i & 2 ? b[4] : b[1], i & 4 ? b[5] : b[2]);
+        mn[0] = Math.min(mn[0], p[0]); mn[1] = Math.min(mn[1], p[1]); mx[0] = Math.max(mx[0], p[0]); mx[1] = Math.max(mx[1], p[1]);
+      }
+      return [mn, mx];
+    });
+    // A before B when they overlap on screen and an axis separates them with B on your side of it.
+    var n = L.length, after = L.map(function () { return []; }), deg = L.map(function () { return 0; }), E = 1e-6;
+    for (var a = 0; a < n; a++) for (var c = a + 1; c < n; c++) {
+      if (bb[a][1][0] <= bb[c][0][0] || bb[c][1][0] <= bb[a][0][0] || bb[a][1][1] <= bb[c][0][1] || bb[c][1][1] <= bb[a][0][1]) continue;
+      var A = L[a], C = L[c], first = -1;
+      for (var ax = 0; ax < 3 && first < 0; ax++) {
+        if (A[ax + 3] <= C[ax] + E) first = v[ax] > 0 ? a : c;
+        else if (C[ax + 3] <= A[ax] + E) first = v[ax] > 0 ? c : a;
+      }
+      if (first < 0) continue;
+      var second = first === a ? c : a;
+      after[first].push(second); deg[second]++;
+    }
+    var depth = L.map(function (b) { var m = [(b[0] + b[3]) / 2, (b[1] + b[4]) / 2, (b[2] + b[5]) / 2]; return m[0] * v[0] + m[1] * v[1] + m[2] * v[2]; });
+    var order = [], left = L.map(function (_, i) { return i; });
+    while (left.length) {
+      // The farthest box nothing has to come before; on a cycle, the farthest box left.
+      var pick = -1;
+      left.forEach(function (i) { if (!deg[i] && (pick < 0 || depth[i] < depth[pick])) pick = i; });
+      if (pick < 0) left.forEach(function (i) { if (pick < 0 || depth[i] < depth[pick]) pick = i; });
+      order.push(pick); left.splice(left.indexOf(pick), 1);
+      after[pick].forEach(function (j) { deg[j]--; });
+    }
+    var mnx = 1e9, mny = 1e9, mxx = -1e9, mxy = -1e9;
+    bb.forEach(function (q) { mnx = Math.min(mnx, q[0][0]); mny = Math.min(mny, q[0][1]); mxx = Math.max(mxx, q[1][0]); mxy = Math.max(mxy, q[1][1]); });
+    // Fill most of the box's height, leaving the hop room above; the feet's middle sits at the sprite's anchor.
+    var sc = Math.min(h * 0.62 / (mxy - mny), w * 0.8 / (mxx - mnx));
+    var cv = document.createElement('canvas'); cv.width = Math.ceil((mxx - mnx) * sc) + 4; cv.height = Math.ceil((mxy - mny) * sc) + 4;
+    var g = cv.getContext('2d');
+    g.lineJoin = 'round'; g.lineWidth = 0.6;
+    order.forEach(function (i) {
+      var b = L[i], fc = b[7];
+      FACE.forEach(function (f) {
+        var hex = b[6];
+        if (fc) { if (fc[f.k] !== undefined) hex = fc[f.k]; else if (f.k !== 'top' && fc.sides !== undefined) hex = fc.sides; }
+        var rn = rot(f.n[0], f.n[2]), lit = 0.6 + 0.48 * Math.max(0, (rn[0] * LIGHT[0] + f.n[1] * LIGHT[1] + rn[1] * LIGHT[2]) / ll);
+        var col = rgbHex(hexRgb('#' + ('00000' + hex.toString(16)).slice(-6)).map(function (x) { return x * lit; }));
+        g.fillStyle = col; g.strokeStyle = col;
+        g.beginPath();
+        f.c(b).forEach(function (q, j) { var p = proj(q[0], q[1], q[2]); var X = (p[0] - mnx) * sc + 2, Y = (p[1] - mny) * sc + 2; if (j) g.lineTo(X, Y); else g.moveTo(X, Y); });
+        g.closePath(); g.fill(); g.stroke();
+      });
+    });
+    var foot = proj(0, 0, 0);
+    return (CR_SPRITE[key] = { cv: cv, ax: (foot[0] - mnx) * sc + 2, ay: (foot[1] - mny) * sc + 2, sc: sc });
+  }
   function paintCrossy(cv, k, t, big, bare) {
     var ctx = cv.getContext('2d'), w = cv.width, h = cv.height;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     if (bare) ctx.clearRect(0, 0, w, h); else { ctx.fillStyle = '#9bc846'; ctx.fillRect(0, 0, w, h); }
-    var s = Math.min(w, h) * 0.34, hop = Math.max(0, Math.sin((t % 0.9) / 0.9 * Math.PI)) * s * 0.25;
-    var cx = w / 2 - s * 0.15, top = h / 2 - s * 0.55 - hop, col = k.col || '#62c84a';
-    var dx = s * 0.45, dy = s * 0.3;
-    ctx.fillStyle = 'rgba(0,0,0,0.18)'; ctx.fillRect(cx - s / 2 + dx * 0.4, h / 2 + s * 0.62, s + dx, dy * 0.6);
-    // One block seen from the front and a little from above and the right: x, y (its top), size, depth d, all in s.
-    function box(x, y, bw, bh, d, c) {
-      var X = cx + x * s, Y = top + y * s, Wd = bw * s, Hd = bh * s, ox = d * dx, oy = d * dy;
-      ctx.fillStyle = mix(c, '#ffffff', 0.12);
-      ctx.beginPath(); ctx.moveTo(X, Y); ctx.lineTo(X + Wd, Y); ctx.lineTo(X + Wd + ox, Y - oy); ctx.lineTo(X + ox, Y - oy); ctx.fill();
-      ctx.fillStyle = c; ctx.fillRect(X, Y, Wd, Hd);
-      ctx.fillStyle = mix(c, '#1a1340', 0.4);
-      ctx.beginPath(); ctx.moveTo(X + Wd, Y); ctx.lineTo(X + Wd + ox, Y - oy); ctx.lineTo(X + Wd + ox, Y - oy + Hd); ctx.lineTo(X + Wd, Y + Hd); ctx.fill();
-    }
-    if (k.id === 'nugget') {
-      // Nugget, our hen (public/js/crossy/crossyScene.js henGeo): the tail behind, the body, the head set forward, the comb.
-      box(-0.18, 0.12, 0.36, 0.34, 0.5, '#e9a24c');
-      box(-0.5, 0.42, 1.0, 0.72, 1, '#fbd88e');
-      box(-0.36, 0.5, 0.06, 0.4, 0.6, '#f0b85c');
-      box(-0.4, -0.12, 0.7, 0.62, 0.62, '#fff0c8');
-      box(-0.22, -0.3, 0.14, 0.2, 0.5, '#e8475e'); box(-0.06, -0.38, 0.14, 0.28, 0.5, '#c93349'); box(0.1, -0.3, 0.14, 0.2, 0.5, '#e8475e');
-      box(-0.18, 0.16, 0.24, 0.12, 0.15, '#f2a21b');
-      box(-0.12, 0.28, 0.12, 0.16, 0.05, '#e8475e');
-      ctx.fillStyle = '#241610'; ctx.fillRect(cx - s * 0.32, top + s * 0.02, s * 0.1, s * 0.12); ctx.fillRect(cx + s * 0.08, top + s * 0.02, s * 0.1, s * 0.12);
-      box(-0.3, 1.14, 0.12, 0.14, 0.3, '#f4b23a'); box(0.16, 1.14, 0.12, 0.14, 0.3, '#f4b23a');
-      return;
-    }
-    ctx.fillStyle = mix(col, '#ffffff', 0.12);                          // top
-    ctx.beginPath(); ctx.moveTo(cx - s / 2, top); ctx.lineTo(cx + s / 2, top); ctx.lineTo(cx + s / 2 + dx, top - dy); ctx.lineTo(cx - s / 2 + dx, top - dy); ctx.fill();
-    ctx.fillStyle = col; ctx.fillRect(cx - s / 2, top, s, s * 1.1);    // front
-    ctx.fillStyle = mix(col, '#1a1340', 0.45);                          // right
-    ctx.beginPath(); ctx.moveTo(cx + s / 2, top); ctx.lineTo(cx + s / 2 + dx, top - dy); ctx.lineTo(cx + s / 2 + dx, top - dy + s * 1.1); ctx.lineTo(cx + s / 2, top + s * 1.1); ctx.fill();
-    ctx.fillStyle = '#ffffff'; ctx.fillRect(cx - s * 0.32, top + s * 0.28, s * 0.22, s * 0.24); ctx.fillRect(cx + s * 0.1, top + s * 0.28, s * 0.22, s * 0.24);
-    ctx.fillStyle = '#15201a'; ctx.fillRect(cx - s * 0.25, top + s * 0.34, s * 0.1, s * 0.14); ctx.fillRect(cx + s * 0.17, top + s * 0.34, s * 0.1, s * 0.14);
+    var S = crossySprite(k.id || 'chicken', w, h);
+    if (!S) return;
+    // The hop: crouch, spring up stretched, land squashed, settle; at rest at both ends of the loop.
+    var q = (t % 0.9) / 0.9, lift = 0, sx = 1, sy = 1, f;
+    if (q < 0.16) { f = Math.sin(q / 0.16 * Math.PI); sx = 1 + 0.08 * f; sy = 1 - 0.14 * f; }
+    else if (q < 0.66) { f = (q - 0.16) / 0.5; lift = Math.sin(f * Math.PI) * h * 0.13; sy = 1 + 0.06 * Math.sin(f * Math.PI); sx = 1 - 0.03 * Math.sin(f * Math.PI); }
+    else if (q < 0.84) { f = Math.sin((q - 0.66) / 0.18 * Math.PI); sx = 1 + 0.1 * f; sy = 1 - 0.12 * f; }
+    var fx = w / 2, fy = h * 0.84;
+    // Its shadow on the ground, smaller while it is up.
+    ctx.fillStyle = 'rgba(0,0,0,' + (bare ? 0.28 : 0.18) + ')';
+    ctx.beginPath(); ctx.ellipse(fx, fy, S.sc * 0.3 * (1 - lift / h), S.sc * 0.12 * (1 - lift / h), 0, 0, 6.2832); ctx.fill();
+    ctx.save(); ctx.translate(fx, fy - lift); ctx.scale(sx, sy);
+    ctx.drawImage(S.cv, -S.ax, -S.ay);
+    ctx.restore();
   }
 
   /* ── Rooftop Snipers ─────────────────────────────────────────────────── */

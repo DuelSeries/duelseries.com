@@ -3426,6 +3426,7 @@ body.scr-anim { overflow-x:hidden }
 <script src="/shared/ahSkins.js"></script>
 <script src="/shared/pool8Looks.js"></script>
 <script src="/shared/crossyLooks.js"></script>
+<script src="/shared/crossyCast.js"></script>
 <script src="/shared/rtLooks.js"></script>
 <script src="/shared/swimLooks.js"></script>
 <script src="/shared/shopSkins.js"></script>
@@ -4186,7 +4187,7 @@ const P8_LOOKS=(P8L?P8L.LOOKS:[]).map(s=>({id:'p8:'+s.id,game:'pool8',p8:s,name:
 let p8LookId='';
 try{p8LookId=String(localStorage.getItem(P8L?P8L.KEY:'')||'').trim()}catch(_){}
 if(!P8_LOOKS.some(s=>s.p8.id===p8LookId))p8LookId='';
-/* Crossy Road keeps one of its free critters (shared/crossyLooks.js) the same way, under duel.crossy.skin, sent by
+/* Crossy Road keeps one of its free animals (shared/crossyLooks.js) the same way, under duel.crossy.skin, sent by
    /crossy with cr:queue and checked by its server (server/crossy/crossyWire.js). */
 const CRL=window.DS_CROSSY_LOOKS;
 const CR_LOOKS=(CRL?CRL.SKINS:[]).map(s=>({id:'cr:'+s.id,game:'crossy',cr:s,name:s.name,col:s.col}));
@@ -4266,7 +4267,7 @@ function lookList(g){
   }):[];
   /* Every free skin first, then every paid one: one run of each. */
   const free=g.look?LOOKS:g.id==='swim'?SW_LOOKS
-    :[{id:'default',game:g.id,name:g.id==='rooftop'?'Random':g.id==='pool8'?'Classic blue':g.id==='crossy'?'Nugget':S.defaultName(g.id)}].concat(g.id==='rooftop'?RT_LOOKS:g.id==='agar'?AG_LOOKS:g.id==='chomp'?CH_LOOKS:g.id==='airhockey'?AH_LOOKS:g.id==='pool8'?P8_LOOKS:g.id==='crossy'?CR_LOOKS:[]);
+    :[{id:'default',game:g.id,name:g.id==='rooftop'?'Random':g.id==='pool8'?'Classic blue':g.id==='crossy'?'Chicken':S.defaultName(g.id)}].concat(g.id==='rooftop'?RT_LOOKS:g.id==='agar'?AG_LOOKS:g.id==='chomp'?CH_LOOKS:g.id==='airhockey'?AH_LOOKS:g.id==='pool8'?P8_LOOKS:g.id==='crossy'?CR_LOOKS:[]);
   return free.concat(paid);
 }
 let LK=[];   /* what the open chooser lists, from lookList */
@@ -4312,7 +4313,7 @@ function paintLook(cv){
     if(window.V2Shop){if(cur.id==='rooftop')V2Shop.paintWith(cv,'rooftop',{look:s&&s.rt?s.rt.id:''},lookT,false,true);
       else if(cur.id==='swim')V2Shop.paintWith(cv,'swim',{car:s&&s.sw?s.sw.id:''},lookT,false,true);
       else if(cur.id==='pool8')V2Shop.paintWith(cv,cur.id,s&&s.p8?s.p8:{},lookT,false,true);
-      else if(cur.id==='crossy')V2Shop.paintWith(cv,cur.id,{col:s&&s.cr?s.col:'#fbd88e',id:s&&s.cr?s.cr.id:'nugget'},lookT,false,true);
+      else if(cur.id==='crossy')V2Shop.paintWith(cv,cur.id,{col:s&&s.cr?s.col:'#f8f8f3',id:s&&s.cr?s.cr.id:'chicken'},lookT,false,true);
       else if(s&&(s.ag||s.ch||s.ah))V2Shop.paintWith(cv,cur.id,{col:s.col},lookT,false,true);
       else V2Shop.paint(cv,cur.id,s&&s.shop?s.shop.id:'default',lookT,false,true)}
     return}
@@ -4320,7 +4321,7 @@ function paintLook(cv){
     if(s.game==='rooftop')V2Shop.paintWith(cv,'rooftop',{look:s.rt?s.rt.id:''},lookT,false,true);
     else if(s.game==='swim')V2Shop.paintWith(cv,'swim',{car:s.sw?s.sw.id:''},lookT,false,true);
     else if(s.game==='pool8')V2Shop.paintWith(cv,s.game,s.p8||{},lookT,false,true);
-    else if(s.game==='crossy')V2Shop.paintWith(cv,s.game,{col:s.cr?s.col:'#fbd88e',id:s.cr?s.cr.id:'nugget'},lookT,false,true);
+    else if(s.game==='crossy')V2Shop.paintWith(cv,s.game,{col:s.cr?s.col:'#f8f8f3',id:s.cr?s.cr.id:'chicken'},lookT,false,true);
     else if(s.ag||s.ch||s.ah)V2Shop.paintWith(cv,s.game,{col:s.col},lookT,false,true);
     else V2Shop.paint(cv,s.game,s.shop?s.shop.id:'default',lookT,false,true);
     return}

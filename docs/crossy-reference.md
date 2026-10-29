@@ -169,9 +169,11 @@ on the lower right; the coin count is 35 px tall at the top right; the pause is 
 gap, 10 px from the right and 65 px down. On a phone the reference letterboxes to 9:16 (blue bars); ours keeps the 9:16
 width and shows more road above and below, so the world and the HUD are the same size as the reference's on a phone.
 
-Character: Nugget, our own hen (default look): golden-buff body wider than tall, a separate cream head set forward, a
-three-lobed rose comb lying front to back, a short gold beak and a red wattle, eyes on the sides, an upswept tail. Pepper
-(the same hen in blue-grey) is worn by the rival when both wear Nugget. Sprout, Bloop and Pebble stay free looks.
+Characters (2026-10-28, Owen: proper voxel animals): our own chicken (default), cat, dog, pig and frog, every one
+our design, boxes in shared/crossyCast.js (the game and the lobby draw the same). The chicken is a plump white hen with
+a big round head forward of its body, a three-lobed comb, red wattle, yellow beak, orange legs, grey-tipped wings and
+a stepped tail fan, not the reference's tall single block. When both seats wear the same animal the rival wears its
+second coat. Nugget, Pepper, Sprout, Bloop and Pebble are retired; an old saved id wears the chicken.
 
 ## The bot (free tables only), CHOSEN 2026-10-28
 Owen: the old bot was "absolutely insane, they destroy me instantly". It looked again every 2 to 5 ticks (a machine's
