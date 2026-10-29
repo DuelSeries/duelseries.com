@@ -278,7 +278,9 @@
     el('p-name').textContent = p.name;
     const rank = knownRank(p.name);
     el('p-sub').innerHTML = (rank ? 'Rank <span class="num">' + rank + '</span>' : '') +
-      (p.preview ? (rank ? ', ' : '') + '<span class="lb-tag p-tag">' + PV().tag + '</span> player' : '');
+      // Owen's own preview browser (liveLook) wears LIVE with the pulsing dot, like the board and Global winnings.
+      (p.preview ? (rank ? ', ' : '') + (PV().liveLook ? '<span class="win-live p-live"><i aria-hidden="true"></i>LIVE</span>'
+        : '<span class="lb-tag p-tag">' + PV().tag + '</span> player') : '');
     el('p-net').textContent = money(p.totalEarnings);
     el('p-tiles').innerHTML = winRateTile(p.winRate) + [
       ['Games played', String(p.gamesPlayed || 0)],
