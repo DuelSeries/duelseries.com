@@ -55,6 +55,22 @@ test('reserved: the site and staff names in any spelling; ordinary names, bots i
   assert.notStrictEqual(nameKey('Owen'), nameKey('Owens'));
 });
 
+test('second pass (night review 2026-10-29): accents and the Greek and Cyrillic look-alikes fold into the key', () => {
+  const owen = nameKey('Owen');
+  for (const s of ['Owe' + ch(0x43f), 'Ow' + ch(0xe9) + 'n', 'OWE' + ch(0x39d), ch(0x39f) + 'w' + ch(0x435) + 'n',
+    ch(0xd3) + 'wen', 'Owe' + ch(0x3b7), 'Owe' + 'n' + ch(0x301), 'O' + ch(0x461) + 'en']) {
+    assert.strictEqual(nameKey(s), owen, JSON.stringify(s));
+  }
+  for (const s of [ch(0x405) + 'upport', ch(0xc1) + 'dmin', ch(0x39c) + 'OD', 'DuelS' + ch(0xe9) + 'ri' + ch(0xe9) + 's',
+    ch(0x41c) + 'oderator', 'Ad' + ch(0x43c) + 'in']) {
+    assert.strictEqual(isReservedName(s), true, JSON.stringify(s));
+  }
+  for (const s of ['Zo' + ch(0xeb), 'Jos' + ch(0xe9), 'Ownage', 'Modern', ch(0x412) + 'ob']) {
+    assert.strictEqual(isReservedName(s), false, JSON.stringify(s));
+  }
+  assert.strictEqual(cleanName('Ow' + ch(0xe9) + 'n'), 'Ow' + ch(0xe9) + 'n', 'the name as shown keeps its accent');
+});
+
 test('the server sanitizeName: invisible characters stripped, staff and brand names become Player, the rest unchanged', () => {
   const sanitizeName = serverSanitizeName();
   assert.strictEqual(sanitizeName('Owen' + ch(0x200b)), 'Owen');
@@ -131,6 +147,33 @@ test('recordEarnings: a payout names an account only with a free, real name; the
     await assert.rejects(db.recordEarnings('W4', 'Player', 1, 0), /duplicate/);
     assert.strictEqual(sent.length, 1, 'a nameless upsert is never retried');
   });
+});
+
+test('recordEarnings: if Postgres refuses the upsert itself (class 42), the old nameless upsert runs once and the landed row is still written', async () => {
+  const db = require('../server/db');
+  const refused = (code) => { const e = new Error('refused'); e.code = code; return e; };
+  const realErr = console.error;
+  console.error = () => {};
+  try {
+    for (const code of ['42601', '42883', '42P18', '42804']) {
+      await withPool(db, async (sql, p, i) => { if (i === 1) throw refused(code); return { rows: [] }; }, async (sent) => {
+        await db.recordEarnings('W5', 'Bob', 2, 3);
+        assert.strictEqual(sent.length, 3, code);
+        assert.deepStrictEqual(sent[0].params, ['W5', 'Bob', 2]);
+        assert.match(sent[1].sql, /^INSERT INTO accounts \(google_id, total_earnings\) VALUES \(\$1, \$2\) ON CONFLICT \(google_id\) DO UPDATE SET total_earnings = COALESCE\(accounts\.total_earnings, 0\) \+ \$2$/);
+        assert.deepStrictEqual(sent[1].params, ['W5', 2], 'total_earnings added once, no name');
+        assert.match(sent[2].sql, /INSERT INTO earnings_history/);
+        assert.deepStrictEqual(sent[2].params, ['W5', 2, 3]);
+      });
+    }
+    // the fallback failing too is the caller's, as before (nothing else retried)
+    await withPool(db, async (sql, p, i) => { throw refused(i === 1 ? '42601' : '08006'); }, async (sent) => {
+      await assert.rejects(db.recordEarnings('W6', 'Bob', 1, 0), /refused/);
+      assert.strictEqual(sent.length, 2);
+    });
+  } finally {
+    console.error = realErr;
+  }
 });
 
 test('getProfile: a name two accounts share opens the older one', async () => {

@@ -14,9 +14,16 @@
 // phone push escape them (SERVER-DESIGN 12.3). A paid name also reaches accounts.name, hence MARKUP.
 //
 // BOT_NAMES is slBots' list (one copy, BUILD-DECISIONS T12); every one passes cleanNick unchanged (tested).
+//
+// seatNick(raw, laws) is the name a seat actually gets: cleanNick, then a name that reads as the site or its staff
+// ("DuelSeries Support", "Admin", "Owner": server/playerName.js isReservedName) becomes '' (no name, as their client
+// shows a nick that fails gdnm). cleanNick never calls the shared sanitizeName, so without this a free or paid /sl
+// snake could chat as "DuelSeries Support" and tell a winner to verify a wallet (night review 2026-10-29, finding
+// 26). cleanNick itself stays their client's rules exactly (the fuzz test); no bot name is reserved (tested).
 
 const { LAWS, assertLawsComplete } = require('./slLaws');
 const { BOT_NAMES } = require('./slBots');
+const { isReservedName } = require('../playerName');
 
 const NAME_LAW_IDS = Object.freeze(['L45']);
 
@@ -88,4 +95,10 @@ function cleanNick(raw, laws) {
   return gdnm(s) ? s.replace(MARKUP, '') : '';
 }
 
-module.exports = { NAME_LAW_IDS, asciize, gdnm, nameMax, cleanNick, BOT_NAMES };
+// The name a seat gets (see the header): cleanNick, and '' for a reserved name (night review 2026-10-29).
+function seatNick(raw, laws) {
+  const s = cleanNick(raw, laws);
+  return s && isReservedName(s) ? '' : s;
+}
+
+module.exports = { NAME_LAW_IDS, asciize, gdnm, nameMax, cleanNick, seatNick, BOT_NAMES };

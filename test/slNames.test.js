@@ -10,7 +10,7 @@ const vm = require('vm');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
-const { cleanNick, asciize, gdnm, nameMax, BOT_NAMES } = require('../server/sl/slNames');
+const { cleanNick, seatNick, asciize, gdnm, nameMax, BOT_NAMES } = require('../server/sl/slNames');
 const { LAWS } = require('../server/sl/slLaws');
 const { createRng } = require('../server/sl/slRng');
 const slBots = require('../server/sl/slBots');
@@ -113,4 +113,26 @@ test('BOT_NAMES is slBots list (one copy) and every name passes cleanNick unchan
   assert.strictEqual(BOT_NAMES, slBots.BOT_NAMES);
   assert.ok(BOT_NAMES.length > 0);
   for (const n of BOT_NAMES) assert.strictEqual(cleanNick(n), n, n);
+});
+
+// Night review 2026-10-29 (finding 26): cleanNick never calls the shared sanitizeName, so the staff and brand names
+// reach a seat only through seatNick, which blanks them; every other name, every bot's included, is cleanNick's.
+test('seatNick: no staff or brand name ever seats; bot names and ordinary names are cleanNick unchanged', () => {
+  for (const n of ['DuelSeries Support', 'Admin', 'Owner', 'admin', 'OWNER', 'Support', 'duel series', 'DueISeries',
+    'Mod', 'the mods', 'Staff', 'Official', 'Moderator', 'xX_Admin_Xx', 'D u e l S e r i e s', 'Owner123']) {
+    assert.strictEqual(seatNick(n), '', n);
+  }
+  for (const n of BOT_NAMES) assert.strictEqual(seatNick(n), n, n);
+  for (const n of ['Bob', 'Stafford', 'Modern', 'Badminton', 'Downer', 'snake king', '', 'Owen']) {
+    assert.strictEqual(seatNick(n), cleanNick(n), n);
+  }
+  assert.strictEqual(seatNick('abc1234567'), '', 'their rules still apply first');
+  assert.strictEqual(seatNick('<b>Bob</b>'), 'bBob/b', 'markup still stripped');
+  assert.strictEqual(seatNick({}), '');
+});
+
+test('sl:join seats the name through seatNick (the socket layer never calls cleanNick alone)', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server', 'sl', 'slSockets.js'), 'utf8');
+  assert.match(src, /const nick = seatNick\(/);
+  assert.doesNotMatch(src, /cleanNick\(/);
 });

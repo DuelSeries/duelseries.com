@@ -753,14 +753,31 @@ const EARNINGS_UPSERT = `INSERT INTO accounts (google_id, name, total_earnings)
    ON CONFLICT (google_id) DO UPDATE SET total_earnings = COALESCE(accounts.total_earnings, 0) + $3,
      name = CASE WHEN (accounts.name IS NULL OR accounts.name = '' OR LOWER(accounts.name) = 'player') AND EXCLUDED.name IS NOT NULL
                  THEN EXCLUDED.name ELSE accounts.name END`;
+// The statement from before the night review minus its name half, for when Postgres refuses EARNINGS_UPSERT itself
+// (an error of class 42: syntax, an unknown function, a type it cannot settle). EARNINGS_UPSERT had never run on a
+// real database when it shipped (there is none on the dev machine), and a refused statement writes nothing, so going
+// again with this adds total_earnings exactly once and the landed row below is still written: a cash-out never
+// vanishes from the boards over it, it only lands nameless (night review 2026-10-29).
+const EARNINGS_UPSERT_PLAIN = `INSERT INTO accounts (google_id, total_earnings) VALUES ($1, $2)
+   ON CONFLICT (google_id) DO UPDATE SET total_earnings = COALESCE(accounts.total_earnings, 0) + $2`;
+let earningsPlainSaid = false;
 async function recordEarnings(id, name, sol, cadAmount = 0) {
   const n = playerName.cleanName(name);
   const want = (n && n.toLowerCase() !== 'player' && !playerName.isReservedName(n)) ? n : null;
   try {
     await pool.query(EARNINGS_UPSERT, [id, want, sol]);
   } catch (e) {
-    if (!(e && e.code === '23505') || want === null) throw e;
-    await pool.query(EARNINGS_UPSERT, [id, null, sol]);
+    const code = e && typeof e.code === 'string' ? e.code : '';
+    if (code.startsWith('42')) {
+      if (!earningsPlainSaid) {
+        earningsPlainSaid = true;
+        console.error(`[DB] CRITICAL earnings upsert refused (${code}: ${e.message}); earnings are recorded without names`);
+      }
+      await pool.query(EARNINGS_UPSERT_PLAIN, [id, sol]);
+    } else {
+      if (code !== '23505' || want === null) throw e;
+      await pool.query(EARNINGS_UPSERT, [id, null, sol]);
+    }
   }
   await pool.query(`INSERT INTO earnings_history (google_id, amount, cad_amount) VALUES ($1, $2, $3)`, [id, sol, cadAmount]);
   for (const fn of earningsListeners) { try { fn(id); } catch (_) { /* a listener never touches the payout */ } }
