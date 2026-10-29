@@ -4204,6 +4204,12 @@ setInterval(() => {
    says which hour was right. Working in wall-clock seconds means the daylight
    saving switch takes care of itself. Same reasoning as the lobby countdown. */
 const BR_PRIZE_USDC = C.BR_PRIZE_USDC;
+/* Days a winner's wallet, or the network they won from, waits between two
+   AUTOMATIC prizes (night review 2026-10-29, brPrizeRule.recentPrize): 7
+   unless BR_PRIZE_COOLDOWN_DAYS says otherwise, 0 turns it off. A prize
+   inside it is held for Owen to settle by hand, never lost. */
+const BR_PRIZE_COOLDOWN_DAYS = /^\d{1,3}$/.test(process.env.BR_PRIZE_COOLDOWN_DAYS || '')
+  ? Number(process.env.BR_PRIZE_COOLDOWN_DAYS) : brPrizeRule.COOLDOWN_DAYS;
 const BR_AUTOSTART_HOUR = C.BR_AUTOSTART_HOUR, BR_AUTOSTART_MIN = C.BR_AUTOSTART_MIN;  // the first slot, Eastern
 const BR_EVERY_HOURS = C.BR_EVERY_HOURS, BR_JOIN_WINDOW_MS = C.BR_JOIN_WINDOW_MS;     // 2, 8, 2, 8; 30 s to join
 let _brFmt = null;
@@ -4244,10 +4250,26 @@ for (const p of brJournal.prizes()) _brPaid.add(p.matchId);
     } catch (_) {}
     brJournal.setLive(null);
   }
-  /* A prize whose send was under way when the last process died: it may or may
-     not have landed. It is NEVER sent again from here (that is how a prize gets
-     paid twice); Owen checks the escrow's history and settles by hand. */
+  sweepBrPrizesAtBoot();
+}
+/* A prize whose send was under way when the last process died: it may or may
+   not have landed. It is NEVER sent again from here (that is how a prize gets
+   paid twice); Owen checks the escrow's history and settles by hand. A function
+   of its own (night review 2026-10-29) so test/brPeople.test.js runs it. */
+function sweepBrPrizesAtBoot() {
   for (const p of brJournal.prizes()) {
+    /* A decision cut off (night review 2026-10-29): 'checking' is written
+       before the lookup that decides whether the prize is paid automatically,
+       and nothing is sent before 'paying', so nothing went out. Held for Owen. */
+    if (p.state === 'checking') {
+      console.warn(`[BR] ${p.matchId}: ${p.name} won; the server restarted while deciding the ${p.amount} USDC prize (nothing sent): held`);
+      try {
+        notify.pushOwner(`${p.name} won ${p.matchId}; the server restarted while it was deciding whether the ${p.amount} USDC prize could be paid automatically. Nothing was sent to ${p.wallet}. Settle it by hand if it was a real match.`,
+          { title: 'Battle Royale prize held', priority: 'high' });
+      } catch (_) {}
+      brJournal.setPrize(p.matchId, { state: 'held' });
+      continue;
+    }
     if (p.state !== 'paying') continue;
     console.error(`[BR] ${p.matchId}: the ${p.amount} USDC prize to ${p.wallet} was being sent at a restart; check it by hand`);
     try {
@@ -4318,9 +4340,34 @@ async function payBattleRoyaleWinner(room) {
      and _brPaid already holds this match id, so nothing here can pay twice.
      Tracked from here, so a shutdown waits for the lookup and the send. */
   const seats = typeof room.startedSeats === 'function' ? room.startedSeats() : [];
+  /* One automatic prize a week per wallet, and per network the winner played
+     from (night review 2026-10-29, second pass): two wallets that had each
+     played one $0.50 game, plus a phone hotspot, met the rule below for about
+     $0.10 once and then took $20 every slot. Inside the week it is held for
+     Owen. Read from the journal in this same turn, before any await. */
+  const net = brPrizeRule.netOf(seats, w.wallet);
+  const recent = brPrizeRule.recentPrize({ prizes: brJournal.prizes(), wallet: w.wallet, net, matchId,
+    now: Date.now(), days: BR_PRIZE_COOLDOWN_DAYS });
+  if (recent) {
+    const by = recent.wallet === w.wallet ? 'this wallet' : 'a winner on the same network';
+    console.warn(`[BR] ${matchId} won by ${w.name}: ${by} had an automatic prize (${recent.matchId}) in the last ${BR_PRIZE_COOLDOWN_DAYS} day(s): prize held`);
+    brJournal.setPrize(matchId, { state: 'held', wallet: w.wallet, name: w.name, amount: BR_PRIZE_USDC, net });
+    try { if (typeof room.holdPrize === 'function') room.holdPrize(matchId); } catch (_) {}
+    try {
+      notify.pushOwner(`${w.name} won ${matchId}, but ${by} already had an automatic prize (${recent.matchId}, ${recent.at || 'time unknown'}). One a week is paid automatically, so the ${BR_PRIZE_USDC} USDC prize was not paid. Settle it by hand if it was a real match.`,
+        { title: 'Battle Royale prize held', priority: 'high' });
+    } catch (_) {}
+    return;
+  }
+  /* Journaled BEFORE the lookup's await (night review 2026-10-29): the match
+     already cleared its live record, so a hard kill during the lookup left no
+     trace of a decided prize. A 'checking' found at boot is pushed to Owen
+     (nothing was sent) and never sent. */
+  brJournal.setPrize(matchId, { state: 'checking', wallet: w.wallet, name: w.name, amount: BR_PRIZE_USDC, net });
   return agInflight.track(brPrizeRule.stakedPeople({ seats, winner: w.wallet, lookup: (ws) => db.walletsWithStakes(ws) })
     .then((who) => {
-      if (who.ok) return startBattleRoyalePrize(matchId, w);
+      if (who.ok) return startBattleRoyalePrize(matchId, w, net);
+      brJournal.setPrize(matchId, { state: 'held' });
       const people = who.people === null ? 'unknown (the lookup failed)' : who.people;
       const notWinner = who.winnerStaked || who.people === null ? '' : ' (the winner has not)';
       console.warn(`[BR] ${matchId} won by ${w.name}: ${seats.length} proven wallet(s), ${people} person(s) who played paid` +
@@ -4333,11 +4380,12 @@ async function payBattleRoyaleWinner(room) {
     }));
 }
 /* The send itself, once every rule above has passed. */
-function startBattleRoyalePrize(matchId, w) {
+function startBattleRoyalePrize(matchId, w, net) {
   /* Written BEFORE the money moves: a restart from here until 'paid' or
      'failed' leaves 'paying', which the next boot pushes to Owen and never
-     sends again (above). */
-  if (!brJournal.setPrize(matchId, { state: 'paying', wallet: w.wallet, name: w.name, amount: BR_PRIZE_USDC })) {
+     sends again (above). net: the winner's network, for the cooldown. */
+  if (!brJournal.setPrize(matchId, { state: 'paying', wallet: w.wallet, name: w.name, amount: BR_PRIZE_USDC,
+    net: typeof net === 'string' ? net : '' })) {
     /* Sent anyway (the winner is owed it), but a restart now would leave no
        record: Owen hears it before the money moves. */
     try {

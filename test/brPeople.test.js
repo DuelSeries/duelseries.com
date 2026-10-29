@@ -12,14 +12,19 @@
 //   - slSockets setBr: the socket's address reaches the seat, and the fifth br socket from one address is refused
 //   - payBattleRoyaleWinner, lifted from server/index.js and run on stubs: a free-wallet match is held and pushed to
 //     Owen, never sent; two people who played paid, on two networks, are paid once; a failed lookup holds it
+//   - second pass: one automatic prize a week per wallet and per winner's network (brPrizeRule.recentPrize, on a real
+//     brJournal); 'checking' is journaled before the lookup's await and the boot sweep holds it, never sends it; a
+//     proxy's own (loopback/private) address is no network
 
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const vm = require('vm');
-const { addressGroup } = require('../server/clientAddr');
-const { countPeople, stakedPeople } = require('../server/slBr/brPrizeRule');
+const { addressGroup, clientAddress } = require('../server/clientAddr');
+const { countPeople, stakedPeople, recentPrize, netOf, COOLDOWN_DAYS } = require('../server/slBr/brPrizeRule');
+const { createBrJournal } = require('../server/slBr/brJournal');
 const { SlRoom } = require('../server/sl/slRoom');
 const { createRng } = require('../server/sl/slRng');
 const { makeFixture } = require('./slLawsFixture');
@@ -81,6 +86,18 @@ test('addressGroup: IPv4 is itself (mapped or not), IPv6 is its /64, anything el
   for (const bad of ['', 'junk', '1.2.3', null, undefined, 5, {}]) assert.strictEqual(addressGroup(bad), '', String(bad));
 });
 
+test('addressGroup: a proxy\'s own address (loopback, private) is no network, so a missing X-Forwarded-For is not one', () => {
+  for (const proxy of ['127.0.0.1', '::ffff:127.0.0.1', '10.0.0.5', '172.31.4.9', '192.168.1.2', '::1', 'fd00::1']) {
+    assert.strictEqual(addressGroup(proxy), '', proxy);
+  }
+  // nginx without the header (or with a hop that is not an address): clientAddress leaves the proxy, which is unknown
+  assert.strictEqual(addressGroup(clientAddress('127.0.0.1', undefined)), '');
+  assert.strictEqual(addressGroup(clientAddress('172.31.4.9', '[2001:db8::1]:443')), '');
+  // the hop it wrote is the player's network, as before
+  assert.strictEqual(addressGroup(clientAddress('127.0.0.1', '198.51.100.7')), '198.51.100.7');
+  assert.strictEqual(addressGroup('172.32.0.1'), '172.32.0.1', 'just outside 172.16/12 is a real address');
+});
+
 test('countPeople: one network\'s wallets are one person; an unknown network is one shared bucket', () => {
   assert.strictEqual(countPeople([]), 0);
   assert.strictEqual(countPeople([{ wallet: 'A', net: '1.1.1.1' }, { wallet: 'B', net: '2.2.2.2' }]), 2);
@@ -123,6 +140,39 @@ test('stakedPeople: paid only for a winner who played paid plus another person w
   assert.strictEqual((await stakedPeople({ seats: [], winner: 'WIN', lookup: lookup(['WIN']) })).ok, false);
   assert.strictEqual((await stakedPeople({ seats, winner: 'WIN' })).ok, false, 'no lookup');
   assert.strictEqual((await stakedPeople()).ok, false);
+});
+
+test('recentPrize: an automatic prize to this wallet, or to a winner on this network, inside the days; netOf', () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const now = Date.parse('2026-10-29T12:00:00Z');
+  const ago = (d) => new Date(now - d * DAY).toISOString();
+  const prizes = [
+    { matchId: 'm1', state: 'paid', wallet: 'WIN', net: '1.1.1.1', at: ago(3) },
+    { matchId: 'm2', state: 'held', wallet: 'HELD', net: '5.5.5.5', at: ago(1) },
+    { matchId: 'm3', state: 'paid', wallet: 'OLD', net: '6.6.6.6', at: ago(8) },
+    { matchId: 'm4', state: 'unknown', wallet: 'UNK', net: '7.7.7.7', at: ago(1) },
+    { matchId: 'm5', state: 'checking', wallet: 'CHK', net: '', at: ago(0) },
+    { matchId: 'm6', state: 'failed', wallet: 'NOAT', net: '8.8.8.8', at: null },
+  ];
+  const q = (wallet, net, extra) => recentPrize(Object.assign({ prizes, wallet, net, now, days: 7 }, extra || {}));
+  assert.strictEqual(COOLDOWN_DAYS, 7);
+  assert.strictEqual(q('WIN', '9.9.9.9').matchId, 'm1', 'the same wallet from another network');
+  assert.strictEqual(q('NEW', '1.1.1.1').matchId, 'm1', 'a fresh wallet on the last winner\'s network');
+  assert.strictEqual(q('NEW', '9.9.9.9'), null);
+  assert.strictEqual(q('HELD', '5.5.5.5'), null, 'a held prize was never paid automatically');
+  assert.strictEqual(q('OLD', '6.6.6.6'), null, 'eight days ago is outside the week');
+  assert.strictEqual(q('OLD', '6.6.6.6', { days: 9 }).matchId, 'm3');
+  assert.strictEqual(q('UNK', '').matchId, 'm4', 'unknown may have landed');
+  assert.strictEqual(q('CHK', '').matchId, 'm5', 'a decision in flight counts');
+  assert.strictEqual(q('ZZZ', ''), null, 'an unknown network matches nothing');
+  assert.strictEqual(q('NOAT', '').matchId, 'm6', 'a time that cannot be read counts as recent');
+  assert.strictEqual(q('WIN', '1.1.1.1', { matchId: 'm1' }), null, 'never its own match');
+  assert.strictEqual(q('WIN', '1.1.1.1', { days: 0 }), null, '0 turns it off');
+  assert.strictEqual(recentPrize(), null);
+  assert.strictEqual(recentPrize({ prizes: null, wallet: 'WIN', now, days: 7 }), null);
+  const seats = [{ wallet: 'WIN', net: '1.1.1.1' }, { wallet: 'BOB' }];
+  assert.deepStrictEqual([netOf(seats, 'WIN'), netOf(seats, 'BOB'), netOf(seats, 'ZED'), netOf(null, 'WIN'), netOf(seats)],
+    ['1.1.1.1', '', '', '', '']);
 });
 
 test('db.walletsWithStakes: one SELECT DISTINCT over stakes_history for the distinct wallets, none for no wallets', async () => {
@@ -316,6 +366,10 @@ function lift(name) {
   throw new Error('unbalanced braces in ' + name);
 }
 
+const PAY_NOW = Date.parse('2026-10-29T12:00:00Z');
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// opts: dbDown; prizes [[matchId, rec, daysAgo]] already in the journal; lookup (a lookup of its own); cooldown (days)
 function payRig(stakedWallets, o) {
   const opts = o || {};
   const pushes = [];
@@ -323,26 +377,44 @@ function payRig(stakedWallets, o) {
   const journal = [];
   const tracked = [];
   const held = [];
+  const clock = { t: PAY_NOW };
+  // the real journal on a file of its own; every write is also listed here as [matchId, state]
+  const real = createBrJournal({ file: path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'brp-')), 'br-journal.json'),
+    log: quiet, now: () => clock.t });
+  for (const [id, rec, daysAgo] of opts.prizes || []) {
+    clock.t = PAY_NOW - daysAgo * DAY_MS;
+    real.setPrize(id, rec);
+  }
+  clock.t = PAY_NOW;
+  class FakeDate extends Date {
+    static now() { return clock.t; }
+  }
   const ctx = {
     console: quiet,
+    Date: FakeDate,
     _brPaid: new Set(),
     BR_PRIZE_USDC: 20,
+    BR_PRIZE_COOLDOWN_DAYS: opts.cooldown === undefined ? 7 : opts.cooldown,
     brPrizeRule: require('../server/slBr/brPrizeRule'),
     notify: { pushOwner: (msg, meta) => pushes.push({ msg, title: meta && meta.title }) },
-    brJournal: { setPrize: (id, rec) => { journal.push([id, rec.state]); return true; } },
+    brJournal: {
+      setPrize: (id, rec) => { journal.push([id, rec.state]); return real.setPrize(id, rec); },
+      prizes: () => real.prizes(),
+      prize: (id) => real.prize(id),
+    },
     agInflight: { track: (p) => { tracked.push(p); return p; } },
     money: { withdraw: async (wallet, amount, op) => { sends.push({ wallet, amount, payRent: op && op.payRent }); return 'SIG' + sends.length; } },
     db: {
-      walletsWithStakes: async (ws) => {
+      walletsWithStakes: opts.lookup || (async (ws) => {
         if (opts.dbDown) throw new Error('db down');
         return new Set(ws.filter((w) => stakedWallets.includes(w)));
-      },
+      }),
       recordEarnings: async () => {},
     },
   };
   vm.createContext(ctx);
   vm.runInContext([lift('payBattleRoyaleWinner'), lift('startBattleRoyalePrize'), lift('sendBattleRoyalePrize'),
-    'this.pay = payBattleRoyaleWinner;'].join('\n'), ctx);
+    lift('sweepBrPrizesAtBoot'), 'this.pay = payBattleRoyaleWinner; this.sweep = sweepBrPrizesAtBoot;'].join('\n'), ctx);
   const room = (seats, winner, extra) => Object.assign({
     matchId: 'br_' + winner, winner: { id: 1, name: winner, wallet: winner, bot: false }, soloRun: false,
     prizeHeld: false, startedWith: seats.length, startedPeople: countPeople(seats),
@@ -350,7 +422,7 @@ function payRig(stakedWallets, o) {
     holdPrize: (id) => { held.push(id); return true; },
   }, extra || {});
   const settle = async () => { for (let i = 0; i < 4; i++) await Promise.all(tracked.slice()); };
-  return { ctx, pushes, sends, journal, held, room, settle, pay: (r) => ctx.pay(r) };
+  return { ctx, pushes, sends, journal, held, room, settle, real, pay: (r) => ctx.pay(r), sweep: () => ctx.sweep() };
 }
 
 test('payBattleRoyaleWinner: a match of free wallets is held for Owen and never sent; two paid players are paid once', async () => {
@@ -361,7 +433,7 @@ test('payBattleRoyaleWinner: a match of free wallets is held for Owen and never 
   await farm.pay(rf);
   await farm.settle();
   assert.deepStrictEqual(farm.sends, [], 'nothing left the escrow');
-  assert.deepStrictEqual(farm.journal, [], 'no paying entry: nothing was ever under way');
+  assert.deepStrictEqual(farm.journal, [['br_KEYA', 'checking'], ['br_KEYA', 'held']], 'no paying entry: nothing was sent');
   assert.deepStrictEqual(farm.held, ['br_KEYA'], 'the match now reports its prize held');
   assert.strictEqual(farm.pushes.length, 1);
   assert.strictEqual(farm.pushes[0].title, 'Battle Royale prize held');
@@ -390,7 +462,9 @@ test('payBattleRoyaleWinner: a match of free wallets is held for Owen and never 
   await Promise.all([first, again]);
   await real.settle();
   assert.deepStrictEqual(real.sends, [{ wallet: 'WIN', amount: 20, payRent: true }]);
-  assert.deepStrictEqual(real.journal, [['br_WIN', 'paying'], ['br_WIN', 'paid']]);
+  assert.deepStrictEqual(real.journal, [['br_WIN', 'checking'], ['br_WIN', 'paying'], ['br_WIN', 'paid']]);
+  assert.deepStrictEqual([real.real.prize('br_WIN').wallet, real.real.prize('br_WIN').net], ['WIN', '1.1.1.1'],
+    'the paid entry keeps the winner\'s wallet and network for the cooldown');
   assert.deepStrictEqual(real.held, []);
   assert.deepStrictEqual(real.pushes.map((p) => p.title), ['Battle Royale winner']);
   await real.pay(rr);
@@ -416,4 +490,84 @@ test('payBattleRoyaleWinner: the earlier rules still come first (bot, solo run, 
   await old.pay(bare);
   await old.settle();
   assert.deepStrictEqual([old.sends.length, old.pushes[0].title], [0, 'Battle Royale prize held']);
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// second pass (night review 2026-10-29): one automatic prize a week, and the decision journaled before the lookup
+
+test('payBattleRoyaleWinner: one automatic prize a week per wallet and per network; the rest is held, never sent', async () => {
+  const seats = [{ wallet: 'WIN', net: '1.1.1.1' }, { wallet: 'BOB', net: '2.2.2.2' }];
+  // the farm's second win: the same staked wallet, three days after an automatic prize, from another network
+  const again = payRig(['WIN', 'BOB'], { prizes: [['br_old', { state: 'paid', wallet: 'WIN', net: '3.3.3.3', amount: 20 }, 3]] });
+  let asked = 0;
+  again.ctx.db.walletsWithStakes = async (ws) => { asked++; return new Set(ws); };
+  await again.pay(again.room(seats, 'WIN'));
+  await again.settle();
+  assert.deepStrictEqual(again.sends, [], 'nothing left the escrow');
+  assert.strictEqual(asked, 0, 'held before any lookup');
+  assert.deepStrictEqual(again.journal, [['br_WIN', 'held']]);
+  assert.deepStrictEqual(again.held, ['br_WIN'], 'the match reports its prize held');
+  assert.deepStrictEqual(again.pushes.map((p) => p.title), ['Battle Royale prize held']);
+  assert.match(again.pushes[0].msg, /WIN won br_WIN, but this wallet already had an automatic prize \(br_old, /);
+  // a fresh staked wallet from the network that won three days ago: held too
+  const net = payRig(['NEW', 'BOB'], { prizes: [['br_old', { state: 'paid', wallet: 'WIN', net: '1.1.1.1', amount: 20 }, 3]] });
+  await net.pay(net.room([{ wallet: 'NEW', net: '1.1.1.1' }, { wallet: 'BOB', net: '2.2.2.2' }], 'NEW'));
+  await net.settle();
+  assert.deepStrictEqual([net.sends.length, net.held.length], [0, 1]);
+  assert.match(net.pushes[0].msg, /a winner on the same network/);
+  // a send that may have landed (unknown) counts; a held prize does not; eight days ago is outside the week
+  const unk = payRig(['WIN', 'BOB'], { prizes: [['br_u', { state: 'unknown', wallet: 'WIN', amount: 20 }, 1]] });
+  await unk.pay(unk.room(seats, 'WIN'));
+  await unk.settle();
+  assert.strictEqual(unk.sends.length, 0);
+  const ok = payRig(['WIN', 'BOB'], { prizes: [
+    ['br_h', { state: 'held', wallet: 'WIN', net: '1.1.1.1', amount: 20 }, 1],
+    ['br_8', { state: 'paid', wallet: 'WIN', net: '1.1.1.1', amount: 20 }, 8],
+    ['br_x', { state: 'paid', wallet: 'OTHER', net: '9.9.9.9', amount: 20 }, 1],
+  ] });
+  await ok.pay(ok.room(seats, 'WIN'));
+  await ok.settle();
+  assert.deepStrictEqual(ok.sends, [{ wallet: 'WIN', amount: 20, payRent: true }], 'paid: nothing inside the week');
+  // the next match the same day: the wallet just paid is held
+  const r2 = ok.room(seats, 'WIN', { matchId: 'br_next' });
+  await ok.pay(r2);
+  await ok.settle();
+  assert.strictEqual(ok.sends.length, 1, 'one a week');
+  assert.deepStrictEqual(ok.journal.slice(-1), [['br_next', 'held']]);
+  // BR_PRIZE_COOLDOWN_DAYS=0 turns the rule off (the stakes rule still applies)
+  const off = payRig(['WIN', 'BOB'], { cooldown: 0, prizes: [['br_old', { state: 'paid', wallet: 'WIN', amount: 20 }, 1]] });
+  await off.pay(off.room(seats, 'WIN'));
+  await off.settle();
+  assert.strictEqual(off.sends.length, 1);
+});
+
+test('payBattleRoyaleWinner: checking is journaled before the lookup; a restart in it is held at boot, never sent', async () => {
+  let release;
+  const gate = new Promise((res) => { release = res; });
+  const r = payRig(['WIN', 'BOB'], { lookup: async (ws) => { await gate; return new Set(ws); } });
+  const seats = [{ wallet: 'WIN', net: '1.1.1.1' }, { wallet: 'BOB', net: '2.2.2.2' }];
+  r.pay(r.room(seats, 'WIN'));
+  // the decided match, mid-lookup: the journal already holds it (a hard kill here leaves a trace)
+  assert.deepStrictEqual(r.journal, [['br_WIN', 'checking']]);
+  const p = r.real.prize('br_WIN');
+  assert.deepStrictEqual([p.state, p.wallet, p.name, p.amount, p.net], ['checking', 'WIN', 'WIN', 20, '1.1.1.1']);
+  // the next process boots on that journal: Owen is told, it is held, and nothing is sent
+  const boot = payRig([], { prizes: [
+    ['br_c', { state: 'checking', wallet: 'WIN', name: 'Ann', amount: 20, net: '1.1.1.1' }, 0],
+    ['br_p', { state: 'paying', wallet: 'BOB', name: 'Bob', amount: 20 }, 0],
+    ['br_d', { state: 'paid', wallet: 'CAT', name: 'Cat', amount: 20, sig: 'S' }, 0],
+  ] });
+  boot.sweep();
+  assert.deepStrictEqual(boot.journal, [['br_c', 'held'], ['br_p', 'unknown']]);
+  assert.deepStrictEqual(boot.pushes.map((x) => x.title), ['Battle Royale prize held', 'Battle Royale prize: check it']);
+  assert.match(boot.pushes[0].msg, /Ann won br_c; the server restarted while it was deciding .* Nothing was sent to WIN\./);
+  assert.deepStrictEqual(boot.sends, []);
+  assert.strictEqual(boot.real.prize('br_c').wallet, 'WIN', 'the held entry keeps who won');
+  boot.sweep();
+  assert.strictEqual(boot.pushes.length, 2, 'once');
+  // the first process's lookup finishes: paid once, over its checking entry
+  release();
+  await r.settle();
+  assert.deepStrictEqual(r.journal, [['br_WIN', 'checking'], ['br_WIN', 'paying'], ['br_WIN', 'paid']]);
+  assert.strictEqual(r.sends.length, 1);
 });

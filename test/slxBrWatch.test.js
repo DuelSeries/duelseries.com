@@ -191,3 +191,16 @@ test('Lobby: the bar closes and the page goes back to the lobby', () => {
   P.raf(100, 16);
   assert.strictEqual(P.ends.length, 0);
 });
+
+test('a seat refused for its network (limit) gets its own card, even after a decided match (night review 2026-10-29)', () => {
+  const P = brPage('play');
+  live(P, 0);
+  P.slx.fire('x:br', { t: 'br', state: 'over', winner: { id: 9, name: 'Ben' }, podium: [{ name: 'Ben' }] });
+  P.raf(1);
+  const v = P.slx.cardLines('limit');
+  assert.strictEqual(v.title, 'Too many players on this network');
+  assert.strictEqual(v.again, 'Try again');
+  assert.strictEqual(v.podium, undefined, 'not the last match\'s podium');
+  assert.strictEqual(P.slx.cardLines('twice').title, 'Already in this match');
+  assert.strictEqual(P.slx.cardLines('dead').title, 'Match over', 'a death still shows the result');
+});
