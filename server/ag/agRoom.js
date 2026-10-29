@@ -96,6 +96,11 @@ const ROOM_TUNING = Object.freeze({
   // A free room's newcomer is out of every bot's view this long (_thinkBots): measured live 2026-10-28, a hunter bot
   // split onto a guest 1.24 s after its clear spawn. 3 s is a few of the bots' think intervals and enough to steer away.
   NEWCOMER_MS: chosen(3000, 'ms a free newcomer is hidden from the bots after spawning'),
+  // A paid room's Spectate watcher (the lobby's Spectate on $0.50 or $1) is sent everything this far behind the live
+  // game (night review 2026-10-29): live, a seated player's friend (or a second tab) could step the camera round every
+  // other player and see what their own view hides. A small cell crosses more than a view in 5 s. Free rooms and paid
+  // seats are sent live as before; 0 sends paid watchers live too.
+  WATCH_DELAY_MS: chosen(5000, 'ms a paid room\'s watchers are sent behind the live game (0: live)'),
 });
 const NEWCOMER_MS = ROOM_TUNING.NEWCOMER_MS.value;
 const MAX_STEPS_PER_WAKE = ROOM_TUNING.MAX_STEPS_PER_WAKE.value;
@@ -161,7 +166,7 @@ class AgRoom {
   // socket whose account just closed (death, cash-out, release, refund) or that another socket replaced.
   constructor({ laws = LAWS, shippableOnly = true, stake = 0, region = 'na', index = 0, seed, clock = monotonicNow,
     now = Date.now, autoTick = true, log = console, viewBelowOf = null, portraitOf = null, moneyHooks = null,
-    onSeatless = null, paidBots = false, botCurve = null } = {}) {
+    onSeatless = null, paidBots = false, botCurve = null, watchDelayMs = ROOM_TUNING.WATCH_DELAY_MS.value } = {}) {
     if (shippableOnly) assertShippable(laws);
     const R = readRoomLaws(laws);
     this.laws = laws;
@@ -217,6 +222,10 @@ class AgRoom {
     } else {
       this.sim = createSim({ laws, seed: this.rng.int(SEED_SPAN), still: this.still });
     }
+    // Ticks a paid room's watcher is sent behind (ROOM_TUNING WATCH_DELAY_MS, night review 2026-10-29); 0 in a free
+    // room, where every seat is sent live.
+    const lagMs = Number(watchDelayMs);
+    this.watchLagTicks = this.money && lagMs > 0 ? Math.ceil(lagMs / this.tickMs) : 0;
 
     this.seats = new Map();     // socketId -> seat
     this.bots = new Map();      // sim pid -> { pid, name, brain, manual }
@@ -327,7 +336,8 @@ class AgRoom {
 
   // A paid room's watcher (agArenas.connectWatch): never joined, never an account, so join ('paid'), ready (no
   // account), target, split, eject and hold (all need a joined seat) do nothing for it. Its view follows the top
-  // player at that player's own scale (U_SPECTATE), so it is shown what that player is shown and nothing more.
+  // player at that player's own scale (U_SPECTATE), so it is shown what that player is shown and nothing more, and
+  // only ROOM_TUNING WATCH_DELAY_MS later (night review 2026-10-29: never a live second view for a seated player).
   isWatchOnly(socketId) {
     const seat = this.seats.get(socketId);
     return !!(seat && seat.watchOnly);
@@ -446,6 +456,7 @@ class AgRoom {
       clearFirst: clearFirst === true,
       follow: 0, told: -1,   // spectating: the pid the camera follows (0: the top), and the pid the page was last told
       holdAt: 0, holding: false, holdTicks: 0,   // the free room's hold-Q state (a paid seat's lives in agMoney)
+      lag: null,   // a paid watcher's bundles not sent yet, oldest first (_sendLagged)
     };
     this.seats.set(socket.id, seat);
     return seat;
@@ -669,6 +680,9 @@ class AgRoom {
       seat.follow = 0;   // a new watch starts on the top player, and the page is told who that is
       seat.told = -1;
     }
+    // A paid watcher starts watching as it connects (agArenas.connectWatch), so its page, which asks once its first
+    // (late) bundle came, is told again who it follows (night review 2026-10-29).
+    if (seat.watchOnly) seat.told = -1;
     seat.spectating = true;
     return true;
   }
@@ -1022,11 +1036,13 @@ class AgRoom {
 
   // ag:watching { name } (the followed player's name, '' when it has none) or { none: true } (nobody alive), sent
   // right after the seat's bundle and only when the followed player changed or the page asked (followStep).
-  _tellWatching(seat, pid, live) {
+  // lag: a paid watcher's queue entry (_sendLagged), where it goes instead of out.
+  _tellWatching(seat, pid, live, lag) {
     if (seat.told === pid) return;
     seat.told = pid;
     const row = pid ? live.get(pid) : null;
-    this._emit(seat.socket, 'ag:watching', row ? { name: row.name || '' } : { none: true });
+    const p = row ? { name: row.name || '' } : { none: true };
+    if (lag) lag.push(['ag:watching', p]); else this._emit(seat.socket, 'ag:watching', p);
   }
 
   // U_SPECTATE zoom 'followedPlayer': the camera sits on the plain average of the followed player's cells (the view
@@ -1120,8 +1136,10 @@ class AgRoom {
         this.log.error('[AG] bundle failed', this.lobbyType, e && e.message);
         continue;
       }
+      // A paid room's watcher: the bundle and what follows it wait in its queue (_sendLagged, night review 2026-10-29).
+      const lag = this.watchLagTicks > 0 && seat.watchOnly ? [[EVENT, buf]] : null;
       try {
-        socket.emit(EVENT, buf);
+        if (!lag) socket.emit(EVENT, buf);
       } catch (e) {
         // The viewer already counts this bundle's records as delivered (an own id, a new cell's colour), and a
         // sync record would not announce an own id again: the page starts over instead.
@@ -1132,9 +1150,37 @@ class AgRoom {
       }
       this.stats.bundles++;
       this.stats.bytes += buf.length;
-      if (moneyDue) this._emit(socket, 'ag:money', this._moneyPayload(seat, ranking, shares));
-      if (skinCells) this._sendSkins(seat, skinCells);
-      if (watching) this._tellWatching(seat, follows, live);
+      if (moneyDue) {
+        const m = this._moneyPayload(seat, ranking, shares);
+        if (lag) lag.push(['ag:money', m]); else this._emit(socket, 'ag:money', m);
+      }
+      if (skinCells) this._sendSkins(seat, skinCells, lag);
+      if (watching) this._tellWatching(seat, follows, live, lag);
+      if (lag) this._sendLagged(seat, lag);
+    }
+  }
+
+  // A paid room's watcher (night review 2026-10-29): this tick's bundle and the events that follow it (ag:money,
+  // ag:skins, ag:watching) join the seat's queue, and every entry built ROOM_TUNING WATCH_DELAY_MS ago or more goes
+  // out, in order. The page gets exactly what it would have, in the same order, only later, so the viewer's diff and
+  // resync model holds; a seat skipped while backed up builds nothing, so its queue does not grow. An emit that throws
+  // starts the page over (_restartView drops the queue).
+  _sendLagged(seat, parts) {
+    const q = seat.lag || (seat.lag = []);
+    const tick = this.sim.tick();
+    q.push({ at: tick, parts });
+    while (q.length && q[0].at <= tick - this.watchLagTicks) {
+      const due = q.shift();
+      for (const [event, payload] of due.parts) {
+        try {
+          seat.socket.emit(event, payload);
+        } catch (e) {
+          this.stats.emitErrors++;
+          this._restartView(seat);
+          this.log.error('[AG] emit failed', this.lobbyType, e && e.message);
+          return;
+        }
+      }
     }
   }
 
@@ -1152,13 +1198,13 @@ class AgRoom {
   /* ag:skins { cells: [id, skin, ...] }: the bought-skin cells this page knows, sent right after its bundle and only
      when the list changed (the page draws each cell's design from shared/shopSkins.js). A cell's colour already
      came in the bundle, so a page that is a moment behind shows the right colour, then the design. */
-  _sendSkins(seat, skinCells) {
+  _sendSkins(seat, skinCells, lag) {
     const cells = [];
     for (let i = 0; i < skinCells.length; i += 2) if (seat.viewer.isKnown(skinCells[i])) cells.push(skinCells[i], skinCells[i + 1]);
     const key = cells.join(',');
     if (key === (seat.skinKey || '')) return;
     seat.skinKey = key;
-    this._emit(seat.socket, 'ag:skins', { cells });
+    if (lag) lag.push(['ag:skins', { cells }]); else this._emit(seat.socket, 'ag:skins', { cells });
   }
 
   // A bundle that never reached the page (a build or emit that threw): what the viewer thinks the page holds is
@@ -1170,6 +1216,7 @@ class AgRoom {
     seat.clearFirst = true;
     seat.stalled = false;
     seat.skinKey = null;            // the page starts over: its bought-skin list is sent again
+    seat.lag = null;                // a paid watcher's unsent bundles belonged to the old view (night review 2026-10-29)
     this.stats.viewRestarts++;
   }
 

@@ -591,3 +591,59 @@ test('connectWatch: a watcher seat in the busiest room of the rung, read only; n
   assert.strictEqual(room.seatOf(v2.id), null, 'the watcher seat is let go');
   assert.ok(!env.arenas.roomOfSocket(v2.id) || !env.arenas.roomOfSocket(v2.id).money, 'played Free');
 });
+
+// Night review 2026-10-29 (finding 8): a seated player's own address cannot watch its rung (no second view of the
+// table in another tab), before or after it buys in; every other address still can, and the watch starts on the top
+// player at once since its bundles come late (agRoom WATCH_DELAY_MS).
+test('connectWatch: refused from an address with an open account at the rung; a watcher there goes when it buys in', async () => {
+  const env = setup();   // the door's clientIp is 9.9.9.9 for every payer
+  const early = sock();
+  const p0 = sock();
+  env.arenas.connectPaid(p0);
+  joinPaid(env, p0, { entryToken: env.store.mint({ walletAddress: 'W0' }) });
+  await tick(); await tick();
+  const room = roomOf(env, p0);
+  assert.ok(room, 'a payer from 9.9.9.9 at $0.50');
+  assert.strictEqual(env.arenas.connectWatch(sock(), 0.5, '9.9.9.9'), null, 'the address of the payer is refused');
+  assert.strictEqual(env.arenas.connectWatch(sock(), 1, '9.9.9.9'), null, 'nobody at $1 anyway');
+  // another address watches, already following the top player
+  assert.strictEqual(env.arenas.connectWatch(early, 0.5, '5.5.5.5'), room);
+  const seat = room.seatOf(early.id);
+  assert.strictEqual(seat.spectating, true, 'watching from the start');
+  assert.strictEqual(seat.ip, '5.5.5.5');
+  // a watcher from 7.7.7.7, then a payer from 7.7.7.7 at the same rung: the watcher goes, refused 'nobody'
+  const env7 = { door: createAgPaidDoor({ arenas: env.arenas, consumeAtStake: (t, st) => env.store.consumeAtStake(t, st),
+    ledger: env.ledger, refund: (x) => env.refunds.push(x), ops: env.ops, cleanName: (x) => String(x || ''),
+    clientIp: () => '7.7.7.7', now: () => env.clock.t, log: quiet }), clock: env.clock };
+  const spy = sock();
+  assert.strictEqual(env.arenas.connectWatch(spy, 0.5, '7.7.7.7'), room);
+  const p7 = sock();
+  env.arenas.connectPaid(p7);
+  env7.clock.t += 1000;
+  env7.door.join(p7, { stake: 0.5, name: 'p7', entryToken: env.store.mint({ walletAddress: 'W7' }) });
+  await tick(); await tick();
+  assert.strictEqual(roomOf(env, p7), room, 'the payer from 7.7.7.7 is seated');
+  assert.strictEqual(room.seatOf(spy.id), null, 'its watcher seat is gone');
+  assert.deepStrictEqual(spy.of('ag:refused'), [{ why: 'nobody' }]);
+  assert.strictEqual(spy.disconnected, true);
+  assert.strictEqual(env.arenas.roomOfSocket(spy.id), null);
+  assert.strictEqual(room.seatOf(early.id).watchOnly, true, 'another address keeps watching');
+  assert.strictEqual(env.arenas.connectWatch(sock(), 0.5, '7.7.7.7'), null, 'and 7.7.7.7 cannot come back while seated');
+  assert.ok(env.arenas.connectWatch(sock(), 0.5, ''), 'no address known: watched (still late)');
+});
+
+test('the /ag handshake hands the watcher address to connectWatch', () => {
+  const env = setup();
+  const seen = [];
+  const arenas = Object.create(env.arenas);
+  arenas.connectWatch = (socket, stake, ip) => { seen.push([stake, ip]); return null; };
+  const api = attachAgSockets(null, arenas, {
+    socketRL: () => true, sanitizeName: (x) => String(x || ''), ops: env.ops, log: quiet,
+    clientIp: () => '4.4.4.4',
+  });
+  const w = sock();
+  w.handshake.auth = { watchStake: 0.5 };
+  api.attach(w);
+  assert.deepStrictEqual(seen, [[0.5, '4.4.4.4']]);
+  assert.deepStrictEqual(w.of('ag:refused'), [{ why: 'nobody' }]);
+});
