@@ -5147,9 +5147,9 @@ window.V2_SWATCH=id=>{const g=G(id); return g?art(g,true):''};
 window.repaintAll=repaintAll;
 /* ── recent winners ──────────────────────────────────────────────────────
    Entries are filtered against the game registry, so the row can never
-   advertise a game nobody can play. Today that means every line is
-   slither.io; the moment another game loses its `soon` flag its wins start
-   appearing here on their own. */
+   advertise a game nobody can play. Sample lines name only games with a
+   paid table (the ladder games and the paid duels); a game that gains one
+   starts appearing here on its own. */
 /* Real results: the most recent landed paid payouts from /api/earnings/recent (server/earnings, the strip's own
    landed rule, never the owner, test wallets or bots), filled by loadRealWins below. Empty until a real player
    cashes out, and then the row shows only these. */
@@ -5159,14 +5159,17 @@ const NAMES=['PEPIK','hashim','degenmonkey','qesku','tungsahur','quietfox',
  'driftwood','wenmoon','noodlearm','grasshopper','lilbogdan','sn4kepit','vorpal',
  'mikoto','bagholder','0xhydra','pixelmaw','tinyfangs','coilcoil','nomnom',
  'slithy','pogface','cashcow','ghostbyte'];
-/* Most wins are small and the occasional one is large, because a row of
-   uniformly middling amounts is the tell that the numbers were invented. */
-function madeUpAmount(){
-  const r=Math.random();
-  const v=r<0.62 ? 0.25+Math.random()*2.75
-        : r<0.93 ? 3+Math.random()*9
-        :          12+Math.random()*24;
-  return Math.round(v*100)/100;
+/* Sample amounts a real win in that game could actually be (Owen 2026-10-28), off the real buy-ins
+   ($0.50 and $1) and the 10% house cut:
+     · duels: the winner takes both seats less the cut, so $0.90 or $1.80 and nothing else;
+     · Paper.io: you leave with your own stake plus every stake you took, less the cut, so a whole
+       number of $0.45 (the $0.50 room) or $0.90 (the $1 room);
+     · Slither.io, Agar.io and Pac-Man: any amount from $0.45 to $8.50, smaller ones more often. */
+function madeUpAmount(id){
+  const g=G(id), dollar=Math.random()<0.4;
+  if(g&&g.duel)return dollar?1.8:0.9;
+  if(id==='paper')return Math.round((1+Math.floor(Math.pow(Math.random(),1.6)*8))*(dollar?90:45))/100;
+  return Math.round((0.45+Math.pow(Math.random(),1.7)*8.05)*100)/100;
 }
 /* An empty ticker is worse than no ticker, so when there are no real results
    the row shows plausible examples rather than sitting blank, and its pill says
@@ -5179,13 +5182,14 @@ function buildWins(){
   const live=REAL_WINS.filter(w=>{const g=G(w.g); return g&&!g.soon});
   WINS_REAL=live.length>0;
   if(live.length)return live;
-  const playable=GAMES.filter(g=>!g.soon);
+  // Only games that take a buy-in can have a cash-out: the ladder games and the paid duels.
+  const playable=GAMES.filter(g=>!g.soon&&(g.ladder||(g.duel&&g.paid)));
   if(!playable.length)return live;
   const pool=NAMES.slice(), out=[];
   while(out.length<MIN_TICKER&&pool.length){
     const who=pool.splice(Math.floor(Math.random()*pool.length),1)[0];
-    out.push({who,g:playable[Math.floor(Math.random()*playable.length)].id,
-              amt:madeUpAmount()});
+    const id=playable[Math.floor(Math.random()*playable.length)].id;
+    out.push({who,g:id,amt:madeUpAmount(id)});
   }
   return out;
 }

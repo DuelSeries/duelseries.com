@@ -68,55 +68,91 @@
     return out;
   }
 
+  /* Every day a little more (Owen 2026-10-28): from day 0, midnight Eastern on 2026-10-28, each player
+     cashes out a few times a day, about $10 to $20 a day in all, the top of the board more and the tail
+     less, so the board, the profiles and Global player winnings climb. The history before day 0 is
+     anchored to it rather than to today, so a profile's past never moves. Each player and each day has
+     its own seed: every browser shows the same figures at the same moment. Tests pin the clock with
+     window.DS_PREVIEW_NOW. */
+  const BASE = Date.UTC(2026, 9, 28, 4);
+  const clock = () => (typeof window.DS_PREVIEW_NOW === 'number' ? window.DS_PREVIEW_NOW : Date.now());
+
   let PLAYERS = null;
   function build() {
     if (PLAYERS) return PLAYERS;
     const r = rng(20261026);
-    const now = Date.now();
+    const now = clock();
     const cents = amounts(r);
     // Names shuffled once, so the top of the board is not the list's first names.
     const names = NAMES.slice();
     for (let i = names.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [names[i], names[j]] = [names[j], names[i]]; }
     PLAYERS = names.map((name, i) => {
-      const total = cents[i], amount = total / 100;
-      /* Cash-outs: a few dollars to a few tens each, so the big earners have
-         a lot of them. Weighted shares that add up to the figure exactly. */
-      const n = Math.max(1, Math.min(200, Math.round(Math.sqrt(amount) * (2 + r()))));
+      // This player's own numbers: one player's new day never moves anyone else's past.
+      const pr = rng(20261026 + (i + 1) * 7919);
+      const baseCents = cents[i];
+      /* Cash-outs up to day 0: a few dollars to a few tens each, so the big
+         earners have a lot of them. Weighted shares that add up exactly. */
+      const n0 = Math.max(1, Math.min(200, Math.round(Math.sqrt(baseCents / 100) * (2 + pr()))));
       const w = [];
-      for (let k = 0; k < n; k++) w.push(0.25 + r() * r() * 3);
+      for (let k = 0; k < n0; k++) w.push(0.25 + pr() * pr() * 3);
       const sum = w.reduce((s, x) => s + x, 0);
-      let left = total;
+      let left = baseCents;
       const shares = w.map((x, k) => {
-        const c = k === n - 1 ? left : Math.max(1, Math.min(left - (n - 1 - k), Math.round(total * x / sum)));
+        const c = k === n0 - 1 ? left : Math.max(1, Math.min(left - (n0 - 1 - k), Math.round(baseCents * x / sum)));
         left -= c;
         return c;
       });
-      /* When: joined 40 to 160 days ago, then two to four bursts of play
-         with quiet stretches between, the last one recent. */
-      const joined = now - (40 + Math.floor(r() * 120)) * DAY;
-      const bursts = 2 + Math.floor(r() * 3);
-      const span = now - joined - 3 * DAY;
+      /* When: joined 40 to 160 days before day 0, then two to four bursts of
+         play with quiet stretches between, the last one just before day 0. */
+      const joined = BASE - (40 + Math.floor(pr() * 120)) * DAY;
+      const bursts = 2 + Math.floor(pr() * 3);
+      const span = BASE - joined - 3 * DAY;
       const starts = [];
-      for (let b = 0; b < bursts; b++) starts.push(joined + 2 * DAY + span * (b / bursts + r() * 0.12));
-      starts[bursts - 1] = Math.max(starts[bursts - 1], now - (2 + r() * 8) * DAY);
+      for (let b = 0; b < bursts; b++) starts.push(joined + 2 * DAY + span * (b / bursts + pr() * 0.12));
+      starts[bursts - 1] = Math.max(starts[bursts - 1], BASE - (2 + pr() * 8) * DAY);
       const games = shares.map((c, k) => {
-        const s = starts[Math.min(bursts - 1, Math.floor(k * bursts / n))];
-        const at = Math.min(now - 3600e3, s + r() * Math.min(9, 2 + n / 20) * DAY);
+        const s = starts[Math.min(bursts - 1, Math.floor(k * bursts / n0))];
+        const at = Math.min(BASE - 3600e3, s + pr() * Math.min(9, 2 + n0 / 20) * DAY);
         return { amount: c / 100, at: new Date(at).toISOString() };
-      }).sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+      });
+      /* From day 0: about perDay dollars a day (half to one and a half times
+         it), in one to four cash-outs at random times through the day. Only
+         the ones already past count, so the figure climbs through the day. */
+      const perDay = i < 3 ? 20 + pr() * 10 : i < 15 ? 12 + pr() * 10 : 6 + pr() * 12;
+      for (let d = 0; d <= Math.floor((now - BASE) / DAY); d++) {
+        const dr = rng((20261026 ^ Math.imul(i + 1, 0x9E3779B1)) + d * 104729);
+        const day = Math.round(perDay * (0.5 + dr()) * 100);
+        const k = 1 + Math.floor(dr() * 4);
+        const dw = [];
+        for (let j = 0; j < k; j++) dw.push(0.5 + dr());
+        const dsum = dw.reduce((s, x) => s + x, 0);
+        let rest = day;
+        for (let j = 0; j < k; j++) {
+          const c = j === k - 1 ? rest : Math.round(day * dw[j] / dsum);
+          rest -= c;
+          const at = BASE + d * DAY + dr() * DAY;
+          if (at <= now) games.push({ amount: c / 100, at: new Date(at).toISOString() });
+        }
+      }
+      games.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+      const amount = games.reduce((s, g) => s + Math.round(g.amount * 100), 0) / 100;
+      const n = games.length;
       /* Win rate: nearly every cash-out is a win; the best players win about
          half their paid rounds, the tail fewer. Split over 1 to 4 games, the
-         favourite taking most, and the board shows the favourite. */
-      const won = Math.max(1, n - Math.floor(r() * Math.max(1, n * 0.1)));
-      const rate = (i < 10 ? 0.42 : 0.2) + r() * 0.18;
+         favourite taking most, and the board shows the favourite. Its own
+         seed, with the fixed draws first, so a new day only adds rounds. */
+      const wr = rng(20261026 + (i + 1) * 104723);
+      const lossR = wr(), rateR = wr(), gpA = wr(), gpB = wr(), ptA = wr(), ptB = wr();
+      const won = Math.max(1, n - Math.floor(lossR * Math.max(1, n * 0.1)));
+      const rate = (i < 10 ? 0.42 : 0.2) + rateR * 0.18;
       const entered = Math.max(won, Math.round(won / rate));
-      // Fisher-Yates, not a random sort: a sort calls r() a different number of times in different engines.
+      // Fisher-Yates, not a random sort: a sort calls wr() a different number of times in different engines.
       const order = GAMES.slice();
-      for (let k = order.length - 1; k > 0; k--) { const j = Math.floor(r() * (k + 1)); [order[k], order[j]] = [order[j], order[k]]; }
-      order.length = 1 + Math.floor(r() * 4);
-      const per = order.map((g, k) => ({ game: g, entered: 0, won: 0, wt: k === 0 ? 3 + r() * 3 : 0.5 + r() }));
+      for (let k = order.length - 1; k > 0; k--) { const j = Math.floor(wr() * (k + 1)); [order[k], order[j]] = [order[j], order[k]]; }
+      order.length = 1 + Math.floor(wr() * 4);
+      const per = order.map((g, k) => ({ game: g, entered: 0, won: 0, wt: k === 0 ? 3 + wr() * 3 : 0.5 + wr() }));
       const pick = () => {
-        let t = r() * per.reduce((s, x) => s + x.wt, 0);
+        let t = wr() * per.reduce((s, x) => s + x.wt, 0);
         for (const x of per) { t -= x.wt; if (t <= 0) return x; }
         return per[0];
       };
@@ -126,12 +162,12 @@
         .map(x => ({ game: x.game, entered: x.entered, won: x.won }));
       const game = split.slice().sort((a, b) => b.won - a.won)[0].game;
       return {
-        name: name, amount: amount, game: game, n: games.length,
+        name: name, amount: amount, game: game, n: n,
         profile: {
           name: name, preview: true,
           totalEarnings: amount,
-          gamesPlayed: entered + Math.floor(r() * entered * 0.6) + Math.floor(r() * 25),
-          playTimeSeconds: Math.round((entered * (5 + r() * 4) + r() * 600) * 60),
+          gamesPlayed: entered + Math.floor(gpA * entered * 0.6) + Math.floor(gpB * 25),
+          playTimeSeconds: Math.round((entered * (5 + ptA * 4) + ptB * 600) * 60),
           joinedAt: new Date(joined).toISOString(),
           games: games,
           winRate: { entered: entered, won: won, since: '2026-06-24T21:07:21Z', games: split },

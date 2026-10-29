@@ -222,9 +222,12 @@ test('graph: one gradient per chart, the line\'s own colour, and zoom on both gr
 
 // ─── the preview link, in the browser ────────────────────────────────────────
 
-function previewWindow(search) {
+// The sample board grows every day from 2026-10-28 (Owen); the shape tests read it just before day 0.
+const PREVIEW_BASE = Date.UTC(2026, 9, 28, 4);
+function previewWindow(search, now = PREVIEW_BASE - 1) {
   const classes = [];
-  const win = { location: { search }, document: { getElementById: () => ({ classList: { add: (c) => classes.push(c) } }) } };
+  const win = { location: { search }, DS_PREVIEW_NOW: now,
+                document: { getElementById: () => ({ classList: { add: (c) => classes.push(c) } }) } };
   win.window = win;
   vm.createContext(win);
   vm.runInContext(read('public/js/v2/socialPreview.js'), win);
@@ -270,6 +273,25 @@ test('preview: fifty sample players, a few dollars to a few thousand, and profil
   assert.deepStrictEqual(Array.from(P.search('NE')), ['neonviper', 'fennec', 'Delphine', 'Ottoline', 'skyline_9'],
     'starts-with first, any case');
   assert.ok(classes.includes('ph-no-capture'), 'kept out of analytics and session replay');
+});
+
+test('preview: every sample player earns a little every day, and the past never moves (Owen 2026-10-28)', () => {
+  const DAY = 864e5;
+  const at = (t) => previewWindow('?leaderboard=preview', t).P;
+  const before = at(PREVIEW_BASE - 1), d10 = at(PREVIEW_BASE + 10 * DAY), d11 = at(PREVIEW_BASE + 11 * DAY);
+  const growth = Math.round((d10.total() - before.total()) * 100) / 100;
+  assert.ok(growth > 50 * 10 * 8 && growth < 50 * 10 * 20, 'about $10 to $20 a player a day, 10 days: ' + growth);
+  assert.ok(d11.total() > d10.total(), 'still climbing the next day');
+  for (const r of Array.from(before.board(50).top)) {
+    const a = d10.profile(r.name), b = d11.profile(r.name);
+    assert.ok(d10.amountOf(r.name) > r.amount && d11.amountOf(r.name) > d10.amountOf(r.name), r.name + ' goes up every day');
+    const cents = (p) => p.games.reduce((s, g) => s + Math.round(g.amount * 100), 0);
+    assert.strictEqual(cents(a), Math.round(a.totalEarnings * 100), r.name + ' cash-outs add up to the figure');
+    // JSON, not deepStrictEqual: each window is its own vm realm, so the arrays' prototypes differ.
+    assert.strictEqual(JSON.stringify(b.games.slice(0, a.games.length)), JSON.stringify(a.games), r.name + ' past cash-outs stay put');
+    assert.ok(b.games.every((g) => Date.parse(g.at) <= PREVIEW_BASE + 11 * DAY), 'nothing in the future');
+    assert.ok(b.winRate.won >= a.winRate.won && b.winRate.won <= b.winRate.entered && b.winRate.entered <= b.gamesPlayed);
+  }
 });
 
 test('preview: only the visit with the link; no browser keeps it or wears LIVE (Owen 2026-10-28)', () => {
