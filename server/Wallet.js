@@ -353,6 +353,10 @@ function stakeTxInfo(raw) {
    A read that fails while polling is not a failed transaction: the poll keeps going, bounded by
    40 looks and 45 s, instead of reporting a stake that may still land as failed. */
 async function submitStake(rawTx, opts) {
+  /* Bytes of one transaction or nothing (night review 2026-10-29): a Solana transaction is at most
+     1232 bytes (PACKET_DATA_SIZE), so anything else is refused before it is encoded or sent, and
+     no caller can hand the RPC client a 100 MB buffer to copy on the game thread again. */
+  if (!(rawTx instanceof Uint8Array) || rawTx.length === 0 || rawTx.length > 1232) throw new Error('Not a signed transaction');
   const beforeSend = opts && typeof opts.beforeSend === 'function' ? opts.beforeSend : null;
   let info = null;
   if (beforeSend) {

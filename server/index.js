@@ -831,9 +831,15 @@ app.get('/api/blockhash', rpcLimiter, async (req, res) => {
 
 // Broadcast a user-signed transaction (e.g. a self-custody Cash Out: wallet → external wallet).
 // The tx is already signed by the player's own wallet; we just relay it + confirm over HTTP.
+/* signedTx is base64 TEXT of one transaction, at most 1232 bytes (1644 characters), and nothing
+   else (night review 2026-10-29): {"signedTx":{"length":1e8}} made Buffer.from build a 100 MB
+   buffer on the game thread, seconds of every room frozen per 40-byte request, and then a
+   base64 copy of it for the RPC. 4096 is skinShop's MAX_SIGNED_B64: room to spare for every
+   honest Cash Out and linked-wallet send, which all send a string. */
+const MAX_BROADCAST_B64 = 4096;
 app.post('/api/broadcast', walletWithdrawLimiter, express.json({ limit: '256kb' }), async (req, res) => {
   const { signedTx } = req.body || {};
-  if (!signedTx) return res.status(400).json({ error: 'Missing signed transaction' });
+  if (typeof signedTx !== 'string' || !signedTx || signedTx.length > MAX_BROADCAST_B64) return res.status(400).json({ error: 'Missing signed transaction' });
   try {
     const sig = await Wallet.submitStake(Buffer.from(signedTx, 'base64'));
     res.json({ ok: true, sig });
