@@ -37,7 +37,13 @@ const connection = new Connection(RPC_URL, { commitment: 'confirmed', httpAgent:
    requests at a key that was already throttled. Here each attempt is one request, and every one takes a token from
    the history budget below (historyRead, historySigPage). Stakes, payouts and balances keep `connection` and its
    retries exactly as they were. */
-const historyConnection = new Connection(RPC_URL, { commitment: 'confirmed', httpAgent: rpcAgent, disableRetryOnRateLimit: true });
+/* PUBLIC_RPC_URL (night review 2026-10-29, third pass; Wallet.js has the same line and says why): the reads any visitor
+   can cause, history and /api/sol-balance's USDC, go to this key when it is set, so strangers can never spend the
+   credits stakes and payouts run on. Unset, it is RPC_URL and nothing changes. */
+const PUBLIC_RPC_URL = process.env.PUBLIC_RPC_URL || RPC_URL;
+const publicConnection = PUBLIC_RPC_URL === RPC_URL ? connection
+  : new Connection(PUBLIC_RPC_URL, { commitment: 'confirmed', httpAgent: rpcAgent });
+const historyConnection = new Connection(PUBLIC_RPC_URL, { commitment: 'confirmed', httpAgent: rpcAgent, disableRetryOnRateLimit: true });
 
 // USDC mint. Mainnet = Circle USDC; devnet defaults to Circle's devnet USDC. Override with
 // USDC_MINT (e.g. point at a self-minted test token on devnet during development).
@@ -94,10 +100,13 @@ function ataForOwnerCached(ownerAddress) {
   return a;
 }
 
-async function usdcBalanceOf(ownerAddress) {
+/* opts.lane 'public': a read a visitor asked for (/api/sol-balance), on PUBLIC_RPC_URL's key; anything else (the
+   escrow, the solvency monitor) stays on the money key. */
+async function usdcBalanceOf(ownerAddress, opts) {
   const ata = ataForOwnerCached(ownerAddress);
+  const conn = opts && opts.lane === 'public' ? publicConnection : connection;
   try {
-    const acc = await withRetry(() => getAccount(connection, ata));
+    const acc = await withRetry(() => getAccount(conn, ata));
     return toUsdc(acc.amount);
   } catch (e) {
     if (ataNotFound(e)) return 0;
@@ -196,27 +205,28 @@ const _historyQueue = [];
    second, so it refilled as fast as the provider answered (about 28 a second from ONE IP asking /api/my-transfers for
    an exchange's wallet every 2 s), and the 1000-signature pages went around it. Every history call (signature pages
    and transaction reads alike, each retry too) now also takes a token from one server-wide bucket: HISTORY_RPS a
-   second (2 by default since the second pass below) after a burst of HISTORY_BURST (60, about one long wallet screen
+   second (2 by default since the second pass) after a burst of HISTORY_BURST (60, about one long wallet screen
    opening at full speed as before). However many people or scripts ask, history is held to that, and the rest of the key stays with stake
    verifies, submits and payouts, which never touch it. Raise both in .env with a bigger Helius plan.
    The queue is about 30 s of reads at that rate; past it, or when a token is more than 15 s away, the call fails at
    once ('history reads busy': the route's 502, and the Wallet tab's "Tap refresh").
-   Second pass (night review 2026-10-29): a rate that is never empty is still that rate all day, about 260k calls a
-   day at 3 a second, a quarter of Helius Free's month. So history also has a day's cap, HISTORY_PER_DAY (5000 by
-   default; with the public routes' 10000 that is about 15k of the plan's 33k a day, the rest left for stakes,
-   payouts and the server's own reads), and the rate is 2 (with the public routes' 3, 5 of the key's 10 a second
-   stay with stakes and payouts). Each IP's share of the day is an eighth; past it, an IP reads only while more
-   than a quarter of the day is left, so one address that spends the day down still leaves the Wallet tab working
-   for a player who just came. The owner's own session is never counted in the day (the route passes
-   rpcBudget.UNMETERED). */
+   At 2 a second here and the public routes' 3, 5 of the key's 10 a second stay with stakes and payouts.
+   Third pass (night review 2026-10-29, review problems 0 and 1): the day's cap the second pass added
+   (HISTORY_PER_DAY) is gone. It lived in memory and every deploy restarted it full, and a cap strangers can spend
+   is one they can empty for everyone. Instead each asking address has a share of the rate: half of it, with the
+   whole burst (one screen still opens at full speed), waited for in turn like the rate itself, so one address
+   flooding history is paced at half and the other half stays for everyone else, and a player's long history is
+   paced, never refused for being long. The owner's own session takes the rate only, no share (the route passes
+   rpcBudget.UNMETERED). Each read takes its token before its gate slot, so a read waiting on its address's share
+   never holds one of the four slots other people's reads need. */
 const HISTORY_RPS = rpcBudget.envNumber('HISTORY_RPS', 2);
 const HISTORY_BURST = rpcBudget.envNumber('HISTORY_BURST', 60);
-const HISTORY_PER_DAY = rpcBudget.envNumber('HISTORY_PER_DAY', 5000);
 const HISTORY_QUEUE_MAX = Math.max(40, Math.ceil(HISTORY_RPS * 30));
 const HISTORY_WAIT_MAX_MS = 15_000;
-const _historyBudget = rpcBudget.createBudget({ perSec: HISTORY_RPS, burst: HISTORY_BURST, perDay: HISTORY_PER_DAY,
-  perKey: rpcBudget.callerShare({ perDay: HISTORY_PER_DAY }) });   // no rate of its own: a long history is paced, not refused
+const _historyBudget = rpcBudget.createBudget({ perSec: HISTORY_RPS, burst: HISTORY_BURST,
+  perKey: { perSec: HISTORY_RPS / 2, burst: HISTORY_BURST } });
 const _historyBusy = rpcBudget.refusalLogs('history reads');
+rpcBudget.usageLog('history reads', _historyBudget);
 async function historyGate(fn) {
   if (_historyInFlight >= HISTORY_READS_AT_ONCE) {
     if (_historyQueue.length >= HISTORY_QUEUE_MAX) { _historyBusy.rate(); throw new Error('history reads busy'); }
@@ -229,16 +239,17 @@ async function historyGate(fn) {
     if (next) next();
   }
 }
-// A token from the history budget, waited for in turn; a flood that would wait past HISTORY_WAIT_MAX_MS fails at once,
-// and so does an ask the day's cap has no room for. `key` is the asking IP (or rpcBudget.UNMETERED for the owner).
+// A token from the history budget, waited for in turn (the server-wide rate and the asking address's share); a flood
+// that would wait past HISTORY_WAIT_MAX_MS fails at once. `key` is the asking IP (or rpcBudget.UNMETERED for the owner).
 async function historyToken(key) {
   const r = _historyBudget.reserve(1, HISTORY_WAIT_MAX_MS, key);
   if (r.refused) { _historyBusy[r.refused](); throw new Error('history reads busy'); }
   if (r.wait > 0) await new Promise(res => setTimeout(res, r.wait));
 }
-/* One transaction read: a gate slot, then a token for each attempt (a retry is a request too). */
+/* One transaction read: a token, then a gate slot, for each attempt (a retry is a request too). The token comes first
+   (night review 2026-10-29, third pass) so a read waiting its turn holds no slot. */
 function historyRead(fn, key) {
-  return historyGate(() => withRetry(async () => { await historyToken(key); return fn(); }));
+  return withRetry(async () => { await historyToken(key); return historyGate(fn); });
 }
 /* One signature page: a token for each attempt, no gate slot. A page is what an ask needs before any of its reads, so
    it never waits behind them: asked while the transaction list's reads are still under way, the add funds list
@@ -733,7 +744,7 @@ async function attemptPayout(row, onFreshTx) {
 }
 
 module.exports = {
-  connection, historyConnection, HISTORY_RPS, HISTORY_BURST, HISTORY_PER_DAY, HISTORY_QUEUE_MAX, TRANSFER_SIGS_MAX, NETWORK, USDC_MINT, USDC_DECIMALS, toUnits, toUsdc, withRetry, ataNotFound,
+  connection, publicConnection, historyConnection, HISTORY_RPS, HISTORY_BURST, HISTORY_QUEUE_MAX, TRANSFER_SIGS_MAX, NETWORK, USDC_MINT, USDC_DECIMALS, toUnits, toUsdc, withRetry, ataNotFound,
   escrowKeypair, escrowPubkey, escrowAta, stakeTargets,
   usdcBalanceOf, escrowUsdcBalance, verifyUsdcStake, verifyUsdcCredit, stakeDeltaUnits, ataFor,
   usdcHistory, usdcTransfers, markHouseAddress, TRANSFER_ROWS_MAX, historyRowOf, SOL_DUST,

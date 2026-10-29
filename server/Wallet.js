@@ -24,6 +24,17 @@ const connection = new Connection(RPC_URL, { commitment: 'confirmed', httpAgent:
 // Log which RPC is active (host only — never the API key) so a deploy can confirm it's
 // using a dedicated provider (e.g. helius) and not the rate-limited public endpoint.
 try { console.log(`[WALLET] RPC endpoint: ${new URL(RPC_URL).host}`); } catch (_) {}
+/* PUBLIC_RPC_URL (night review 2026-10-29, third pass, findings 1, 2 and 22): the key for the reads any visitor can
+   cause, the /api/rpc relay and /api/sol-balance here, the Wallet tab's history and the balance's USDC in Usdc.js.
+   The server-wide budgets (server/rpcBudget.js) hold those to a rate, which protects the key's per-second limit but
+   not its month: a flood held at the rate all month still spends credits. Set to a second key (another Helius
+   project or plan; https, like RPC_URL), strangers can only ever spend that one, and stake verifies, submits,
+   payouts, the drainer, the sweeps and a send's blockhash keep RPC_URL's credits to themselves. Unset, it is
+   RPC_URL and nothing changes. */
+const PUBLIC_RPC_URL = process.env.PUBLIC_RPC_URL || RPC_URL;
+const publicConnection = PUBLIC_RPC_URL === RPC_URL ? connection
+  : new Connection(PUBLIC_RPC_URL, { commitment: 'confirmed', httpAgent: rpcAgent });
+if (PUBLIC_RPC_URL !== RPC_URL) { try { console.log(`[WALLET] public reads RPC endpoint: ${new URL(PUBLIC_RPC_URL).host}`); } catch (_) {} }
 
 function getEscrowKeypair() {
   const b64 = process.env.ESCROW_PRIVATE_KEY;
@@ -283,7 +294,7 @@ async function forwardRpc(body) {
   if (bad) throw relayError(bad, 400);
   const payload = { jsonrpc: '2.0', id: body.id === undefined ? null : body.id, method: body.method };
   if (body.params !== undefined) payload.params = body.params;
-  const r = await fetch(RPC_URL, {
+  const r = await fetch(PUBLIC_RPC_URL, {   // a visitor's call: the public key when there is one (night review 2026-10-29)
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -404,8 +415,11 @@ async function blockhashValid(blockhash) {
   return !!(r && r.value);
 }
 
-async function getAddressBalance(address) {
-  return (await connection.getBalance(new PublicKey(address))) / LAMPORTS_PER_SOL;
+/* opts.lane 'public': a read a visitor asked for (/api/sol-balance), on PUBLIC_RPC_URL's key; the escrow's own
+   diagnostics stay on the money key. */
+async function getAddressBalance(address, opts) {
+  const conn = opts && opts.lane === 'public' ? publicConnection : connection;
+  return (await conn.getBalance(new PublicKey(address))) / LAMPORTS_PER_SOL;
 }
 
 // Diagnose WHERE deposited SOL actually is. Withdrawals pay FROM the address derived
@@ -442,4 +456,4 @@ async function getRecentSigs() {
 
 module.exports = { getEscrowPublicKey, getRecentSigs, withdraw, attemptPayout, getEscrowBalance, getAddressBalance, getEscrowDiagnostics, verifyStakeTransfer, getLatestBlockhash, forwardRpc, submitStake, NETWORK, setDb, seedUsedSignatures,
                    rpcRequestError, RPC_RELAY_METHODS, RPC_RELAY_MAX_BYTES, stakeTxInfo, stakeSigStatus, blockhashValid,
-                   PAYOUT_SUPERSEDED, PAYOUT_WAIT, connection, withRetry };
+                   PAYOUT_SUPERSEDED, PAYOUT_WAIT, connection, publicConnection, withRetry };

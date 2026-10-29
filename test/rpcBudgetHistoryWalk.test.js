@@ -1,14 +1,10 @@
 'use strict';
-/* Night review 2026-10-29, second pass on findings 1 and 22: the Wallet tab's history after the rate fix.
+/* Night review 2026-10-29, second pass on findings 1 and 22: the Wallet tab's "Looking further back" re-asks no longer
+   walk the same 1000-signature pages again; the walk of an answer that stopped short is kept for the next ask.
+   (This file was rpcBudgetHistoryDay.test.js. Its day's cap test went with the cap in the third pass, review problem
+   0: history is now a rate that refills each second and each address's share of it, in rpcBudget.test.js.)
 
-   A rate that is never empty is still that rate all day, so one address asking for a busy wallet's history around
-   the clock still spent a quarter of Helius Free's month. History now has a day's cap (HISTORY_PER_DAY) behind its
-   rate, each asking address a share of it, and a reserve the addresses past their share cannot touch; the owner's
-   own session is never counted in the day. And the "Looking further back" re-asks no longer walk the same
-   1000-signature pages again: the walk of an answer that stopped short is kept for the next ask.
-
-   Usdc against a stubbed history Connection (nothing leaves the process), with a day of 160: each address's share
-   is 20 and 40 are kept back. */
+   Usdc against a stubbed history Connection (nothing leaves the process), with the rate out of the way. */
 const test = require('node:test');
 const assert = require('node:assert');
 
@@ -20,9 +16,8 @@ const { Keypair } = require('@solana/web3.js');
 const escrow = Keypair.generate();
 process.env.ESCROW_PRIVATE_KEY = Buffer.from(escrow.secretKey).toString('base64');
 delete process.env.RPC_URL;
-process.env.HISTORY_RPS = '1000';      // the rate out of the way: the day is the subject here
+process.env.HISTORY_RPS = '1000';      // the rate out of the way: the walk is the subject here
 process.env.HISTORY_BURST = '1000';
-process.env.HISTORY_PER_DAY = '160';
 const { UNMETERED } = require('../server/rpcBudget');
 const Usdc = require('../server/Usdc');
 
@@ -52,7 +47,7 @@ function wallet(n) {
 }
 
 test('"Looking further back": the re-asks read on without walking the signature pages again', async () => {
-  assert.strictEqual(Usdc.HISTORY_PER_DAY, 160);
+  assert.strictEqual(Usdc.HISTORY_PER_DAY, undefined, 'no day cap any more (third pass)');
   const W = wallet(150);                 // 300 transactions: five asks at sixty new reads each
   const perAsk = [];
   let page = { complete: false };
@@ -84,38 +79,5 @@ test('a kept walk is dropped 30 s after its last ask, so a new transfer is never
     assert.strictEqual(pages - p0, 2, 'idle past 30 s: walked again');
   } finally {
     Date.now = realNow;
-  }
-});
-
-test('the day\'s cap: one address spends it down to the reserve, a player who just came still gets their history', async () => {
-  const warned = [];
-  const warn = console.warn;
-  console.warn = (s) => warned.push(String(s));
-  try {
-    const BUSY = wallet();               // an exchange's wallet: more than anyone reads
-    // Its first ask: two pages an address and sixty reads, 64 of the day's 160 (its own 20, then 44 past its share).
-    let r0 = reads;
-    const first = await Usdc.usdcTransfers(BUSY, { budgetKey: '203.0.113.9' });
-    assert.strictEqual(first.complete, false);
-    assert.strictEqual(reads - r0, 60);
-    // Its next ask reads on until the day is down to the 40 kept back, and is refused there.
-    r0 = reads;
-    await assert.rejects(Usdc.usdcTransfers(BUSY, { budgetKey: '203.0.113.9' }), /history reads busy/);
-    assert.strictEqual(reads - r0, 56, 'down to the reserve and not one read past it');
-    await assert.rejects(Usdc.usdcHistory(wallet(5), { limit: 5, budgetKey: '203.0.113.9' }), /history reads busy/,
-      'and refused at once for anything else today');
-    // A player who just came is inside their share: their page comes from the reserve.
-    r0 = reads;
-    const theirs = await Usdc.usdcHistory(wallet(10), { limit: 10, budgetKey: '198.51.100.7' });
-    assert.deepStrictEqual(theirs, { rows: [], next: null });
-    assert.strictEqual(reads - r0, 10);
-    // The owner's own session is never counted in the day.
-    r0 = reads;
-    const owner = await Usdc.usdcTransfers(BUSY, { budgetKey: UNMETERED });
-    assert.strictEqual(owner.complete, false);
-    assert.ok(reads - r0 > 0, 'the owner reads on');
-    assert.ok(warned.some((l) => /^\[RPC-BUDGET\] history reads: \d+ refused.*\(the day's cap is spent\)$/.test(l)), warned.join('\n'));
-  } finally {
-    console.warn = warn;
   }
 });

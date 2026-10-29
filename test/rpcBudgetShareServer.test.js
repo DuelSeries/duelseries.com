@@ -6,8 +6,11 @@
    your balance').
 
    Now each address has a share of the budget (rpcBudget.callerShare: a quarter of the rate, half the burst): past it
-   the address alone is refused, with a 429, and the rest of the budget stays for everyone else. The real server
-   (scripts/dev-local.js), every provider call stubbed. */
+   the address alone is refused, with a 429, and the rest of the budget stays for everyone else.
+   Third pass (night review 2026-10-29, review problem 1): one read of an address answers every ask for it for 10 s,
+   an address past its share asking for an address read lately gets that read (marked stale when it wanted a fresh
+   one), and a send's blockhash never takes from the budget at all. The real server (scripts/dev-local.js), every
+   provider call stubbed. */
 const test = require('node:test');
 const assert = require('node:assert');
 const net = require('net');
@@ -89,6 +92,7 @@ test.before(async () => {
 
 const A = '10.9.1.1';        // the flood
 const W = '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU';
+const { Keypair } = require('@solana/web3.js');
 
 test('one address flooding /api/sol-balance gets its share; every other address still gets its balance', async () => {
   const realSol = Wallet.getAddressBalance;
@@ -97,8 +101,9 @@ test('one address flooding /api/sol-balance gets its share; every other address 
   Wallet.getAddressBalance = async (a) => { provider.push('sol:' + a); return 0.5; };
   Usdc.usdcBalanceOf = async (a) => { provider.push('usdc:' + a); return 3; };
   try {
+    // Twenty addresses never read before (asking for the same one again would be answered from its read: free).
     const flood = [];
-    for (let i = 0; i < 20; i++) flood.push(await call('GET', '/api/sol-balance?address=' + W, undefined, { ip: A }));
+    for (let i = 0; i < 20; i++) flood.push(await call('GET', '/api/sol-balance?address=' + Keypair.generate().publicKey.toString(), undefined, { ip: A }));
     assert.deepStrictEqual(flood.map((r) => r.status), [...Array(10).fill(200), ...Array(10).fill(429)],
       'ten balances (its burst of 20 calls), then refused');
     const no = flood[10];
@@ -106,14 +111,25 @@ test('one address flooding /api/sol-balance gets its share; every other address 
     assert.match(no.head, /retry-after: 5/i, 'its share refused it, not the per-IP count');
     assert.match(no.head, /ratelimit-remaining: [1-9]\d*/i, 'which still had room');
     assert.strictEqual(provider.length, 20, 'the refused ones asked nothing of the chain');
-    // Everyone else: the budget's other 20 are theirs.
+    // Everyone else: the budget's other 20 are theirs, and their tabs share one read of their address.
     for (const ip of ['10.9.2.1', '10.9.2.2', '10.9.2.3', '10.9.2.4']) {
       const r = await call('GET', '/api/sol-balance?address=' + W, undefined, { ip });
       assert.strictEqual(r.status, 200, ip + ': ' + r.text);
       assert.strictEqual(r.json.balance, 3);
     }
+    assert.strictEqual(provider.length, 22, 'four asks for one address inside 10 s: one read');
+    // The flood, past its share, asking for an address read lately gets that read (shared, or marked stale), never
+    // a fresh read: it costs nothing and tells it nothing anyone else could not see.
+    let r = await call('GET', '/api/sol-balance?address=' + W, undefined, { ip: A });
+    assert.deepStrictEqual([r.status, r.json.balance, r.json.stale], [200, 3, undefined]);
+    r = await call('GET', '/api/sol-balance?address=' + W + '&fresh=1', undefined, { ip: A });
+    assert.deepStrictEqual([r.status, r.json.balance, r.json.stale], [200, 3, undefined], 'under 1 s old: shared');
+    await new Promise((res) => setTimeout(res, 1100));
+    r = await call('GET', '/api/sol-balance?address=' + W + '&fresh=1', undefined, { ip: A });
+    assert.deepStrictEqual([r.status, r.json.balance, r.json.stale], [200, 3, true], 'its share is spent: the last read, stale');
+    assert.strictEqual(provider.length, 22);
     // The relay is the same share: refused for the flood, open for anyone else.
-    let r = await call('POST', '/api/rpc', { jsonrpc: '2.0', id: 1, method: 'getSlot' }, { ip: A });
+    r = await call('POST', '/api/rpc', { jsonrpc: '2.0', id: 1, method: 'getSlot' }, { ip: A });
     assert.strictEqual(r.status, 429);
     const relayed = fetched.length;
     r = await call('POST', '/api/rpc', { jsonrpc: '2.0', id: 1, method: 'getSlot' }, { ip: '10.9.2.5' });
@@ -125,21 +141,39 @@ test('one address flooding /api/sol-balance gets its share; every other address 
   }
 });
 
-test('a fresh blockhash is counted to whoever asked for it; a shared one costs nobody anything', async () => {
+test('a send\'s blockhash never takes from the public budget: an address whose share is spent still gets one', async () => {
   const real = Wallet.getLatestBlockhash;
   let asked = 0;
   Wallet.getLatestBlockhash = async () => { asked++; return { blockhash: 'BH' + asked, lastValidBlockHeight: 9 }; };
   try {
     let r = await call('GET', '/api/blockhash', undefined, { ip: A });
-    assert.strictEqual(r.status, 503, 'its share is spent and there is no blockhash to share yet');
-    assert.deepStrictEqual(r.json, { error: 'Busy, try again in a moment.' });
-    assert.strictEqual(asked, 0);
+    assert.deepStrictEqual([r.status, r.json.blockhash, asked], [200, 'BH1', 1], 'the second pass answered this with a 503');
     r = await call('GET', '/api/blockhash', undefined, { ip: '10.9.3.1' });
-    assert.deepStrictEqual([r.status, r.json.blockhash], [200, 'BH1']);
-    r = await call('GET', '/api/blockhash', undefined, { ip: A });
-    assert.deepStrictEqual([r.status, r.json.blockhash], [200, 'BH1'], 'the shared one, within its 2 s');
-    assert.strictEqual(asked, 1);
+    assert.deepStrictEqual([r.status, r.json.blockhash, asked], [200, 'BH1', 1], 'shared, within its 5 s');
   } finally {
     Wallet.getLatestBlockhash = real;
+  }
+});
+
+test('a balance the provider fails to read is answered from the address\'s last read; one never read is the error as before', async () => {
+  const realSol = Wallet.getAddressBalance;
+  const realUsdc = Usdc.usdcBalanceOf;
+  let fail = false;
+  Wallet.getAddressBalance = async () => { if (fail) throw new Error('429 Too Many Requests'); return 0.5; };
+  Usdc.usdcBalanceOf = async () => { if (fail) throw new Error('429 Too Many Requests'); return 7; };
+  const V = Keypair.generate().publicKey.toString();
+  try {
+    let r = await call('GET', '/api/sol-balance?address=' + V, undefined, { ip: '10.9.4.1' });
+    assert.deepStrictEqual([r.status, r.json.balance, r.json.stale], [200, 7, undefined]);
+    await new Promise((res) => setTimeout(res, 1100));
+    fail = true;
+    r = await call('GET', '/api/sol-balance?address=' + V + '&fresh=1', undefined, { ip: '10.9.4.2' });
+    assert.deepStrictEqual([r.status, r.json.balance, r.json.stale], [200, 7, true], 'the key at its limit: the last read, stale');
+    r = await call('GET', '/api/sol-balance?address=' + Keypair.generate().publicKey.toString(), undefined, { ip: '10.9.4.3' });
+    assert.strictEqual(r.status, 400);
+    assert.match(r.json.error, /429/);
+  } finally {
+    Wallet.getAddressBalance = realSol;
+    Usdc.usdcBalanceOf = realUsdc;
   }
 });
