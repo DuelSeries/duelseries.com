@@ -147,6 +147,13 @@ class Snake {
 
     // Turn toward target
     let delta = this.targetAngle - this.angle;
+    /* A far-off delta is brought within a few turns in one step first (night review 2026-10-29).
+       The loops below take one pass per turn, so a client-sent angle of 1e12 cost minutes a tick
+       and one past about 1e16 never finished at all (subtracting 2 pi no longer changes the
+       number), which froze every game on the box. % is the exact remainder (it cannot overflow
+       the way a multiply back can at 1e308), so the loops below then run once at most. An honest
+       delta is within a few turns, skips this, and goes through the loops exactly as before. */
+    if (delta > 64 || delta < -64) delta %= Math.PI * 2;
     while (delta >  Math.PI) delta -= Math.PI * 2;
     while (delta < -Math.PI) delta += Math.PI * 2;
     const tr = this.turnRate;

@@ -5253,8 +5253,11 @@ io.on('connection', (socket) => {
 
   // speedMult is no longer read from the client: the only thing it carried was
   // the cash-out slowdown, and the server times that itself now.
+  /* An angle is a heading in radians: atan2's [-pi, pi], or the snake's own angle, which is a
+     few turns at most. Anything past a million is not a heading (night review 2026-10-29: 1e300
+     hung Snake.update and with it the whole process; Snake.update is bounded itself now too). */
   on(C.EVENTS.INPUT, ({ angle, boost } = {}) => {
-    if (typeof angle !== 'number' || !Number.isFinite(angle)) return;
+    if (typeof angle !== 'number' || !Number.isFinite(angle) || Math.abs(angle) > 1e6) return;
     if (socket._room) socket._room.handleInput(socket.id, angle, !!boost);
   });
 
