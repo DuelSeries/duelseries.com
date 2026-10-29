@@ -21,8 +21,10 @@ const WATCHERS_MAX = 50; // read-only spectators per arena (the lobby's Spectate
 // camera glides there before following the next square (paperMirror FOLLOW_AFTER_KILL_MS 2000, with room to spare).
 const DEATH_VIEW_TICKS = Math.round(10000 / MP.STEP_MS);
 // A paid arena (night review 2026-10-29, the review of finding 16): a dead or cashed-out page that stays in the arena
-// is shown around its killer only this long (its camera glides there and the end card shows 2 s later); after that
-// only around where it died, so a second wallet that gets itself cut by a chosen square keeps no camera on it.
+// is shown around its killer (or, with none, around where it died) only this long: its camera glides there and the
+// end card shows 2 s later. After that it is shown no square at all (night review 2026-10-29, second review of
+// finding 16): kept on the exit spot for good, a few tabs cashed out at chosen spots (10% of a $0.50 rung each) were
+// live cameras there that no watcher guard or delay covers. Rings stay shared, so the end card's backdrop still draws.
 const DEAD_VIEW_TICKS = Math.round(15000 / MP.STEP_MS);
 // A paid arena's watcher (the lobby's Spectate on $0.50 or $1) is sent everything this far behind the live game
 // (night review 2026-10-29, the review of finding 16, as paid agar's WATCH_DELAY_MS): live, a script on a second
@@ -160,7 +162,8 @@ class PaperRoom {
     // cull): the page's own square, the square it watches, or after a death the killer its camera glides to.
     // views: socketId -> Map unit id -> { epoch, sent }, the reliable trail corners that page holds (trailsFor).
     // watchFollow: a watcher's socketId -> the unit id its page follows (addWatcher, then pp:follow).
-    // deadViews: a dead seat's socketId -> { killer, x, y }, where its page's camera stays (the seat is gone).
+    // deadViews: a dead seat's socketId -> { killer, x, y, tick }, where its page's camera stays (the seat is gone),
+    // for DEAD_VIEW_TICKS; after that the page is shown no square (_focusOf).
     // deaths: unit id -> { killer, x, y, tick } for DEATH_VIEW_TICKS, for a watcher whose square just died.
     this.views = new Map();
     this.watchFollow = new Map();
@@ -461,15 +464,15 @@ class PaperRoom {
 
   // Where a page's camera is: its own live square; the square it watches; after its square died, the killer its
   // camera glides to (or where it died). null: nothing to show (a page that follows nobody, or a socket this arena
-  // does not know). A dead page looks at its killer DEAD_VIEW_TICKS at most, then only where it died (night review
-  // 2026-10-29).
+  // does not know). A dead page looks at its killer (or where it died) DEAD_VIEW_TICKS at most, then at nothing: no
+  // square in its frames, no trail batch, rings only on pp:need (night review 2026-10-29, second review of finding 16).
   _focusOf(socketId) {
     const seat = this.bySocket.get(socketId);
     if (seat && !seat.unit.death) return { x: seat.unit.position.x, y: seat.unit.position.y, unit: seat.unit };
     if (this.watchers.has(socketId)) return this._focusOn(this.watchFollow.get(socketId) || 0);
     const d = this.deadViews.get(socketId);
-    if (!d) return null;
-    return this.game.tick - d.tick > DEAD_VIEW_TICKS ? { x: d.x, y: d.y, unit: null } : this._afterDeath(d);
+    if (!d || this.game.tick - d.tick > DEAD_VIEW_TICKS) return null;
+    return this._afterDeath(d);
   }
 
   _focusOn(id) {

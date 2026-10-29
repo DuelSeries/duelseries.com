@@ -300,7 +300,7 @@ test('one address holds at most two paid watchers (every paid rung together); fr
   assert.strictEqual(three._ppWatch.lagged.get(three.id).q.slice(-1)[0].ev, 'pp:geo');
 });
 
-test('a dead page is shown around its killer DEAD_VIEW_TICKS, then only where it died', () => {
+test('a dead page is shown around its killer DEAD_VIEW_TICKS, then no square at all', () => {
   const k = roomKit();
   const a = k.seat(at(600, 0), 'a');
   const b = k.seat(at(600, Math.PI), 'b');
@@ -315,10 +315,75 @@ test('a dead page is shown around its killer DEAD_VIEW_TICKS, then only where it
   k.tick(Math.round(15000 / STEP));
   a.s.got.length = 0;
   k.tick(4);
-  assert.ok(frames().length && frames().every((f) => !f.units.length), 'then only where it died: nobody there');
-  assert.ok(!b.u.death && Math.hypot(b.u.position.x - a.u.position.x, b.u.position.y - a.u.position.y) > R);
+  assert.ok(frames().length && frames().every((f) => !f.units.length), 'then nothing, the live killer included');
+  assert.ok(!b.u.death);
   // a watcher's dead square keeps its killer for the delay on top (the page sees the death that much later)
   assert.strictEqual(k.room.deathViewTicks, Math.round(10000 / STEP) + LAG);
+});
+
+// Night review 2026-10-29, second review of finding 16: a page that cashed out and stayed in the arena was shown
+// around its exit spot for good (live, every snapshot, its trails and pp:need too), so a few tabs cashed out at chosen
+// spots were risk-free live cameras that no watcher guard or delay covers. Now it is shown nothing after DEAD_VIEW_TICKS.
+test('a page that cashed out is sent no square, trail or pp:need trail after DEAD_VIEW_TICKS, even one on its exit spot', () => {
+  const k = roomKit();
+  const a = k.seat(at(600, 0), 'a');
+  const b = k.seat(at(600, Math.PI), 'b');
+  b.u.still = true;
+  let sq = 0;
+  // a heads for the middle, then holds the cash-out the real way (the hold bit, HOLD_TICKS ticks, steering locked)
+  for (let i = 0; i < 40; i++) {
+    k.room.setInput(a.s.id, MP.encodeInput(++sq, MP.angleToByte(Math.PI), false));
+    k.tick();
+  }
+  for (let i = 0; i < MP.HOLD_TICKS + 2 && !a.u.death; i++) {
+    k.room.setInput(a.s.id, MP.encodeInput(++sq, MP.angleToByte(Math.PI), true));
+    k.tick();
+  }
+  assert.ok(a.u.death && !k.room.bySocket.has(a.s.id), 'a cashed out');
+  assert.ok(a.s.rooms.has(k.room.ioRoom), 'its page is still in the arena (the route this closes)');
+  const exit = k.room.deadViews.get(a.s.id);
+  assert.ok(exit && exit.killer === null, 'no killer: the camera stays on the exit spot');
+  // a second square sits by the exit spot and runs loops there (trails), as the PoC's square 199 units off did
+  const c = k.seat(new P.Vec2(exit.x, exit.y + 150), 'c');
+  let turn = 0; // one steady turn across every call (a jump in heading could cross its own trail)
+  const loops = (ticks) => {
+    let far = 0;
+    for (let i = 0; i < ticks; i++) {
+      k.g.setInput(c.u.id, (++sq) & 255, MP.angleToByte(turn++ * 0.02), false, k.clock.now());
+      k.tick();
+      far = Math.max(far, Math.hypot(c.u.position.x - exit.x, c.u.position.y - exit.y));
+    }
+    return far;
+  };
+  const frames = () => a.s.all('pp:s').map((x) => MP.decodeFrame(x));
+  const trailsTo = (s) => s.all('pp:ev').flatMap((x) => MP.unpackBin(x).ev).filter((e) => e[0] === 't');
+  a.s.got.length = 0;
+  loops(60);
+  // the honest end card: for now its backdrop is the exit spot as before, square c included
+  assert.ok(frames().some((f) => f.units.some((u) => u.id === c.u.id)), 'around the exit spot at first');
+  loops(Math.round(15000 / STEP));
+  a.s.got.length = 0;
+  c.s.got.length = 0;
+  const far = loops(600);
+  assert.ok(!c.u.death, 'c still playing');
+  assert.ok(far < R - 50, 'c stayed well inside the old camera: ' + far);
+  assert.ok(trailsTo(c.s).some((e) => e[1] === c.u.id), 'c laid new trail corners meanwhile');
+  const f = frames();
+  assert.ok(f.length >= 290, 'the page still gets its (volatile) frames: ' + f.length);
+  assert.ok(f.every((x) => !x.units.length), 'no square in any frame, c on its exit spot included');
+  assert.deepStrictEqual(trailsTo(a.s), [], 'no trail batch');
+  assert.ok(a.s.all('pp:ev').length > 0, 'the shared bundle still goes (rings, board)');
+  // pp:need: rings only, for c and for everything
+  assert.deepStrictEqual(k.room.geo(c.u.id, a.s.id).ev.map((e) => e[0]), ['b']);
+  assert.ok(k.room.geo(0, a.s.id).ev.every((e) => e[0] === 'b'));
+  assert.ok(k.room.geo(c.u.id, c.s.id).ev.some((e) => e[0] === 't'), 'c\'s own page still gets its trail');
+  // a page that buys in again on the same socket sees around its new square at once
+  const again = k.room.addHuman(a.s, { name: 'a2', micro: 500000, wallet: 'W' + a.s.id, spot: new P.Vec2(exit.x - 150, exit.y) });
+  again.unit.locked = false;
+  k.room._confirm(again);
+  a.s.got.length = 0;
+  loops(4);
+  assert.ok(frames().every((x) => x.units.some((u) => u.id === again.unit.id) && x.units.some((u) => u.id === c.u.id)));
 });
 
 test('a square is seen by its trail only where the trail runs, never by an empty corner of its box', () => {
