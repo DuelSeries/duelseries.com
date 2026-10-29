@@ -712,8 +712,59 @@ async function savePayoutSignature(id, b, prevSignature) {
   return r.rowCount > 0;
 }
 
+/* Conditional (night review 2026-10-29, finding 3): only an unpaid row, true when this call is the one that settled
+   it. An inline payout's owed row (recordPayoutIntent below) can be settled by its own attempt or by the drainer
+   re-sending the same saved bytes; whichever comes second gets false and books no earnings. */
 async function markPayoutPaid(id, paidSig) {
-  await pool.query(`UPDATE failed_payouts SET paid = true, paid_sig = $2 WHERE id = $1`, [id, paidSig || null]);
+  const r = await pool.query(`UPDATE failed_payouts SET paid = true, paid_sig = $2 WHERE id = $1 AND paid = false`, [id, paidSig || null]);
+  return r.rowCount > 0;
+}
+
+/* The inline payouts' write-ahead row (night review 2026-10-29, finding 3; server/inlinePayout.js). The duel prizes
+   and refunds (koSend) and the old snake cash-out used to save nothing before sending, so a restart (every push to
+   main) or a crash mid-payout lost the winnings with no record. Now the owed row is written BEFORE anything is
+   signed, the signed bytes are saved on it before they are sent (savePayoutSignature, the drainer's compare-and-set),
+   and the row is closed once the transfer landed. A process that dies at any point leaves a row the drainer finishes
+   exactly once (it re-sends the saved bytes, or builds once they provably expired unlanded).
+   last_attempt_at = NOW() is the drainer's normal 30 s claim lease, so it keeps off the row while the inline attempt
+   runs. Returns the row id. */
+async function recordPayoutIntent(walletAddress, amountSol, name, reason) {
+  const r = await pool.query(
+    `INSERT INTO failed_payouts (wallet_address, amount_sol, name, reason, last_attempt_at)
+     VALUES ($1, $2, $3, $4, NOW())
+     RETURNING id`,
+    [walletAddress, amountSol, name || null, String(reason || '').slice(0, 500)]
+  );
+  return r.rows[0].id;
+}
+
+/* The inline payout landed: its row is removed while still unpaid, so a payout that went through leaves exactly what
+   it always left (no failed_payouts row; the earnings strip, Live wins, the top cash-out and the win rate all count a
+   payout as landed only when there is none, and Control's owed list stays the real backlog). True when this call
+   removed it, so the caller books the earnings; false when the drainer settled it first (it booked them). */
+async function closePayoutIntent(id) {
+  const r = await pool.query(`DELETE FROM failed_payouts WHERE id = $1 AND paid = false RETURNING id`, [id]);
+  return r.rowCount > 0;
+}
+
+/* The inline attempt did not land: the row stays owed, with the error on its reason as recordFailedPayout writes it,
+   and its lease ends now, so the drainer takes it on its next run (a wallet with no USDC account goes straight to the
+   slow lane, as recordFailedPayout puts it). */
+async function releasePayoutIntent(id, message) {
+  const note = message ? ': ' + String(message).slice(0, 300) : '';
+  if (features.payoutLanes && note.includes(NO_USDC_ACCOUNT)) {
+    await pool.query(
+      `UPDATE failed_payouts SET reason = left(reason || $2::text, 500), missing_account = true,
+              account_waits = GREATEST(COALESCE(account_waits, 0), 1), next_attempt_at = NOW() + make_interval(secs => 120)
+        WHERE id = $1 AND paid = false`,
+      [id, note]
+    );
+    return;
+  }
+  await pool.query(
+    `UPDATE failed_payouts SET reason = left(reason || $2::text, 500), last_attempt_at = NULL WHERE id = $1 AND paid = false`,
+    [id, note]
+  );
 }
 
 async function getTopEarners(n) {
@@ -1211,6 +1262,7 @@ module.exports = {
   isPlayerWallet,
   recordFailedPayout, recordOwedOnce, getHouseEarnedToday, getFailedPayouts, sumOwedPayouts, claimDuePayout, savePayoutSignature, markPayoutPaid,
   deferPayoutNoAccount, returnPayoutToLane,
+  recordPayoutIntent, closePayoutIntent, releasePayoutIntent,
   features, NO_USDC_ACCOUNT,
   recordEarnings,
   onEarningsRecorded,

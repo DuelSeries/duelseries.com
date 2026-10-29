@@ -37,6 +37,7 @@
      verifying --the sweep: it landed and nobody verified it----------> pending --refund--> refunded
      verifying --the sweep: never landed (blockhash expired), failed,
                  or paid less than it was for-------------------------> expired | failed | rejected
+     verifying --the request: the node refused its bytes at preflight--> expired   (unsent, 2026-10-29)
 
    The request used to broadcast first and write the row only after verifying, so a stake that
    landed after the request had already failed (a status read that threw, the confirm timeout, a
@@ -63,6 +64,21 @@ function createStakeLedger({ db, region, bootId, log = console, kickDrain = () =
     const r = await db.claimStakeVerify(sig, { wallet, amount, label, region, bootId, blockhash });
     const claimed = !!(r && r.claimed);
     return { claimed, durable: claimed && !!r.durable };
+  }
+
+  /* /api/submit-stake, when the node refused this request's own bytes at preflight (night review
+     2026-10-29, finding 23; Wallet.submitStake sets e.stakeUnsent): nothing was forwarded and only
+     this server sends stakes, so they can never land. Its row is closed 'expired' at once, the state
+     the sweep would give it minutes later, instead of queueing, oldest first, ahead of real late
+     stakes. Only a row this request wrote (preclaim durable). Never rejects. */
+  async function unsent(sig) {
+    if (typeof db.closeStakeVerify !== 'function') return false;
+    try {
+      return !!(await db.closeStakeVerify(sig, 'expired'));
+    } catch (e) {
+      log.warn(`[STAKE] ${String(sig).slice(0, 12)} refused unsent, left for the sweep: ${e && e.message}`);
+      return false;
+    }
   }
 
   /* /api/submit-stake, after the stake is verified. amount is what a refund pays (what landed,
@@ -225,7 +241,7 @@ function createStakeLedger({ db, region, bootId, log = console, kickDrain = () =
     return (await db.closeStakeVerify(r.sig, 'expired')) ? 'closed' : 'settled';
   }
 
-  return { preclaim, record, claimSeat, refund, retryQueued, sweep, sweepVerifying,
+  return { preclaim, unsent, record, claimSeat, refund, retryQueued, sweep, sweepVerifying,
            get queued() { return retry.size; }, bootId, region };
 }
 

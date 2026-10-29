@@ -132,7 +132,12 @@ const dbStub = {
   claimDuePayout: async () => null,
   deferPayoutNoAccount: async () => {},
   returnPayoutToLane: async () => {},
-  savePayoutSignature: async () => {},
+  // The inline payouts' owed row, written before anything is signed (server/inlinePayout.js): modelled, so a payout
+  // that fails here leaves its owed row in ledgerDb.payouts and one that lands leaves none, as in production.
+  savePayoutSignature: ledgerDb.savePayoutSignature,
+  recordPayoutIntent: ledgerDb.recordPayoutIntent,
+  closePayoutIntent: ledgerDb.closePayoutIntent,
+  releasePayoutIntent: ledgerDb.releasePayoutIntent,
   markPayoutPaid: async () => {},
   features: ledgerDb.features,
   NO_USDC_ACCOUNT: ledgerDb.NO_USDC_ACCOUNT,

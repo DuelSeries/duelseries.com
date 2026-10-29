@@ -315,3 +315,40 @@ test('a row under 3 minutes old, or one the chain has seen at processed, is neve
   assert.strictEqual(h.db.stakes.get('YOUNG').state, 'expired', 'old enough, blockhash gone, never seen: closed');
   assert.strictEqual(h.db.payouts.length, 0);
 });
+
+/* Night review 2026-10-29, finding 23: bytes the node refused at preflight were never forwarded, and only the server
+   sends stakes, so their row is closed at once ('expired', the sweep's own verdict minutes later) instead of waiting,
+   oldest first, in front of real late stakes. Only a 'verifying' row; a database error leaves it for the sweep. */
+test('unsent: a row whose bytes the node refused is closed at once; a settled row and a database error are left alone', async () => {
+  const h = harness();
+  await pre(h, 'J1');
+  assert.strictEqual(await h.ledger.unsent('J1'), true);
+  assert.strictEqual(h.db.stakes.get('J1').state, 'expired');
+  // Already settled (the request verified it): nothing changes.
+  await pre(h, 'J2');
+  await h.ledger.record('J2', { wallet: PAYER, amount: 0.5, label: 'stake 0.5', preclaimed: true });
+  assert.strictEqual(await h.ledger.unsent('J2'), false);
+  assert.strictEqual(h.db.stakes.get('J2').state, 'pending');
+  // The database did not answer: never rejects, and the sweep still has the row.
+  await pre(h, 'J3');
+  const close = h.db.closeStakeVerify;
+  h.db.closeStakeVerify = async () => { throw new Error('db down'); };
+  assert.strictEqual(await h.ledger.unsent('J3'), false);
+  h.db.closeStakeVerify = close;
+  assert.strictEqual(h.db.stakes.get('J3').state, 'verifying');
+});
+
+test('Wallet.preflightRefused: only a preflight refusal the node never forwarded, never "already processed" or a timeout', () => {
+  const Wallet = require('../server/Wallet');
+  const { SendTransactionError } = require('@solana/web3.js');
+  const sim = (why) => new SendTransactionError({ action: 'simulate', signature: '', transactionMessage: why, logs: [] });
+  assert.strictEqual(Wallet.preflightRefused(sim('Transaction simulation failed: Blockhash not found')), true);
+  assert.strictEqual(Wallet.preflightRefused(sim('Transaction simulation failed: Attempt to debit an account but found no record of a prior credit.')), true);
+  assert.strictEqual(Wallet.preflightRefused(sim('Transaction signature verification failure')), true);
+  assert.strictEqual(Wallet.preflightRefused(sim('Transaction simulation failed: This transaction has already been processed')), false);
+  assert.strictEqual(Wallet.preflightRefused(sim('Node is behind by 120 slots')), false, 'a node health error proves less: left for the sweep');
+  assert.strictEqual(Wallet.preflightRefused(new SendTransactionError({ action: 'send', signature: 'x', transactionMessage: 'Transaction simulation failed: x' })), false);
+  assert.strictEqual(Wallet.preflightRefused(new Error('Simulation failed. \nMessage: Transaction simulation failed: x')), false, 'not from web3.js');
+  assert.strictEqual(Wallet.preflightRefused(new Error('429 Too Many Requests')), false);
+  assert.strictEqual(Wallet.preflightRefused(new Error('fetch failed')), false);
+});

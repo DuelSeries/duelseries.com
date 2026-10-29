@@ -16,6 +16,7 @@ const {
 } = require('@solana/spl-token');
 const _bs58 = require('bs58');
 const bs58  = (_bs58 && _bs58.default) ? _bs58.default : _bs58;
+const crypto = require('crypto');
 
 const NETWORK = process.env.SOLANA_NETWORK || 'mainnet-beta';
 const RPC_URL = process.env.RPC_URL || (NETWORK === 'mainnet-beta'
@@ -133,7 +134,8 @@ async function verifyUsdcStake(signature, minUsdc) {
     if (!b || b.mint !== USDC_MINT.toString() || !b.owner || senders.includes(b.owner)) continue;
     if (stakeDeltaUnits(tx.meta, b.owner, USDC_MINT.toString()) < 0n) senders.push(b.owner);
   }
-  return { payer: keys[0].toString(), usdc: toUsdc(delta), senders };
+  // blockTime (seconds): when it landed, for the late-stake sweep (night review 2026-10-29, finding 0)
+  return { payer: keys[0].toString(), usdc: toUsdc(delta), senders, blockTime: tx.blockTime == null ? null : Number(tx.blockTime) };
 }
 
 // Generalized version of verifyUsdcStake for ANY recipient owner — used by the cosmetics shop,
@@ -560,7 +562,12 @@ async function buildSignedUsdcPayout(toAddress, amountUsdc, opts) {
     }
     ixs.push(createAssociatedTokenAccountInstruction(escrow.publicKey, toAta, recipient, USDC_MINT));
   }
-  ixs.push(createTransferCheckedInstruction(fromAta, USDC_MINT, toAta, escrow.publicKey, amount, USDC_DECIMALS));
+  const transfer = createTransferCheckedInstruction(fromAta, USDC_MINT, toAta, escrow.publicKey, amount, USDC_DECIMALS);
+  /* A random read-only reference key, so two payouts of one amount to one wallet on one blockhash are never the same
+     bytes and the same signature (night review 2026-10-29, finding 42; the reason is at Wallet.buildSignedPayout).
+     The Token program reads extra accounts only as multisig signers, and the escrow is a plain keypair. */
+  transfer.keys.push({ pubkey: new PublicKey(crypto.randomBytes(32)), isSigner: false, isWritable: false });
+  ixs.push(transfer);
 
   const { blockhash, lastValidBlockHeight } = await withRetry(() => connection.getLatestBlockhash(), 8);
   const tx = new Transaction().add(...ixs);
@@ -573,11 +580,19 @@ async function buildSignedUsdcPayout(toAddress, amountUsdc, opts) {
 
 // Inline cash-out payout (happy path). On failure attaches e.broadcast for the drainer, exactly
 // like Wallet.withdraw, so the USDC payout queue can recover it idempotently.
+// opts.beforeSend: as Wallet.withdraw's (night review 2026-10-29, finding 3), awaited with the signed bytes before the
+// send; false (another attempt saved its own transaction for the row) or a throw sends nothing.
 async function withdrawUsdc(toAddress, amountUsdc, opts) {
   const built = await buildSignedUsdcPayout(toAddress, amountUsdc, opts);
+  const beforeSend = opts && typeof opts.beforeSend === 'function' ? opts.beforeSend : null;
+  if (beforeSend) {
+    const saved = await beforeSend({ signature: built.signature, signedTx: built.signedTx, blockhash: built.blockhash, lastValidBlockHeight: built.lastValidBlockHeight });
+    if (saved === false) throw superseded();
+  }
   try {
     await withRetry(() => connection.sendRawTransaction(built.raw, { skipPreflight: false }), 6);
-    await withRetry(() => connection.confirmTransaction({ signature: built.signature, blockhash: built.blockhash, lastValidBlockHeight: built.lastValidBlockHeight }), 6);
+    const c = await withRetry(() => connection.confirmTransaction({ signature: built.signature, blockhash: built.blockhash, lastValidBlockHeight: built.lastValidBlockHeight }), 6);
+    if (c && c.value && c.value.err) throw new Error('Payout transaction failed on-chain: ' + JSON.stringify(c.value.err));
     return built.signature;
   } catch (e) {
     e.broadcast = { signature: built.signature, signedTx: built.signedTx, blockhash: built.blockhash, lastValidBlockHeight: built.lastValidBlockHeight };
