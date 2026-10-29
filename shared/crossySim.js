@@ -26,7 +26,8 @@
   /* The step's version. A page running an older step would predict a different
      game from the one the server judges, so the server only seats a page that
      says this number (cr:queue v). Bump it with any change to the rules. */
-  const VERSION = 3;                    // 2: the map comes as lanes (packRow), never as a seed; 3: x rounds off a log over water
+  const VERSION = 4;                    // 2: the map comes as lanes (packRow), never as a seed; 3: x rounds off a log over water;
+                                        // 4: a hop from a log onto a lily lands (it drowned: the water was never cleared)
 
   const HZ = 60;
   const DT = 1 / HZ;
@@ -514,7 +515,9 @@
     h.log = -1; h.lily = false;
     if (!row || row.kind !== 'water') { h.water = false; return false; }
     if (row.type === 'lily') {
-      for (const lx of row.lilies) if (lx === h.x) { h.lily = true; return false; }
+      // On a lily is out of the water: a hop from a log lands in the water first and is found on the lily when its arc
+      // ends (x rounded by then), and that must clear the water too (it never did, so every such hop drowned).
+      for (const lx of row.lilies) if (lx === h.x) { h.lily = true; h.water = false; return false; }
     } else {
       const logs = logsAt(row, d, SCRATCH);
       for (const L of logs) {

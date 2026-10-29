@@ -110,8 +110,8 @@ tall x 1/2/3 long. Lily 0.5 x 0.125. Train: front 4.875, five middles 4.5 apart,
   let a player stand still at the start forever).
 * A 3 s countdown before GO.
 * Leaving or losing the connection mid-match forfeits (Knockout's rule; no reconnect grace).
-* The free-table bot (server/crossy/crossyBot.js) looks three moves ahead and reacts every 2 to 5 ticks; alone it lasts
-  30 s median, 65 s p90 (`node scripts/crossyBotSim.js`).
+* The free-table bot (server/crossy/crossyBot.js) plans each crossing as a timed path at a middling pace; alone it
+  reaches the 5-minute stop on almost every map ("The bot" below; `node scripts/crossyBotSim.js 200 solo keyed`).
 * Netcode: each seat runs on its own timeline (Swim's), hops stamped with their tick, 250 ms lag allowance.
 
 ## Paid (reviewed 2026-10-28, Fable and Opus)
@@ -199,4 +199,22 @@ Solo over the full 5 minutes with the ramp, 20 maps: lives 18 / 53 s (p10 / p50)
 eagle 11 / log 3; the old sharp bot on the same runs: 3 / 17 s, 232 a minute. Not yet "alive at 5 minutes in most runs":
 it still gets caught waiting by the eagle at long highways and drifting logs (open). The search found a rules bug: off a
 log over water x was never rounded, so a hop from a log could never land on a lily (the reference rounds every frame it
-has no log, then finds the lily by exact x); fixed in shared/crossySim.js, VERSION 3.
+has no log, then finds the lily by exact x); fixed in shared/crossySim.js, VERSION 3. That fix was only half done: the
+lily test when the arc ends found the lily but never cleared the water, so EVERY hop from a log onto a lily still
+drowned, and a lily row right after a log row (the water-lily-a chunk, or a lily chunk after a log chunk) was a wall
+nobody could cross. Fixed 2026-10-28 night (VERSION 4; test "a hop from a log onto a lily lands on the lily"). Before
+that fix the planning bot below reached the stop on 3 of 20 maps, and 16 of its 17 deaths were at such a wall.
+
+Night (Owen: "make it so it doesn't die... like medium skill"). SKILL now PLANS (decidePlan, plan): every car, train and
+log is a closed-form function of the lane clock, so on grass or a lily the bot searches (row, column, tick) for a whole
+timed path to the next grass or lily: waits of 3 ticks and hops each way, against each lane's danger by tick (kept once
+worked out); on a log it rides the log's own schedule, and a landing in the water counts the 14 ticks a log has to come
+under it. Best first, each row made good worth 15 ticks. A path must end with the eagle at most 2.5 s along and with a
+way on from there (a second, smaller search; grass and lilies are also checked for dead ends that need no search). It is
+replayed through step() before it is used, then followed press by press. Its pace: no hop off grass or a lily before 50
+to 70 ticks after its last forward hop, while the eagle is under 1.5 s. With no path it waits where it is, safe, and
+looks again a fifth of a second later; only once the eagle is 3 s along does it take a path with no way on found, or the
+old careful bot's choice. Each look shares 10,000 search nodes at most. Measured over the full 5 minutes with the ramp
+(`scripts/crossyBotSim.js`; keyed = maps from a secret key as a match's): solo 200/200 keyed and 200/200 seeded maps
+alive at the stop, 118 rows a minute (p10 114, p90 122), a look 0.05 ms at the 99th percentile of ticks and about 30 ms
+at worst; two bots on one map, 100 matches: neither died in any (both still going at the stop).

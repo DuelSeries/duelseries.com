@@ -156,6 +156,26 @@ test('water: landing with no log or lily drowns when the arc ends (14 ticks); a 
   assert.strictEqual(g.death, 'log', 'carried off the edge');
 });
 
+test('a hop from a log onto a lily lands on the lily (it used to drown every time)', () => {
+  const logs = { kind: 'water', type: 'log', h: 0.395, dir: 1, speed: 1, gapMax: 2, w0: 3, t0: -100, poop: false, cur: 0, spawns: [], ws: [], R: S.rng(1) };
+  const lily = { kind: 'water', type: 'lily', h: 0.45, lilies: [-4, -3, -2, -1, 0, 1, 2, 3, 4] };
+  const w = handWorld({ [-1]: logs, [0]: lily });
+  const L = S.logsAt(logs, 0, []).find(l => Math.abs(l.x) < 3);
+  assert.ok(L, 'a log is in the field');
+  const h = S.newHopper(); h.x = Math.round(L.x); h.eagle = -1e9;
+  S.step(w, h, IN.FWD);
+  assert.ok(h.log >= 0, 'on the log');
+  for (let i = 0; i < 20; i++) S.step(w, h, 0);
+  assert.ok(h.x !== Math.round(h.x), 'riding between cells');
+  S.step(w, h, IN.FWD);
+  for (let i = 0; i < 30; i++) S.step(w, h, 0);
+  assert.strictEqual(h.alive, true, 'died: ' + h.death);
+  assert.strictEqual(h.r, 0);
+  assert.strictEqual(h.lily, true);
+  assert.strictEqual(h.water, false);
+  assert.strictEqual(h.x, Math.round(h.x), 'on a lily cell');
+});
+
 test('a hopper packs and unpacks to the same hopper', () => {
   const w = new S.World(3), h = S.newHopper();
   for (let i = 0; i < 100; i++) S.step(w, h, i % 12 === 0 ? IN.FWD : 0);
@@ -506,7 +526,10 @@ test('a page back mid-match holds only the lanes near the hoppers: it never thro
   assert.doesNotThrow(() => { for (let i = 0; i < 240; i++) S.step(page, fresh, 0); });
   const hp = S.unpackHopper(S.packHopper(hs));      // crossyMain.startMatch seats it from the server's row
   hp.got = hs.got.slice();
+  let sent = hs.r + 24;
   for (let t = 0; t < 600 && hs.alive; t++) {
+    // More lanes as the hopper moves on (CrossyRoom.pushLanes: 24 beyond the furthest).
+    while (sent < hs.r + 24) page.add(JSON.parse(JSON.stringify([S.packRow(server.row(++sent))])));
     const press = bot.input(server, hs);
     S.step(server, hs, press); S.step(page, hp, press);
     assert.deepStrictEqual(S.packHopper(hp), S.packHopper(hs), 'tick ' + t);
