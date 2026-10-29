@@ -56,7 +56,7 @@ const { assertLawsComplete } = require('../sl/slLaws');
 const { createSlMoney, REQUIRED_HOOKS } = require('./slMoney');
 const { STAKE_TIERS } = require('../stakeRules');
 const { ROOMS_PER_RUNG, FLOOR_SWEEP_MS, SAME_ADDR_PER_ROOM } = require('./slPaidConst');
-const { addressGroup, socketClientIp } = require('../clientAddr');
+const { addressGroup } = require('../clientAddr');
 
 // The hooks the server hands in; onAccountOpen and onAccountClosed are this directory's own (walletSeat).
 const SERVER_HOOKS = Object.freeze(REQUIRED_HOOKS.filter((k) => k !== 'onAccountOpen' && k !== 'onAccountClosed'));
@@ -415,13 +415,18 @@ class SlPaidArenas {
   // seats from one network (clientAddr.addressGroup: an IPv4 address, an IPv6 /64), and the next one from it is
   // seated in another room of the rung, or a new one. Nobody is refused for it until every room the rung may open
   // holds one (then 'full', before the token is spent). An unknown address ('') is never held back.
+  // Counted from the network each seat JOINED from (seat.net, slRoom _buildSeat; the door hands it info.ip), over
+  // the live seats, the parked ones and the gliding snakes, each snake once (night review 2026-10-29, second pass):
+  // counting only the live seats let a dropped seat's room take another wallet from its network, and the dropped
+  // one then came back into it through the resume, which never asks seatFor. A parked seat holds its place until
+  // it resumes or is dropped, an orphan until its glide ends.
   _takesAddr(room, net) {
     if (!net || !(SAME_ADDR_PER_ROOM > 0)) return true;
-    let n = 0;
-    for (const s of room.seats.values()) {
-      if (s && s.socket && addressGroup(socketClientIp(s.socket)) === net && ++n >= SAME_ADDR_PER_ROOM) return false;
-    }
-    return true;
+    const mine = new Set();
+    for (const s of room.seats.values()) if (s && s.net === net) mine.add(s.snakeId);
+    for (const s of room.parked) if (s && s.net === net) mine.add(s.snakeId);
+    for (const [id, g] of room.orphans) if (g && g.net === net) mine.add(id);
+    return mine.size < SAME_ADDR_PER_ROOM;
   }
 
   // A room of this rung with space: the fullest first (not exclude), else a new one while the rung has fewer than

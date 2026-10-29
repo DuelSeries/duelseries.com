@@ -97,6 +97,7 @@ const { createHoldBook, HOLD_LAW_IDS } = require('./slHold');
 const { createSafeStats, safeCall, safeImmediate, safeTimeout, REAL_TIMERS } = require('./slSafe');
 const { resumeLaws, makeKey, createWindow, WHY_GONE } = require('./slResume');
 const { TickTimer } = require('../tickTimer');
+const { addressGroup } = require('../clientAddr');
 
 // The early point (turning smoothness, 2026-10-16; slSnake travel, slSim previewPoint): between updates the room
 // sends a seat its own snake's new point when the head reaches it, at the end of each of the update's pieces, as
@@ -412,7 +413,7 @@ class SlRoom {
     this.bySnake = new Map(); // own snake id -> seat
     this.humans = new Set(); // snake ids of human snakes (seated or gliding)
     this.names = new Map(); // snake id -> nick (kill lines)
-    this.orphans = new Map(); // snake id -> { locked, endSim } (C_DISCONNECT glide)
+    this.orphans = new Map(); // snake id -> { locked, endSim, why, onEnd, net } (C_DISCONNECT glide)
     this.parked = new Set(); // seats whose socket dropped, waiting for a resume (task T16b)
     this.keys = new Map(); // resume key -> seat (seated or parked)
     this.top = null; // the biggest cash-out box message (slTopCashout), sent to every seat at join
@@ -597,6 +598,10 @@ class SlRoom {
       parked: false,
       heldAtPark: false,
       backs: createWindow(this.R.resume.perSeat.max, this.R.resume.perSeat.windowMs),
+      // the network it joined from (clientAddr.addressGroup of info.ip, '' unknown), for its whole life, parked and
+      // gliding too: paid snake's one seat per network per room counts it (slPaidArenas _takesAddr), so a drop, another
+      // wallet's join from that network and a resume cannot put two of them in one room (night review 2026-10-29)
+      net: addressGroup(inf.ip),
     };
     built.seat = seat;
     this.keys.set(seat.key, seat);
@@ -918,7 +923,7 @@ class SlRoom {
     // no input can come any more: the boost ends at the next step, steering locks at step 2
     this.sim.setInput(seat.snakeId, { type: 'boost', on: false }, 0);
     this.orphans.set(seat.snakeId, { locked: false, endSim: NaN, why: typeof reason === 'string' ? reason : 'leave',
-      onEnd: typeof onEnd === 'function' ? onEnd : null });
+      onEnd: typeof onEnd === 'function' ? onEnd : null, net: typeof seat.net === 'string' ? seat.net : '' });
     this.stats.glides++;
   }
 

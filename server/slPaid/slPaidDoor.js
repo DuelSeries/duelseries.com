@@ -405,10 +405,12 @@ function createSlPaidDoor({ arenas, consumeAtStake, ledger = null, slPayout, jou
     if (arenas.walletSeatOf(entry.walletAddress)) return refundAndRefuse(socket, entry, 'one-seat', ctx);
     // 11.
     // skin: a bought skin's bytes when slSockets found the wallet's skin pass lists it (cosmetic; no money reads it)
-    const seatInfo = { nick: ctx.name, cv: info.cv, skin: info.skin };
+    const ip = addrOf(info);
+    // ip: the seat keeps its network for its whole life, parked and gliding too (slRoom seat.net), so the room's
+    // one-per-network count still sees it after a drop (night review 2026-10-29)
+    const seatInfo = { nick: ctx.name, cv: info.cv, skin: info.skin, ip };
     const money = { jid: ctx.jid, micro: ctx.micro, wallet: entry.walletAddress, paid: entry.paid, name: ctx.name,
       stakeSig: entry.stakeSig || null };
-    const ip = addrOf(info);
     let room = arenas.seatFor(stake, undefined, ip);
     let acct = room ? room.seatPaid(socket, seatInfo, money) : null;
     if (!acct && room) {
