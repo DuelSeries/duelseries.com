@@ -20,6 +20,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
+const { ipKeyGenerator, rateLimit } = require('express-rate-limit');
 const { checkMp4, checkJpeg, Mp4Error } = require('./mp4check');
 
 const GAMES = ['slither', 'agar', 'paper', 'br', 'other'];
@@ -39,10 +40,28 @@ const POSTER_MAX = 400 * 1024;            // the JPEG on the card
 const UP_DAY_MAX = 10;                    // uploads one wallet may start in 24 hours (each upload link counts)
 const UP_OPEN_MAX = 3;                    // one wallet's uploads still uploading or waiting for review
 const UP_MIN_BYTES = 64 * 1024;           // a second of the recorder's video is more than this
-const UP_DAY_ALL = 100;                   // uploads all players together may start in 24 hours: caps the storage bill
+const UP_DAY_ALL = 100;                   // uploads all players together may get into the queue in 24 hours: caps the storage bill
 const PUT_TTL_S = 300;                    // the longest an upload link works (see putTtl)
 const CHECKS_MAX = 3;                     // uploads checked at once; more wait for the sweep
 const WAIT_DAYS_MAX = 40;                 // a clip nobody decided on in this long is turned down (ok/ empties at 45 days)
+/* Clips from one address still uploading or waiting for review, links and uploads together (night review 2026-10-29).
+   Any keypair made on the spot passes the wallet signature, so the per-wallet caps above stop nobody who wants to
+   fill WAIT_MAX or UP_DAY_ALL for everyone: this is the cap a fresh wallet cannot reset. It is one player's own most
+   (one waiting link plus UP_OPEN_MAX uploads), so a player alone on an address never meets it. */
+const SRC_OPEN_MAX = 1 + UP_OPEN_MAX;
+/* Uploads from one address that reached the queue (or are still uploading) in 24 hours, deleted ones too (night
+   review 2026-10-29). A player's own delete takes their clip out of UP_DAY_ALL, so without this one address could
+   share, delete and share again on fresh wallets all day; this keeps any one address to a small share of the day's
+   budget, so switching uploads off for everyone takes UP_DAY_ALL / SRC_DAY_MAX addresses, not five. */
+const SRC_DAY_MAX = 5;
+const SRC_RE = /^[a-f0-9]{16}$/;
+/* Where a request came from, as the record keeps it: a short keyed hash of the address the rate limiters count (an
+   IPv6 address by its /56, ipKeyGenerator), never the address itself. '' when there is none. Keyed with the store's
+   secret (night review 2026-10-29): a bare hash of an IPv4 address is undone by trying all 2^32 of them. */
+function sourceOf(ip, key) {
+  const k = typeof ip === 'string' && ip ? ipKeyGenerator(ip) : '';
+  return k && key ? crypto.createHmac('sha256', key).update(k).digest('hex').slice(0, 16) : '';
+}
 /* How long the link to upload this many bytes works: a minute, plus the time a slow 1.6 Mbit/s upload needs.
    S3 cannot make a link single-use, and each request against it is billed, so it lives no longer than that;
    it is also signed If-None-Match, so it can write its file once and never replace it. */
@@ -139,6 +158,8 @@ function cleanUpload(j) {
     at: j.at, decidedAt: Number.isFinite(j.decidedAt) ? j.decidedAt : null, media,
     size, psize, poster: !!j.poster && psize > 0,
     ticket: typeof j.ticket === 'string' && /^[a-f0-9]{64}$/.test(j.ticket) ? j.ticket : '',
+    src: typeof j.src === 'string' && SRC_RE.test(j.src) ? j.src : '',
+    withdrawn: j.status === 'removed' && j.withdrawn === true,
   };
 }
 
@@ -159,12 +180,40 @@ function cleanRecord(j) {
     vertical: media && media.w && media.h ? media.h > media.w : link.vertical,
     caption: cleanText(j.caption, CAPTION_MAX), game: j.game, status: j.status,
     at: j.at, decidedAt: Number.isFinite(j.decidedAt) ? j.decidedAt : null, media,
+    src: typeof j.src === 'string' && SRC_RE.test(j.src) ? j.src : '',
+    withdrawn: j.status === 'removed' && j.withdrawn === true,
   };
 }
 
 //   file  the clips file;  fsx  fs (tests);  now  clock (tests)
 function createClipStore({ file, fsx = fs, log = console, now = Date.now } = {}) {
   let clips = [];   // newest first
+
+  /* The secret sourceOf is keyed with (night review 2026-10-29), made the first time a player's address is needed
+     and kept beside the clips file (server/data/ survives the deploy), so the per-address caps survive a restart.
+     If it cannot be saved it lives in memory, and the caps start over at the next restart. */
+  let srcKey = '';
+  function sourceKey() {
+    if (srcKey) return srcKey;
+    const kf = file ? path.join(path.dirname(file), path.basename(file, '.json') + '-src.key') : '';
+    if (kf) {
+      try {
+        const s = String(fsx.readFileSync(kf, 'utf8')).trim();
+        if (/^[a-f0-9]{64}$/.test(s)) return (srcKey = s);
+      } catch (e) {
+        if (e && e.code !== 'ENOENT') log.warn('[clips] could not read ' + kf + ': ' + e.message);
+      }
+    }
+    srcKey = crypto.randomBytes(32).toString('hex');
+    if (kf) {
+      try {
+        fsx.mkdirSync(path.dirname(kf), { recursive: true });
+        fsx.writeFileSync(kf, srcKey + '\n', { mode: 0o600 });
+      } catch (e) { log.warn('[clips] could not save ' + kf + ': ' + e.message); }
+    }
+    return srcKey;
+  }
+  const source = (ip) => sourceOf(ip, sourceKey());
 
   function load() {
     clips = [];
@@ -202,7 +251,13 @@ function createClipStore({ file, fsx = fs, log = console, now = Date.now } = {})
     if (clips.length > KEEP_MAX) clips.length = KEEP_MAX;
   }
 
-  function submit({ wallet, name, url, caption, game }) {
+  // Refused when one address already has SRC_OPEN_MAX clips open; src '' (no address, the owner) is never counted.
+  const srcFull = (src) => !!src && clips.filter(c => c.src === src
+    && (c.status === 'waiting' || c.status === 'uploading')).length >= SRC_OPEN_MAX;
+
+  //   src  sourceOf(the sender's address), '' for none
+  function submit({ wallet, name, url, caption, game, src = '' }) {
+    if (typeof src !== 'string' || !SRC_RE.test(src)) src = '';
     if (typeof wallet !== 'string' || !wallet) return { error: 'Log in to send a clip.' };
     const link = parseClipUrl(url);
     if (!link) return { error: 'Paste the link to your post on X, YouTube or TikTok, like x.com/you/status/123.' };
@@ -219,6 +274,7 @@ function createClipStore({ file, fsx = fs, log = console, now = Date.now } = {})
     if (mine.filter(c => t - c.at < DAY_MS).length >= DAY_MAX) {
       return { error: 'That is ' + DAY_MAX + ' clips today. Send the next one tomorrow.' };
     }
+    if (srcFull(src)) return { error: 'There are already clips from here waiting to be reviewed. Send the next one once they are.' };
     if (clips.filter(c => c.status === 'waiting').length >= WAIT_MAX) {
       return { error: 'Too many clips are waiting right now. Try again later.' };
     }
@@ -227,7 +283,7 @@ function createClipStore({ file, fsx = fs, log = console, now = Date.now } = {})
       name: cleanText(name, NAME_MAX) || 'Player',
       provider: link.provider, vid: link.vid, handle: link.handle, url: link.url, vertical: link.vertical,
       caption: cleanText(caption, CAPTION_MAX), game: g, status: 'waiting',
-      at: t, decidedAt: null, media: null,
+      at: t, decidedAt: null, media: null, src,
     };
     clips.unshift(clip);
     prune();
@@ -237,8 +293,9 @@ function createClipStore({ file, fsx = fs, log = console, now = Date.now } = {})
 
   /* An upload about to start: the record, and a one-time ticket the page shows back when the bytes are in.
      Only the ticket's hash is kept. size and psize are the exact byte counts S3 will accept. */
-  function startUpload({ wallet, name, size, psize, game, caption }) {
+  function startUpload({ wallet, name, size, psize, game, caption, src = '' }) {
     if (typeof wallet !== 'string' || !wallet) return { error: 'Log in to share a clip.' };
+    if (typeof src !== 'string' || !SRC_RE.test(src)) src = '';
     if (!Number.isInteger(size) || size > UP_MAX_BYTES) return { error: 'That clip is too big to share.' };
     if (size < UP_MIN_BYTES) return { error: 'That file is too small to be a clip.' };
     if (!Number.isInteger(psize) || psize < 0 || psize > POSTER_MAX) return { error: 'That clip is too big to share.' };
@@ -251,7 +308,16 @@ function createClipStore({ file, fsx = fs, log = console, now = Date.now } = {})
     if (mine.filter(c => c.status === 'uploading' || c.status === 'waiting').length >= UP_OPEN_MAX) {
       return { error: 'You have ' + UP_OPEN_MAX + ' clips waiting to be reviewed. Share the next one once they are.' };
     }
-    if (ups.filter(c => t - c.at < DAY_MS).length >= UP_DAY_ALL
+    if (srcFull(src)) return { error: 'There are already clips from here waiting to be reviewed. Share the next one once they are.' };
+    if (src && ups.filter(c => c.src === src && t - c.at < DAY_MS && (c.media || c.status === 'uploading')).length >= SRC_DAY_MAX) {
+      return { error: 'That is a lot of clips shared from here today. Share the next one tomorrow.' };
+    }
+    /* The day's budget for everyone counts uploads that delivered a file that passed the check (media is set only
+       then), so starts that never send a byte, or send junk, cannot use it up (night review 2026-10-29). Starts are
+       capped per address instead: the route's uploadLimiter, SRC_OPEN_MAX and SRC_DAY_MAX. One the player deleted
+       themselves is not counted either: its files are gone, so it costs no storage, and counting it let one address
+       share and delete on fresh wallets until uploads were off for everyone. */
+    if (ups.filter(c => t - c.at < DAY_MS && c.media && !c.withdrawn).length >= UP_DAY_ALL
         || clips.filter(c => c.status === 'waiting' || c.status === 'uploading').length >= WAIT_MAX) {
       return { error: 'Too many clips are waiting right now. Try again later.' };
     }
@@ -262,7 +328,7 @@ function createClipStore({ file, fsx = fs, log = console, now = Date.now } = {})
       provider: 'upload', vid: id, handle: '', url: '', vertical: false,
       caption: cleanText(caption, CAPTION_MAX), game: GAMES.includes(game) ? game : 'other', status: 'uploading',
       at: t, decidedAt: null, media: null, size, psize, poster: false,
-      ticket: crypto.createHash('sha256').update(ticket).digest('hex'),
+      ticket: crypto.createHash('sha256').update(ticket).digest('hex'), src,
     };
     clips.unshift(clip);
     prune();
@@ -333,6 +399,7 @@ function createClipStore({ file, fsx = fs, log = console, now = Date.now } = {})
     if (!c || !wallet || c.wallet !== wallet || !MINE.includes(c.status)) return { error: 'That clip was not found.' };
     const was = c.status;
     c.status = 'removed';
+    c.withdrawn = true;       // the player's own delete, not the owner's: see UP_DAY_ALL in startUpload
     c.decidedAt = now();
     save();
     return { ok: true, clip: c, was };
@@ -360,7 +427,7 @@ function createClipStore({ file, fsx = fs, log = console, now = Date.now } = {})
   }
 
   load();
-  return { load, submit, setMedia, decide, live, waiting, top, find, file,
+  return { load, submit, setMedia, decide, live, waiting, top, find, file, source,
            startUpload, byTicket, uploadChecked, uploadFailed, staleUploads, mine, withdraw,
            waitingCount: () => clips.filter(c => c.status === 'waiting').length };
 }
@@ -417,6 +484,29 @@ async function resolveXMedia(id, { fetchImpl = globalThis.fetch, timeoutMs = 600
   });
 }
 
+/* The two per-address daily limiters index.js hands mountClipRoutes, built here so a test runs the real config
+   (night review 2026-10-29). Wallets are free to make, addresses less so. Refused requests do not count. The owner
+   skips both: on a live console session (ownerSession(req)), or with his own wallet's signature. The wallet is only
+   claimed in the body at this point, but the route then checks the signature against it, so claiming the owner's
+   wallet without his key just gets a 401 and no clip.
+
+     isOwner(wallet)    true for an owner wallet
+     ownerSession(req)  true on the owner console's session cookie */
+function clipLimiters({ isOwner = () => false, ownerSession = () => false } = {}) {
+  const skip = (req) => {
+    try { if (ownerSession(req)) return true; } catch (_) { /* no session */ }
+    const w = req.body && typeof req.body === 'object' ? req.body.wallet : '';
+    return typeof w === 'string' && !!w && !!isOwner(w);
+  };
+  const day = { windowMs: DAY_MS, standardHeaders: true, legacyHeaders: false, skipFailedRequests: true, skip };
+  return {
+    // Upload links one address may ask for in a day, on top of the per-wallet and per-address caps in the store.
+    uploadLimiter: rateLimit({ ...day, max: 20, message: { error: 'That is a lot of clips from here today. Share the next one tomorrow.' } }),
+    // Links one address may send in a day: any keypair passes the signature, so DAY_MAX alone let one script fill the queue.
+    submitLimiter: rateLimit({ ...day, max: 10, message: { error: 'That is a lot of clips from here today. Send the next one tomorrow.' } }),
+  };
+}
+
 /* The four routes. GET is the wall (and the waiting count, so the owner's lobby can say a new one came in without
    signing anything); the three POSTs each carry a wallet signature over their own action name and arguments.
 
@@ -425,6 +515,7 @@ async function resolveXMedia(id, { fetchImpl = globalThis.fetch, timeoutMs = 600
      walletForAction  ownerAuth.walletForAction
      nameOf(wallet)   -> the player's display name (or '')
      limiter          express rate limiter for the POSTs
+     submitLimiter    express rate limiter for link submits, per address per day (night review 2026-10-29)
      readLimiter      express rate limiter for the wall's GET
      resolveX(id)     -> media or null (resolveXMedia)
      audit            ownerAuth.audit
@@ -446,10 +537,13 @@ async function resolveXMedia(id, { fetchImpl = globalThis.fetch, timeoutMs = 600
    while it is there the link can do nothing more. */
 function mountClipRoutes(app, { store, isOwner, walletForAction, walletForMine, nameOf, limiter, readLimiter, resolveX = resolveXMedia,
                                 audit = () => {}, log = console, uploads = null, site = 'https://duelseries.com',
-                                sweepMs = 5 * 60 * 1000, uploadLimiter = null }) {
+                                sweepMs = 5 * 60 * 1000, uploadLimiter = null, submitLimiter = null }) {
   const pass = (req, res, next) => next();
   const lim = limiter || pass;
   const upLim = uploadLimiter || pass;     // per address per day: wallets are free to make, addresses less so
+  const subLim = submitLimiter || pass;    // the same for link submits (night review 2026-10-29)
+  // The sender's address for the store's per-address cap; the owner's own clips are never counted against one.
+  const srcFor = (req, wallet) => (isOwner(wallet) ? '' : store.source(req.ip));
   const signed = (req, action) => {
     const b = req.body;
     if (!b || typeof b !== 'object' || b.action !== action) return null;
@@ -565,7 +659,8 @@ function mountClipRoutes(app, { store, isOwner, walletForAction, walletForMine, 
     const a = (req.body.args && typeof req.body.args === 'object') ? req.body.args : {};
     let name = '';
     try { name = (await nameOf(wallet)) || ''; } catch (_) { name = ''; }
-    const r = store.startUpload({ wallet, name, size: a.size, psize: a.psize || 0, game: a.game, caption: a.caption });
+    const r = store.startUpload({ wallet, name, size: a.size, psize: a.psize || 0, game: a.game, caption: a.caption,
+                                  src: srcFor(req, wallet) });
     if (r.error) return res.status(400).json({ error: r.error });
     const k = keys(r.clip.id);
     const s3 = uploads.s3;
@@ -606,13 +701,13 @@ function mountClipRoutes(app, { store, isOwner, walletForAction, walletForMine, 
     res.type('html').send(sharePage(pub(c), site));
   });
 
-  app.post('/api/clips/submit', lim, async (req, res) => {
+  app.post('/api/clips/submit', lim, subLim, async (req, res) => {
     const wallet = signed(req, 'clip:submit');
     if (!wallet) return res.status(401).json({ error: 'Log in again to send a clip.' });
     const a = (req.body.args && typeof req.body.args === 'object') ? req.body.args : {};
     let name = '';
     try { name = (await nameOf(wallet)) || ''; } catch (_) { name = ''; }
-    const r = store.submit({ wallet, name, url: a.url, caption: a.caption, game: a.game });
+    const r = store.submit({ wallet, name, url: a.url, caption: a.caption, game: a.game, src: srcFor(req, wallet) });
     if (r.error) return res.status(400).json({ error: r.error });
     res.json({ ok: true, clip: pub(r.clip) });
     fetchMedia(r.clip);       // after the answer: the player is not kept waiting on X
@@ -770,4 +865,5 @@ function sharePage(p, site) {
 
 module.exports = { parseClipUrl, cleanText, createClipStore, publicClip, ownerClip, resolveXMedia,
                    syndicationToken, mountClipRoutes, sharePage, GAMES, CAPTION_MAX, DAY_MAX, WAIT_MAX,
-                   UP_MAX_BYTES, UP_MIN_BYTES, UP_MAX_SEC, POSTER_MAX, UP_DAY_MAX, UP_OPEN_MAX, UP_DAY_ALL, PUT_TTL_S, putTtl };
+                   UP_MAX_BYTES, UP_MIN_BYTES, UP_MAX_SEC, POSTER_MAX, UP_DAY_MAX, UP_OPEN_MAX, UP_DAY_ALL, PUT_TTL_S, putTtl,
+                   SRC_OPEN_MAX, SRC_DAY_MAX, sourceOf, clipLimiters };

@@ -3508,11 +3508,17 @@ const clipUploads = (() => {
     invalidate: (paths) => cloudfrontInvalidate({ distributionId: e.CLIPS_CF_DIST, paths, creds }),
   };
 })();
+/* Upload links (20) and links (10) one address may send in a day, on top of the per-wallet and per-address caps in
+   the store (night review 2026-10-29: any keypair passes the signature). The config lives in server/clips.js
+   clipLimiters so a test runs it; the owner, on a live console session or signing with his own wallet, skips both. */
+const clipLimits = clipsMod.clipLimiters({
+  isOwner: (w) => OWNER_WALLETS.has(w),
+  ownerSession: (req) => !!ownerSessions.fromRequest(req),
+});
 clipsMod.mountClipRoutes(app, {
   uploads: clipUploads,
-  // Upload links one address may ask for in a day, on top of the per-wallet caps in server/clips.js.
-  uploadLimiter: rateLimit({ windowMs: 24 * 60 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false, skipFailedRequests: true,
-                             message: { error: 'That is a lot of clips from here today. Share the next one tomorrow.' } }),
+  uploadLimiter: clipLimits.uploadLimiter,
+  submitLimiter: clipLimits.submitLimiter,
   store: clipStore,
   isOwner: (w) => OWNER_WALLETS.has(w),
   walletForAction: (b) => ownerAuth.walletForAction(b),
