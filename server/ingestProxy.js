@@ -1,0 +1,123 @@
+'use strict';
+/* ─── The PostHog reverse proxy (/ingest/*) ─────────────────────────────────────
+   Analytics go through our own domain so ad blockers can't block tracking. It
+   is mounted in server/index.js BEFORE the JSON body parser, so the raw request
+   streams straight through untouched. /ingest/static/* goes to the posthog-js
+   asset host; everything else (capture, flags, session recording) to the
+   capture host.
+
+   Night review 2026-10-29: it used to copy EVERY request header to PostHog,
+   Cookie included, and every answer header back. posthog-init.js calls /ingest
+   from the same origin, so the owner's year-long session cookie
+   (__Host-ds_owner, Path=/) rode along on every analytics call whenever Owen
+   played in the browser he signs in to the console with, and a PostHog
+   Set-Cookie would have landed on duelseries.com. Now:
+   - no credential leaves: Cookie, Authorization, the Privy tokens and our own
+     X-DS-* / key headers are dropped before the request goes out (PostHog's
+     own nginx guide clears Cookie and Authorization the same way). posthog-js
+     sends its token and distinct_id in the body, so analytics are unchanged;
+   - nothing comes back that could set or override ours: Set-Cookie, and the
+     security headers server/securityHeaders.js already put on the answer;
+   - only the paths posthog-js calls are relayed (the first path segment, and
+     remote config for OUR project token only); anything else is a 404, so the
+     proxy is not a way to put any PostHog URL under our origin;
+   - a request body has a cap, and the bytes both ways count against the
+     caller's address in the static byte budget (server/staticCache.js), the
+     same meter as the big static files, since this relay is egress too. */
+const https = require('https');
+
+const CAPTURE_HOST = 'us.i.posthog.com';
+const ASSET_HOST = 'us-assets.i.posthog.com';
+/* The project token in public/js/posthog-init.js (a write-only public key). test/ingestProxy.test.js checks the
+   two still match. */
+const POSTHOG_TOKEN = 'phc_rGiSHXN4HzBvzZaZhuFCwbmHFihkemTVcxK7MCPdDqgw';
+
+/* What posthog-js calls under its api_host: the SDK files (static/), remote config (array/<token>/), capture
+   (e/, i/v0/e/, batch/, capture/, track/, engage/), session recording (s/), flags (flags/, decide/) and the
+   surveys / early-access / web-experiment reads (api/...). Matched on the path after /ingest. */
+const PATH_OK = new RegExp('^/(?:static/|array/' + POSTHOG_TOKEN + '/|(?:e|i|s|batch|capture|track|engage|decide|flags|api)(?:/|$))');
+/* Never relayed: a dot-dot segment, an encoded dot or slash, a backslash or an empty segment. posthog-js sends
+   none of them, and each is a way to make the upstream resolve a path other than the one checked above. */
+const PATH_ODD = /\.\.|%2e|%2f|%5c|\\|\/\//i;
+
+/* Request headers that are a credential somewhere on this site, or could be one. */
+const DROP_REQ = new Set(['cookie', 'authorization', 'proxy-authorization', 'x-api-key', 'x-stats-secret']);
+const DROP_REQ_PREFIX = /^(?:privy-|x-ds-)/;
+/* Answer headers we never pass on: hop-by-hop ones, cookies, and the ones server/securityHeaders.js sets, so
+   ours stay in force on a proxied answer. */
+const DROP_RES = new Set(['connection', 'transfer-encoding', 'keep-alive', 'set-cookie', 'set-cookie2',
+  'content-security-policy', 'x-frame-options', 'x-content-type-options', 'strict-transport-security',
+  'referrer-policy']);
+
+/* A session-recording batch is gzip-compressed by posthog-js and well under a megabyte; 10 MB is far above any
+   honest request and stops one call from pushing an unbounded upload through the box. */
+const MAX_BODY = 10 * 1024 * 1024;
+
+function upstreamFor(reqPath) {
+  const p = reqPath.replace(/^\/ingest/, '') || '/';
+  if (PATH_ODD.test(p) || !PATH_OK.test(p)) return null;
+  return { host: p.startsWith('/static/') ? ASSET_HOST : CAPTURE_HOST, path: p };
+}
+
+function forwardHeaders(reqHeaders, host) {
+  const out = {};
+  for (const [k, v] of Object.entries(reqHeaders || {})) {
+    const name = k.toLowerCase();
+    if (DROP_REQ.has(name) || DROP_REQ_PREFIX.test(name)) continue;
+    out[name] = v;
+  }
+  out.host = host;
+  return out;
+}
+
+function returnHeaders(upHeaders) {
+  const out = {};
+  for (const [k, v] of Object.entries(upHeaders || {})) {
+    if (!DROP_RES.has(k.toLowerCase())) out[k] = v;
+  }
+  return out;
+}
+
+/* opts.request: https.request (a test passes a fake). opts.budget: the static byte budget, or null. */
+function ingestProxy(opts = {}) {
+  const request = opts.request || https.request;
+  const budget = opts.budget || null;
+  const maxBody = opts.maxBody || MAX_BODY;
+  return function ingest(req, res) {
+    if (req.method !== 'GET' && req.method !== 'HEAD' && req.method !== 'POST') return res.sendStatus(405);
+    const up = upstreamFor(req.path);
+    if (!up) return res.sendStatus(404);
+    if (budget && budget.over(req)) return budget.refuse(req, res);
+    const declared = Number(req.headers['content-length']);
+    if (declared > maxBody) return res.sendStatus(413);
+    // The query string rides along exactly as posthog-js sent it.
+    const q = req.originalUrl.indexOf('?');
+    const upstreamPath = up.path + (q >= 0 ? req.originalUrl.slice(q) : '');
+    const upstream = request({ hostname: up.host, port: 443, path: upstreamPath, method: req.method,
+      headers: forwardHeaders(req.headers, up.host) }, (ur) => {
+      res.writeHead(ur.statusCode || 502, returnHeaders(ur.headers));
+      if (budget) ur.on('data', (c) => budget.charge(req, c.length));
+      ur.pipe(res);
+    });
+    let sent = 0, cut = false;
+    upstream.on('error', () => {
+      if (cut) return;                                // our own cut-off below, already answered
+      if (!res.headersSent) res.status(502).end(); else res.destroy();
+    });
+    req.on('data', (c) => {
+      sent += c.length;
+      if (budget) budget.charge(req, c.length);
+      // A chunked upload declares no length; cut it off once it passes the cap.
+      if (!cut && sent > maxBody) {
+        cut = true;
+        req.unpipe(upstream);
+        upstream.destroy();
+        if (!res.headersSent) res.status(413).end(); else res.destroy();
+      }
+    });
+    req.pipe(upstream);
+  };
+}
+
+module.exports = { ingestProxy, upstreamFor, forwardHeaders, returnHeaders, POSTHOG_TOKEN, MAX_BODY,
+  CAPTURE_HOST, ASSET_HOST };

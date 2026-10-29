@@ -46,6 +46,7 @@ const Swap = require('./swap');                      // SOL <-> USDC in the play
 const { TRUST_PROXY } = require('./clientAddr');     // X-Forwarded-For only from nginx (loopback / private)
 const { securityHeaders } = require('./securityHeaders');
 const { cacheControl, precompressed, byteBudget, budgetMbFrom, staticName } = require('./staticCache'); // static: no-cache + ETag, br/gzip, bytes per address
+const { ingestProxy } = require('./ingestProxy');    // the PostHog relay, credentials stripped
 const ops       = require('./ops');       // maintenance mode
 const { createSkinShop, liveChain } = require('./skinShop');   // buying skins with USDC
 const { sharedPass: sharedSkinPass } = require('./skinPass');   // the pass a game checks before wearing a paid skin
@@ -404,28 +405,17 @@ async function isOwnerReq(req) {
 }
 
 /* Bytes of full downloads per address (server/staticCache.js, night review 2026-10-29): the
-   pages and files below. STATIC_BUDGET_MB, 0 = off. */
+   pages and files below and the /ingest relay share one meter. STATIC_BUDGET_MB, 0 = off. */
 const staticBudget = byteBudget({ maxMb: budgetMbFrom(process.env) });
 
 // ─── PostHog reverse proxy ───────────────────────────────────────────────────
 // Route analytics through our own domain so ad blockers can't block tracking.
 // Registered BEFORE the JSON body parser so we can stream the raw request straight
 // through untouched. /ingest/static/* -> the posthog-js asset host; everything else
-// (capture, flags, session recording) -> the capture host.
-app.all('/ingest/*', (req, res) => {
-  const isStatic = req.path.startsWith('/ingest/static/');
-  const host = isStatic ? 'us-assets.i.posthog.com' : 'us.i.posthog.com';
-  const upstreamPath = req.originalUrl.replace(/^\/ingest/, '') || '/';
-  const headers = { ...req.headers, host };
-  const upstream = https.request({ hostname: host, port: 443, path: upstreamPath, method: req.method, headers }, (up) => {
-    const h = { ...up.headers };
-    delete h.connection; delete h['transfer-encoding'];
-    res.writeHead(up.statusCode || 502, h);
-    up.pipe(res);
-  });
-  upstream.on('error', () => { if (!res.headersSent) res.status(502).end(); });
-  req.pipe(upstream);
-});
+// (capture, flags, session recording) -> the capture host. No cookie or other
+// credential goes to PostHog, no cookie comes back, and only posthog-js's own
+// paths are relayed (server/ingestProxy.js, night review 2026-10-29).
+app.all('/ingest/*', ingestProxy({ request: https.request, budget: staticBudget }));
 
 app.use(express.json());
 // (Phase B2: all /auth/* routes — Google OAuth, logout, /auth/me, the 2FA verify/resend
