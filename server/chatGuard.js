@@ -17,8 +17,8 @@
      3. Rate: a bucket of RATE.burst lines refilled one per RATE.refillMs, never two within RATE.minGapMs; the same
         line again within DUP_MS is dropped.
      4. Scams: links (any scheme, www., a domain with a known ending, "dot com" spellings, IPs, invite and short
-        links) and wallet addresses (Solana base58, 0x, bc1, and one split up with spaces) are refused, and so is
-        any line asking about a recovery phrase or private key.
+        links, any host with a path, a handle on a chat app) and wallet addresses (Solana base58, 0x, bc1, and one
+        split up with spaces) are refused, and so is any line asking about a recovery phrase, seed or private key.
      5. Abuse: slurs and "kill yourself" refused, also spelt with numbers, symbols, look-alike letters or spaces.
         Common swear words are masked (f***), not refused.
      Three refusals for 4 or 5 within STRIKES.windowMs pause that sender's chat for STRIKES.muteMs.
@@ -75,15 +75,21 @@ const squeeze = (w) => w.replace(/(.)\1+/g, '$1');
 // and "gg.lol" are chat, not links.
 const TLDS = 'com|net|org|io|gg|xyz|co|app|link|site|online|top|ru|cc|tk|ly|sh|fun|club|live|shop|store|pro|info|biz|' +
   'dev|money|cash|win|bet|casino|vip|tv|uk|ca|eu|de|fr|ai|sol|fi|finance|exchange|network|page|click|icu|cn|su|pw|ws|' +
-  'ga|ml|cf|gq|st|claims?|airdrop|wallet|gift';
+  'ga|ml|cf|gq|st|claims?|airdrop|wallet|gift|life|world|space|sbs|zip|mov|tech';
 const LINK_RES = [
   /\b(?:https?|ftp|hxxps?)\s*:\s*\/\//i,
   /\bwww\s*\./i,
   new RegExp('\\b[a-z0-9][a-z0-9-]*(?:\\.|\\s*[([{]\\s*(?:\\.|dot)\\s*[)\\]}]\\s*|\\s+dot\\s+)(?:' + TLDS + ')\\b', 'i'),
-  /\b(?:discord\s*\.?\s*gg|discord(?:app)?\s*\.\s*com\s*\/\s*invite|dsc\s*\.\s*gg|t\s*\.\s*me\s*\/|bit\s*\.\s*ly|tinyurl|linktr\s*\.\s*ee)/i,
+  /\b(?:discord\s*\.?\s*gg|discord(?:app)?\s*\.\s*com\s*\/\s*invite|dsc\s*\.\s*gg|(?<![\w'’])t\s*\.\s*me\b|bit\s*\.\s*ly|tinyurl|linktr\s*\.\s*ee)/i,
   /\b\d{1,3}(?:\s*\.\s*\d{1,3}){3}\b/
 ];
 const SECRET_RE = /\b(?:seed|recovery|secret|mnemonic|backup|wallet)\s*(?:phrase|words?)\b|\bprivate\s*keys?\b/i;
+// Asking for a seed or key without the word "phrase" ("send me your seed", "whats your 12 words", "send me ur pk"), and
+// a lure off site to a handle ("dm me on telegram @x", "discord: name#1234"). Read on the text as typed: undoing
+// look-alikes would turn "12" into "i2". A bare "recovery" or "backup" stays chat ("nice recovery", "need backup").
+// (night review 2026-10-29)
+const SECRET_ASK_RE = /\b(?:send|give|share|tell|dm|paste|enter|type|whats|what['’]?s)\b.{0,24}\b(?:seed|recovery\s*(?:code|key)s?|backup\s*codes?|pk|priv(?:ate)?\s*keys?|(?:12|24)\s*words?)\b/i;
+const CONTACT_RE = /\b(?:telegram|tg|whatsapp|discord|signal)\b.{0,30}(?:@[a-z0-9_]{3,}|#\d{4}\b)|(?:@[a-z0-9_]{3,}|#\d{4}\b).{0,30}\b(?:telegram|tg|whatsapp|discord|signal)\b/i;
 
 const B58 = /^[1-9A-HJ-NP-Za-km-z]+$/;
 function hasAddress(text) {
@@ -137,13 +143,17 @@ function maskSwears(text) {
   });
 }
 
+// Zero-width, bidi and other invisible format characters (they spoof and dodge the filters). Player names lose the
+// same set (server/playerName.js, night review 2026-10-29). Only ever used with replace(), never test().
+const INVISIBLE_RE = /[\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\u3164\ufe00-\ufe0f\ufeff\uffa0\ufff9-\ufffb]/g;
+
 // -> the cleaned line ('' when nothing is left), or null when raw is not something to read at all.
 function clean(raw) {
   if (typeof raw !== 'string' || raw.length > MAX_RAW) return null;
   let s = raw.normalize('NFKC');
   s = s.replace(/<[^>]{0,200}>/g, ' ').replace(/[<>]/g, '');
   s = s.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ');
-  s = s.replace(/[\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\u3164\ufe00-\ufe0f\ufeff\uffa0\ufff9-\ufffb]/g, '');
+  s = s.replace(INVISIBLE_RE, '');
   s = s.replace(/(\p{M}{2})\p{M}+/gu, '$1');
   s = s.replace(/(.)\1{5,}/gu, (m, c) => c.repeat(5));
   s = s.replace(/[\s\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+/g, ' ').trim();
@@ -156,7 +166,16 @@ function clean(raw) {
 function contentProblem(text) {
   const lookless = unlook(text);
   if (SECRET_RE.test(text) || SECRET_RE.test(lookless)) return 'secret';
-  for (const re of LINK_RES) if (re.test(text)) return 'link';
+  if (SECRET_ASK_RE.test(text)) return 'secret';
+  /* The ways round the link rules (night review 2026-10-29): the ideographic full stops a browser reads as a dot; a
+     space BEFORE the dot ("solgift .com", "solgift . com"; prose never puts one there, so it is closed up for every
+     ending); a space only after it for the scam endings that are not words ("solgift. com", while "good game. gg"
+     stays chat); any host with a path whatever its ending ("x.me/claim"); and a handle on a chat app. */
+  const linky = text.replace(/[。｡]/g, '.').replace(/\s+\.\s*/g, '.');
+  for (const re of LINK_RES) if (re.test(text) || re.test(linky)) return 'link';
+  if (/\b[a-z0-9][a-z0-9-]*\.\s+(?:com|org|xyz|io|ru|cn)\b/i.test(text)) return 'link';
+  if (/\b[a-z0-9][a-z0-9-]{1,62}\.[a-z]{2,24}\/\S/i.test(linky)) return 'link';
+  if (CONTACT_RE.test(text)) return 'link';
   if (hasAddress(text)) return 'addr';
   if (isAbuse(text)) return 'abuse';
   return null;
@@ -243,4 +262,4 @@ function createChatGuard(opts) {
 // keeps its own (server/sl/slRoom.js), keyed the same way.
 const shared = createChatGuard();
 
-module.exports = { createChatGuard, shared, clean, contentProblem, maskSwears, MAX_LEN, NOTES };
+module.exports = { createChatGuard, shared, clean, contentProblem, maskSwears, unlook, INVISIBLE_RE, MAX_LEN, NOTES };

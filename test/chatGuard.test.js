@@ -39,6 +39,24 @@ test('links, invites, IPs and wallet addresses are refused; ordinary chat is not
   }
 });
 
+test('the ways round the link and scam rules found in the night review (2026-10-29) are closed; ordinary chat is not', () => {
+  for (const s of ['solgift . com', 'solgift .com', 'solgift. com', 'solgift.life', 'bonus.world', 'airdrop.space',
+    'claim.sbs', 'promo.zip', 'duelseries.me/claim', 'solgift' + ch(0x3002) + 'com', 'solgift' + ch(0xff61) + 'com', 't.me',
+    't . me', 'dm me on telegram @solgifts', 'add me on discord: scammer#1234', '@dsupport on tg',
+    'free 2 SOL airdrop for players at solgift . com']) {
+    assert.strictEqual(contentProblem(clean(s)), 'link', s);
+  }
+  for (const s of ['send me your seed', 'whats your 12 words', 'send me ur pk', 'give recovery code',
+    'what’s ur private key', 'support here, dm me on telegram @dsupport, send me your seed to restore your payout']) {
+    assert.strictEqual(contentProblem(clean(s)), 'secret', s);
+  }
+  for (const s of ['good game. gg', 'nice try. gg wp', 'ok. sol is up', 'nice recovery', 'need backup', "can't. me too",
+    'ok.so', 'gg.lol', 'wait ... gg', 'that was fun. win next', 'nice. top 3', 'lol. live again', 'close one. co op?',
+    'give me a sec', 'whats the score', 'send it', 'i lost 12 games', 'w/l ratio', '1/2 of it', 'and/or']) {
+    assert.strictEqual(contentProblem(clean(s)), null, s);
+  }
+});
+
 test('slurs are refused however they are spelt; swear words are masked', () => {
   const slur = rot13('avttre');
   for (const s of [slur, 'you ' + slur, slur.toUpperCase(), 'n1gg3r', slur.split('').join(' '), slur.split('').join('.'),
