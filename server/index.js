@@ -42,6 +42,7 @@ const analytics = require('./analytics'); // server-side PostHog capture (money 
 const nameProof = require('./nameProof'); // a wallet signing for its own name change
 const ownerAuth = require('./ownerAuth'); // the owner wallet signing for an owner action
 const { isWalletString } = require('./b58Caps');     // a client address is a key's size before any decode
+const rpcBudget = require('./rpcBudget');            // server-wide budgets for the chain reads strangers can cause
 const Swap = require('./swap');                      // SOL <-> USDC in the player's own wallet
 const { TRUST_PROXY } = require('./clientAddr');     // X-Forwarded-For only from nginx (loopback / private)
 const { securityHeaders } = require('./securityHeaders');
@@ -512,7 +513,29 @@ const walletWithdrawLimiter = rateLimit({ windowMs: 10 * 1000, max: 3, standardH
 const entryFeeLimiter = rateLimit({ windowMs: 60 * 1000, max: 10, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Slow down.' } });
 // RPC/relay endpoints proxy to our paid Helius node — cap per-IP abuse without breaking the
 // wallet's normal burst of calls. Generous to tolerate shared IPs / NAT.
-const rpcLimiter = rateLimit({ windowMs: 10 * 1000, max: 100, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Slow down.' } });
+/* 40 per 10 s, was 100 (night review 2026-10-29, findings 2 and 22): 100 let ONE address drive about 20 provider calls a
+   second through /api/sol-balance (two each), twice the key's whole per-second limit. 40 is still far above one wallet
+   (a balance every 15 s, about 10 relay calls when it sends) and covers a few players behind one NAT. What bounds
+   the key across many addresses is the server-wide budget below. */
+const rpcLimiter = rateLimit({ windowMs: 10 * 1000, max: 40, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Slow down.' } });
+/* One server-wide budget for the provider calls the public RPC routes make (night review 2026-10-29, findings 2 and
+   22; server/rpcBudget.js says why): /api/sol-balance takes two, /api/rpc one. PUBLIC_RPC_RPS a second (4 by default)
+   after a burst of PUBLIC_RPC_BURST (40), so a page load or a send goes through as before and only a steady flood
+   is held. Empty, the route answers 503 and asks nothing of the chain: the widget shows a balance it could not read
+   as unknown (and never blocks a stake on it) and reads again on its next 15 s tick. Stake verifies, submits, payouts
+   and the drainer never take from it, so whatever strangers send they keep the rest of the key. /api/blockhash takes
+   nothing: it shares one answer every 2 s, so it can never cost more than that, and a withdraw never waits on this.
+   Raise both in .env with a bigger Helius plan (about 30 signed-in lobby tabs fill 4 a second with balance polls). */
+const publicRpcBudget = rpcBudget.createBucket({ perSec: rpcBudget.envNumber('PUBLIC_RPC_RPS', 4),
+  burst: Math.max(4, rpcBudget.envNumber('PUBLIC_RPC_BURST', 40)) });
+const publicRpcBusy = rpcBudget.refusalLog('public RPC reads');
+// true when `calls` provider calls fit the budget now; otherwise the 503 is sent and false comes back.
+function publicRpcAllowed(res, calls) {
+  if (publicRpcBudget.take(calls)) return true;
+  publicRpcBusy();
+  res.set('Retry-After', '1').status(503).json({ error: 'Busy, try again in a moment.' });
+  return false;
+}
 /* Every route that verifies a wallet signature or an owner token (/api/my-name, /api/owner/*,
    /admin/finance, /api/admin/*, the owner-gated debug reads). Signature checks are local
    arithmetic but not free, and none of these is called often by an honest browser: the owner
@@ -724,17 +747,19 @@ function recordEntry(r, game) {
 
 /* ledger: whether this boot's stake-ledger migrations went through (db.ensureLedgerSchema). Two
    booleans and nothing else, so the owner can confirm without server access that paid stakes are
-   durable across a restart and that owed payouts use the two lanes (STATUS item 7e). Read before
-   the RPC call so a Solana outage cannot hide it. */
+   durable across a restart and that owed payouts use the two lanes (STATUS item 7e). */
 function ledgerFlags() {
   return { durableStakes: db.features.durableStakes === true, payoutLanes: db.features.payoutLanes === true };
 }
 
-app.get('/wallet/debug', async (req, res) => {
+/* Asks nothing of the chain (night review 2026-10-29, finding 2). It used to read the escrow's last 10 signatures on
+   every hit, with no limiter, no cache and no login, through withRetry on the key stakes and payouts use, so a plain
+   curl loop kept that key throttled. Nothing read those signatures (the owner's post-deploy check and
+   test/durableStakeServer.test.js read `ledger`; the escrow's history is on Solscan under escrowPubkey). */
+app.get('/wallet/debug', (req, res) => {
   const ledger = ledgerFlags();
   try {
-    const sigs = await Wallet.getRecentSigs();
-    res.json({ escrowPubkey: Wallet.getEscrowPublicKey(), sigs, ledger });
+    res.json({ escrowPubkey: Wallet.getEscrowPublicKey(), ledger });
   } catch (e) { res.json({ error: e.message, ledger }); }
 });
 
@@ -781,6 +806,7 @@ app.get('/api/sol-balance', rpcLimiter, async (req, res) => {
   if (!address) return res.status(400).json({ error: 'address required' });
   // A key's size and alphabet before new PublicKey() decodes it (quadratic: server/b58Caps.js).
   if (!isWalletString(address)) return res.status(400).json({ error: 'Invalid address' });
+  if (!publicRpcAllowed(res, 2)) return;   // two provider calls in either mode: the wallet's SOL and its USDC
   try {
     if (money.mode === 'sol') {
       /* SOL mode: the wallet's SOL is its money. balance is that SOL in dollars at the display rate (null with no
@@ -812,6 +838,7 @@ app.get('/api/sol-balance', rpcLimiter, async (req, res) => {
 app.post('/api/rpc', rpcLimiter, async (req, res) => {
   const bad = Wallet.rpcRequestError(req.body);
   if (bad) return res.status(400).json({ error: bad });
+  if (!publicRpcAllowed(res, 1)) return;
   try {
     res.type('application/json').send(await Wallet.forwardRpc(req.body));
   } catch (e) {
@@ -819,10 +846,29 @@ app.post('/api/rpc', rpcLimiter, async (req, res) => {
   }
 });
 
+/* One blockhash for every asker for 2 s (night review 2026-10-29, finding 2): each ask was its own provider call. A
+   blockhash stays good for about a minute, so a send built on one up to 2 s old is the same send, and asks that come
+   while one is being fetched share it. However hard this route is asked it costs the key one call per 2 s at most,
+   so it takes nothing from the public budget and a player's withdraw never waits on that. A failed fetch is not kept;
+   one stuck past 30 s is asked again. */
+const BLOCKHASH_SHARE_MS = 2000;
+let _sharedBlockhash = null;   // { at, done, promise }
+function sharedBlockhash() {
+  const now = Date.now();
+  const hit = _sharedBlockhash;
+  if (hit && now - hit.at < (hit.done ? BLOCKHASH_SHARE_MS : 30_000)) return hit.promise;
+  const entry = { at: now, done: false, promise: null };
+  entry.promise = Wallet.getLatestBlockhash().then(
+    ({ blockhash }) => { entry.done = true; entry.at = Date.now(); return blockhash; },
+    (e) => { if (_sharedBlockhash === entry) _sharedBlockhash = null; throw e; });
+  _sharedBlockhash = entry;
+  return entry.promise;
+}
+
 // Latest blockhash for the wallet to build a transfer (self-custody Cash Out / generic send).
 app.get('/api/blockhash', rpcLimiter, async (req, res) => {
   try {
-    const { blockhash } = await Wallet.getLatestBlockhash();
+    const blockhash = await sharedBlockhash();
     res.json({ blockhash });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -4748,7 +4794,8 @@ app.get('/api/debug/profile', sigLimiter, async (req, res) => {
 /* /api/debug/tick below and /wallet/debug above stay unauthenticated on purpose:
    scripts/loadtest.js reads /api/debug/tick with no credentials for its server-tick columns,
    and test/durableStakeServer.test.js reads /wallet/debug's ledger flags the same way (the
-   owner's no-login check that paid stakes are durable). Neither carries a secret. */
+   owner's no-login check that paid stakes are durable). Neither carries a secret, and neither
+   asks anything of the chain (night review 2026-10-29), so neither can spend the RPC key. */
 
 app.get('/api/debug/tick', (req, res) => {
   const mem = process.memoryUsage();
