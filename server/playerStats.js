@@ -29,7 +29,12 @@ const LANDED_CLAUSE = EARNINGS_SQL.slice(
 ).trim();
 
 /* $1 wallet, $2 since, $3 landed window (s), $4 amount tolerance (USDC).
-   One row per game: rounds entered and rounds won. */
+   One row per game: rounds entered and rounds won.
+   The EXISTS runs once per entry (it sits in an aggregate's FILTER, which Postgres cannot turn into a join), so
+   both ends of the round are plain bounds on h.created_at: with db.js idx_hr_rake_wallet (player_wallet,
+   created_at) each run reads only this player's rake rows inside that one round (night review 2026-10-29). The
+   upper bound used to be (st.next_at IS NULL OR h.created_at < st.next_at), the same rows, but an OR the index
+   cannot use, so a lost round read every later rake row. A created_at that is NULL already fails the >=. */
 const WIN_SQL = `WITH st AS (
   SELECT game, amount, created_at,
          lead(created_at) OVER (ORDER BY created_at, id) AS next_at
@@ -46,7 +51,7 @@ SELECT COALESCE(st.game, '') AS game,
             AND h.amount_usdc > 0
             AND h.player_wallet = $1
             AND h.created_at >= st.created_at
-            AND (st.next_at IS NULL OR h.created_at < st.next_at)
+            AND h.created_at < COALESCE(st.next_at, 'infinity'::timestamptz)
             AND 9 * h.amount_usdc > st.amount
             ${LANDED_CLAUSE}
        ))::int AS won

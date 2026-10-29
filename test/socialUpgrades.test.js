@@ -75,7 +75,10 @@ test('win rate SQL: the strip\'s landed rule word for word, profit means take-ho
   assert.ok(EARNINGS_SQL.includes(S.LANDED_CLAUSE), 'cut from the strip\'s own SQL');
   assert.ok(S.WIN_SQL.includes(S.LANDED_CLAUSE), 'and used as is');
   assert.ok(/9 \* h\.amount_usdc > st\.amount/.test(S.WIN_SQL), 'a cash-out for less than the entry is not a win');
-  assert.ok(/h\.created_at < st\.next_at/.test(S.WIN_SQL), 'paired with the round it ended, not a later one');
+  assert.ok(/h\.created_at < COALESCE\(st\.next_at, 'infinity'::timestamptz\)/.test(S.WIN_SQL), 'paired with the round it ended, not a later one');
+  // Both ends of the round are plain bounds the (player_wallet, created_at) index can use (night review 2026-10-29).
+  assert.ok(/h\.created_at >= st\.created_at/.test(S.WIN_SQL) && !/next_at IS NULL OR/.test(S.WIN_SQL), 'no OR around the upper bound');
+  assert.ok(/h\.source = 'game_rake'/.test(S.WIN_SQL) && /h\.player_wallet = \$1/.test(S.WIN_SQL), 'the literals idx_hr_rake_wallet is built on');
   assert.ok(/created_at >= \$2::timestamptz/.test(S.WIN_SQL), 'from the USDC cutover');
   assert.ok(!/\b(INSERT|UPDATE|DELETE|DROP|ALTER)\b/i.test(S.WIN_SQL), 'read only');
   const p = S.winParams(A);

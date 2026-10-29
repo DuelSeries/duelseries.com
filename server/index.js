@@ -198,6 +198,9 @@ app.use((req, res, next) => {
       stakeLedger.sweep({ boot: true }).catch((e) => console.error('[STAKE] boot sweep', e.message));
       /* Paid agar crash refunds and killed-process flags (server/ag/agJournal.js). */
       replayAgJournal();
+      /* The win rate's indexes (db.ensureStatsIndexes, night review 2026-10-29), built CONCURRENTLY and not
+         waited for: speed only, and the boot refunds above never wait behind a build. It never rejects. */
+      if (typeof db.ensureStatsIndexes === 'function') db.ensureStatsIndexes().catch(() => {});
       return;
     } catch (e) {
       console.error(`[DB] Init attempt ${attempt}/8 failed: ${e.message}`);
@@ -533,6 +536,11 @@ const txHistoryLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, standardHeade
 // Social search and profiles share one count: each answer is a database read. The search box asks at most
 // every 250 ms while someone types, so 40 in 10 s is far above a person and well below a script.
 const socialLimiter = rateLimit({ windowMs: 10 * 1000, max: 40, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Slow down.' } });
+/* /api/my-profile: a public read of any ?wallet= (three queries), asked once when the lobby learns the wallet and once
+   each time the wallet screen opens. It had no limiter at all, so a script could keep the database busy with it
+   (night review 2026-10-29). Its own count, so typing in the search box can never block it: 40 in 10 s per address
+   is far above any person and well below a loop. */
+const myProfileLimiter = rateLimit({ windowMs: 10 * 1000, max: 40, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Slow down.' } });
 
 /* The owner's always-signed-in session (server/ownerSession.js): one wallet signature over
    'owner:session:create' sets an HttpOnly cookie that keeps the console signed in on that device
@@ -1255,15 +1263,6 @@ app.get('/api/leaderboard', (req, res) => {
   res.json(allTimeLb.getTop(10));
 });
 
-app.get('/api/earningsboard', async (req, res) => {
-  try {
-    const top = await db.getTopEarners(10);
-    res.json(top);
-  } catch (e) {
-    res.json([]);
-  }
-});
-
 app.get('/api/profile/:name', socialLimiter, async (req, res) => {
   try {
     const profile = await db.getProfile(req.params.name);
@@ -1275,30 +1274,11 @@ app.get('/api/profile/:name', socialLimiter, async (req, res) => {
   }
 });
 
-// CAD genuinely paid out BEFORE the self-custody era's earnings_history (cad_amount) tracking
-// existed. Added to the live tracked total so the public "winnings paid" figure reflects ALL
-// real payouts — not a marketing inflation. Bump only when more historical payouts are reconciled.
-const PRE_TRACKING_WINNINGS_CAD = 294;
-/* totalUsd is what the lobby shows (Owen, 2026-10-15: keep the tile, fix the
-   number). The old answer added CAD (SOL-era rows, the 294 above) to USD (every
-   row since the USDC cutover) and the lobby printed the mix with a bare "$".
-   Now the CAD part is turned into dollars at the live CAD-per-USD rate
-   (prices.getUsdCadRate); with no rate yet it is null and the tile shows a
-   dash rather than a guess. totalCad stays for anything still reading it. */
-app.get('/api/stats/winnings', async (req, res) => {
-  try {
-    const totalCad = await db.getGlobalWinnings();
-    let totalUsd = null;
-    const rate = prices.getUsdCadRate();
-    if (rate && db.getGlobalWinningsSplit) {
-      const s = await db.getGlobalWinningsSplit();
-      totalUsd = Math.round((s.usd + (s.cad + PRE_TRACKING_WINNINGS_CAD) / rate) * 100) / 100;
-    }
-    res.json({ totalCad: totalCad + PRE_TRACKING_WINNINGS_CAD, totalUsd });
-  } catch (e) {
-    res.json({ totalCad: 0, totalUsd: null });
-  }
-});
+/* /api/earningsboard and /api/stats/winnings are gone (night review 2026-10-29, finding 37). Nothing had called
+   either since the v2 lobby moved to /api/earnings/total (public/js/v2/social.js), and each request ran an uncached
+   aggregate over a whole table (accounts by total_earnings; every earnings_history row, twice) with no limiter, on
+   the connections stake claims and refunds use. db.getTopEarners, getGlobalWinnings and getGlobalWinningsSplit stay
+   for anything owner-side that wants them; the 294 CAD paid out before cad_amount tracking is in git history. */
 
 /* The lobby's "Players have cashed out $X" strip (server/earnings), and
    Social's "Global player winnings" (/api/earnings/total, the same total from
@@ -1326,7 +1306,7 @@ app.get('/api/players/search', socialLimiter, async (req, res) => {
   }
 });
 
-app.get('/api/my-profile', async (req, res) => {
+app.get('/api/my-profile', myProfileLimiter, async (req, res) => {
   // Identity is the Privy wallet now — the client passes its address. Stats/earnings are
   // recorded under the wallet (recordGameResult / recordEarnings), so this resolves them.
   const wallet = strOr(req.query.wallet, '').trim();   // a string only: ?wallet[]=a threw

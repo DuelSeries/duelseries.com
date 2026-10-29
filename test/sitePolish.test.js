@@ -120,11 +120,10 @@ test('the paid-out total is one currency: the old CAD part is turned into dollar
   const split = db.slice(db.indexOf('async function getGlobalWinningsSplit('), db.indexOf('async function searchPlayerNames('));
   assert.ok(/FILTER \(WHERE cad_amount <> amount\)/.test(split) && /FILTER \(WHERE cad_amount = amount\)/.test(split),
     'split by what cad_amount was written in');
+  /* The route itself is gone (night review 2026-10-29, finding 37): nothing called it, and each request ran two
+     uncached aggregates over every earnings_history row with no limiter. The split above stays in db.js. */
   const srv = read('server/index.js');
-  const at = srv.indexOf("app.get('/api/stats/winnings'");
-  const route = srv.slice(at, at + 900);
-  assert.ok(/s\.usd \+ \(s\.cad \+ PRE_TRACKING_WINNINGS_CAD\) \/ rate/.test(route), 'CAD converted at the live rate');
-  assert.ok(/let totalUsd = null;/.test(route), 'no rate, no number');
+  assert.ok(!srv.includes("app.get('/api/stats/winnings'"), 'the dead all-payouts route is not served');
   assert.strictEqual(typeof require('../server/prices').getUsdCadRate, 'function');
   /* The lobby no longer shows this total at all (2026-10-16): it counts every payout, Owen's own test
      play included, so Social shows Global player winnings (/api/earnings/total, real players only) instead. */

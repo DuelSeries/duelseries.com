@@ -1,10 +1,38 @@
 const { Pool } = require('pg');
 const playerStats = require('./playerStats');   // search, short-wallet profiles, win rate
 
+const PG_SSL = (process.env.DATABASE_URL && !process.env.DATABASE_URL.includes('localhost')) ? { rejectUnauthorized: false } : false;
+
+/* The main pool: everything that moves or records money (stake claims, seat claims, refunds, owed payouts, the
+   drainer, earnings) and the server's own reads. Deliberately no time limit of any kind here (night review
+   2026-10-29): a write cut off half way, or an owed payout that gave up waiting for a connection, is worse than a
+   wait. What used to crowd it, the public reads anyone can ask for, now has its own pool below. */
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: (process.env.DATABASE_URL && !process.env.DATABASE_URL.includes('localhost')) ? { rejectUnauthorized: false } : false,
+  ssl: PG_SSL,
 });
+
+/* Public reads (a profile, the player search, /api/my-profile) get a few connections of their own (night review
+   2026-10-29, finding 36). Anyone can ask for these, and a flood of them, or one slow win-rate read, used to sit on
+   the same 10 connections stake claims, seat claims, refunds and the payout drainer wait for. Now they can hold at
+   most READ_POOL.max connections, Postgres itself cancels one that runs past statement_timeout, and a request that
+   cannot get a connection fails after connectionTimeoutMillis instead of queueing for ever. A failed read is a 500
+   (or, for the win rate, a missing tile), never a stalled cash-out. */
+const READ_POOL = { max: 4, statement_timeout: 5000, connectionTimeoutMillis: 5000 };
+const readPool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: PG_SSL,
+  ...READ_POOL,
+});
+
+/* An idle client whose connection dies (Postgres restarted or upgraded, a backend killed, a reset on the wire) makes
+   its pool emit 'error'. With no listener, EventEmitter threw that out of a socket callback, and this process has no
+   uncaughtException handler, so it ended every live game on the box, paid ones included (night review 2026-10-29,
+   finding 36). pg-pool has already dropped the dead client when this runs, and the next query opens a fresh one, so
+   logging it is all there is to do. */
+for (const [label, p] of [['', pool], ['read ', readPool]]) {
+  p.on('error', (e) => console.error(`[DB] ${label}pool idle client error (client dropped, pool continues): ${e && e.message}`));
+}
 
 async function init() {
   await pool.query(`
@@ -270,6 +298,38 @@ async function ensureLedgerSchema() {
   features.payoutLanes = await runDdl('payout lanes', PAYOUT_LANE_DDL);
   features.skinShop = await runDdl('skin shop', SKIN_SHOP_DDL);
   console.log(`[DB] durable stakes ${features.durableStakes ? 'on' : 'OFF'}, payout lanes ${features.payoutLanes ? 'on' : 'OFF'}, skin shop ${features.skinShop ? 'on' : 'OFF'}`);
+}
+
+/* Indexes for the public profile's win rate (night review 2026-10-29, finding 38). playerStats.WIN_SQL runs its
+   house_revenue EXISTS once per paid entry of the player, and with only created_at and source indexed each of those
+   read every rake row after the entry, everyone's, to the end of the table when the round was lost. With
+   idx_hr_rake_wallet each one reads that player's own rake rows inside that round only (the predicate is WIN_SQL's
+   and the strip's literal h.source = 'game_rake'); idx_fp_wallet does the same for the failed_payouts NOT EXISTS of
+   the win rate, the strip and the Live wins row.
+   Speed only: nothing turns on or off with these, and a failure costs only the speed. Built CONCURRENTLY, so a
+   cash-out writing house_revenue or the drainer writing failed_payouts is never held while one builds. That needs
+   one statement per query and no transaction around it, which is how these run. A concurrent build that died half
+   way leaves an INVALID index that IF NOT EXISTS would then skip for ever, so an invalid one is dropped and built
+   again. index.js starts this after db.init() and does not wait for it: a concurrent build waits for every older
+   transaction, and the boot refunds must never wait behind that. */
+const STATS_INDEXES = [
+  ['idx_hr_rake_wallet', `ON house_revenue (player_wallet, created_at) WHERE source = 'game_rake'`],
+  ['idx_fp_wallet', `ON failed_payouts (wallet_address, created_at)`],
+];
+
+async function ensureStatsIndexes() {
+  let built = 0;
+  for (const [name, def] of STATS_INDEXES) {
+    try {
+      const r = await pool.query(`SELECT indisvalid AS valid FROM pg_index WHERE indexrelid = to_regclass($1)`, [name]);
+      if (r.rows[0] && r.rows[0].valid === false) await pool.query(`DROP INDEX CONCURRENTLY IF EXISTS ${name}`);
+      await pool.query(`CREATE INDEX CONCURRENTLY IF NOT EXISTS ${name} ${def}`);
+      built++;
+    } catch (e) {
+      console.error(`[DB] stats index ${name} not built (profiles still work, only slower): ${e.message}`);
+    }
+  }
+  return built === STATS_INDEXES.length;
 }
 
 // ─── Accounts ─────────────────────────────────────────────────────────────────
@@ -869,7 +929,7 @@ async function getGlobalWinningsSplit() {
 async function searchPlayerNames(query, limit = 8) {
   const q = playerStats.cleanQuery(query);
   if (!q) return [];
-  const res = await pool.query(playerStats.SEARCH_SQL, playerStats.searchParams(q, limit));
+  const res = await readPool.query(playerStats.SEARCH_SQL, playerStats.searchParams(q, limit));
   return res.rows.map(r => r.name);
 }
 
@@ -908,7 +968,7 @@ async function setAccountName(googleId, name) {
 }
 
 async function getMyProfile(googleId) {
-  const accRes = await pool.query(
+  const accRes = await readPool.query(
     `SELECT name, total_earnings, games_played, play_time_seconds, name_history,
             created_at
      FROM accounts WHERE google_id = $1`,
@@ -917,7 +977,7 @@ async function getMyProfile(googleId) {
   if (!accRes.rows[0]) return null;
   const row = accRes.rows[0];
 
-  const gamesRes = await pool.query(
+  const gamesRes = await readPool.query(
     `SELECT amount, created_at FROM earnings_history
      WHERE google_id=$1 ORDER BY created_at ASC`,
     [googleId]
@@ -928,7 +988,7 @@ async function getMyProfile(googleId) {
   }));
 
   // Buy-ins, so the client can show profit rather than only takings.
-  const stakesRes = await pool.query(
+  const stakesRes = await readPool.query(
     `SELECT amount, created_at FROM stakes_history
      WHERE google_id=$1 ORDER BY created_at ASC`,
     [googleId]
@@ -969,7 +1029,7 @@ async function getProfile(name) {
   if (!name) return null;
   const COLS = `SELECT google_id, name, total_earnings, games_played, play_time_seconds, created_at
      FROM accounts`;
-  let accRes = await pool.query(`${COLS} WHERE LOWER(name) = LOWER($1)`, [name]);
+  let accRes = await readPool.query(`${COLS} WHERE LOWER(name) = LOWER($1)`, [name]);
   /* No such name: a player who never set one is on the board as their short
      wallet (C5cn…H3m9), so that opens their profile when it is exactly one
      account. The full address never goes back out: the name shown is the
@@ -977,9 +1037,9 @@ async function getProfile(name) {
   let shown = null;
   const sw = !accRes.rows[0] && playerStats.parseShortWallet(name);
   if (sw) {
-    const ids = await pool.query(playerStats.SHORT_WALLET_SQL, [sw.head + '%' + sw.tail]);
+    const ids = await readPool.query(playerStats.SHORT_WALLET_SQL, [sw.head + '%' + sw.tail]);
     if (ids.rows.length === 1) {
-      accRes = await pool.query(`${COLS} WHERE google_id = $1`, [ids.rows[0].google_id]);
+      accRes = await readPool.query(`${COLS} WHERE google_id = $1`, [ids.rows[0].google_id]);
       shown = playerStats.shortWallet(ids.rows[0].google_id);
     }
   }
@@ -993,18 +1053,18 @@ async function getProfile(name) {
      profile with the exact graph their Wallet tab shows (Owen, 2026-10-15). The
      bucketed series stay for the old snake client's profile (public/js/game.js). */
   const [games, week, month, sixMonth, allTime] = await Promise.all([
-    pool.query(`SELECT amount, created_at FROM earnings_history
+    readPool.query(`SELECT amount, created_at FROM earnings_history
       WHERE google_id=$1 ORDER BY created_at ASC`, [gid]),
-    pool.query(`SELECT DATE_TRUNC('day', created_at) AS period, SUM(amount) AS total
+    readPool.query(`SELECT DATE_TRUNC('day', created_at) AS period, SUM(amount) AS total
       FROM earnings_history WHERE google_id=$1 AND created_at >= NOW()-INTERVAL '7 days'
       GROUP BY period ORDER BY period ASC`, [gid]),
-    pool.query(`SELECT DATE_TRUNC('day', created_at) AS period, SUM(amount) AS total
+    readPool.query(`SELECT DATE_TRUNC('day', created_at) AS period, SUM(amount) AS total
       FROM earnings_history WHERE google_id=$1 AND created_at >= NOW()-INTERVAL '30 days'
       GROUP BY period ORDER BY period ASC`, [gid]),
-    pool.query(`SELECT DATE_TRUNC('week', created_at) AS period, SUM(amount) AS total
+    readPool.query(`SELECT DATE_TRUNC('week', created_at) AS period, SUM(amount) AS total
       FROM earnings_history WHERE google_id=$1 AND created_at >= NOW()-INTERVAL '6 months'
       GROUP BY period ORDER BY period ASC`, [gid]),
-    pool.query(`SELECT DATE_TRUNC('month', created_at) AS period, SUM(amount) AS total
+    readPool.query(`SELECT DATE_TRUNC('month', created_at) AS period, SUM(amount) AS total
       FROM earnings_history WHERE google_id=$1
       GROUP BY period ORDER BY period ASC`, [gid]),
   ]);
@@ -1013,7 +1073,7 @@ async function getProfile(name) {
      exactly what counts). A failed read costs the tile, never the profile. */
   let winRate = null;
   try {
-    winRate = playerStats.summarizeWins((await pool.query(playerStats.WIN_SQL, playerStats.winParams(gid))).rows);
+    winRate = playerStats.summarizeWins((await readPool.query(playerStats.WIN_SQL, playerStats.winParams(gid))).rows);
   } catch (e) {
     console.error('[PROFILE] win rate', e.message);
   }
@@ -1126,6 +1186,13 @@ async function skinClose(ref, sig, state, from = 'submitted') {
 async function skinGrant(ref, sig, { usdc, from = 'submitted' } = {}) {
   if (!SKIN_FROM.has(from)) throw new Error('skinGrant: bad move');
   const client = await pool.connect();
+  /* A checked-out client has no pool listener on it, so a connection that died during this transaction made it emit
+     'error' to nobody, and that ended the process (night review 2026-10-29, finding 36). The statement in flight still
+     rejects, so the catch below rolls back and the caller sees the failure exactly as before; the dead client is
+     handed back marked broken, so the pool closes it instead of lending it out again. */
+  let dropped = null;
+  const onDrop = (e) => { dropped = e || new Error('connection error'); console.error(`[DB] skinGrant connection error: ${e && e.message}`); };
+  client.on('error', onDrop);
   try {
     await client.query('BEGIN');
     const r = await client.query(
@@ -1152,7 +1219,8 @@ async function skinGrant(ref, sig, { usdc, from = 'submitted' } = {}) {
     try { await client.query('ROLLBACK'); } catch (_) {}
     throw e;
   } finally {
-    client.release();
+    client.removeListener('error', onDrop);
+    client.release(dropped || undefined);
   }
 }
 
@@ -1202,7 +1270,7 @@ async function skinExpireOpen({ olderThanMs }) {
 }
 
 module.exports = {
-  init, pool,
+  init, pool, readPool, READ_POOL, ensureStatsIndexes, STATS_INDEXES,
   recordGameResult,
   recordWithdrawal,
   recordCollusionFlag, getRecentCollusionFlags,
