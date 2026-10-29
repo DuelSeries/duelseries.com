@@ -293,6 +293,11 @@ class BattleshipRoom {
 
   removePlayer(socketId) {
     if (!this.players.has(socketId)) return;
+    /* Leaving while the sunk fleet is held up (settling): the match is already won, so it is settled for the one who
+       sank it, with both seats still present, before the leaver is taken off. Otherwise the forfeit below hands the
+       pot to whoever stayed, which is the LOSER whenever the winner closes the tab or drops in those three seconds.
+       KnockoutRoom.removePlayer's rule (night review 2026-10-29). */
+    if (this.state === 'settling' && this.pendingWinner) this.declare();
     this.players.delete(socketId);
     if (this.state !== 'over' && this.state !== 'waiting') {
       const rest = [...this.players.keys()];
