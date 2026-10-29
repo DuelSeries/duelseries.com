@@ -4,7 +4,7 @@ const http       = require('http');
 const https      = require('https');
 const { Server } = require('socket.io');
 const path       = require('path');
-const { rateLimit } = require('express-rate-limit');
+const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 const C        = require('../shared/constants');
 const GameRoom = require('./GameRoom');
 const { BattleRoyaleRoom, BR } = require('./BattleRoyaleRoom');
@@ -43,6 +43,8 @@ const nameProof = require('./nameProof'); // a wallet signing for its own name c
 const playerName = require('./playerName'); // name cleaning + the reserved staff/brand names (night review 2026-10-29)
 const ownerAuth = require('./ownerAuth'); // the owner wallet signing for an owner action
 const { isWalletString } = require('./b58Caps');     // a client address is a key's size before any decode
+const rpcBudget = require('./rpcBudget');            // server-wide budgets for the chain reads strangers can cause
+const rpcDay = require('./rpcDay');                  // their day on the shared key, kept across restarts (night review 2026-10-29)
 const Swap = require('./swap');                      // SOL <-> USDC in the player's own wallet
 const { TRUST_PROXY } = require('./clientAddr');     // X-Forwarded-For only from nginx (loopback / private)
 const addrLimits = require('./addrLimits');          // sockets and free duel seats per address on the main namespace
@@ -550,7 +552,70 @@ const walletWithdrawLimiter = rateLimit({ windowMs: 10 * 1000, max: 3, standardH
 const entryFeeLimiter = rateLimit({ windowMs: 60 * 1000, max: 10, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Slow down.' } });
 // RPC/relay endpoints proxy to our paid Helius node — cap per-IP abuse without breaking the
 // wallet's normal burst of calls. Generous to tolerate shared IPs / NAT.
-const rpcLimiter = rateLimit({ windowMs: 10 * 1000, max: 100, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Slow down.' } });
+/* 40 per 10 s, was 100 (night review 2026-10-29, findings 2 and 22): 100 let ONE address drive about 20 provider calls a
+   second through /api/sol-balance (two each), twice the key's whole per-second limit. 40 is still far above one wallet
+   (a balance every 15 s, about 10 relay calls when it sends) and covers a few players behind one NAT. What bounds
+   the key across many addresses is the server-wide budget below. */
+const rpcLimiter = rateLimit({ windowMs: 10 * 1000, max: 40, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Slow down.' } });
+/* /api/blockhash has a count of its own (night review 2026-10-29, third pass): it is the money lane, the blockhash a
+   Withdraw, a USDC send or an Add from a linked wallet is built on, so no amount of balance polling or relay calls from
+   the same address (a busy NAT, a phone carrier's shared address) can use it up. A send asks once; 20 per 10 s. */
+const blockhashLimiter = rateLimit({ windowMs: 10 * 1000, max: 20, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Slow down.' } });
+/* One server-wide budget for the provider calls the public RPC routes make (night review 2026-10-29, findings 2 and
+   22; server/rpcBudget.js says why): a fresh /api/sol-balance read takes two, /api/rpc one. PUBLIC_RPC_RPS a second
+   after a burst of PUBLIC_RPC_BURST (40), so a page load goes through as before and only a steady flood is held. Stake
+   verifies, submits, payouts, the drainer, the sweeps and /api/blockhash never take from it, so whatever strangers send
+   they keep the rest of the key.
+   Each IP (as the per-IP counts key it) has a quarter of the rate and half the burst, refused past that with a 429, so
+   one address, or three, always leave the rest for everyone else. The owner's own session takes the rate only.
+   Third pass (night review 2026-10-29, review problems 0 and 1): no day's cap. The second pass's PUBLIC_RPC_PER_DAY
+   (10000) lived in memory, so every deploy restarted it full, and anyone could spend it: one IP drained it to its
+   reserve in about 3 h and eight drained it all, and three honest tabs polling filled it by evening, after which a
+   player's balance, and the Withdraw, skin buy and Add from a linked wallet that read it first, failed for the rest of
+   the day. Now nothing here counts a day; what is left of a refusal is that one moment, and a balance it refuses is
+   answered from the last read of that address (/api/sol-balance below) while the widget goes ahead with a send it
+   cannot check (the chain refuses an overdraw).
+   Sizing: one visible signed-in tab costs two calls per 15 s (its address's balance, shared by all its tabs, and a
+   hidden tab reads once a minute), so 3 a second is about 20 players polling at once with the burst for page loads.
+   Defaults suit Helius Free (10 calls a second): 3 here and 2 for history leave 5 a second for stakes and payouts.
+   Before real traffic, raise the plan, and these with it (PUBLIC_RPC_RPS, PUBLIC_RPC_BURST, HISTORY_RPS in .env; the EU
+   server on the same key spends its own, so split them while it runs); PUBLIC_RPC_URL (Wallet.js) moves all of these
+   reads to a key of their own, so a month-long flood at the rate cannot spend the money key's credits.
+   Fourth pass (night review 2026-10-29, review problem 0): with PUBLIC_RPC_URL unset (or the same key) a flood at the
+   rate still spent the money key's month in about two days, so in that case this budget and history's also take from
+   one day kept on disk across restarts (server/rpcDay.js: RPC_READS_PER_DAY, 10k by default, about 310k a month at
+   most). Spent, a balance answers from its address's last read (stale) or 503s and the relay 503s, until it refills;
+   no money path reads through here, so stakes, payouts and sends go on. With PUBLIC_RPC_URL set there is no day. */
+const PUBLIC_RPC_RPS = rpcBudget.envNumber('PUBLIC_RPC_RPS', 3);
+const PUBLIC_RPC_BURST = Math.max(4, rpcBudget.envNumber('PUBLIC_RPC_BURST', 40));
+const publicRpcBudget = rpcBudget.createBudget({ perSec: PUBLIC_RPC_RPS, burst: PUBLIC_RPC_BURST,
+  perKey: rpcBudget.callerShare({ perSec: PUBLIC_RPC_RPS, burst: PUBLIC_RPC_BURST }), day: rpcDay.day });
+const publicRpcBusy = rpcBudget.refusalLogs('public RPC reads');
+rpcBudget.usageLog('public RPC reads', publicRpcBudget, { day: rpcDay.day });
+/* Who a public chain read is counted to: the owner's own session is UNMETERED (the rate only), anyone else their
+   address as express-rate-limit keys it (an IPv6 address by its /56, so one home network is one caller). */
+function budgetKeyOf(req) {
+  try { if (ownerSessions.fromRequest(req)) return rpcBudget.UNMETERED; } catch (_) { /* no session: an address */ }
+  return ipKeyGenerator(String(req.ip || ''));
+}
+// null when `calls` provider calls fit the budget now (and were taken), otherwise why not ('key', 'rate', 'day'), logged.
+function publicRpcRefusal(req, calls) {
+  const no = publicRpcBudget.take(calls, budgetKeyOf(req));
+  if (no) publicRpcBusy[no]();
+  return no;
+}
+// The shared key's day refills about one call in 9 s, so a refusal for it asks the browser to wait a minute.
+function sendPublicRpcRefusal(res, no) {
+  if (no === 'key') res.set('Retry-After', '5').status(429).json({ error: 'Too many requests. Slow down.' });
+  else res.set('Retry-After', no === 'day' ? '60' : '1').status(503).json({ error: 'Busy, try again in a moment.' });
+}
+// true when `calls` provider calls fit the budget now; otherwise the refusal is sent and false comes back.
+function publicRpcAllowed(req, res, calls) {
+  const no = publicRpcRefusal(req, calls);
+  if (!no) return true;
+  sendPublicRpcRefusal(res, no);
+  return false;
+}
 /* Every route that verifies a wallet signature or an owner token (/api/my-name, /api/owner/*,
    /admin/finance, /api/admin/*, the owner-gated debug reads). Signature checks are local
    arithmetic but not free, and none of these is called often by an honest browser: the owner
@@ -780,17 +845,19 @@ function recordEntry(r, game) {
 
 /* ledger: whether this boot's stake-ledger migrations went through (db.ensureLedgerSchema). Two
    booleans and nothing else, so the owner can confirm without server access that paid stakes are
-   durable across a restart and that owed payouts use the two lanes (STATUS item 7e). Read before
-   the RPC call so a Solana outage cannot hide it. */
+   durable across a restart and that owed payouts use the two lanes (STATUS item 7e). */
 function ledgerFlags() {
   return { durableStakes: db.features.durableStakes === true, payoutLanes: db.features.payoutLanes === true };
 }
 
-app.get('/wallet/debug', async (req, res) => {
+/* Asks nothing of the chain (night review 2026-10-29, finding 2). It used to read the escrow's last 10 signatures on
+   every hit, with no limiter, no cache and no login, through withRetry on the key stakes and payouts use, so a plain
+   curl loop kept that key throttled. Nothing read those signatures (the owner's post-deploy check and
+   test/durableStakeServer.test.js read `ledger`; the escrow's history is on Solscan under escrowPubkey). */
+app.get('/wallet/debug', (req, res) => {
   const ledger = ledgerFlags();
   try {
-    const sigs = await Wallet.getRecentSigs();
-    res.json({ escrowPubkey: Wallet.getEscrowPublicKey(), sigs, ledger });
+    res.json({ escrowPubkey: Wallet.getEscrowPublicKey(), ledger });
   } catch (e) { res.json({ error: e.message, ledger }); }
 });
 
@@ -830,6 +897,56 @@ app.get('/admin/finance', sigLimiter, async (req, res) => {
 // ─── Health check ─────────────────────────────────────────────────────────────
 app.get('/healthz', (req, res) => res.sendStatus(200));
 
+/* Balances by address (night review 2026-10-29, third pass, review problem 1): the widget polls its balance every 15 s
+   from every tab and iframe, reads it again before a stake, a send or a skin, and again after one, and each read was
+   two provider calls. Now one read of an address answers every ask for it for BALANCE_SHARE_MS (10 s), so a player's
+   tabs, the poll and a stake check share one; an ask with fresh=1 (the widget's check before a send and its read
+   right after one, so a balance that just changed is never shown from before) shares only a read under 1 s old. A
+   read the public budget refuses (or the provider fails) is answered from the address's last good read while under 5 min old,
+   marked stale: true, so a flood or a busy moment never blanks a player's balance (the widget never blocks a send on
+   a stale figure; the chain refuses an overdraw). Only an address never read lately gets the 429 or 503. In flight,
+   asks share the read; a failed read is not kept. Reads go to PUBLIC_RPC_URL's key when it is set (Wallet.js). */
+const BALANCE_SHARE_MS = 10_000;
+const BALANCE_FRESH_MS = 1_000;
+const BALANCE_STALE_OK_MS = 300_000;
+const BALANCE_KEEP_MAX = 5000;
+const _balanceReads = new Map();   // address -> { at, promise }: its newest read, in flight or answered
+const _balanceGood = new Map();    // address -> { at, chain }: its last read that answered
+function keepByAddress(map, address, v) {
+  map.delete(address);
+  map.set(address, v);
+  if (map.size > BALANCE_KEEP_MAX) map.delete(map.keys().next().value);   // the longest unread goes first
+}
+// What the chain says of an address, in either money mode: the two provider calls a balance costs.
+async function readChainBalance(address) {
+  const lane = { lane: 'public' };
+  if (money.mode === 'sol') {
+    const solNative = await Wallet.getAddressBalance(address, lane);
+    let usdc = null;
+    try { usdc = await Usdc.usdcBalanceOf(address, lane); } catch (_) { usdc = null; }
+    return { solNative, usdc };
+  }
+  const sol = await money.balanceOf(address, lane); // native unit (SOL or USDC); `sol` field kept for client back-compat
+  /* The SOL beside the dollars (Owen, 2026-10-15: "Accept both, play in USDC"): card top-ups and
+     exchange sends arrive as SOL, and the Wallet tab shows it under the balance with Convert. */
+  // A failed SOL read never costs the dollar balance: it is shown as unknown instead.
+  let solNative = null;
+  if (money.mode === 'usdc') { try { solNative = await Wallet.getAddressBalance(address, lane); } catch (_) { solNative = null; } }
+  return { sol, solNative };
+}
+// The answer, built when it is sent, so a shared read is priced at the display rate of now.
+function balanceAnswer(address, chain) {
+  if (money.mode === 'sol') {
+    /* SOL mode: the wallet's SOL is its money. balance is that SOL in dollars at the display rate (null with no
+       good rate: shown as unknown, never guessed), solNative the SOL itself, usdc any old USDC (the Wallet tab's
+       Convert to SOL / Withdraw USDC line). A failed USDC read only hides that line. */
+    const rate = money.price.peek();
+    const usd = rate ? chain.solNative * rate : null;
+    return { address, sol: usd, balance: usd, unit: money.unit, solNative: chain.solNative, usdc: chain.usdc, solUsd: rate };
+  }
+  return { address, sol: chain.sol, balance: chain.sol, unit: money.unit, solNative: chain.solNative };
+}
+
 // On-chain SOL balance for any address (public; reads via the server's Solana RPC so the
 // browser never hits a rate-limited public RPC). Used by the self-custody wallet widget.
 app.get('/api/sol-balance', rpcLimiter, async (req, res) => {
@@ -837,26 +954,36 @@ app.get('/api/sol-balance', rpcLimiter, async (req, res) => {
   if (!address) return res.status(400).json({ error: 'address required' });
   // A key's size and alphabet before new PublicKey() decodes it (quadratic: server/b58Caps.js).
   if (!isWalletString(address)) return res.status(400).json({ error: 'Invalid address' });
-  try {
-    if (money.mode === 'sol') {
-      /* SOL mode: the wallet's SOL is its money. balance is that SOL in dollars at the display rate (null with no
-         good rate: shown as unknown, never guessed), solNative the SOL itself, usdc any old USDC (the Wallet tab's
-         Convert to SOL / Withdraw USDC line). A failed USDC read only hides that line. */
-      const solNative = await Wallet.getAddressBalance(address);
-      const rate = money.price.peek();
-      let usdc = null;
-      try { usdc = await Usdc.usdcBalanceOf(address); } catch (_) { usdc = null; }
-      const usd = rate ? solNative * rate : null;
-      return res.json({ address, sol: usd, balance: usd, unit: money.unit, solNative, usdc, solUsd: rate });
+  const now = Date.now();
+  const hit = _balanceReads.get(address);
+  // The address's last good read, marked stale, while it is under 5 minutes old; else null.
+  const lastRead = () => {
+    const good = _balanceGood.get(address);
+    const t = Date.now();
+    return good && t >= good.at && t - good.at < BALANCE_STALE_OK_MS ? Object.assign(balanceAnswer(address, good.chain), { stale: true }) : null;
+  };
+  let read;
+  if (hit && now >= hit.at && now - hit.at < (req.query.fresh === '1' ? BALANCE_FRESH_MS : BALANCE_SHARE_MS)) read = hit.promise;
+  else {
+    const no = publicRpcRefusal(req, 2);   // two provider calls in either mode: the wallet's SOL and its USDC
+    if (no) {
+      const stale = lastRead();
+      return stale ? res.json(stale) : sendPublicRpcRefusal(res, no);
     }
-    const sol = await money.balanceOf(address); // native unit (SOL or USDC); `sol` field kept for client back-compat
-    /* The SOL beside the dollars (Owen, 2026-10-15: "Accept both, play in USDC"): card top-ups and
-       exchange sends arrive as SOL, and the Wallet tab shows it under the balance with Convert. */
-    // A failed SOL read never costs the dollar balance: it is shown as unknown instead.
-    let solNative = null;
-    if (money.mode === 'usdc') { try { solNative = await Wallet.getAddressBalance(address); } catch (_) { solNative = null; } }
-    res.json({ address, sol, balance: sol, unit: money.unit, solNative });
+    const entry = { at: now, promise: readChainBalance(address) };
+    keepByAddress(_balanceReads, address, entry);
+    entry.promise.then((chain) => {
+      const kept = _balanceGood.get(address);
+      if (!kept || kept.at <= entry.at) keepByAddress(_balanceGood, address, { at: entry.at, chain });
+    }, () => { if (_balanceReads.get(address) === entry) _balanceReads.delete(address); });
+    read = entry.promise;
+  }
+  try {
+    res.json(balanceAnswer(address, await read));
   } catch (e) {
+    // The provider failing (a 429 from a key at its limit, a timeout) is answered from the last read the same way.
+    const stale = lastRead();
+    if (stale) return res.json(stale);
     res.status(400).json({ error: e.message });
   }
 });
@@ -868,6 +995,7 @@ app.get('/api/sol-balance', rpcLimiter, async (req, res) => {
 app.post('/api/rpc', rpcLimiter, async (req, res) => {
   const bad = Wallet.rpcRequestError(req.body);
   if (bad) return res.status(400).json({ error: bad });
+  if (!publicRpcAllowed(req, res, 1)) return;
   try {
     res.type('application/json').send(await Wallet.forwardRpc(req.body));
   } catch (e) {
@@ -875,10 +1003,62 @@ app.post('/api/rpc', rpcLimiter, async (req, res) => {
   }
 });
 
+/* One blockhash for every asker (night review 2026-10-29, finding 2): each ask was its own provider call. A blockhash
+   stays good for about a minute, and asks that come while one is being fetched share it.
+   Third pass (night review 2026-10-29, review problems 0 and 1): this is the money lane, the blockhash a Withdraw, a
+   USDC send and an Add from a linked wallet are built on, so it takes nothing from the public budget and nothing
+   refuses it but its own per-IP count (blockhashLimiter; the second pass charged it to the asker's share and the day,
+   and answered 503 once they were spent). Its cost is bounded by sharing instead:
+   - one fetch at a time and at most one every BLOCKHASH_SHARE_MS (5 s) server-wide, so any number of addresses asking
+     nonstop cost about 17k calls a day (0.5M a month, inside even Helius Free beside the money paths);
+   - each address starts at most one fetch per BLOCKHASH_PER_IP_MS (20 s): asking again sooner, it gets the shared one
+     while that is under 20 s old, so one address alone costs at most about 4.3k a day.
+   A send gets one under 5 s old (under 20 s for an address's second send inside 20 s), with 40 s or more of its
+   minute left for the signing and the landing (submitStake confirms within 45 s of the broadcast). A failed fetch is
+   not kept, and the last good one is handed out in its place while it is under 20 s old; one stuck past 30 s is asked
+   again. */
+const BLOCKHASH_SHARE_MS = 5000;
+const BLOCKHASH_PER_IP_MS = 20_000;
+const BLOCKHASH_STALE_OK_MS = 20_000;
+const BLOCKHASH_ASKERS_MAX = 5000;
+let _sharedBlockhash = null;   // { at, done, promise }: the newest fetch
+let _goodBlockhash = null;     // { at, blockhash }: the newest fetch that answered (at: when it was asked for)
+const _blockhashFetchedBy = new Map();   // address key -> when it last started a fetch, the least recent first
+function sharedBlockhash(key) {
+  const now = Date.now();
+  const hit = _sharedBlockhash;
+  if (hit && !hit.done && now - hit.at < 30_000) return hit.promise;
+  const good = _goodBlockhash;
+  const age = good && now >= good.at ? now - good.at : Infinity;   // a clock set back never makes one younger
+  if (age < BLOCKHASH_SHARE_MS) return Promise.resolve(good.blockhash);
+  const counted = key != null && key !== rpcBudget.UNMETERED;
+  if (counted && age < BLOCKHASH_STALE_OK_MS && now - (_blockhashFetchedBy.get(key) ?? -Infinity) < BLOCKHASH_PER_IP_MS) {
+    return Promise.resolve(good.blockhash);
+  }
+  if (counted) {
+    _blockhashFetchedBy.delete(key);
+    _blockhashFetchedBy.set(key, now);
+    if (_blockhashFetchedBy.size > BLOCKHASH_ASKERS_MAX) _blockhashFetchedBy.delete(_blockhashFetchedBy.keys().next().value);
+  }
+  const entry = { at: now, done: false, promise: null };
+  entry.promise = Wallet.getLatestBlockhash().then(({ blockhash }) => {
+    entry.done = true;
+    _goodBlockhash = { at: entry.at, blockhash };   // aged from when it was asked for, so a late answer is only ever older
+    return blockhash;
+  }, (e) => {
+    if (_sharedBlockhash === entry) _sharedBlockhash = null;
+    const last = _goodBlockhash;
+    if (last && Date.now() - last.at < BLOCKHASH_STALE_OK_MS) return last.blockhash;
+    throw e;
+  });
+  _sharedBlockhash = entry;
+  return entry.promise;
+}
+
 // Latest blockhash for the wallet to build a transfer (self-custody Cash Out / generic send).
-app.get('/api/blockhash', rpcLimiter, async (req, res) => {
+app.get('/api/blockhash', blockhashLimiter, async (req, res) => {
   try {
-    const { blockhash } = await Wallet.getLatestBlockhash();
+    const blockhash = await sharedBlockhash(budgetKeyOf(req));
     res.json({ blockhash });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -2384,7 +2564,7 @@ async function withSkinItems(wallet, page) {
   }
   return page;
 }
-function txHistoryFor(wallet, before) {
+function txHistoryFor(wallet, before, budgetKey) {
   const now = Date.now();
   const key = wallet + ':' + (before || '');
   const hit = txHistoryCache.get(key);
@@ -2395,7 +2575,7 @@ function txHistoryFor(wallet, before) {
     }
     if (txHistoryCache.size >= TX_HISTORY_MAX) txHistoryCache.delete(txHistoryCache.keys().next().value);
   }
-  const pending = Usdc.usdcHistory(wallet, { limit: TX_PAGE, before, sol: money.mode === 'sol', priceOn: prices.solUsdAt }).then((page) => withSkinItems(wallet, page)).then(
+  const pending = Usdc.usdcHistory(wallet, { limit: TX_PAGE, before, sol: money.mode === 'sol', priceOn: prices.solUsdAt, budgetKey }).then((page) => withSkinItems(wallet, page)).then(
     (page) => { txHistoryCache.set(key, { at: Date.now(), page }); return page; },
     (e) => { txHistoryCache.delete(key); throw e; });
   txHistoryCache.set(key, { at: now, pending });
@@ -2410,7 +2590,7 @@ const isTxSignature = (s) => /^[1-9A-HJ-NP-Za-km-z]{64,88}$/.test(s);
    most 500 wallets' answers are kept (each is 200 rows at most, Usdc.TRANSFER_ROWS_MAX). */
 const TX_TRANSFERS_MAX = 500;
 const txTransfersCache = new Map();  // wallet -> { at, page } or { at, pending }
-function txTransfersFor(wallet) {
+function txTransfersFor(wallet, budgetKey) {
   const now = Date.now();
   const hit = txTransfersCache.get(wallet);
   if (hit && (hit.pending || now - hit.at < TX_HISTORY_TTL_MS)) return hit.pending || Promise.resolve(hit.page);
@@ -2420,7 +2600,7 @@ function txTransfersFor(wallet) {
     }
     if (txTransfersCache.size >= TX_TRANSFERS_MAX) txTransfersCache.delete(txTransfersCache.keys().next().value);
   }
-  const pending = Usdc.usdcTransfers(wallet, { priceOn: prices.solUsdAt }).then(
+  const pending = Usdc.usdcTransfers(wallet, { priceOn: prices.solUsdAt, budgetKey }).then(
     (page) => {
       if (page.complete) txTransfersCache.set(wallet, { at: Date.now(), page });
       else txTransfersCache.delete(wallet);
@@ -2435,7 +2615,7 @@ app.get('/api/my-transfers', txHistoryLimiter, async (req, res) => {
   if (!wallet) return res.status(400).json({ error: 'No wallet' });
   if (!isWalletString(wallet)) return res.status(400).json({ error: 'Invalid wallet' });
   try {
-    const page = await txTransfersFor(wallet);
+    const page = await txTransfersFor(wallet, budgetKeyOf(req));   // the reads it starts count to the asker (night review 2026-10-29)
     res.json({ transfers: page.rows, complete: page.complete });
   } catch (e) {
     console.error('[MY-TRANSFERS]', e.message);
@@ -2451,7 +2631,7 @@ app.get('/api/my-transactions', txHistoryLimiter, async (req, res) => {
   const before = strOr(req.query.before, '').trim();
   if (before && !isTxSignature(before)) return res.status(400).json({ error: 'Invalid cursor' });
   try {
-    const page = await txHistoryFor(wallet, before || undefined);
+    const page = await txHistoryFor(wallet, before || undefined, budgetKeyOf(req));
     res.json({ transactions: page.rows, next: page.next });
   } catch (e) {
     console.error('[MY-TX]', e.message);
@@ -4951,7 +5131,8 @@ app.get('/api/debug/profile', sigLimiter, async (req, res) => {
 
 /* /wallet/debug above stays unauthenticated on purpose: test/durableStakeServer.test.js reads its
    ledger flags with no credentials (the owner's no-login check that paid stakes are durable). It
-   carries no secret.
+   carries no secret, and it asks nothing of the chain (night review 2026-10-29), so it cannot spend
+   the RPC key.
 
    /api/debug/tick below is owner only, like /api/debug/profile (night review 2026-10-29). It was
    open for scripts/loadtest.js, but every read sorts each agar room's 60 s tick ring several times

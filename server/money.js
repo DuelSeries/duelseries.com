@@ -99,7 +99,7 @@ const solBackend = {
   // In dollars at the rate now, so solvency compares like with like. Throws PRICE_WAIT without a rate.
   async escrowBalance() { const sol = await Wallet.getEscrowBalance(); return sol * price.usdPerSol(); },
   async escrowSol() { return Wallet.getEscrowBalance(); },
-  async balanceOf(addr) { const sol = await Wallet.getAddressBalance(addr); return sol * price.usdPerSol(); },
+  async balanceOf(addr, opts) { const sol = await Wallet.getAddressBalance(addr, opts); return sol * price.usdPerSol(); },
   fiatValue:     (amt)       => amt,                                  // dollars already
   waitCode: PRICE_WAIT,
   price,
@@ -135,7 +135,7 @@ const usdcBackend = {
   allowAccountRentFor: (addr) => Usdc.allowAccountRentFor(addr),
   attemptPayout: (row, fn)   => Usdc.attemptPayout(row, fn),
   escrowBalance: ()          => Usdc.escrowUsdcBalance(),
-  balanceOf:     (addr)      => Usdc.usdcBalanceOf(addr),
+  balanceOf:     (addr, opts) => Usdc.usdcBalanceOf(addr, opts),   // opts.lane 'public': a visitor's read (Usdc.usdcBalanceOf)
   fiatValue:     (amt)       => amt,                                  // USDC = USD already
   usdcMint:      Usdc.USDC_MINT.toString(), decimals: Usdc.USDC_DECIMALS,
 };

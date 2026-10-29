@@ -4645,7 +4645,9 @@ function buyRows(){
   /* The price is dollars and w.balance is dollars in BOTH modes (USDC mode: the USDC; SOL mode: the dollar value
      of the SOL, the server's figure), so the two compare directly. SOL mode words it without "USDC". */
   const sol=(w.mode||window.moneyMode)==='sol';
-  const bal=w.authenticated&&w.balance!=null&&isFinite(Number(w.balance))?Number(w.balance):null;
+  /* A stale figure (the server's last read, up to 5 minutes old) is unread here (night review 2026-10-29, fourth pass):
+     money that landed since must not turn Unlock into Add funds. The widget checks a fresh one before it pays. */
+  const bal=w.authenticated&&w.stale!==true&&w.balance!=null&&isFinite(Number(w.balance))?Number(w.balance):null;
   BUY.short=bal!=null&&bal+1e-9<price;
   document.getElementById('bs-price').textContent=usd(price)+(sol?'':' USDC');
   document.getElementById('bs-bal-k').textContent=sol?'Your balance':'Your USDC';

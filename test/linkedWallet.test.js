@@ -72,7 +72,7 @@ test('linking: connect, Privy\'s SIWS link message signed by the wallet, sent as
     linkWithSiws: async () => { throw new Error('Wallet is already linked to another user'); } }), /already its own DuelSeries account/);
 });
 
-test('an add keeps 0.001 SOL in the linked wallet, is at least 0.001 SOL, and is refused on an unread balance', async () => {
+test('an add keeps 0.001 SOL in the linked wallet and is at least 0.001 SOL; an unread balance does not stop it', async () => {
   const { addProblem, maxAddLamports, ADD_FEE_LAMPORTS, MIN_ADD_LAMPORTS } = await lw();
   assert.equal(ADD_FEE_LAMPORTS, 7000, 'base fee plus a 2000-lamport priority fee');
   const have = 50_000_000;
@@ -80,7 +80,11 @@ test('an add keeps 0.001 SOL in the linked wallet, is at least 0.001 SOL, and is
   assert.equal(addProblem(have, maxAddLamports(have)), null);
   assert.match(addProblem(have, maxAddLamports(have) + 1), /keeps 0\.001 SOL/);
   assert.match(addProblem(have, MIN_ADD_LAMPORTS - 1), /at least 0\.001 SOL/);
-  assert.match(addProblem(null, 2_000_000), /Could not read/);
+  // Night review 2026-10-29, third pass: a balance the server could not read just now no longer blocks the add (the linked
+  // wallet shows what it can send and the chain refuses an overdraw); the amount itself is still checked.
+  assert.equal(addProblem(null, 2_000_000), null);
+  assert.match(addProblem(null, MIN_ADD_LAMPORTS - 1), /at least 0\.001 SOL/);
+  assert.match(addProblem(undefined, 0), /Enter an amount/);
   assert.match(addProblem(have, 1.5), /Enter an amount/);
   assert.equal(maxAddLamports(500_000), 0);
 });

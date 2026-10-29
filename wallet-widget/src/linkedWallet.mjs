@@ -56,11 +56,14 @@ export async function linkWith(std, { generateSiwsMessage, linkWithSiws, gameAdd
   return acct.address;
 }
 
-/* Why this add cannot go, in plain words, or null. haveLamports: the linked wallet's SOL now (null: not read). */
+/* Why this add cannot go, in plain words, or null. haveLamports: the linked wallet's SOL now (null: not read).
+   A balance that could not be read is no reason to stop (night review 2026-10-29, third pass: a busy moment on the
+   server's reads used to block every add): the linked wallet shows what it can send when it asks for approval, and
+   the chain refuses an add it cannot cover. A balance that was read is checked as before. */
 export function addProblem(haveLamports, lamports) {
   if (!Number.isInteger(lamports) || lamports <= 0) return 'Enter an amount to add.';
   if (lamports < MIN_ADD_LAMPORTS) return 'Add at least 0.001 SOL.';
-  if (haveLamports == null || !Number.isFinite(Number(haveLamports))) return 'Could not read that wallet\'s balance. Try again in a moment.';
+  if (haveLamports == null || !Number.isFinite(Number(haveLamports))) return null;
   if (!leavesReserve(Number(haveLamports), lamports, ADD_FEE_LAMPORTS)) {
     return 'That is more than that wallet can send. It keeps 0.001 SOL for network fees.';
   }

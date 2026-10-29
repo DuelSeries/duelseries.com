@@ -211,3 +211,182 @@ test('a send carries its sheet\'s unit: no asset is never SOL, SOL is never sent
   assert.match(send, /if \(asset !== 'sol' && asset !== 'usdc'\) throw new Error\(CHANGED\);/);
   assert.ok(send.indexOf("asset !== 'sol' && asset !== 'usdc'") < send.indexOf('return sendSol('));
 });
+
+/* Night review 2026-10-29, third pass (review problem 1): a balance the server could not read just now (a busy moment,
+   or a flood holding its public read budget) no longer stops a player moving their own money. Withdraw, a skin buy and
+   an add from a linked wallet go ahead unchecked when the balance is unknown, and the chain refuses whatever the wallet
+   cannot cover; a balance that was read is checked exactly as before (the tests above). */
+test('SOL mode: Withdraw with a balance not read yet still opens and sends; a read balance is checked as before', () => {
+  const p = page(Object.assign({}, SOL_MODE, { sol: null, balance: null, usdc: null }));
+  p.win.V2Wallet.cashOut();
+  assert.ok(p.el('wdrveil').classList.contains('on'), 'the sheet opens (it said "nothing to withdraw yet")');
+  const form = p.el('wdr-body').innerHTML;
+  assert.match(form, /Could not read your balance just now\. You can still withdraw: the network refuses more than your wallet has\./);
+  assert.match(form, /class="maxbtn" onclick="V2Wallet\.max\(\)" disabled>Max</, 'no Max without a balance to take it from');
+  p.el('co-to').value = TO;
+  p.el('co-amt').value = '0.5';
+  p.win.V2Wallet.submitCash();
+  assert.match(p.el('wdr-body').innerHTML, /Send <b>0\.5 SOL<\/b>/);
+  p.win.V2Wallet.confirmCash();
+  assert.deepStrictEqual(p.calls.send, [[0.5, TO, 'sol']], 'handed to the widget, which checks a fresh balance when it can');
+  // Read as empty, it is refused as before: an unread balance and an empty one are not the same thing.
+  const q = page(Object.assign({}, SOL_MODE, { sol: 0, balance: 0, usdc: 0 }));
+  q.win.V2Wallet.cashOut();
+  assert.ok(!q.el('wdrveil').classList.contains('on'));
+  assert.deepStrictEqual(q.calls.notes, ['There is nothing to withdraw yet.']);
+});
+
+test('Add from a linked wallet whose balance could not be read still goes; a read one is held to what it can send', async () => {
+  const linked = { address: TO, name: 'Phantom', here: true };
+  const p = page(Object.assign({}, SOL_MODE, { linked }));
+  const adds = [];
+  let read = () => Promise.reject(new Error('Could not read Phantom\'s balance.'));
+  p.win.duelWalletLinkedBalance = () => read();
+  p.win.duelWalletAddFromLinked = async (lam) => { adds.push(lam); };
+  p.win.V2Wallet.addFromWallet();
+  await tick(); await tick();
+  assert.ok(p.el('adveil').classList.contains('on'));
+  assert.match(p.el('ad-have').textContent, /Could not read Phantom's balance just now\. You can still add: Phantom shows what it can send\./);
+  p.el('ad-amt').value = '1.5';                     // dollars at $150 a SOL: 0.01 SOL
+  p.win.V2Wallet.submitAdd();
+  await tick();
+  assert.deepStrictEqual(adds, [10_000_000], 'sent to the widget, which checks a fresh balance before it builds anything');
+  // A balance that was read: more than it can send is refused here, as before.
+  read = () => Promise.resolve({ sol: 0.005, lamports: 5_000_000, max: 3_993_000 });
+  p.win.V2Wallet.addFromWallet();
+  await tick(); await tick();
+  p.el('ad-amt').value = '1.5';
+  p.win.V2Wallet.submitAdd();
+  assert.match(p.el('ad-msg').textContent, /more than Phantom can send/);
+  assert.deepStrictEqual(adds, [10_000_000]);
+});
+
+test('the widget: an unread or stale balance never stops a stake, a send, a skin or an add; a fresh read is asked for first', () => {
+  const W = WIDGET;
+  // fresh=1 for a check before money moves and the read after it; stale (the server's last read) counts as unread there.
+  assert.match(W, /'\/api\/sol-balance\?address=' \+ encodeURIComponent\(address\) \+ \(opts && opts\.fresh \? '&fresh=1' : ''\)/);
+  assert.match(W, /stale: j\.stale === true/);
+  assert.match(W, /async function freshSol\(address\) \{\s*const b = await fetchBalances\(address, \{ fresh: true \}\);\s*return b\.stale \? null : b\.sol;\s*\}/);
+  assert.doesNotMatch(W, /throw new Error\('Could not read your balance/, 'no money action stops on an unread balance');
+  const send = W.slice(W.indexOf('window.duelWalletSend = async'), W.indexOf('window.duelWalletFund = async'));
+  assert.match(send, /const have = await freshSol\(wallet\.address\);\s*const haveLamports = have == null \? null : Math\.round\(have \* 1e9\);/);
+  assert.match(send, /if \(haveLamports != null && !leavesReserve\(haveLamports, USDC_ACCOUNT_RENT, SEND_FEE_LAMPORTS\)\)/);
+  assert.match(send, /if \(haveLamports != null\) \{\s*if \(haveLamports < lamports \+ SEND_FEE_LAMPORTS\)[^\n]*\n\s*if \(!leavesReserve\(haveLamports, lamports, SEND_FEE_LAMPORTS\)\)/);
+  const skin = W.slice(W.indexOf('async function signSkinPayment'), W.indexOf('function refuseAgarTier'));
+  assert.match(skin, /const have = await freshSol\(wallet\.address\);\s*if \(have != null && !leavesReserve\(/);
+  const stake = W.slice(W.indexOf('async function stakeOnly('), W.indexOf('async function signSkinPayment'));
+  assert.match(stake, /const have = await freshSol\(wallet\.address\);/);
+  const add = W.slice(W.indexOf('window.duelWalletAddFromLinked = async'), W.indexOf('}, [wallet, signTx, signMsg'));
+  assert.match(add, /const have = await freshSol\(linked\.address\);\s*const why = addProblem\(have == null \? null : Math\.round\(have \* 1e9\), n\);/);
+  assert.match(add, /fetchBalances\(address, \{ fresh: true \}\)\.then\(applyBalances\)/, 'the balance after the add is read fresh');
+  assert.match(W, /window\.duelWalletRefresh = async \(\) => \{\s*if \(!address\) return null;\s*const b = await fetchBalances\(address, \{ fresh: true \}\);/);
+});
+
+test('the widget polls every 15 s in view, once a minute while hidden, and at once on coming back', () => {
+  const poll = WIDGET.slice(WIDGET.indexOf('const applyBalances = (b) =>'), WIDGET.indexOf('const [swapCfg, setSwapCfg]'));
+  assert.match(poll, /if \(!now && document\.hidden && Date\.now\(\) - last < 60000\) return;/);
+  assert.match(poll, /const id = setInterval\(\(\) => tick\(false\), 15000\);/);
+  assert.match(poll, /document\.addEventListener\('visibilitychange', onShow\);/);
+  assert.match(poll, /document\.removeEventListener\('visibilitychange', onShow\);/, 'and the listener goes with the address');
+  assert.match(poll, /fetchBalances\(address\)\.then/, 'the poll shares the server\'s read of the address (no fresh=1)');
+});
+
+/* Night review 2026-10-29, fourth pass (review problem 0's lows): a balance the server answered from its last read of
+   the address (stale: up to 5 minutes old, while the shared key's day or rate is spent) is shown as it is, but the lobby
+   treats it as unread for its own checks, as the widget's freshSol already did. Before, a payout or a top-up that
+   landed after that read could not be withdrawn ("more than the X SOL you have"), Max offered only the old figure, and
+   the skin sheet said Add funds. And Withdraw USDC no longer refuses on a SOL balance it could not read. */
+test('SOL mode: a stale balance is shown but never refuses a withdraw, and Max waits for a fresh one', () => {
+  const p = page(Object.assign({}, SOL_MODE, { stale: true }));
+  assert.match(p.body(), /\$15\.00/, 'the last read is still what the Wallet tab shows');
+  p.win.V2Wallet.cashOut();
+  assert.ok(p.el('wdrveil').classList.contains('on'));
+  const form = p.el('wdr-body').innerHTML;
+  assert.match(form, /Could not read your balance just now\. You can still withdraw/);
+  assert.match(form, /class="maxbtn" onclick="V2Wallet\.max\(\)" disabled>Max</, 'no Max from an old figure');
+  p.win.V2Wallet.max();
+  assert.strictEqual(p.el('co-amt').value, '', 'and Max itself does nothing');
+  p.el('co-to').value = TO;
+  p.el('co-amt').value = '0.5';                      // more than the stale 0.1 SOL: a payout landed since
+  p.win.V2Wallet.submitCash();
+  assert.match(p.el('wdr-body').innerHTML, /Send <b>0\.5 SOL<\/b>/, 'not "That is more than the 0.1000 SOL you have"');
+  p.win.V2Wallet.confirmCash();
+  assert.deepStrictEqual(p.calls.send, [[0.5, TO, 'sol']], 'the widget reads a fresh balance, and the chain refuses an overdraw');
+  // The same figure read fresh is checked exactly as before.
+  const q = page(SOL_MODE);
+  q.win.V2Wallet.cashOut();
+  q.el('co-to').value = TO;
+  q.el('co-amt').value = '0.5';
+  q.win.V2Wallet.submitCash();
+  assert.match(q.el('co-msg').textContent || q.el('wdr-body').innerHTML, /That is more than the 0\.1000 SOL you have/);
+  assert.deepStrictEqual(q.calls.send, []);
+});
+
+test('SOL mode: Withdraw USDC goes ahead on an unread or stale SOL balance; a SOL balance read as too low still stops it', () => {
+  for (const w of [{ sol: null, balance: null }, { stale: true, sol: 0.0005, balance: 0.08 }]) {
+    const p = page(Object.assign({}, SOL_MODE, w));
+    p.win.V2Wallet.cashOut('usdc');
+    assert.match(p.el('wdr-body').innerHTML, /aria-label="Amount in USDC"/);
+    p.el('co-to').value = TO;
+    p.el('co-amt').value = '5';
+    p.win.V2Wallet.submitCash();
+    assert.match(p.el('wdr-body').innerHTML, /Send <b>\$5\.00 USDC<\/b> to/, JSON.stringify(w) + ': not "Add a little SOL first"');
+    p.win.V2Wallet.confirmCash();
+    assert.deepStrictEqual(p.calls.send, [[5, TO, 'usdc']], 'the widget checks a fresh SOL balance for the fees when it can');
+  }
+  // Read now and too low for the fees: refused here, as before (the widget would refuse it too).
+  const q = page(Object.assign({}, SOL_MODE, { sol: 0.0005, balance: 0.08 }));
+  q.win.V2Wallet.cashOut('usdc');
+  q.el('co-to').value = TO;
+  q.el('co-amt').value = '5';
+  q.win.V2Wallet.submitCash();
+  assert.match(q.el('co-msg').textContent || q.el('wdr-body').innerHTML, /Add a little SOL first/);
+  assert.deepStrictEqual(q.calls.send, []);
+});
+
+test('SOL mode: a stale USDC figure is not checked against either, and its Max waits for a fresh one', () => {
+  const p = page(Object.assign({}, SOL_MODE, { stale: true }));
+  p.win.V2Wallet.cashOut('usdc');
+  assert.match(p.el('wdr-body').innerHTML, /class="maxbtn" onclick="V2Wallet\.max\(\)" disabled>Max</);
+  p.el('co-to').value = TO;
+  p.el('co-amt').value = '20';                       // more than the stale $12.34
+  p.win.V2Wallet.submitCash();
+  assert.match(p.el('wdr-body').innerHTML, /Send <b>\$20\.00 USDC<\/b> to/);
+  // Read fresh, the same amount is refused as before.
+  const q = page(SOL_MODE);
+  q.win.V2Wallet.cashOut('usdc');
+  q.el('co-to').value = TO;
+  q.el('co-amt').value = '20';
+  q.win.V2Wallet.submitCash();
+  assert.match(q.el('co-msg').textContent || q.el('wdr-body').innerHTML, /That is more than the \$12\.34 USDC you have/);
+});
+
+test('the widget hands stale to the lobby (window.duelWallet), in the source and in the built bundle', () => {
+  assert.match(WIDGET, /const \[stale, setStale\] = useState\(false\);/);
+  assert.match(WIDGET, /const applyBalances = \(b\) => \{ setBalance\(b\.balance\); setSol\(b\.sol\); setUsdc\(b\.usdc\); setSolUsd\(b\.solUsd\); setStale\(b\.stale === true\); \};/);
+  assert.match(WIDGET, /if \(!address\) \{ setBalance\(null\); setSol\(null\); setUsdc\(null\); setSolUsd\(null\); setStale\(false\); return; \}/);
+  assert.match(WIDGET, /window\.duelWallet = \{ ready, authenticated, address, balance, unit, sol, swap: swapCfg, mode, usdc, solUsd, stale,/);
+  assert.match(WIDGET, /\}, \[ready, authenticated, address, balance, unit, sol, swapCfg, mode, usdc, solUsd, stale, /, 'a change of it is a duelwallet:change');
+  const bundle = read('public/wallet/widget.js');
+  assert.match(bundle, /window\.duelWallet=\{ready:\w+,authenticated:\w+,address:\w+,balance:\w+,unit:\w+,sol:\w+,swap:\w+,mode:\w+,usdc:\w+,solUsd:\w+,stale:\w+,/,
+    'public/wallet/widget.js was rebuilt from this source');
+  assert.match(bundle, /stale:\w+\.stale===!0\}/);
+});
+
+test('the skin sheet: a stale balance is unread, so money that landed since never turns Unlock into Add funds', () => {
+  const v = read('public/v2.html');
+  const code = v.slice(v.indexOf('const BUY={'), v.indexOf('function openBuy('));
+  const els = {};
+  const el = (id) => (els[id] = els[id] || { id, textContent: '', className: '', parentNode: { classList: { toggle() {} } },
+    classList: { contains: (c) => c === 'on' } });
+  const win = { document: { getElementById: el }, performance: { now: () => 0 }, requestAnimationFrame() {}, Number, Math, isFinite };
+  win.window = win;
+  vm.createContext(win);
+  vm.runInContext(code + '\nwindow.BUY=BUY;window.buyRows=buyRows;', win);
+  win.BUY.s = { price: 3 };
+  const at = (w) => { win.duelWallet = Object.assign({ authenticated: true, mode: 'sol' }, w); win.buyRows(); return [win.BUY.short, el('bs-go').textContent, el('bs-bal').textContent]; };
+  assert.deepStrictEqual(at({ balance: 1 }), [true, 'Add funds', '$1.00'], 'read now and short: Add funds, as before');
+  assert.deepStrictEqual(at({ balance: 1, stale: true }), [false, 'Unlock for $3.00', '…'],
+    'stale: unread, so Unlock (the widget checks a fresh balance before it pays, and the chain refuses an overdraw)');
+  assert.deepStrictEqual(at({ balance: 5 }), [false, 'Unlock for $3.00', '$5.00']);
+});

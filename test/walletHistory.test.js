@@ -16,6 +16,10 @@ const { Keypair } = require('@solana/web3.js');
 
 const escrow = Keypair.generate();
 process.env.ESCROW_PRIVATE_KEY = Buffer.from(escrow.secretKey).toString('base64');
+/* The server-wide history budget (night review 2026-10-29) is test/rpcBudget.test.js's subject; here it is out of
+   the way, so these hundreds of reads run at the stub's speed. */
+process.env.HISTORY_RPS = '1000000';
+process.env.HISTORY_BURST = '1000000';
 const Usdc = require('../server/Usdc');
 
 const OWNER = Keypair.generate().publicKey.toString();
@@ -56,19 +60,20 @@ for (let i = 0; i < 130; i++) {
 const chains = { [Usdc.ataFor(OWNER_B)]: chainB, [OWNER_B]: [], [OWNER]: [] };
 
 let reads = 0, inFlight = 0, peak = 0, batches = 0;
-Usdc.connection.getSignaturesForAddress = async (ata, { limit, before }) => {
+// History reads have a Connection of their own (night review 2026-10-29): it is the one stubbed.
+Usdc.historyConnection.getSignaturesForAddress = async (ata, { limit, before }) => {
   const list = chains[ata.toString()] || chain;
   const from = before ? list.findIndex(c => c.sig.signature === before) + 1 : 0;
   return list.slice(from, from + limit).map(c => c.sig);
 };
-Usdc.connection.getTransaction = async (sig) => {
+Usdc.historyConnection.getTransaction = async (sig) => {
   reads++; inFlight++; peak = Math.max(peak, inFlight);
   await new Promise(r => setTimeout(r, 5));
   inFlight--;
   const c = chain.find(x => x.sig.signature === sig) || chainB.find(x => x.sig.signature === sig);
   return { blockTime: c.sig.blockTime, meta: c.meta };
 };
-Usdc.connection.getParsedTransactions = async () => { batches++; throw new Error('429 Too Many Requests'); };
+Usdc.historyConnection.getParsedTransactions = async () => { batches++; throw new Error('429 Too Many Requests'); };
 
 test('the whole history walks page by page with single reads, never a batch', async () => {
   const seen = [];

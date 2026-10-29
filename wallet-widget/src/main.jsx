@@ -49,16 +49,29 @@ const RPC_WSS = 'wss://api.mainnet-beta.solana.com';
                 sends arrive as SOL, and the Wallet tab shows it with Convert to USDC).
      SOL mode:  balance is the dollar VALUE of the wallet's SOL (null while the server has no price), sol is
                 the SOL itself, usdc is any old USDC left in the wallet (the Convert to SOL line), solUsd the
-                display rate. The server's figures are used as given; nothing here prices anything. */
+                display rate. The server's figures are used as given; nothing here prices anything.
+   Night review 2026-10-29 (third pass): the server shares one read of an address for 10 s; opts.fresh asks for one
+   under 1 s old (a check before money moves, and the read right after it moves). stale is true when the server could
+   not read the chain just now and answered with its last read of the address (up to 5 minutes old): shown like any
+   balance, never used to refuse a send (freshSol). */
 const finite = (x) => (typeof x === 'number' && isFinite(x) ? x : null);
-async function fetchBalances(address) {
+async function fetchBalances(address, opts) {
   try {
-    const r = await fetch('/api/sol-balance?address=' + encodeURIComponent(address));
+    const r = await fetch('/api/sol-balance?address=' + encodeURIComponent(address) + (opts && opts.fresh ? '&fresh=1' : ''));
     const j = await r.json();
     return { balance: typeof j.sol === 'number' ? j.sol : null,
              sol: typeof j.solNative === 'number' ? j.solNative : null,
-             usdc: finite(j.usdc), solUsd: finite(j.solUsd) };
-  } catch { return { balance: null, sol: null, usdc: null, solUsd: null }; }
+             usdc: finite(j.usdc), solUsd: finite(j.solUsd), stale: j.stale === true };
+  } catch { return { balance: null, sol: null, usdc: null, solUsd: null, stale: false }; }
+}
+/* A wallet's SOL right now, for the check before a stake, a send, a skin or an add: null when it cannot be read fresh
+   (a busy moment, or a flood holding the server's read budget). A check that gets null lets the money go ahead
+   unchecked, and the chain refuses whatever the wallet cannot cover, so a balance read is never what stops a player
+   moving their own money (night review 2026-10-29, third pass; before, Withdraw, a skin buy and an add from a linked
+   wallet said "Could not read your balance" and stopped). */
+async function freshSol(address) {
+  const b = await fetchBalances(address, { fresh: true });
+  return b.stale ? null : b.sol;
 }
 
 /* SOL <-> USDC in this wallet (server/swap.js; Owen 2026-10-15, "Accept both, play in USDC").
@@ -237,7 +250,7 @@ async function stakeOnly(sel, wallet, signTransaction, onStatus, base, hooks) {
      account outright), so the player is told to add a little SOL BEFORE anything is signed. A balance
      that cannot be read does not block play; the network still refuses a stake the wallet cannot cover. */
   if (quote.mode === 'sol') {
-    const have = (await fetchBalances(wallet.address)).sol;
+    const have = await freshSol(wallet.address);
     if (have != null && !leavesReserve(Math.round(have * 1e9), owes, STAKE_FEE_LAMPORTS)) {
       throw new Error(SOL_LOW_MSG);
     }
@@ -304,10 +317,10 @@ async function signSkinPayment(quote, wallet, signTransaction) {
   // SOL skins: only to the server's revenue wallet, and never more than $25 of SOL (skins cost $1 to $5)
   const cfg = await moneyConfig();
   if (quote && quote.asset === 'sol') {
-    // the wallet keeps its 0.001 SOL after the skin and the fee, like a stake or a send
-    const have = (await fetchBalances(wallet.address)).sol;
-    if (have == null) throw new Error('Could not read your balance. Try again in a moment.');
-    if (!leavesReserve(Math.round(have * 1e9), Number(quote.units), SEND_FEE_LAMPORTS)) {
+    // the wallet keeps its 0.001 SOL after the skin and the fee, like a stake or a send; unreadable just now, the
+    // payment goes ahead and the chain refuses one the wallet cannot cover (freshSol)
+    const have = await freshSol(wallet.address);
+    if (have != null && !leavesReserve(Math.round(have * 1e9), Number(quote.units), SEND_FEE_LAMPORTS)) {
       throw new Error('Not enough in your wallet. Keep 0.001 SOL for network fees.');
     }
   }
@@ -516,6 +529,9 @@ function WalletPanel() {
   const [sol, setSol] = useState(null);    // the wallet's SOL (beside a USDC balance, or the money itself in SOL mode)
   const [usdc, setUsdc] = useState(null);  // SOL mode: old USDC still in the wallet (null: none, or not read)
   const [solUsd, setSolUsd] = useState(null); // SOL mode: the server's display rate, dollars per SOL
+  // The figures above are the server's last read of the address (up to 5 minutes old), not a read now (night review
+  // 2026-10-29, fourth pass): the lobby shows them as they are and treats them as unread for its own checks.
+  const [stale, setStale] = useState(false);
   const [mode, setMode] = useState(null);  // 'usdc' | 'sol', from /api/money-config (null until it answers)
   const [unit, setUnit] = useState('');    // what the games count in: USDC, or USD in SOL mode (/api/money-config)
   const [busy, setBusy] = useState(false);
@@ -727,14 +743,23 @@ function WalletPanel() {
     if (want && !authenticated) signIn();
   }, [ready]);
 
-  const applyBalances = (b) => { setBalance(b.balance); setSol(b.sol); setUsdc(b.usdc); setSolUsd(b.solUsd); };
+  const applyBalances = (b) => { setBalance(b.balance); setSol(b.sol); setUsdc(b.usdc); setSolUsd(b.solUsd); setStale(b.stale === true); };
   useEffect(() => {
-    if (!address) { setBalance(null); setSol(null); setUsdc(null); setSolUsd(null); return; }
-    let live = true;
-    const tick = () => fetchBalances(address).then((b) => { if (live) applyBalances(b); });
-    tick();
-    const id = setInterval(tick, 15000);
-    return () => { live = false; clearInterval(id); };
+    if (!address) { setBalance(null); setSol(null); setUsdc(null); setSolUsd(null); setStale(false); return; }
+    /* Every 15 s while the page is in view; while it is hidden (another tab, a locked phone) once a minute, and at
+       once on coming back (night review 2026-10-29, third pass: a tab left open all day was most of what balances
+       cost the server's read budget). */
+    let live = true, last = 0;
+    const tick = (now) => {
+      if (!now && document.hidden && Date.now() - last < 60000) return;
+      last = Date.now();
+      fetchBalances(address).then((b) => { if (live) applyBalances(b); });
+    };
+    tick(true);
+    const id = setInterval(() => tick(false), 15000);
+    const onShow = () => { if (!document.hidden && Date.now() - last > 5000) tick(true); };
+    document.addEventListener('visibilitychange', onShow);
+    return () => { live = false; clearInterval(id); document.removeEventListener('visibilitychange', onShow); };
   }, [address]);
 
   const [swapCfg, setSwapCfg] = useState(null);
@@ -764,7 +789,7 @@ function WalletPanel() {
 
   useEffect(() => {
     // external: signed in with a browser wallet (walletName 'Phantom', ...), not the email and Google wallet
-    window.duelWallet = { ready, authenticated, address, balance, unit, sol, swap: swapCfg, mode, usdc, solUsd,
+    window.duelWallet = { ready, authenticated, address, balance, unit, sol, swap: swapCfg, mode, usdc, solUsd, stale,
                           external: isExternal, walletName: extWallet ? extWallet.name : null,
                           // a Google/email player's linked browser wallet ({ address, name, here }), and what could be linked
                           linked: linked ? { address: linked.address, name: linked.name, here: !!linkedStd,
@@ -773,7 +798,7 @@ function WalletPanel() {
                           // Privy's Add funds sheet has Transfer from wallet (the dashboard's funding methods)
                           walletFunding };
     window.dispatchEvent(new CustomEvent('duelwallet:change', { detail: window.duelWallet }));
-  }, [ready, authenticated, address, balance, unit, sol, swapCfg, mode, usdc, solUsd, isExternal, extWallet, linkedKey, linkableKey, walletFunding]);
+  }, [ready, authenticated, address, balance, unit, sol, swapCfg, mode, usdc, solUsd, stale, isExternal, extWallet, linkedKey, linkableKey, walletFunding]);
 
   // Hide the widget while the game iframe covers the screen; re-show on return to lobby.
   useEffect(() => {
@@ -951,15 +976,18 @@ function WalletPanel() {
       }
       return logout();
     };
+    // Asked for after a game, a send or a top-up landed: a fresh read, never one shared from before it
     window.duelWalletRefresh = async () => {
       if (!address) return null;
-      const b = await fetchBalances(address);
+      const b = await fetchBalances(address, { fresh: true });
       applyBalances(b);
       return b.balance;
     };
     /* Send out of the wallet. USDC mode: amount is USDC. SOL mode: amount is SOL by default, or USDC when
        asset is 'usdc' (old USDC still in the wallet). A SOL-mode send is checked against a FRESH balance
-       first and never leaves the wallet holding between 0 and 0.001 SOL after the amount and the fee. */
+       first and never leaves the wallet holding between 0 and 0.001 SOL after the amount and the fee.
+       A balance that cannot be read fresh just now no longer stops it (night review 2026-10-29, third pass): the
+       send goes ahead unchecked and the chain refuses one the wallet cannot cover (freshSol). */
     window.duelWalletSend = async (amount, toAddress, asset) => {
       if (!wallet) return Promise.reject(new Error('Wallet not ready — try again in a moment.'));
       const cfg = await moneyConfig();
@@ -972,18 +1000,19 @@ function WalletPanel() {
       }
       if (cfg.mode !== 'sol') throw new Error('Could not read the money settings. Try again in a moment.');
       if (asset !== 'sol' && asset !== 'usdc') throw new Error(CHANGED);
-      const have = (await fetchBalances(wallet.address)).sol;
-      if (have == null) throw new Error('Could not read your balance. Try again in a moment.');
-      const haveLamports = Math.round(have * 1e9);
+      const have = await freshSol(wallet.address);
+      const haveLamports = have == null ? null : Math.round(have * 1e9);
       if (asset === 'usdc') {
         // The fee, and the receiver's USDC account rent when it has none (the sender pays it), and the reserve after
-        if (!leavesReserve(haveLamports, USDC_ACCOUNT_RENT, SEND_FEE_LAMPORTS)) throw new Error(SOL_SEND_LOW);
+        if (haveLamports != null && !leavesReserve(haveLamports, USDC_ACCOUNT_RENT, SEND_FEE_LAMPORTS)) throw new Error(SOL_SEND_LOW);
         return sendUsdc(toAddress, amount, cfg.usdcMint, cfg.decimals, wallet, signTx);
       }
       const lamports = Math.round(Number(amount) * 1e9);
       if (!(lamports > 0)) throw new Error('Enter an amount to send.');
-      if (haveLamports < lamports + SEND_FEE_LAMPORTS) throw new Error('That is more SOL than your wallet has after the network fee.');
-      if (!leavesReserve(haveLamports, lamports, SEND_FEE_LAMPORTS)) throw new Error(SOL_SEND_LOW);
+      if (haveLamports != null) {
+        if (haveLamports < lamports + SEND_FEE_LAMPORTS) throw new Error('That is more SOL than your wallet has after the network fee.');
+        if (!leavesReserve(haveLamports, lamports, SEND_FEE_LAMPORTS)) throw new Error(SOL_SEND_LOW);
+      }
       return sendSol(toAddress, amount, wallet, signTx);
     };
     /* Add funds: Privy's own funding sheet, "Add funds to your DuelSeries wallet", with Pay with
@@ -1027,7 +1056,7 @@ function WalletPanel() {
     window.duelWalletSwapRun = async (q) => {
       if (!wallet) throw new Error('Wallet not ready — try again in a moment.');
       const r = await swapRun(q && q.requestId, wallet, signTx);
-      fetchBalances(wallet.address).then(applyBalances).catch(() => {});
+      fetchBalances(wallet.address, { fresh: true }).then(applyBalances).catch(() => {});
       return r;
     };
     /* SOL mode: a checked price for turning ALL the old USDC in this wallet into SOL (dir 'usdcToSol', amount
@@ -1035,8 +1064,8 @@ function WalletPanel() {
        Resolves the quote; nothing is signed (duelWalletSwapRun does that, from the player's tap). */
     window.duelWalletUsdcToSolQuote = async () => {
       if (!address) throw new Error('Connect your wallet first.');
-      const b = await fetchBalances(address);
-      const units = b.usdc == null ? 0 : Math.round(b.usdc * 1e6);
+      const b = await fetchBalances(address, { fresh: true });
+      const units = b.usdc == null || b.stale ? 0 : Math.round(b.usdc * 1e6);
       if (!(units > 0)) throw new Error('There is no USDC to convert.');
       return swapQuote(address, 'usdcToSol', units);
     };
@@ -1066,23 +1095,26 @@ function WalletPanel() {
       await unlinkWallet(linked.address);
       return true;
     };
-    // The linked wallet's SOL right now, read by the server like any balance, and the most one add may carry.
+    // The linked wallet's SOL right now, read by the server like any balance, and the most one add may carry. A balance
+    // that cannot be read fresh just now is unknown (the lobby still lets the add go ahead: the add checks again).
     window.duelWalletLinkedBalance = async () => {
       if (!linked) throw new Error('No wallet is linked.');
-      const b = await fetchBalances(linked.address);
-      if (b.sol == null) throw new Error('Could not read ' + linked.name + '\'s balance.');
+      const b = await fetchBalances(linked.address, { fresh: true });
+      if (b.sol == null || b.stale) throw new Error('Could not read ' + linked.name + '\'s balance.');
       const lamports = Math.round(b.sol * 1e9);
       return { sol: b.sol, lamports, max: maxAddLamports(lamports) };
     };
     /* Add funds from the linked wallet: exactly `lamports` from it to this game wallet, one approval in it, sent and
        confirmed by the server like a withdraw. Checked against a FRESH balance first: the linked wallet keeps
-       0.001 SOL. Resolves { sig, lamports } once confirmed, then reads this wallet's balance again. */
+       0.001 SOL. Resolves { sig, lamports } once confirmed, then reads this wallet's balance again. A balance that
+       cannot be read fresh just now does not stop it (night review 2026-10-29, third pass): the linked wallet shows
+       what it can send when it asks for approval, and the chain refuses an overdraw (addProblem, freshSol). */
     window.duelWalletAddFromLinked = async (lamports, opts) => {
       const no = notLinkable(); if (no) throw new Error(no);
       if (!linked) throw new Error('Link a wallet first.');
       if (!linkedStd) throw new Error(linked.name + ' is not in this browser. Open DuelSeries where ' + linked.name + ' is installed.');
       const n = Number(lamports);
-      const have = (await fetchBalances(linked.address)).sol;
+      const have = await freshSol(linked.address);
       const why = addProblem(have == null ? null : Math.round(have * 1e9), n);
       if (why) throw new Error(why);
       const { blockhash } = await (await fetch('/api/blockhash')).json();
@@ -1092,7 +1124,7 @@ function WalletPanel() {
       const r = await (await fetch('/api/broadcast', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ signedTx: Buffer.from(signedTransaction).toString('base64') }) })).json();
       if (!r.ok) throw new Error(r.error || 'The transfer did not go through. Check both balances before trying again.');
-      fetchBalances(address).then(applyBalances).catch(() => {});
+      fetchBalances(address, { fresh: true }).then(applyBalances).catch(() => {});
       return { sig: r.sig, lamports: n };
     };
   }, [wallet, signTx, signMsg, address, login, logout, fundWallet, identityToken, getAccessToken,

@@ -17,6 +17,8 @@ const {
 const _bs58 = require('bs58');
 const bs58  = (_bs58 && _bs58.default) ? _bs58.default : _bs58;
 const crypto = require('crypto');
+const rpcBudget = require('./rpcBudget');   // the server-wide budget history reads take from (night review 2026-10-29)
+const rpcDay = require('./rpcDay');         // the shared key's day, kept across restarts (night review 2026-10-29, fourth pass)
 
 const NETWORK = process.env.SOLANA_NETWORK || 'mainnet-beta';
 const RPC_URL = process.env.RPC_URL || (NETWORK === 'mainnet-beta'
@@ -31,6 +33,23 @@ const RPC_URL = process.env.RPC_URL || (NETWORK === 'mainnet-beta'
 const _https = require('https');
 const rpcAgent = new _https.Agent({ keepAlive: true, keepAliveMsecs: 30_000, maxSockets: 16 });
 const connection = new Connection(RPC_URL, { commitment: 'confirmed', httpAgent: rpcAgent });
+/* The Wallet tab's history reads (usdcHistory, usdcTransfers) have a Connection of their own that never resends a 429
+   by itself (night review 2026-10-29, findings 1 and 22). web3.js retries a throttled call up to 5 times inside one
+   call, where no budget can see it, and withRetry wrapped that up to 6 times, so one history read became up to 30
+   requests at a key that was already throttled. Here each attempt is one request, and every one takes a token from
+   the history budget below (historyRead, historySigPage). Stakes, payouts and balances keep `connection` and its
+   retries exactly as they were. */
+/* PUBLIC_RPC_URL (night review 2026-10-29, third pass; Wallet.js has the same line and says why): the reads any visitor
+   can cause, history and /api/sol-balance's USDC, go to this key when it is set, so strangers can never spend the
+   credits stakes and payouts run on. Unset, it is RPC_URL and nothing changes. */
+/* Fourth pass (night review 2026-10-29, review problem 0's low): /api/sol-balance's USDC read has a Connection of its own
+   that never resends a 429 by itself, even on the money key's URL, and no withRetry around it (usdcBalanceOf). It was
+   `connection` itself while PUBLIC_RPC_URL was unset, so one budgeted balance (two tokens) could become about 36
+   getAccount calls at a key already throttled, making the throttle worse for stakes and payouts; the route answers a
+   failed read from the address's last one instead. Stakes, payouts and the escrow's balances keep `connection`. */
+const PUBLIC_RPC_URL = process.env.PUBLIC_RPC_URL || RPC_URL;
+const publicConnection = new Connection(PUBLIC_RPC_URL, { commitment: 'confirmed', httpAgent: rpcAgent, disableRetryOnRateLimit: true });
+const historyConnection = new Connection(PUBLIC_RPC_URL, { commitment: 'confirmed', httpAgent: rpcAgent, disableRetryOnRateLimit: true });
 
 // USDC mint. Mainnet = Circle USDC; devnet defaults to Circle's devnet USDC. Override with
 // USDC_MINT (e.g. point at a self-minted test token on devnet during development).
@@ -87,10 +106,14 @@ function ataForOwnerCached(ownerAddress) {
   return a;
 }
 
-async function usdcBalanceOf(ownerAddress) {
+/* opts.lane 'public': a read a visitor asked for (/api/sol-balance), on PUBLIC_RPC_URL's key, one request and no
+   retries (fourth pass, above); anything else (the escrow, the solvency monitor) stays on the money key with its
+   retries as before. */
+async function usdcBalanceOf(ownerAddress, opts) {
   const ata = ataForOwnerCached(ownerAddress);
+  const pub = !!(opts && opts.lane === 'public');
   try {
-    const acc = await withRetry(() => getAccount(connection, ata));
+    const acc = pub ? await getAccount(publicConnection, ata) : await withRetry(() => getAccount(connection, ata));
     return toUsdc(acc.amount);
   } catch (e) {
     if (ataNotFound(e)) return 0;
@@ -186,10 +209,39 @@ const _historyRows = new Map();        // owner + ':' + signature -> row, or nul
    and payouts, which must never be the ones left waiting. */
 let _historyInFlight = 0;
 const _historyQueue = [];
-const HISTORY_QUEUE_MAX = 600;          // ~30 s of reads waiting; past it a page fails fast (502)
+/* Night review 2026-10-29 (findings 1, 2 and 22): the gate capped how many reads were in flight, never how many a
+   second, so it refilled as fast as the provider answered (about 28 a second from ONE IP asking /api/my-transfers for
+   an exchange's wallet every 2 s), and the 1000-signature pages went around it. Every history call (signature pages
+   and transaction reads alike, each retry too) now also takes a token from one server-wide bucket: HISTORY_RPS a
+   second (2 by default since the second pass) after a burst of HISTORY_BURST (60, about one long wallet screen
+   opening at full speed as before). However many people or scripts ask, history is held to that, and the rest of the key stays with stake
+   verifies, submits and payouts, which never touch it. Raise both in .env with a bigger Helius plan.
+   The queue is about 30 s of reads at that rate; past it, or when a token is more than 15 s away, the call fails at
+   once ('history reads busy': the route's 502, and the Wallet tab's "Tap refresh").
+   At 2 a second here and the public routes' 3, 5 of the key's 10 a second stay with stakes and payouts.
+   Third pass (night review 2026-10-29, review problems 0 and 1): the day's cap the second pass added
+   (HISTORY_PER_DAY) is gone. It lived in memory and every deploy restarted it full, and a cap strangers can spend
+   is one they can empty for everyone. Instead each asking address has a share of the rate: half of it, with the
+   whole burst (one screen still opens at full speed), waited for in turn like the rate itself, so one address
+   flooding history is paced at half and the other half stays for everyone else, and a player's long history is
+   paced, never refused for being long. The owner's own session takes the rate only, no share (the route passes
+   rpcBudget.UNMETERED). Each read takes its token before its gate slot, so a read waiting on its address's share
+   never holds one of the four slots other people's reads need. */
+const HISTORY_RPS = rpcBudget.envNumber('HISTORY_RPS', 2);
+const HISTORY_BURST = rpcBudget.envNumber('HISTORY_BURST', 60);
+const HISTORY_QUEUE_MAX = Math.max(40, Math.ceil(HISTORY_RPS * 30));
+const HISTORY_WAIT_MAX_MS = 15_000;
+/* Fourth pass (night review 2026-10-29, review problem 0): while history shares the money key (PUBLIC_RPC_URL unset),
+   it also takes from that key's day (server/rpcDay.js), the same day as /api/sol-balance and the relay, kept across
+   restarts. Spent, a read is refused at once ('history reads busy': the Wallet tab's "Tap refresh"); nothing that moves
+   money reads history. */
+const _historyBudget = rpcBudget.createBudget({ perSec: HISTORY_RPS, burst: HISTORY_BURST,
+  perKey: { perSec: HISTORY_RPS / 2, burst: HISTORY_BURST }, day: rpcDay.day });
+const _historyBusy = rpcBudget.refusalLogs('history reads');
+rpcBudget.usageLog('history reads', _historyBudget, { day: rpcDay.day });
 async function historyGate(fn) {
   if (_historyInFlight >= HISTORY_READS_AT_ONCE) {
-    if (_historyQueue.length >= HISTORY_QUEUE_MAX) throw new Error('history reads busy');
+    if (_historyQueue.length >= HISTORY_QUEUE_MAX) { _historyBusy.rate(); throw new Error('history reads busy'); }
     await new Promise(r => _historyQueue.push(r));
   }
   _historyInFlight++;
@@ -198,6 +250,25 @@ async function historyGate(fn) {
     const next = _historyQueue.shift();
     if (next) next();
   }
+}
+// A token from the history budget, waited for in turn (the server-wide rate and the asking address's share); a flood
+// that would wait past HISTORY_WAIT_MAX_MS fails at once. `key` is the asking IP (or rpcBudget.UNMETERED for the owner).
+async function historyToken(key) {
+  const r = _historyBudget.reserve(1, HISTORY_WAIT_MAX_MS, key);
+  if (r.refused) { _historyBusy[r.refused](); throw new Error('history reads busy'); }
+  if (r.wait > 0) await new Promise(res => setTimeout(res, r.wait));
+}
+/* One transaction read: a token, then a gate slot, for each attempt (a retry is a request too). The token comes first
+   (night review 2026-10-29, third pass) so a read waiting its turn holds no slot. */
+function historyRead(fn, key) {
+  return withRetry(async () => { await historyToken(key); return historyGate(fn); });
+}
+/* One signature page: a token for each attempt, no gate slot. A page is what an ask needs before any of its reads, so
+   it never waits behind them: asked while the transaction list's reads are still under way, the add funds list
+   shares those instead of reading them again, as it always has. The budget is what bounds pages; a waiting page
+   holds no slot. */
+function historySigPage(fn, key) {
+  return withRetry(async () => { await historyToken(key); return fn(); });
 }
 
 // Who was on the other side of `owner`'s change: the holder of the same mint whose balance
@@ -233,21 +304,22 @@ function historyEscrow() {
 }
 
 /* One read per transaction, ever: two asks for the same one at once (the transaction list and
-   the add funds list open together) share the read instead of making it twice. */
+   the add funds list open together) share the read instead of making it twice (and the budget
+   counts it to the ask that started it, `budgetKey`). */
 const _historyReading = new Map();
-function historyRow(owner, sig, escrow) {
+function historyRow(owner, sig, escrow, budgetKey) {
   const key = owner + ':' + sig.signature;
   if (_historyRows.has(key)) return Promise.resolve(_historyRows.get(key));
   if (_historyReading.has(key)) return _historyReading.get(key);
-  const p = readHistoryRow(owner, sig, escrow, key);
+  const p = readHistoryRow(owner, sig, escrow, key, budgetKey);
   _historyReading.set(key, p);
   const done = () => _historyReading.delete(key);
   p.then(done, done);
   return p;
 }
-async function readHistoryRow(owner, sig, escrow, key) {
-  const tx = await historyGate(() => withRetry(() => connection.getTransaction(sig.signature,
-    { commitment: 'confirmed', maxSupportedTransactionVersion: 0 })));
+async function readHistoryRow(owner, sig, escrow, key, budgetKey) {
+  const tx = await historyRead(() => historyConnection.getTransaction(sig.signature,
+    { commitment: 'confirmed', maxSupportedTransactionVersion: 0 }), budgetKey);
   if (!tx) return null;                 // not visible yet: asked again next time, never kept
   const row = (tx.meta && !tx.meta.err) ? historyRowOf(tx, owner, escrow, sig) : null;
   if (_historyRows.size >= HISTORY_ROWS_MAX) _historyRows.delete(_historyRows.keys().next().value);
@@ -387,7 +459,8 @@ function historyRowOf(tx, owner, escrow, sig) {
 // { rows, next }: up to `limit` signatures' worth of rows, newest first; `next` is the cursor
 // for the page after (pass it back as `before`), null once the wallet's history is exhausted.
 /* opts.sol (SOL mode): the Transactions list is the SOL games and skins of the wallet itself (its own signatures, not
-   its USDC account's), each priced in dollars at its day's price (opts.priceOn), like Add funds and Withdrawals. */
+   its USDC account's), each priced in dollars at its day's price (opts.priceOn), like Add funds and Withdrawals.
+   opts.budgetKey: who the history budget counts the reads to (the asking IP; rpcBudget.UNMETERED for the owner). */
 async function usdcHistory(ownerAddress, opts) {
   const owner = String(ownerAddress);
   const o = opts || {};
@@ -401,14 +474,14 @@ async function usdcHistory(ownerAddress, opts) {
   for (let pages = 0; pages < 3; pages++) {
     let sigs;
     try {
-      sigs = await withRetry(() => connection.getSignaturesForAddress(ata, { limit, before }));
+      sigs = await historySigPage(() => historyConnection.getSignaturesForAddress(ata, { limit, before }), o.budgetKey);
     } catch (e) {
       if (ataNotFound(e)) return { rows: [], next: null };   // never held USDC: no account, no history
       throw e;
     }
     sigs = sigs || [];
     const ok = sigs.filter(s => s && !s.err);
-    const got = await Promise.all(ok.map(s => historyRow(owner, s, escrow)));
+    const got = await Promise.all(ok.map(s => historyRow(owner, s, escrow, o.budgetKey)));
     // The Transactions list is the USDC that moved; SOL-only rows belong to Add funds and Withdrawals.
     for (const r of got) {
       if (!r) continue;
@@ -436,39 +509,63 @@ async function usdcHistory(ownerAddress, opts) {
    most (a player's own transfers, years of them): every answer is kept in memory a while, so a
    wallet with thousands of transfers (an exchange's, asked for on purpose) must not be able to
    make one answer that size. */
-const TRANSFER_SIGS_MAX = 5000;
+/* The newest 2000 signatures of each address at most, two pages each (night review 2026-10-29, finding 1): 5000 was
+   ten 1000-signature pages an ask for any busy wallet, about 2 MB held per ask while it waited on the budget. 2000 is
+   a thousand games of stakes and payouts, far more than a player's own list has needed. */
+const TRANSFER_SIGS_MAX = 2000;
 const TRANSFER_READS_PER_ASK = 60;
 const TRANSFER_ROWS_MAX = 200;
+/* The signature walk of an answer that stopped short, kept for the ask after it (night review 2026-10-29, second
+   pass). The Wallet tab asks again 600 ms after each such answer ("Looking further back", up to 40 times), and every
+   ask walked the same 1000-signature pages again before its reads: budget and seconds spent on a list that had not
+   changed. A walk is kept 30 s after the last ask that used it and 2 minutes at most (so a new transfer is never left
+   out of a list for longer than that), for the newest TRANSFER_WALKS_MAX wallets, as the three fields a row needs.
+   A complete answer drops it: the route keeps that answer itself. */
+const TRANSFER_WALK_IDLE_MS = 30_000;
+const TRANSFER_WALK_MAX_AGE_MS = 120_000;
+const TRANSFER_WALKS_MAX = 16;
+const _transferWalks = new Map();     // owner -> { madeAt, usedAt, ok: [{ signature, slot, blockTime }] }
 async function usdcTransfers(ownerAddress, opts) {
   const owner = String(ownerAddress);
   const o = opts || {};
   const budget = Math.max(1, Math.min(TRANSFER_READS_PER_ASK, Number(o.reads) || TRANSFER_READS_PER_ASK));
   const ata = new PublicKey(ataFor(owner));
   const escrow = historyEscrow();
-  /* Both of the wallet's addresses: its USDC account (USDC arriving from anyone names only that)
-     and the wallet itself (SOL arriving, SOL sent, a conversion). A transaction that touched both is
-     one signature, read once, one row. */
-  const bySig = new Map();
-  for (const addr of [ata, new PublicKey(owner)]) {
-    let before, n = 0;
-    for (;;) {
-      let page;
-      try {
-        page = await withRetry(() => connection.getSignaturesForAddress(addr, { limit: 1000, before }));
-      } catch (e) {
-        if (ataNotFound(e)) break;            // never held USDC: no account, nothing there
-        throw e;
-      }
-      page = page || [];
-      for (const s of page) if (s && s.signature && !bySig.has(s.signature)) bySig.set(s.signature, s);
-      n += page.length;
-      if (page.length < 1000 || n >= TRANSFER_SIGS_MAX) break;
-      before = page[page.length - 1].signature;
-    }
+  const startedAt = Date.now();
+  let walk = _transferWalks.get(owner) || null;
+  if (walk && (startedAt - walk.usedAt >= TRANSFER_WALK_IDLE_MS || startedAt - walk.madeAt >= TRANSFER_WALK_MAX_AGE_MS)) {
+    _transferWalks.delete(owner);
+    walk = null;
   }
-  // Newest first across both lists (a slot is the chain's order; the time only breaks ties).
-  const sigs = [...bySig.values()].sort((a, b) => (b.slot || 0) - (a.slot || 0) || (b.blockTime || 0) - (a.blockTime || 0));
-  const ok = sigs.slice(0, TRANSFER_SIGS_MAX).filter(s => s && !s.err);
+  let ok;
+  if (walk) ok = walk.ok;
+  else {
+    /* Both of the wallet's addresses: its USDC account (USDC arriving from anyone names only that)
+       and the wallet itself (SOL arriving, SOL sent, a conversion). A transaction that touched both is
+       one signature, read once, one row. */
+    const bySig = new Map();
+    for (const addr of [ata, new PublicKey(owner)]) {
+      let before, n = 0;
+      for (;;) {
+        let page;
+        try {
+          page = await historySigPage(() => historyConnection.getSignaturesForAddress(addr, { limit: 1000, before }), o.budgetKey);
+        } catch (e) {
+          if (ataNotFound(e)) break;            // never held USDC: no account, nothing there
+          throw e;
+        }
+        page = page || [];
+        for (const s of page) if (s && s.signature && !bySig.has(s.signature)) bySig.set(s.signature, s);
+        n += page.length;
+        if (page.length < 1000 || n >= TRANSFER_SIGS_MAX) break;
+        before = page[page.length - 1].signature;
+      }
+    }
+    // Newest first across both lists (a slot is the chain's order; the time only breaks ties).
+    const sigs = [...bySig.values()].sort((a, b) => (b.slot || 0) - (a.slot || 0) || (b.blockTime || 0) - (a.blockTime || 0));
+    ok = sigs.slice(0, TRANSFER_SIGS_MAX).filter(s => s && !s.err)
+      .map(s => ({ signature: s.signature, slot: s.slot, blockTime: s.blockTime }));
+  }
   const rows = [];
   let i = 0, fresh = 0;
   while (i < ok.length) {
@@ -481,7 +578,7 @@ async function usdcTransfers(ownerAddress, opts) {
       chunk.push(ok[i++]);
     }
     if (!chunk.length) break;
-    const got = await Promise.all(chunk.map(s => historyRow(owner, s, escrow)));
+    const got = await Promise.all(chunk.map(s => historyRow(owner, s, escrow, o.budgetKey)));
     for (const r of got) {
       // a skin bought is neither money added nor a withdraw (it shows in the Transactions list)
       if (r && !r.game && r.kind !== 'skin') rows.push(r);
@@ -489,11 +586,17 @@ async function usdcTransfers(ownerAddress, opts) {
     if (rows.length >= TRANSFER_ROWS_MAX) break;
   }
   const out = rows.slice(0, TRANSFER_ROWS_MAX);
+  const complete = out.length >= TRANSFER_ROWS_MAX || i >= ok.length;
+  _transferWalks.delete(owner);
+  if (!complete) {
+    _transferWalks.set(owner, { madeAt: walk ? walk.madeAt : startedAt, usedAt: Date.now(), ok });
+    if (_transferWalks.size > TRANSFER_WALKS_MAX) _transferWalks.delete(_transferWalks.keys().next().value);
+  }
   await priceSolRows(out, o.priceOn);
   return {
     rows: out.map(r => ({ signature: r.signature, at: r.at, kind: r.kind || 'usdc', usdc: r.usdc, sol: r.sol == null ? null : r.sol,
                           usd: r.usd == null ? null : r.usd, direction: r.direction, peer: r.peer || null })),
-    complete: out.length >= TRANSFER_ROWS_MAX || i >= ok.length,
+    complete,
   };
 }
 
@@ -670,7 +773,7 @@ async function attemptPayout(row, onFreshTx) {
 }
 
 module.exports = {
-  connection, NETWORK, USDC_MINT, USDC_DECIMALS, toUnits, toUsdc, withRetry, ataNotFound,
+  connection, publicConnection, historyConnection, HISTORY_RPS, HISTORY_BURST, HISTORY_QUEUE_MAX, TRANSFER_SIGS_MAX, NETWORK, USDC_MINT, USDC_DECIMALS, toUnits, toUsdc, withRetry, ataNotFound,
   escrowKeypair, escrowPubkey, escrowAta, stakeTargets,
   usdcBalanceOf, escrowUsdcBalance, verifyUsdcStake, verifyUsdcCredit, stakeDeltaUnits, ataFor,
   usdcHistory, usdcTransfers, markHouseAddress, TRANSFER_ROWS_MAX, historyRowOf, SOL_DUST,
