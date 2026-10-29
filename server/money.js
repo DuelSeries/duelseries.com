@@ -72,8 +72,9 @@ const solBackend = {
      exactly `expected` (the overpay of under a lamport stays in escrow, as an overpay does in USDC mode). Short ->
      throws 'Stake too small' carrying what landed in dollars (e.landedUsd, e.payer), so a late stake's refund pays
      back what landed instead of nothing (server/index.js owedForLateStake). */
+  // blockTime (when it landed) rides the answer and the 'too small' error alike (night review 2026-10-29, finding 0)
   async verifyStake(sig, expected) {
-    const { payer, lamports, blockhash } = await Wallet.verifyStakeTransfer(sig, 0);
+    const { payer, lamports, blockhash, blockTime } = await Wallet.verifyStakeTransfer(sig, 0);
     const q = quoteRates.get(blockhash);
     const rate = q ? q.usd : price.usdPerSol();
     const need = lamportsUp(expected, rate);
@@ -81,14 +82,18 @@ const solBackend = {
       const e = new Error(`Stake too small (${lamports} < ${need} lamports)`);
       e.landedUsd = lamports > 0 ? microDown(lamports, rate) / 1e6 : 0;
       e.payer = payer;
+      e.blockTime = blockTime;
       throw e;
     }
-    return { payer, worth: Number(expected), lamports, rate };
+    return { payer, worth: Number(expected), lamports, rate, blockTime };
   },
   // Dollars out, converted when the transaction is built (Wallet.buildSignedPayout refuses dust to an empty wallet).
   // async: with no price the conversion REJECTS (never throws synchronously), so every caller's .catch records the
   // owed row (Fable review 2026-10-21, finding 1)
-  async withdraw(addr, usd) { return Wallet.withdraw(addr, null, { lamports: lamportsDown(usd, price.usdPerSol()) }); },
+  // opts.beforeSend: saves the signed bytes on the caller's owed row first (Wallet.withdraw, server/inlinePayout.js)
+  async withdraw(addr, usd, opts) {
+    return Wallet.withdraw(addr, null, { lamports: lamportsDown(usd, price.usdPerSol()), beforeSend: opts && opts.beforeSend });
+  },
   allowAccountRentFor: () => {},                                      // SOL has no token account
   attemptPayout: (row, fn) => Wallet.attemptPayout(row, fn, (r) => lamportsDown(r.amount_sol, price.usdPerSol())),
   // In dollars at the rate now, so solvency compares like with like. Throws PRICE_WAIT without a rate.
@@ -122,8 +127,8 @@ const usdcBackend = {
      $1 seat): 1 percent off every entry, paid by escrow at every cash-out. SOL mode keeps its
      price-slippage tolerance, since its amount is a conversion. */
   async verifyStake(sig, expected) {                                  // expected = fee in USDC
-    const { payer, usdc } = await Usdc.verifyUsdcStake(sig, expected);
-    return { payer, worth: usdc };
+    const { payer, usdc, blockTime } = await Usdc.verifyUsdcStake(sig, expected);
+    return { payer, worth: usdc, blockTime };
   },
   // opts.payRent: escrow may create a missing recipient USDC account (Usdc.js explains when).
   withdraw:      (addr, amt, opts) => Usdc.withdrawUsdc(addr, amt, opts),

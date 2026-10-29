@@ -584,7 +584,18 @@ const stakeInFlight = new Set();
    finding 3) is owed what landed, capped at what it was for, exactly as a token's refund would
    be: the rung it covers for a ladder stake ('stake <rung>'), what landed for a tier stake. It is
    never minted late. A verify that says it paid short, failed, or did not pay the escrow is owed
-   nothing (as at the request); any other error (the RPC, a lagging node) is asked again later. */
+   nothing (as at the request); any other error (the RPC, a lagging node) is asked again later.
+   A transaction that landed well before its row was written (night review 2026-10-29, finding 0)
+   was on the chain before this server ever saw its bytes: an old escrow credit (a bot bank fund,
+   an owner top-up, a custodial-era deposit) replayed through /api/submit-stake. It is no stake,
+   and is owed nothing. A real late stake is always broadcast after its row exists. Rows written
+   before the replay check at preclaim existed are caught here. */
+const LANDED_BEFORE_ROW_MS = 2 * 60 * 1000;   // clock slack between the chain's blockTime and the database
+function landedBeforeRow(blockTime, row) {
+  const landed = Number(blockTime) * 1000;
+  const written = new Date(row && row.created_at).getTime();
+  return landed > 0 && Number.isFinite(written) && landed < written - LANDED_BEFORE_ROW_MS;
+}
 async function owedForLateStake(row) {
   const expected = Number(row.refund_amount);
   if (!(expected > 0)) return { reject: 'no amount on record' };
@@ -593,6 +604,7 @@ async function owedForLateStake(row) {
     v = await money.verifyStake(row.sig, expected);
   } catch (e) {
     const m = String((e && e.message) || e);
+    if (e && landedBeforeRow(e.blockTime, row)) return { reject: 'landed before its row was written (a replay)' };
     /* SOL mode: a short stake is still money that landed. Its verify reports it in dollars at its quote's rate
        (money.js), and it goes home as a refund of exactly that, never kept: in SOL mode only a price that moved
        between a lost quote and a restart can make an honest stake look short. */
@@ -603,6 +615,7 @@ async function owedForLateStake(row) {
     if (/too small|did not pay the escrow|failed on-chain/i.test(m)) return { reject: m };
     throw e;
   }
+  if (landedBeforeRow(v.blockTime, row)) return { reject: 'landed before its row was written (a replay)' };
   const ladder = String(row.label || '').startsWith('stake ');
   const amount = ladder ? refundBound(tierFor(v.worth) || 0, v.worth) : refundBound(v.worth);
   return { payer: v.payer, amount };
@@ -911,13 +924,23 @@ const ladderPriced = () => money.mode === 'usdc' || money.mode === 'sol';   // S
    landed to the payer the chain shows. `expected` is what the verify needs to see land, `label`
    names the rung or tier ('stake <rung>' or 'lobby <type>'). pre.sig marks this request's own
    entry in stakeInFlight (removed when the request ends); pre.durable says the row was written,
-   so the claim after the verify is that row's. */
+   so the claim after the verify is that row's.
+   Only NEW bytes get a row (night review 2026-10-29, finding 0). Any transaction that ever paid the
+   escrow is public, and its wire bytes verify: posted here, it used to get a row, fail to send,
+   and be "refunded" by the sweep to its fee payer out of escrow (bot bank funds, owner top-ups,
+   custodial-era deposits). So before anything is written, the bytes must still be able to land
+   (blockhash valid at 'processed') and be unknown to the chain. An honest stake passes both: the
+   widget signs only, seconds after its quote. A read that fails throws here: nothing is written or
+   sent, and the player just tries again. */
 const STAKE_SETTLED_LATE = 'This stake took too long to confirm. It was not used, and it is being refunded to your wallet.';
+const STAKE_EXPIRED = 'This stake expired before it was sent. Nothing was taken from your wallet. Please try again.';
 function preclaimStake(expected, label, pre) {
   return async (info) => {
     if (stakeInFlight.has(info.signature)) throw new Error('Stake already used');
     stakeInFlight.add(info.signature);
     pre.sig = info.signature;
+    if (!(await Wallet.stakeBlockhashLive(info.blockhash))) throw new Error(STAKE_EXPIRED);
+    if ((await Wallet.stakeSigStatus(info.signature)) !== null) throw new Error('Stake already used');
     const c = await stakeLedger.preclaim(info.signature, { wallet: info.payer, amount: expected, label, blockhash: info.blockhash });
     if (!c.claimed) throw new Error('Stake already used');
     pre.durable = c.durable;
@@ -1066,6 +1089,8 @@ app.post('/api/submit-stake', entryFeeLimiter, express.json({ limit: '256kb' }),
                                            stakeSig: rec.durable ? sig : undefined });
       return res.json({ ok: true, entryToken, worth: rung, stake: rung, paid: worth });
     } catch (e) {
+      // Refused at preflight, never forwarded: this request's row is closed now (night review 2026-10-29, finding 23)
+      if (e && e.stakeUnsent && pre.durable && pre.sig) await stakeLedger.unsent(pre.sig);
       return res.status(400).json({ error: e.message });
     } finally {
       if (pre.sig) stakeInFlight.delete(pre.sig);
@@ -1097,6 +1122,8 @@ app.post('/api/submit-stake', entryFeeLimiter, express.json({ limit: '256kb' }),
     const entryToken = entryStore.mint({ lobbyType, worth, walletAddress: payer, stakeSig: rec.durable ? sig : undefined });
     res.json({ ok: true, entryToken, worth, worthSol: worth }); // worthSol kept for current client back-compat
   } catch (e) {
+    // As the ladder path: refused at preflight, never forwarded, closed now (night review 2026-10-29, finding 23)
+    if (e && e.stakeUnsent && pre.durable && pre.sig) await stakeLedger.unsent(pre.sig);
     res.status(400).json({ error: e.message });
   } finally {
     if (pre.sig) stakeInFlight.delete(pre.sig);
@@ -2811,20 +2838,40 @@ knockoutLobby.onRefund = ({ wallet, name, amount, why }) => {
 
 /* One place that actually moves it, so a failed transfer is recorded the same
    way whoever it was going to. A payout that fails is written down rather than
-   retried: a re-send is how you pay twice. */
+   retried: a re-send is how you pay twice.
+   The owed row is written BEFORE anything is signed and closed once the transfer
+   landed (server/inlinePayout.js, night review 2026-10-29, finding 3), so a
+   restart or a crash mid-payout leaves a row the drainer pays exactly once,
+   where it used to leave nothing. Tracked with the paid games' money in flight,
+   so a shutdown waits on it. A refund ('<game> refund ...') is owed as
+   'refund <game> ...' and is never booked as winnings, here or by the drainer:
+   it is the player's own stake going home (the related review findings: duel
+   refunds farmed the earnings board).
+   Nothing is sent before its row exists: while the database cannot take the
+   row the payout is held and Owen is pushed (night review 2026-10-29). A
+   payout the drainer took over (handedOff: it saved its own transaction for the
+   row first and is sending it) is not a failure and is logged as a warning. */
+const inlinePayout = require('./inlinePayout').createInlinePayout({
+  money, db, kickDrain: () => kickDrain(),
+  alert: (text, opts) => notify.pushOwner(text, opts),
+});
 function koSend(wallet, amount, name, note) {
-  money.withdraw(wallet, amount)
-    .then((sig) => {
-      console.log('[KO] sent ' + amount.toFixed(6) + ' ' + money.unit + ' -> '
-        + String(wallet).slice(0, 8) + '… sig ' + String(sig).slice(0, 12));
-      db.recordEarnings(wallet, name || 'Player', amount, money.fiatValue(amount)).catch(() => {});
-    })
-    .catch((e) => {
-      console.error('[KO] CRITICAL: payout failed for ' + wallet + ' — owed '
-        + amount.toFixed(6) + ': ' + e.message);
-      db.recordFailedPayout(wallet, amount, name || 'Player', note + ': ' + e.message, e.broadcast)
-        .catch(() => {});
-    });
+  const refund = /^\S+ refund\b/.test(note);
+  const reason = refund ? note.replace(/^(\S+) refund\b/, 'refund $1') : note;
+  return agInflight.track(inlinePayout.pay({ wallet, amount, name: name || 'Player', reason, earn: !refund })
+    .then((r) => {
+      if (r.paid) {
+        console.log('[KO] sent ' + amount.toFixed(6) + ' ' + money.unit + ' -> '
+          + String(wallet).slice(0, 8) + '… sig ' + String(r.sig).slice(0, 12));
+      } else if (r.handedOff) {
+        console.warn('[KO] payout of ' + amount.toFixed(6) + ' to ' + String(wallet).slice(0, 8)
+          + '… is being sent by the drainer, which saved its transaction first');
+      } else {
+        console.error('[KO] CRITICAL: payout failed for ' + wallet + ' — owed '
+          + amount.toFixed(6) + ': ' + (r.error && r.error.message));
+      }
+      return r;
+    }));
 }
 /* ONE arena for the whole region, not one per player. The shooter is a
    free-for-all: everybody who presses Play lands in the same map, which is
@@ -5218,21 +5265,29 @@ io.on('connection', (socket) => {
       // never read back from the client, so these are display values, not inputs.
       socket.emit('cashout:result', { newBalance: null, earnedSol: playerShare, gross: worth, cut: ownerShare, score: Math.floor(snake.score), length: snake.length, toWallet: true });
       if (worth > 0) {
-        money.withdraw(socket._walletAddress, playerShare)
-          .then((sig) => {
-            console.log(`[CASHOUT] self-custody ${playerShare.toFixed(6)} ${money.unit} → ${socket._walletAddress.slice(0, 8)}… sig ${String(sig).slice(0, 12)}`);
-            // Earnings count only once the payout actually lands (so the leaderboard + global
-            // winnings reflect real payouts, not amounts a failed tx may never have delivered).
-            db.recordEarnings(socket._walletAddress, snake.name, playerShare, money.fiatValue(playerShare)).catch(() => {});
-            socket.emit('cashout:paid', { sol: playerShare, sig });
-          })
-          .catch((e) => {
-            console.error(`[CASHOUT] CRITICAL: self-custody payout failed for ${socket._walletAddress} — owed ${playerShare.toFixed(6)} SOL: ${e.message}`);
-            // Record the owed amount durably so it's never silently lost (owner reconciles via
-            // /api/admin/failed-payouts). No auto-retry — a re-send could double-pay.
-            db.recordFailedPayout(socket._walletAddress, playerShare, snake.name, `snake ${room.lobbyType}: ${e.message}`, e.broadcast).catch(() => {});
+        /* The owed row is written before anything is signed and closed once it landed (server/inlinePayout.js,
+           night review 2026-10-29, finding 3): a restart mid-payout leaves a row the drainer pays exactly once.
+           Earnings count only once the payout actually lands (so the leaderboard + global winnings reflect real
+           payouts, not amounts a failed tx may never have delivered); inlinePayout books them. */
+        const wallet = socket._walletAddress;
+        agInflight.track(inlinePayout.pay({ wallet, amount: playerShare, name: snake.name, reason: `snake ${room.lobbyType}` })
+          .then((r) => {
+            if (r.paid) {
+              console.log(`[CASHOUT] self-custody ${playerShare.toFixed(6)} ${money.unit} → ${wallet.slice(0, 8)}… sig ${String(r.sig).slice(0, 12)}`);
+              socket.emit('cashout:paid', { sol: playerShare, sig: r.sig });
+              return;
+            }
+            /* The drainer saved its own transaction for the row first and is sending it (night review 2026-10-29):
+               not a failure, so the receipt keeps saying 'Sending to your wallet', which is true. */
+            if (r.handedOff) {
+              console.warn(`[CASHOUT] self-custody ${playerShare.toFixed(6)} ${money.unit} → ${wallet.slice(0, 8)}… is being sent by the drainer, which saved its transaction first`);
+              return;
+            }
+            // Recorded owed durably so it's never silently lost (the drainer pays it; the owner sees it via
+            // /api/admin/failed-payouts).
+            console.error(`[CASHOUT] CRITICAL: self-custody payout failed for ${wallet} — owed ${playerShare.toFixed(6)} ${money.unit}: ${r.error && r.error.message}`);
             socket.emit('cashout:error', { message: 'Payout delayed — your winnings are recorded and will be sent. Contact support if they don\'t arrive.' });
-          });
+          }));
       }
       return;
     }

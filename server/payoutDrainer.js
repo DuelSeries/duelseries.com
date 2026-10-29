@@ -47,7 +47,12 @@ function createPayoutDrainer({ db, money, noAccountCode, log = console, perTick 
       const prev = row.signature || null;
       const r = await money.attemptPayout(row, (b) => db.savePayoutSignature(row.id, b, prev));
       if (r && r.paid) {
-        await db.markPayoutPaid(row.id, r.sig);
+        /* false: the row was settled meanwhile by its own inline payout (night review 2026-10-29, finding 3; the
+           same saved bytes landed once), which booked its earnings: nothing more is booked here. */
+        if ((await db.markPayoutPaid(row.id, r.sig)) === false) {
+          log.log(`[PAYOUT] row ${row.id}: already settled by its inline payout (sig ${String(r.sig).slice(0, 12)}), nothing booked`);
+          return 'paid';
+        }
         if (onPaid) { try { onPaid(row); } catch (_) { /* a lost push, never a payout */ } }
         // Earnings count on actual payout: record now that the recovery landed (it was not
         // recorded at failure time), so the board reflects this real payout exactly once.

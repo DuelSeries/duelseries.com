@@ -82,6 +82,13 @@ const sends = [];
 const landed = new Set();
 let sendGate = null;                // when set, a send waits for it
 const verifyOf = new Map();         // sig -> { payer, usdc } or an Error
+// Night review 2026-10-29: what the chain already holds (finding 0), blockhashes that can no longer land,
+// and sends the node refuses (finding 23).
+const onChain = new Set();          // signatures the chain already shows (an old escrow credit)
+const deadBlockhashes = new Set();
+const blockhashAsks = [];           // [blockhash, commitment] per isBlockhashValid read
+const sendErrors = new Map();       // sig -> the error the node answers the first send with
+const OLD = Math.floor(Date.now() / 1000) - 3600;   // a blockTime an hour before any row here
 
 test.before(async () => {
   port = await freePort();
@@ -96,6 +103,9 @@ test.before(async () => {
     { sig: 'still-young', state: 'verifying', wallet_address: LATE_PAYER, refund_amount: 1, label: 'stake 1', region: 'na', boot_id: 'dead-boot', blockhash: 'bh-valid' },
     { sig: 'failed-tx', state: 'verifying', wallet_address: LATE_PAYER, refund_amount: 1, label: 'stake 1', region: 'na', boot_id: 'dead-boot', blockhash: 'bh-1' },
     { sig: 'paid-short', state: 'verifying', wallet_address: LATE_PAYER, refund_amount: 1, label: 'stake 1', region: 'na', boot_id: 'dead-boot', blockhash: 'bh-1' },
+    // Written before the replay check existed (night review 2026-10-29, finding 0): an old escrow credit (a bot bank
+    // fund) posted through submit-stake. It landed an hour before its row: no stake, owed nothing.
+    { sig: 'replayed-old', state: 'verifying', wallet_address: 'BotBank111111111111111111111111111111111111', refund_amount: 1, label: 'stake 1', region: 'na', boot_id: 'dead-boot', blockhash: 'bh-1' },
     // EU's, fresh: its own server may still be verifying it.
     { sig: 'eu-fresh', state: 'verifying', wallet_address: LATE_PAYER, refund_amount: 1, label: 'stake 1', region: 'eu', boot_id: 'eu-boot', blockhash: 'bh-1' },
   ]);
@@ -116,14 +126,22 @@ test.before(async () => {
   Wallet.connection.sendRawTransaction = async (raw) => {
     const sig = bs58.encode(Buffer.from(raw).subarray(1, 65));
     sends.push(sig);
+    if (sendErrors.has(sig)) throw sendErrors.get(sig);
     if (sendGate) await sendGate;
     landed.add(sig);
     return sig;
   };
   Wallet.connection.getSignatureStatus = async (sig) => ({ value: landed.has(sig) ? { confirmationStatus: 'confirmed', err: null } : null });
-  Wallet.stakeSigStatus = async (sig) => ({ 'late-landed': 'landed', 'late-tier': 'landed', 'failed-tx': 'failed', 'paid-short': 'landed' }[sig] || null);
+  // The real Wallet.stakeBlockhashLive runs on this (night review 2026-10-29, finding 0).
+  Wallet.connection.isBlockhashValid = async (bh, cfg) => {
+    blockhashAsks.push([bh, cfg && cfg.commitment]);
+    return { context: { slot: 1 }, value: !deadBlockhashes.has(bh) };
+  };
+  Wallet.stakeSigStatus = async (sig) => (onChain.has(sig) ? 'landed'
+    : { 'late-landed': 'landed', 'late-tier': 'landed', 'failed-tx': 'failed', 'paid-short': 'landed', 'replayed-old': 'landed' }[sig] || null);
   Wallet.blockhashValid = async (bh) => bh === 'bh-valid';
   Usdc.verifyUsdcStake = async (sig, min) => {
+    if (sig === 'replayed-old') return { payer: 'BotBank111111111111111111111111111111111111', usdc: 1, blockTime: OLD };
     if (sig === 'late-landed') return { payer: LATE_PAYER, usdc: 0.5 };
     if (sig === 'late-tier') return { payer: LATE_PAYER, usdc: 1 };
     if (sig === 'paid-short') throw new Error('Stake too small (500000 < 1000000 USDC units)');
@@ -141,7 +159,7 @@ test.before(async () => {
 
 test('boot: the rows an earlier boot left are settled as the chain says; a landed stake is refunded once, never minted', async () => {
   const state = (s) => ledgerDb.stakes.get(s).state;
-  await until(() => state('late-landed') !== 'verifying' && state('never-landed') !== 'verifying');
+  await until(() => state('late-landed') !== 'verifying' && state('never-landed') !== 'verifying' && state('replayed-old') !== 'verifying');
   assert.strictEqual(state('late-landed'), 'refunded');
   assert.strictEqual(state('late-tier'), 'refunded');
   assert.strictEqual(state('never-landed'), 'expired', 'its blockhash expired and the chain never saw it');
@@ -149,6 +167,8 @@ test('boot: the rows an earlier boot left are settled as the chain says; a lande
   assert.strictEqual(state('just-broadcast'), 'verifying', 'under 3 minutes old: never closed as expired, however the blockhash reads');
   assert.strictEqual(state('failed-tx'), 'failed');
   assert.strictEqual(state('paid-short'), 'rejected', 'paid less than it was for: owed nothing, as at the request');
+  assert.strictEqual(state('replayed-old'), 'rejected', 'on the chain an hour before its row: a replay, owed nothing');
+  assert.ok(!ledgerDb.payouts.some((p) => p.stake_sig === 'replayed-old'), 'no refund out of escrow for a replay');
   assert.strictEqual(state('eu-fresh'), 'verifying', 'another region\'s fresh row is left to its server');
   const owed = ledgerDb.payouts.filter((p) => p.stake_sig && p.stake_sig.startsWith('late-'))
     .map((p) => [p.stake_sig, p.wallet_address, p.amount_sol]).sort();
@@ -237,4 +257,83 @@ test('bytes that are not a transaction its payer signed are refused before any r
   }
   assert.strictEqual(sends.length, n, 'nothing sent');
   assert.strictEqual(ledgerDb.stakes.size, rows, 'no row written');
+});
+
+/* Night review 2026-10-29, finding 0: any transaction that ever paid the escrow is public, and its wire bytes verify.
+   Posted here it used to get a pending-verify row, fail to send, and be "refunded" by the sweep to its fee payer out
+   of escrow. Now only bytes that can still land and that the chain does not know get a row. */
+test('bytes the chain already holds (an old escrow credit, replayed) are refused before any row or send', async () => {
+  const payer = Keypair.generate();
+  const s = signedStake(payer);
+  onChain.add(s.sig);
+  const n = sends.length, rows = ledgerDb.stakes.size;
+  const r = await call(port, 'POST', '/api/submit-stake', { stake: 1, signedTx: s.b64 });
+  assert.strictEqual(r.status, 400);
+  assert.strictEqual(r.json.error, 'Stake already used');
+  const t = await call(port, 'POST', '/api/submit-stake', { lobbyType: 'dollar', signedTx: s.b64 });
+  assert.strictEqual(t.status, 400);
+  assert.strictEqual(t.json.error, 'Stake already used');
+  assert.strictEqual(sends.length, n, 'nothing sent');
+  assert.strictEqual(ledgerDb.stakes.size, rows, 'no row written, so the sweep has nothing to refund');
+  assert.ok(!ledgerDb.stakes.has(s.sig));
+});
+
+test('bytes on a blockhash that can no longer land are refused before any row or send; the check asks the newest bank', async () => {
+  const payer = Keypair.generate();
+  const s = signedStake(payer);
+  deadBlockhashes.add(s.blockhash);
+  const n = sends.length, rows = ledgerDb.stakes.size;
+  const r = await call(port, 'POST', '/api/submit-stake', { stake: 0.5, signedTx: s.b64 });
+  assert.strictEqual(r.status, 400);
+  assert.match(r.json.error, /expired before it was sent\. Nothing was taken/);
+  assert.strictEqual(sends.length, n, 'nothing sent');
+  assert.strictEqual(ledgerDb.stakes.size, rows, 'no row written');
+  assert.deepStrictEqual(blockhashAsks.filter(([bh]) => bh === s.blockhash), [[s.blockhash, 'processed']],
+    'asked at processed: an honest seconds-old blockhash can read invalid at finalized');
+  // The same payer's next, fresh stake goes through as before.
+  const ok = signedStake(payer);
+  verifyOf.set(ok.sig, { payer: payer.publicKey.toBase58(), usdc: 0.5 });
+  const r2 = await call(port, 'POST', '/api/submit-stake', { stake: 0.5, signedTx: ok.b64 });
+  assert.strictEqual(r2.status, 200, r2.text);
+  assert.ok(r2.json.entryToken);
+});
+
+/* Night review 2026-10-29, finding 23: a throwaway keypair's bytes passed every check, the node refused them at
+   preflight, and their 'verifying' row stayed for the oldest-first sweep (50 per 5 minutes), ahead of real late
+   stakes. A preflight refusal means the node forwarded nothing, and only this server sends stakes, so the row is
+   closed at once. Bytes the node says already landed, and errors that prove nothing, stay for the sweep. */
+test('bytes the node refuses at preflight have their row closed at once; already-processed and timeouts stay for the sweep', async () => {
+  const { SendTransactionError } = require('@solana/web3.js');
+  const refusal = (why) => new SendTransactionError({ action: 'simulate', signature: '', transactionMessage: why, logs: [] });
+  const cases = [
+    ['Transaction simulation failed: Attempt to debit an account but found no record of a prior credit.', 'expired'],
+    ['Transaction simulation failed: Blockhash not found', 'expired'],
+    ['Transaction simulation failed: This transaction has already been processed', 'verifying'],
+  ];
+  for (const [why, want] of cases) {
+    const s = signedStake(Keypair.generate());
+    sendErrors.set(s.sig, refusal(why));
+    const r = await call(port, 'POST', '/api/submit-stake', { stake: 0.5, signedTx: s.b64 });
+    assert.strictEqual(r.status, 400);
+    assert.match(r.json.error, /^Simulation failed/);
+    assert.strictEqual(ledgerDb.stakes.get(s.sig).state, want, why);
+  }
+  // A timeout proves nothing about whether the node forwarded the bytes: the row stays.
+  const late = signedStake(Keypair.generate());
+  sendErrors.set(late.sig, new Error('fetch failed: ETIMEDOUT'));
+  const r = await call(port, 'POST', '/api/submit-stake', { lobbyType: 'dollar', signedTx: late.b64 });
+  assert.strictEqual(r.status, 400);
+  assert.strictEqual(ledgerDb.stakes.get(late.sig).state, 'verifying');
+  // The tier path closes a refused row the same way.
+  const tier = signedStake(Keypair.generate());
+  sendErrors.set(tier.sig, refusal('Transaction simulation failed: Attempt to debit an account but found no record of a prior credit.'));
+  const r2 = await call(port, 'POST', '/api/submit-stake', { lobbyType: 'dollar', signedTx: tier.b64 });
+  assert.strictEqual(r2.status, 400);
+  assert.strictEqual(ledgerDb.stakes.get(tier.sig).state, 'expired');
+  // A second submit of refused bytes is still refused unsent: the closed row keeps the signature claimed.
+  const n = sends.length;
+  const again = await call(port, 'POST', '/api/submit-stake', { lobbyType: 'dollar', signedTx: tier.b64 });
+  assert.strictEqual(again.status, 400);
+  assert.strictEqual(again.json.error, 'Stake already used');
+  assert.strictEqual(sends.length, n);
 });

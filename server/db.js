@@ -712,8 +712,89 @@ async function savePayoutSignature(id, b, prevSignature) {
   return r.rowCount > 0;
 }
 
+/* Conditional (night review 2026-10-29, finding 3): only an unpaid row, true when this call is the one that settled
+   it. An inline payout's owed row (recordPayoutIntent below) can be settled by its own attempt or by the drainer
+   re-sending the same saved bytes; whichever comes second gets false and books no earnings. */
 async function markPayoutPaid(id, paidSig) {
-  await pool.query(`UPDATE failed_payouts SET paid = true, paid_sig = $2 WHERE id = $1`, [id, paidSig || null]);
+  const r = await pool.query(`UPDATE failed_payouts SET paid = true, paid_sig = $2 WHERE id = $1 AND paid = false`, [id, paidSig || null]);
+  return r.rowCount > 0;
+}
+
+/* The inline payouts' write-ahead row (night review 2026-10-29, finding 3; server/inlinePayout.js). The duel prizes
+   and refunds (koSend) and the old snake cash-out used to save nothing before sending, so a restart (every push to
+   main) or a crash mid-payout lost the winnings with no record. Now the owed row is written BEFORE anything is
+   signed, the signed bytes are saved on it before they are sent (savePayoutSignature, the drainer's compare-and-set),
+   and the row is closed once the transfer landed. A process that dies at any point leaves a row the drainer finishes
+   exactly once (it re-sends the saved bytes, or builds once they provably expired unlanded).
+   last_attempt_at = NOW() is the drainer's normal 30 s claim lease, so it keeps off the row while the inline attempt
+   runs. Returns the row id.
+   One row per payout, however many times this is called (night review 2026-10-29, re-review of finding 3): key is
+   'payout:' + a UUID, made once per payout by inlinePayout. An INSERT that committed and whose reply was lost (a
+   dropped connection, an RDS failover) used to be followed by a payout with no row, and the drainer later paid the
+   orphan row again. Now inlinePayout tries again with the same key: the key rides stake_sig, as recordOwedOnce's
+   does, whose unique index (failed_payouts_stake_sig_uniq) turns the second INSERT into a no-op, and the row the
+   first one wrote is returned by its key. A real stake signature is base58 and never holds ':', and an 'agowed:' key
+   never starts 'payout:', so the kinds of key never meet. Without that index (the durable-stakes migration failed) the
+   key is put at the end of the reason and matched there instead; inlinePayout makes one try at a time, so the two
+   statements never race each other. */
+async function recordPayoutIntent(walletAddress, amountSol, name, reason, key) {
+  const k = String(key || '');
+  if (!/^payout:[0-9a-f-]{36}$/.test(k)) throw new Error('recordPayoutIntent: bad key');
+  const why = String(reason || '').slice(0, 500);
+  if (features.durableStakes) {
+    const r = await pool.query(
+      `INSERT INTO failed_payouts (wallet_address, amount_sol, name, reason, last_attempt_at, stake_sig)
+       VALUES ($1, $2, $3, $4, NOW(), $5)
+       ON CONFLICT (stake_sig) WHERE stake_sig IS NOT NULL DO NOTHING
+       RETURNING id`,
+      [walletAddress, amountSol, name || null, why, k]
+    );
+    if (r.rows[0]) return r.rows[0].id;
+    const s = await pool.query(`SELECT id FROM failed_payouts WHERE stake_sig = $1`, [k]);
+    if (s.rows[0]) return s.rows[0].id;
+    throw new Error('recordPayoutIntent: the row for ' + k + ' was neither written nor found');
+  }
+  const tagged = why.slice(0, 500 - k.length - 1) + ' ' + k;
+  const r = await pool.query(
+    `INSERT INTO failed_payouts (wallet_address, amount_sol, name, reason, last_attempt_at)
+     SELECT $1, $2, $3, $4::text, NOW()
+      WHERE NOT EXISTS (SELECT 1 FROM failed_payouts WHERE strpos(reason, $5::text) > 0)
+     RETURNING id`,
+    [walletAddress, amountSol, name || null, tagged, k]
+  );
+  if (r.rows[0]) return r.rows[0].id;
+  const s = await pool.query(`SELECT id FROM failed_payouts WHERE strpos(reason, $1::text) > 0 ORDER BY id LIMIT 1`, [k]);
+  if (s.rows[0]) return s.rows[0].id;
+  throw new Error('recordPayoutIntent: the row for ' + k + ' was neither written nor found');
+}
+
+/* The inline payout landed: its row is removed while still unpaid, so a payout that went through leaves exactly what
+   it always left (no failed_payouts row; the earnings strip, Live wins, the top cash-out and the win rate all count a
+   payout as landed only when there is none, and Control's owed list stays the real backlog). True when this call
+   removed it, so the caller books the earnings; false when the drainer settled it first (it booked them). */
+async function closePayoutIntent(id) {
+  const r = await pool.query(`DELETE FROM failed_payouts WHERE id = $1 AND paid = false RETURNING id`, [id]);
+  return r.rowCount > 0;
+}
+
+/* The inline attempt did not land: the row stays owed, with the error on its reason as recordFailedPayout writes it,
+   and its lease ends now, so the drainer takes it on its next run (a wallet with no USDC account goes straight to the
+   slow lane, as recordFailedPayout puts it). */
+async function releasePayoutIntent(id, message) {
+  const note = message ? ': ' + String(message).slice(0, 300) : '';
+  if (features.payoutLanes && note.includes(NO_USDC_ACCOUNT)) {
+    await pool.query(
+      `UPDATE failed_payouts SET reason = left(reason || $2::text, 500), missing_account = true,
+              account_waits = GREATEST(COALESCE(account_waits, 0), 1), next_attempt_at = NOW() + make_interval(secs => 120)
+        WHERE id = $1 AND paid = false`,
+      [id, note]
+    );
+    return;
+  }
+  await pool.query(
+    `UPDATE failed_payouts SET reason = left(reason || $2::text, 500), last_attempt_at = NULL WHERE id = $1 AND paid = false`,
+    [id, note]
+  );
 }
 
 async function getTopEarners(n) {
@@ -1211,6 +1292,7 @@ module.exports = {
   isPlayerWallet,
   recordFailedPayout, recordOwedOnce, getHouseEarnedToday, getFailedPayouts, sumOwedPayouts, claimDuePayout, savePayoutSignature, markPayoutPaid,
   deferPayoutNoAccount, returnPayoutToLane,
+  recordPayoutIntent, closePayoutIntent, releasePayoutIntent,
   features, NO_USDC_ACCOUNT,
   recordEarnings,
   onEarningsRecorded,

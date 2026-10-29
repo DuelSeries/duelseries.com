@@ -14,8 +14,9 @@
    confirmStakeVerify UPDATE ... 'pending' WHERE state = 'verifying'
    closeStakeVerify   UPDATE ... 'expired' | 'failed' | 'rejected' WHERE state = 'verifying'
    listStakeVerifies  SELECT ... WHERE state = 'verifying' AND (old enough OR own region, other boot)
-   claimDuePayout     the two lanes; deferPayoutNoAccount, returnPayoutToLane, markPayoutPaid
+   claimDuePayout     the two lanes; deferPayoutNoAccount, returnPayoutToLane, markPayoutPaid (paid = false only)
    savePayoutSignature UPDATE ... WHERE id = $1 AND paid = false AND signature IS NOT DISTINCT FROM $6
+   recordPayoutIntent, closePayoutIntent, releasePayoutIntent  an inline payout's owed row, written first
    migratePayoutLanes the boot-time UPDATE at the end of PAYOUT_LANE_DDL
 
    `latency(name)` (optional) returns how many turns of the event loop a call waits before it
@@ -232,9 +233,50 @@ function createMemLedgerDb({ now = () => Date.now(), latency = null } = {}) {
     return true;
   }
 
+  // UPDATE ... WHERE id = $1 AND paid = false: true only for the call that settled it (night review 2026-10-29)
   async function markPayoutPaid(id, sig) {
-    const r = payouts.find((p) => p.id === id);
-    if (r) { r.paid = true; r.paid_sig = sig || null; }
+    const r = payouts.find((p) => p.id === id && !p.paid);
+    if (!r) return false;
+    r.paid = true; r.paid_sig = sig || null;
+    return true;
+  }
+
+  /* The inline payouts' write-ahead row (db.recordPayoutIntent, night review 2026-10-29, finding 3): INSERT with
+     last_attempt_at = NOW() (the drainer's 30 s lease) and the payout's key on stake_sig, ON CONFLICT DO NOTHING
+     RETURNING id, then SELECT id by the key: one row per key, however many times it is called. */
+  async function recordPayoutIntent(wallet, amount, name, reason, key) {
+    await wait('recordPayoutIntent');
+    const k = String(key || '');
+    if (!/^payout:[0-9a-f-]{36}$/.test(k)) throw new Error('recordPayoutIntent: bad key');
+    const had = payouts.find((p) => p.stake_sig === k);
+    if (had) return had.id;
+    const row = newPayout(wallet, amount, name, String(reason || '').slice(0, 500));
+    row.last_attempt_at = now();
+    row.stake_sig = k;
+    return row.id;
+  }
+
+  // db.closePayoutIntent: DELETE ... WHERE id = $1 AND paid = false RETURNING id.
+  async function closePayoutIntent(id) {
+    await wait('closePayoutIntent');
+    const i = payouts.findIndex((p) => p.id === id && !p.paid);
+    if (i < 0) return false;
+    payouts.splice(i, 1);
+    return true;
+  }
+
+  // db.releasePayoutIntent: the error onto the reason, the lease ended (or the slow lane for a missing USDC account).
+  async function releasePayoutIntent(id, message) {
+    await wait('releasePayoutIntent');
+    const r = payouts.find((p) => p.id === id && !p.paid);
+    if (!r) return;
+    const note = message ? ': ' + String(message).slice(0, 300) : '';
+    r.reason = (r.reason + note).slice(0, 500);
+    if (note.includes(NO_USDC_ACCOUNT)) {
+      r.missing_account = true; r.account_waits = Math.max(r.account_waits || 0, 1); r.next_attempt_at = now() + 120 * 1000;
+      return;
+    }
+    r.last_attempt_at = null;
   }
 
   async function getFailedPayouts() {
@@ -247,6 +289,7 @@ function createMemLedgerDb({ now = () => Date.now(), latency = null } = {}) {
     claimStakeVerify, confirmStakeVerify, closeStakeVerify, listStakeVerifies,
     recordFailedPayout, recordOwedOnce, claimDuePayout, deferPayoutNoAccount, returnPayoutToLane, migratePayoutLanes,
     savePayoutSignature, markPayoutPaid, getFailedPayouts,
+    recordPayoutIntent, closePayoutIntent, releasePayoutIntent,
     features: { durableStakes: true, payoutLanes: true }, NO_USDC_ACCOUNT,
   };
 }

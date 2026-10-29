@@ -1,7 +1,8 @@
 const {
   Connection, PublicKey, Keypair,
-  Transaction, SystemProgram, LAMPORTS_PER_SOL, VersionedTransaction,
+  Transaction, SystemProgram, LAMPORTS_PER_SOL, VersionedTransaction, SendTransactionError,
 } = require('@solana/web3.js');
+const crypto = require('crypto');
 const { ed25519 } = require('@noble/curves/ed25519');
 // bs58 to compute a tx's signature string BEFORE broadcasting it. v6 is ESM-first and exposes
 // its API under `.default` in CJS, so unwrap defensively (works whichever shape ships).
@@ -78,6 +79,16 @@ async function withRetry(fn, retries = 5, delay = 600) {
 // double-paying. (Payouts are money-critical, so the reads here retry harder than the default.)
 // opts.lamports (SOL mode, server/money.js): the exact integer amount, already converted from dollars, used
 // instead of amountSol so no float round trip can move it by a lamport.
+/* Every payout transaction is its own (night review 2026-10-29, finding 42). A transfer is only its recipient, its
+   lamports and its blockhash, and an ed25519 signature is deterministic, so two payouts of the same amount to the same
+   wallet built on the same blockhash (two paid tabs closed together, two equal rake sweeps) were the SAME bytes with
+   the SAME signature: the chain ran it once and both were booked as paid. A random read-only, non-signer reference key
+   on the transfer (the way Solana Pay marks its transfers; the System and Token programs ignore extra accounts) makes
+   every build different. No memo and no compute-budget change, so the fee, the compute and what the wallet shows are
+   as before. Re-sending a SAVED transaction re-sends its saved bytes, so the drainer's idempotency is unchanged. */
+function payoutReference() {
+  return { pubkey: new PublicKey(crypto.randomBytes(32)), isSigner: false, isWritable: false };
+}
 async function buildSignedPayout(toAddress, amountSol, opts) {
   const escrow   = getEscrowKeypair();
   const toPubkey = new PublicKey(toAddress);
@@ -109,7 +120,9 @@ async function buildSignedPayout(toAddress, amountSol, opts) {
   }
 
   const { blockhash, lastValidBlockHeight } = await withRetry(() => connection.getLatestBlockhash(), 8);
-  const tx = new Transaction().add(SystemProgram.transfer({ fromPubkey: escrow.publicKey, toPubkey, lamports }));
+  const transfer = SystemProgram.transfer({ fromPubkey: escrow.publicKey, toPubkey, lamports });
+  transfer.keys.push(payoutReference());
+  const tx = new Transaction().add(transfer);
   tx.recentBlockhash = blockhash;
   tx.feePayer = escrow.publicKey;
   tx.sign(escrow);
@@ -144,11 +157,26 @@ async function confirmSig(signature, lastValidBlockHeight, tries = 30) {
 
 // Inline cash-out payout (happy path). On any failure it attaches `e.broadcast` — the exact
 // signed bytes + signature — so the drainer can finish this same payout idempotently.
+/* opts.beforeSend(broadcast) (night review 2026-10-29, finding 3; server/inlinePayout.js): awaited with the signed
+   bytes BEFORE anything is sent, so the owed row the caller wrote first holds them. It is the drainer's
+   compare-and-set (db.savePayoutSignature): false means another attempt saved its own transaction for that row, and
+   this one is dropped unsent; a throw sends nothing either. A confirmation that reports an on-chain error is a failed
+   payout (it used to read as paid), so the drainer builds it again. */
 async function withdraw(toAddress, amountSol, opts) {
   const built = await buildSignedPayout(toAddress, amountSol, opts);
+  const beforeSend = opts && typeof opts.beforeSend === 'function' ? opts.beforeSend : null;
+  if (beforeSend) {
+    const saved = await beforeSend({ signature: built.signature, signedTx: built.signedTx, blockhash: built.blockhash, lastValidBlockHeight: built.lastValidBlockHeight });
+    if (saved === false) {
+      const e = new Error('another attempt saved its own transaction for this payout first; nothing sent');
+      e.code = PAYOUT_SUPERSEDED;
+      throw e;
+    }
+  }
   try {
     await withRetry(() => connection.sendRawTransaction(built.raw, { skipPreflight: false }), 6);
-    await withRetry(() => connection.confirmTransaction({ signature: built.signature, blockhash: built.blockhash, lastValidBlockHeight: built.lastValidBlockHeight }), 6);
+    const c = await withRetry(() => connection.confirmTransaction({ signature: built.signature, blockhash: built.blockhash, lastValidBlockHeight: built.lastValidBlockHeight }), 6);
+    if (c && c.value && c.value.err) throw new Error('Payout transaction failed on-chain: ' + JSON.stringify(c.value.err));
     return built.signature;
   } catch (e) {
     e.broadcast = { signature: built.signature, signedTx: built.signedTx, blockhash: built.blockhash, lastValidBlockHeight: built.lastValidBlockHeight };
@@ -225,7 +253,10 @@ async function verifyStakeTransfer(signature, minLamports) {
   const lamports = tx.meta.postBalances[idx] - tx.meta.preBalances[idx];
   if (lamports < minLamports) throw new Error(`Stake too small (${lamports} < ${minLamports} lamports)`);
   // blockhash: which stake quote this payment was built from (SOL mode prices it at that quote's rate, money.js)
-  return { payer: accountKeys[0].toString(), lamports, blockhash: tx.transaction.message.recentBlockhash };
+  // blockTime: when it landed (seconds), so the late-stake sweep can refuse a transaction that was on the chain
+  // before its pending-verify row existed (night review 2026-10-29, finding 0; index.js owedForLateStake)
+  return { payer: accountKeys[0].toString(), lamports, blockhash: tx.transaction.message.recentBlockhash,
+           blockTime: tx.blockTime == null ? null : Number(tx.blockTime) };
 }
 
 async function getLatestBlockhash() {
@@ -351,7 +382,12 @@ function stakeTxInfo(raw) {
    nothing is sent. /api/broadcast passes no opts and is unchanged.
 
    A read that fails while polling is not a failed transaction: the poll keeps going, bounded by
-   40 looks and 45 s, instead of reporting a stake that may still land as failed. */
+   40 looks and 45 s, instead of reporting a stake that may still land as failed.
+
+   A first send the node refused at preflight throws with e.stakeUnsent = true (night review
+   2026-10-29, finding 23): the node did not forward the bytes, and this server is the only sender
+   (the widget signs only), so they can never land and the route closes their pending-verify row at
+   once instead of leaving it for the sweep. */
 async function submitStake(rawTx, opts) {
   const beforeSend = opts && typeof opts.beforeSend === 'function' ? opts.beforeSend : null;
   let info = null;
@@ -359,7 +395,13 @@ async function submitStake(rawTx, opts) {
     info = stakeTxInfo(rawTx);
     await beforeSend(info);
   }
-  const sig = await connection.sendRawTransaction(rawTx, { skipPreflight: false, maxRetries: 5 });
+  let sig;
+  try {
+    sig = await connection.sendRawTransaction(rawTx, { skipPreflight: false, maxRetries: 5 });
+  } catch (e) {
+    if (info && preflightRefused(e)) e.stakeUnsent = true;
+    throw e;
+  }
   if (info && sig !== info.signature) throw new Error('Stake signature mismatch');
   const deadline = Date.now() + 45_000;
   for (let i = 0; i < 40 && Date.now() < deadline; i++) {
@@ -384,6 +426,22 @@ async function submitStake(rawTx, opts) {
   throw new Error('Stake not confirmed in time — please try again');
 }
 
+/* A send the node provably did not forward: with preflight on, a JSON-RPC error comes back as a
+   SendTransactionError 'Simulation failed', and the node's preflight refusal reads 'Transaction
+   simulation failed: ...' (a dead blockhash, an empty payer, a failing instruction) or 'Transaction
+   signature verification failure'; the node answers either before it forwards anything. Never
+   'already been processed': those bytes DID land through someone else, and their row stays for the
+   sweep. Every other error (a timeout, a 429, a reset, a node that is behind) also stays, as before.
+   (night review 2026-10-29, finding 23) */
+function preflightRefused(e) {
+  if (!(e instanceof SendTransactionError)) return false;
+  const m = String((e && e.message) || '');
+  const why = String((e && e.transactionMessage) || '');
+  if (!/^Simulation failed/.test(m)) return false;
+  if (/already been processed|AlreadyProcessed/i.test(m + ' ' + why)) return false;
+  return /Transaction simulation failed|signature verification failure/i.test(why);
+}
+
 /* For the pending-verify sweep (stakeLedger): what the chain says about a stake signature.
    'landed' (confirmed, no error), 'failed' (landed with an error: nothing moved but the fee), or
    'seen' (processed only, still settling: never expire it), or null (not seen yet). History is searched, so an old landing is found. */
@@ -401,6 +459,16 @@ async function stakeSigStatus(signature) {
    sweep only asks about rows minutes old, long after a fresh blockhash is finalized). */
 async function blockhashValid(blockhash) {
   const r = await withRetry(() => connection.isBlockhashValid(blockhash, { commitment: 'finalized' }));
+  return !!(r && r.value);
+}
+
+/* For /api/submit-stake, BEFORE its pending-verify row is written (night review 2026-10-29,
+   finding 0): whether a stake built on this blockhash can still land. Asked at 'processed', the
+   newest bank, because an honest stake's blockhash is seconds old (its quote's) and can read
+   invalid at 'finalized' (blockhashValid above, which is for the sweep's minutes-old rows). */
+async function stakeBlockhashLive(blockhash) {
+  if (typeof blockhash !== 'string' || !blockhash) return false;
+  const r = await withRetry(() => connection.isBlockhashValid(blockhash, { commitment: 'processed' }));
   return !!(r && r.value);
 }
 
@@ -442,4 +510,5 @@ async function getRecentSigs() {
 
 module.exports = { getEscrowPublicKey, getRecentSigs, withdraw, attemptPayout, getEscrowBalance, getAddressBalance, getEscrowDiagnostics, verifyStakeTransfer, getLatestBlockhash, forwardRpc, submitStake, NETWORK, setDb, seedUsedSignatures,
                    rpcRequestError, RPC_RELAY_METHODS, RPC_RELAY_MAX_BYTES, stakeTxInfo, stakeSigStatus, blockhashValid,
+                   stakeBlockhashLive, preflightRefused, buildSignedPayout,
                    PAYOUT_SUPERSEDED, PAYOUT_WAIT, connection, withRetry };
