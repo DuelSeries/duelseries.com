@@ -5211,8 +5211,11 @@ const tkEsc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt
 function drawTicker(){
   const run=document.getElementById('tkrun');
   const tag=document.querySelector('.tickerwrap.top .ltag');
-  if(tag&&!WINS_REAL&&!tag.classList.contains('sample')){tag.classList.add('sample');tag.textContent='Sample wins';}
-  if(tag&&WINS_REAL&&tag.classList.contains('sample')){tag.classList.remove('sample');tag.innerHTML='<span class="dot"></span>Live wins';}
+  /* Owen's own preview browser wears Live, as the board does there (socialPreview.js liveLook); every other
+     visitor keeps "Sample wins" while the row is made up. */
+  const liveLook=!!(window.V2SocialPreview&&window.V2SocialPreview.liveLook);
+  if(tag&&!WINS_REAL&&!liveLook&&!tag.classList.contains('sample')){tag.classList.add('sample');tag.textContent='Sample wins';}
+  if(tag&&(WINS_REAL||liveLook)&&tag.classList.contains('sample')){tag.classList.remove('sample');tag.innerHTML='<span class="dot"></span>Live wins';}
   clearInterval(tkTimer); run.classList.remove('cards'); run.style.transform=''; run.style.transition='';
   /* Twice over, so the card that leaves on the right is never the one coming in on the left. */
   const card=w=>`<div class="tkc"><img src="${artSrc(w.g)}" alt="${G(w.g).name}" width="70" height="98" decoding="async">
