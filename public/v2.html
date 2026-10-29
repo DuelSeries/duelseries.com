@@ -680,8 +680,8 @@ body.ingame>.howveil,body.ingame>.meveil,body.ingame>.apscreen,body.ingame>.bshe
   .ltag .dot::before{animation-duration:1.8s!important;animation-iteration-count:infinite!important}
 }
 /* Owen's pick A (2026-10-27), Rainbet's Live Wins row, on PC and phone. Each win is the game's card art, the name under it and
-   the amount in green under that. It holds still, and every few seconds the newest win slides in at the left and
-   pushes the row right. The "Live wins" tag is a small pill over the top-left of the first card, never over a name
+   the amount in green under that. It holds still; only a new real cash-out slides in at the left and pushes the row
+   right (Owen 2026-10-28: the samples never move). The "Live wins" tag is a small pill over the top-left of the first card, never over a name
    or an amount. The wins are the ones the old line of text showed (WINS, drawTicker). */
 .ltag{display:none}
 .tickerwrap.top .ltag{display:inline-flex;align-items:center;gap:4px;position:absolute;left:2px;top:2px;z-index:2;
@@ -5176,7 +5176,8 @@ function madeUpAmount(id){
    "Sample wins" (WINS_REAL below). Real and made-up wins are never mixed: once
    any real result exists the row shows only those, under "Live wins". Made-up
    wins can only ever name a game that is actually playable. */
-const MIN_TICKER=14;
+// Every sample name once: enough cards to fill a wide screen now that the row is not drawn twice over.
+const MIN_TICKER=NAMES.length;
 let WINS_REAL=false;
 function buildWins(){
   const live=REAL_WINS.filter(w=>{const g=G(w.g); return g&&!g.soon});
@@ -5194,8 +5195,8 @@ function buildWins(){
   return out;
 }
 let WINS=buildWins();
-/* Asked on load and every two minutes; the row is redrawn only when the list changed. A failed read keeps what
-   is showing. */
+/* Asked on load and every 20 s. The server answers from memory and a landed cash-out refreshes it at once, so a
+   real win reaches the row within seconds. A failed read keeps what is showing. */
 let _realKey='[]';
 function loadRealWins(){
   fetch('/api/earnings/recent',{cache:'no-store'}).then(r=>r.json()).then(d=>{
@@ -5203,37 +5204,57 @@ function loadRealWins(){
     const next=d.wins.filter(w=>w&&typeof w.name==='string'&&typeof w.game==='string'&&Number(w.amount)>0)
       .map(w=>({who:w.name.slice(0,24),g:w.game,amt:Number(w.amount)}));
     const key=JSON.stringify(next); if(key===_realKey)return;
-    _realKey=key; REAL_WINS=next; WINS=buildWins(); drawTicker();
+    const wasReal=WINS_REAL, was=WINS;
+    _realKey=key; REAL_WINS=next; WINS=buildWins();
+    /* Only a new real win moves the row (Owen 2026-10-28): it slides in at the left. The first real win
+       replaces the samples in one go, and anything else is drawn still. */
+    if(wasReal&&WINS_REAL)tkSlide(tkNew(was,WINS)); else drawTicker();
   }).catch(()=>{});
 }
-setInterval(loadRealWins,120000);
+setInterval(loadRealWins,20000);
 
 const TK_RANK='<svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true"><path d="M6 .8 11.2 6 6 11.2.8 6Z" fill="#c9915a"/><path d="M6 .8 11.2 6H.8Z" fill="#e8b47c"/></svg>';
-let tkTimer=0;
 // Real names are player input: escaped before they go into the row's HTML.
 const tkEsc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+const tkCard=w=>`<div class="tkc"><img src="${artSrc(w.g)}" alt="${G(w.g).name}" width="70" height="98" decoding="async">
+    <div class="nm">${TK_RANK}<b>${tkEsc(w.who)}</b></div><div class="am num">$${w.amt.toFixed(2)}</div></div>`;
+// "Sample wins" while the row is made up, "Live wins" with its dot once it shows real cash-outs.
+function tkTag(){
+  const tag=document.querySelector('.tickerwrap.top .ltag'); if(!tag)return;
+  if(!WINS_REAL&&!tag.classList.contains('sample')){tag.classList.add('sample');tag.textContent='Sample wins';}
+  if(WINS_REAL&&tag.classList.contains('sample')){tag.classList.remove('sample');tag.innerHTML='<span class="dot"></span>Live wins';}
+}
+// The row, still: it moves only in tkSlide.
 function drawTicker(){
   const run=document.getElementById('tkrun');
-  const tag=document.querySelector('.tickerwrap.top .ltag');
-  /* Owen's own preview browser wears Live, as the board does there (socialPreview.js liveLook); every other
-     visitor keeps "Sample wins" while the row is made up. */
-  const liveLook=!!(window.V2SocialPreview&&window.V2SocialPreview.liveLook);
-  if(tag&&!WINS_REAL&&!liveLook&&!tag.classList.contains('sample')){tag.classList.add('sample');tag.textContent='Sample wins';}
-  if(tag&&(WINS_REAL||liveLook)&&tag.classList.contains('sample')){tag.classList.remove('sample');tag.innerHTML='<span class="dot"></span>Live wins';}
-  clearInterval(tkTimer); run.classList.remove('cards'); run.style.transform=''; run.style.transition='';
-  /* Twice over, so the card that leaves on the right is never the one coming in on the left. */
-  const card=w=>`<div class="tkc"><img src="${artSrc(w.g)}" alt="${G(w.g).name}" width="70" height="98" decoding="async">
-    <div class="nm">${TK_RANK}<b>${tkEsc(w.who)}</b></div><div class="am num">$${w.amt.toFixed(2)}</div></div>`;
-  run.innerHTML=WINS.map(card).join('')+WINS.map(w=>card(w).replace('class="tkc"','class="tkc" aria-hidden="true"')).join('');
-  run.classList.add('cards');
-  tkTimer=setInterval(()=>{
-    if(document.hidden||document.body.classList.contains('ingame')||!run.offsetParent)return;
-    const c=run.lastElementChild; if(!c)return;
-    run.prepend(c); c.classList.remove('new'); void c.offsetWidth; c.classList.add('new');
-    run.style.transition='none'; run.style.transform=`translateX(${-(c.offsetWidth+parseFloat(getComputedStyle(c).marginRight))}px)`;
-    run.getBoundingClientRect();
-    run.style.transition=''; run.style.transform='';
-  },2600);
+  tkTag();
+  run.classList.add('cards'); run.style.transition='none'; run.style.transform='';
+  run.innerHTML=WINS.map(tkCard).join('');
+}
+/* How many wins at the front of now are new: where was's first few (newest first) start again in now. 0 when
+   they cannot be found, and the row is then just redrawn. */
+const tkKey=w=>w.who+'|'+w.g+'|'+w.amt;
+function tkNew(was,now){
+  const n=Math.min(3,was.length), head=was.slice(0,n).map(tkKey).join();
+  if(!n)return 0;
+  for(let k=1;k<now.length;k++)if(now.slice(k,k+n).map(tkKey).join()===head)return k;
+  return 0;
+}
+// The k newest wins slide in at the left and push the row right; the oldest drop off the end.
+function tkSlide(k){
+  const run=document.getElementById('tkrun');
+  if(!(k>0)||document.hidden||document.body.classList.contains('ingame')||!run.offsetParent||!run.children.length){drawTicker();return;}
+  tkTag();
+  const box=document.createElement('div'); box.innerHTML=WINS.slice(0,k).map(tkCard).join('');
+  const cards=[...box.children];
+  run.prepend(...cards);
+  while(run.children.length>WINS.length)run.lastElementChild.remove();
+  const gap=parseFloat(getComputedStyle(cards[0]).marginRight)||0;
+  const dx=cards.reduce((s,c)=>s+c.offsetWidth+gap,0);
+  cards.forEach(c=>c.classList.add('new'));
+  run.style.transition='none'; run.style.transform=`translateX(${-dx}px)`;
+  run.getBoundingClientRect();
+  run.style.transition=''; run.style.transform='';
 }
 
 /* The lobby list is V2Board now, polling /api/live. Three rows are visible;
