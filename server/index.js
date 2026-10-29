@@ -3448,6 +3448,12 @@ clipsMod.mountClipRoutes(app, {
   // Upload links one address may ask for in a day, on top of the per-wallet caps in server/clips.js.
   uploadLimiter: rateLimit({ windowMs: 24 * 60 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false, skipFailedRequests: true,
                              message: { error: 'That is a lot of clips from here today. Share the next one tomorrow.' } }),
+  /* Links one address may send in a day (night review 2026-10-29): any keypair passes the signature, so the
+     per-wallet DAY_MAX alone let one script fill the owner's queue. Refused links do not count, and the owner on
+     a live console session skips it, like sigLimiter. */
+  submitLimiter: rateLimit({ windowMs: 24 * 60 * 60 * 1000, max: 10, standardHeaders: true, legacyHeaders: false, skipFailedRequests: true,
+                             message: { error: 'That is a lot of clips from here today. Send the next one tomorrow.' },
+                             skip: (req) => { try { return !!ownerSessions.fromRequest(req); } catch (_) { return false; } } }),
   store: clipStore,
   isOwner: (w) => OWNER_WALLETS.has(w),
   walletForAction: (b) => ownerAuth.walletForAction(b),
