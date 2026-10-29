@@ -633,6 +633,11 @@
       return { title: 'Already in this match', lines: ['Your wallet already has a snake in this arena (another tab?).'],
         again: 'Try again' };
     }
+    // the arena's per-network cap (brMatch addrFull, night review 2026-10-29): its own card, never the last podium
+    if (kind === 'limit') {
+      return { title: 'Too many players on this network', lines: ['Your network already has its share of snakes in this arena.'],
+        again: 'Try again' };
+    }
     if (kind === 'nobody') return { title: 'Nothing to watch', lines: ['The match is over.'], again: 'Play' };
     if (decided()) {
       var won = st.winner && lastMyId && st.winner.id === lastMyId && mode === 'play';

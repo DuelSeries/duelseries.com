@@ -475,7 +475,8 @@ function attachSlSockets(nsp, arenas, helpers) {
     if (st.paid) {
       st.joined = true;
       stats.paidJoins++;
-      return st.door.join(socket, { nick, cv: st.cv, skin: st.skin });
+      // ip: the door seats one paid snake per address per room (night review 2026-10-29, slPaidArenas.seatFor)
+      return st.door.join(socket, { nick, cv: st.cv, skin: st.skin, ip: addrOf(socket) });
     }
     if (ops && typeof ops.get === 'function') {
       const o = ops.get();
@@ -487,7 +488,12 @@ function attachSlSockets(nsp, arenas, helpers) {
     try {
       const w = st.br || st.watch;
       if (st.br && st.br.watch) r = st.dir.watch(socket, { follow: w.follow, after: w.after, before: w.before });
-      else if (st.br) r = st.dir.join(socket, { nick, cv: st.cv, skin: st.skin, wallet: identifyOf(st.br.proof) });
+      else if (st.br) {
+        // ip: the prize counts one network's wallets as one person, and seats a few per network (night review
+        // 2026-10-29)
+        r = st.dir.join(socket, { nick, cv: st.cv, skin: st.skin, wallet: identifyOf(st.br.proof),
+          ip: addrOf(socket) });
+      }
       else if (st.watch && st.watch.stake) r = st.dir.watch(socket, { stake: w.stake, after: w.after, before: w.before });
       else if (st.watch) r = arenas.watch(socket, { after: w.after, before: w.before });
       else r = arenas.join(socket, { nick, cv: st.cv, skin: st.skin });
@@ -504,6 +510,16 @@ function attachSlSockets(nsp, arenas, helpers) {
       stats.pushes++;
       const where = st.br ? 'br' : 'free';
       safeAsync(() => notifyJoin(nick, where), 'sl.notifyJoin', safeStats, { log });
+    }
+  }
+
+  // The socket's client address as the per-address caps count it (ipOf), or '' when it cannot be read.
+  function addrOf(socket) {
+    try {
+      const ip = ipOf(socket);
+      return typeof ip === 'string' ? ip : '';
+    } catch (e) {
+      return '';
     }
   }
 

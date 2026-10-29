@@ -15,6 +15,7 @@
 //   3  one paid join per socket per DOOR_RATE_MS, else 'slow-down'                                 untouched
 //   4  stopping (the shutdown settle ran): 'restarting'; the stake row stays pending and the boot sweep refunds it
 //   5  open, and no room of the rung has space and none can open: 'full'                           untouched
+//      (space for this socket's network: one paid snake per address per room, slPaidArenas seatFor)
 //   6  maintenance: consume, then refund 'maintenance'; the switch off (or SL_PAID never built the rungs): consume,
 //      then refund 'not-open'                                                                       spent, refunded
 //   7  consumeAtStake(token, stake, 'slither'): ok, worth above 0 and a wallet, else 'entry'. Worth only from the token.
@@ -27,8 +28,10 @@
 //      A token without stakeSig (dev, non-durable) skips the claim (D3-F3)
 //  10  after the await, in ONE synchronous turn inside ONE try: the socket is gone: refund 'join-lost'; stopping:
 //      'restarting'; the switch off: 'not-open'; the wallet already holds a paid snake: 'one-seat' (Owen Q3)
-//  11  room = seatFor(stake) (none: refund 'full'); room.seatPaid(socket, { nick, cv }, { jid, micro, wallet, paid,
-//      name, stakeSig }); null (the room refused) tries one other room, else refund 'full'
+//  11  room = seatFor(stake, undefined, ip) (none: refund 'full'); room.seatPaid(socket, { nick, cv }, { jid, micro,
+//      wallet, paid, name, stakeSig }); null (the room refused) tries one other room, else refund 'full'. ip is the
+//      socket's address from slSockets (info.ip): a room already holding a paid snake from that network is passed
+//      over for another room of the rung (night review 2026-10-29), never refused while a room is left
 //  12  settled the moment seatPaid returns an account; recordEntry(entry, 'snake'). A throw before that refunds
 //      'seat-failed' ONLY when no paid room holds an account for the jid (seatPaid opens it last and aborts it on a
 //      throw, design 3.3; an account whose own refund the bank refused is paid by the room's owed lane, never twice)
@@ -70,6 +73,11 @@ function authOf(socket) {
 function paidRung(v) {
   const r = rungOf(v);
   return r !== null && STAKE_TIERS.includes(r) ? r : null;
+}
+
+// The joining socket's address as slSockets read it (info.ip), or '' (no per-address rule for it).
+function addrOf(info) {
+  return info && typeof info.ip === 'string' ? info.ip : '';
 }
 
 function usable(entry) {
@@ -252,7 +260,7 @@ function createSlPaidDoor({ arenas, consumeAtStake, ledger = null, slPayout, jou
     }
   }
 
-  // info: { nick (cleaned), cv (checked) } from slSockets. Never throws.
+  // info: { nick (cleaned), cv (checked), skin, ip (the client address) } from slSockets. Never throws.
   function join(socket, info) {
     if (!socket || typeof socket.id !== 'string') return;
     stats.joins++;
@@ -282,8 +290,8 @@ function createSlPaidDoor({ arenas, consumeAtStake, ledger = null, slPayout, jou
     busy.add(socket);
     // 4. going down: the token is not touched
     if (arenas.stopping === true) return refuse(socket, 'restarting', 0);
-    // 5. no room can take it
-    if (arenas.paidOpen && !arenas.hasSpace(stake)) return refuse(socket, 'full', 0);
+    // 5. no room can take it (from this socket's network)
+    if (arenas.paidOpen && !arenas.hasSpace(stake, addrOf(info))) return refuse(socket, 'full', 0);
     const name = typeof info.nick === 'string' ? info.nick : '';
     // 6. maintenance, the switch
     let why = null;
@@ -397,13 +405,16 @@ function createSlPaidDoor({ arenas, consumeAtStake, ledger = null, slPayout, jou
     if (arenas.walletSeatOf(entry.walletAddress)) return refundAndRefuse(socket, entry, 'one-seat', ctx);
     // 11.
     // skin: a bought skin's bytes when slSockets found the wallet's skin pass lists it (cosmetic; no money reads it)
-    const seatInfo = { nick: ctx.name, cv: info.cv, skin: info.skin };
+    const ip = addrOf(info);
+    // ip: the seat keeps its network for its whole life, parked and gliding too (slRoom seat.net), so the room's
+    // one-per-network count still sees it after a drop (night review 2026-10-29)
+    const seatInfo = { nick: ctx.name, cv: info.cv, skin: info.skin, ip };
     const money = { jid: ctx.jid, micro: ctx.micro, wallet: entry.walletAddress, paid: entry.paid, name: ctx.name,
       stakeSig: entry.stakeSig || null };
-    let room = arenas.seatFor(stake);
+    let room = arenas.seatFor(stake, undefined, ip);
     let acct = room ? room.seatPaid(socket, seatInfo, money) : null;
     if (!acct && room) {
-      const other = arenas.seatFor(stake, room);
+      const other = arenas.seatFor(stake, room, ip);
       if (other) {
         room = other;
         acct = other.seatPaid(socket, seatInfo, money);

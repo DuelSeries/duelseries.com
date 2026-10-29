@@ -66,4 +66,32 @@ function socketClientIp(socket) {
     hs.headers && hs.headers['x-forwarded-for']);
 }
 
-module.exports = { TRUST_PROXY, bareIp, isTrustedPeer, clientAddress, socketClientIp };
+/* The network a client address stands for, for the per-person rules (night review 2026-10-29: the battle
+   royale's prize count and seats per address, and paid snake's one seat per address per room). An IPv4
+   address is itself. An IPv6 address is its /64: one home or one phone is given a whole /64 and can use any
+   address in it, so counting addresses would let one machine be as many people as it likes. '' for no
+   address (the caller decides what an unknown network means).
+   A loopback or private address (isTrustedPeer) is '' too (night review 2026-10-29, second pass): no player
+   reaches us from one, so it is nginx's own address, left by clientAddress when the X-Forwarded-For hop was
+   missing or unreadable, and every player would then be ONE network (every BR prize held, four paid snakes a
+   rung). Unknown instead: the BR prize is held (the safe side), and paid snake and the BR seat cap apply no
+   per-network rule, the per-socket caps still bound it. */
+function addressGroup(ip) {
+  let a = bareIp(ip);
+  const zone = a.indexOf('%');
+  if (zone !== -1) a = a.slice(0, zone);
+  if (isTrustedPeer(a)) return '';
+  if (!net.isIPv6(a)) return net.isIPv4(a) ? a : '';
+  a = a.toLowerCase();
+  // a dotted IPv4 tail is the low 32 bits: it never reaches the /64, so it stands as two zero groups
+  const colon = a.lastIndexOf(':');
+  if (a.indexOf('.', colon) !== -1) a = a.slice(0, colon + 1) + '0:0';
+  const halves = a.split('::');
+  const head = halves[0] ? halves[0].split(':') : [];
+  const tail = halves.length > 1 && halves[1] ? halves[1].split(':') : [];
+  const groups = halves.length > 1 ? head.concat(new Array(Math.max(0, 8 - head.length - tail.length)).fill('0'), tail)
+    : head;
+  return groups.slice(0, 4).map((g) => parseInt(g, 16).toString(16)).join(':') + '::/64';
+}
+
+module.exports = { TRUST_PROXY, bareIp, isTrustedPeer, clientAddress, socketClientIp, addressGroup };

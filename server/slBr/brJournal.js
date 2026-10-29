@@ -12,6 +12,11 @@
 //            the signature) or 'failed'. A 'paying' found at boot means the send may or may not have landed: index.js
 //            pushes Owen to check before settling by hand, marks it 'unknown', and NEVER sends it again. Every match id
 //            here is also never paid again by this process (payBattleRoyaleWinner's latch is seeded from it).
+//            (night review 2026-10-29, second pass) 'checking' is written BEFORE the database lookup that decides
+//            whether the prize is paid automatically, then 'paying' or 'held'. A 'checking' found at boot means the
+//            decision was cut off and nothing was sent (the send starts only after 'paying'): index.js pushes Owen to
+//            settle it by hand and marks it 'held'. net is the network the winner played from: the one-automatic-
+//            prize-a-week rule (brPrizeRule recentPrize) reads wallet, net and at.
 //
 //   file  the journal file;  fsx  fs (tests)
 // -> { live(), setLive(rec|null), autoDay(), setAutoDay(day), prize(id), setPrize(id, patch), prizes(), file }
@@ -19,8 +24,10 @@
 const fs = require('fs');
 const path = require('path');
 
-const PRIZES_KEPT = 30;
-const PRIZE_STATES = new Set(['paying', 'paid', 'failed', 'unknown']);
+// 100, not 30 (night review 2026-10-29): held decisions are written too now, and brPrizeRule's cooldown reads a week
+// of automatic prizes (four slots a day, plus Owen's own starts)
+const PRIZES_KEPT = 100;
+const PRIZE_STATES = new Set(['checking', 'paying', 'paid', 'failed', 'unknown', 'held']);
 const TEXT_MAX = 200;
 
 const str = (v, max) => (typeof v === 'string' && v.length <= (max || TEXT_MAX) ? v : null);
@@ -43,6 +50,7 @@ function cleanPrize(j) {
     matchId: j.matchId,
     state: j.state,
     wallet: str(j.wallet, 64),
+    net: str(j.net, 64),
     name: str(j.name, 40),
     amount: Number.isFinite(j.amount) ? j.amount : 0,
     sig: str(j.sig, 128),

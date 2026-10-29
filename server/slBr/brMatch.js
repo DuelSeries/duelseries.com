@@ -17,7 +17,10 @@
 // bots in the arena (MIN_SNAKES snakes on the map, people or bots). It ends when ONE SNAKE IS LEFT, bots counted: a
 // person must outlast every bot to win, and a bot that wins is paid nothing (onDecided is only told of a person).
 // The prize rules are unchanged: nothing for a match that started with one person or none (soloRun), and a match whose
-// people proved fewer than two different wallets is held for Owen (prizeHeld). A restart cuts a match off: the match
+// people proved fewer than two different wallets is held for Owen (prizeHeld). A person is a proven wallet ON ITS OWN
+// NETWORK (night review 2026-10-29, brPrizeRule.js: a wallet is free to make, so one address's wallets are one person),
+// and the server pays only when the winner and another of them have really played paid (startedSeats, holdPrize).
+// One address seats at most BRM.SEATS_PER_ADDR living snakes (refusal 'limit'). A restart cuts a match off: the match
 // in flight is written to opts.journal (setLive) at its start and cleared at its decision or stop, so the next boot
 // can void it and tell Owen (index.js).
 //
@@ -27,9 +30,10 @@
 // prize is NOT paid here: onDecided(match) tells the server, whose payBattleRoyaleWinner pays once per match id from
 // the wallet the winner's socket proved (never one a client claims).
 //
-// The room (server/sl/slRoom.js, opts.br) calls: attach(room), noteSeat(snakeId, { wallet, nick }), afterDeaths(frame,
-// deaths, simMs) once per step after its deaths, acceptingPlayers() at a seat, allowsHold() at a hold press,
-// holdFill() for the bot fill, canPause() before its idle pause, and joinMsg() for a new seat or watcher.
+// The room (server/sl/slRoom.js, opts.br) calls: attach(room), noteSeat(snakeId, { wallet, nick, ip }),
+// afterDeaths(frame, deaths, simMs) once per step after its deaths, acceptingPlayers(), walletBusy(wallet) and
+// addrFull(ip) at a seat, allowsHold() at a hold press, holdFill() for the bot fill, canPause() before its idle pause,
+// and joinMsg() for a new seat or watcher.
 //
 // opts.lastStore (brLastPodium.js) keeps the last decided match's podium across restarts: read once here, written at
 // each decision, and reported by publicState while waiting until a match in this process is decided. It is for
@@ -40,6 +44,8 @@ const { easternNow } = require('../botPopulation');
 const { createZone, cruiseOf } = require('./brZone');
 const { createHeldBorder } = require('./brBorder');
 const { nextSlot } = require('./brAutoStart');
+const { countPeople } = require('./brPrizeRule');
+const { addressGroup } = require('../clientAddr');
 
 const SEC = 1000;
 
@@ -51,6 +57,12 @@ const BRM = {
   // A backstop that should never fire: a match still undecided this long after it went live is decided by length
   // (the circle's last ring is RING_MIN_RADIUS, smaller than a snake can turn in, so it always ends well before).
   MAX_MATCH_MS: 15 * 60 * SEC,
+  // Living snakes one network may hold in the arena at once (night review 2026-10-29: /sl allows 30 sockets an address,
+  // so one person could field a 30-snake team against the bots and every real entrant). Four lets a household or a few
+  // friends on one wifi play together; a fifth from the same address (an IPv6 /64) is refused 'limit' ("Too many
+  // players on this network"). The trade-off: a campus or carrier NAT sharing one IPv4 address seats four people from
+  // it at a time. opts.seatsPerAddr changes it (server env BR_SEATS_PER_ADDR); 0 turns it off.
+  SEATS_PER_ADDR: 4,
 };
 
 // Milliseconds until the next scheduled start on the Eastern wall clock (BattleRoyaleRoom msUntilNextStart), to the
@@ -77,9 +89,12 @@ function createBrMatch(opts) {
   const journal = o.journal && typeof o.journal.setLive === 'function' ? o.journal : null;
   // told when a running match is cut off by anything but the owner's own stop (a room replacement), to push Owen
   const onVoided = typeof o.onVoided === 'function' ? o.onVoided : null;
+  const seatsPerAddr = Number.isInteger(o.seatsPerAddr) && o.seatsPerAddr >= 0 ? o.seatsPerAddr : BRM.SEATS_PER_ADDR;
 
   let room = null;
-  const who = new Map(); // snake id -> { wallet, nick } of every seated human since it joined
+  const who = new Map(); // snake id -> { wallet, nick, owner, net } of every seated human since it joined
+  // the proven seats as the doors shut, [{ wallet, net }]: the prize's people (startedSeats; night review 2026-10-29)
+  let started = [];
   let lastSent = -Infinity;
   let lastPhase = '';
   let lastRing = 0;
@@ -122,14 +137,18 @@ function createBrMatch(opts) {
 
   // How many different PEOPLE are in the match: distinct wallets their sockets proved. Two tabs (or a script socket)
   // of one person are one person, and a seat with no proven wallet cannot be paid, so it never turns a solo run into
-  // a $20 match (review 2026-10-15: the old rule counted snakes).
-  function provenPeople(list) {
-    const wallets = new Set();
+  // a $20 match (review 2026-10-15: the old rule counted snakes). A wallet costs nothing to make, so wallets proved
+  // from one network are one person too (night review 2026-10-29: brPrizeRule countPeople). Returns the proven seats.
+  function provenSeats(list) {
+    const out = [];
+    const seen = new Set();
     for (const h of list) {
       const w = who.get(h.id);
-      if (w && w.wallet) wallets.add(w.wallet);
+      if (!w || !w.wallet || seen.has(w.wallet)) continue;
+      seen.add(w.wallet);
+      out.push({ wallet: w.wallet, net: w.net || '' });
     }
-    return wallets.size;
+    return out;
   }
 
   // Who is in, for the prize rule (unchanged, see startMatch): counted when the match goes live, as the doors shut, and
@@ -137,7 +156,8 @@ function createBrMatch(opts) {
   function countIn() {
     const humans = humanSnakes();
     m.startedWith = humans.length;
-    m.startedPeople = provenPeople(humans);
+    started = provenSeats(humans);
+    m.startedPeople = countPeople(started);
     m.soloRun = m.isSoloRun();
     m.prizeHeld = !m.soloRun && m.startedPeople < 2;
     return humans;
@@ -194,6 +214,7 @@ function createBrMatch(opts) {
     m.matchId = null;
     m.startedWith = 0;
     m.startedPeople = 0;
+    started = [];
     m.soloRun = false;
     m.prizeHeld = false;
     zone.clear();
@@ -216,7 +237,8 @@ function createBrMatch(opts) {
     noteSeat(snakeId, info) {
       const i = info || {};
       const wallet = typeof i.wallet === 'string' && i.wallet ? i.wallet : null;
-      who.set(snakeId, { wallet, nick: i.nick || '', owner: !!wallet && isOwner(wallet) === true });
+      who.set(snakeId, { wallet, nick: i.nick || '', owner: !!wallet && isOwner(wallet) === true,
+        net: addressGroup(i.ip) });
     },
     livingCount: () => (room ? room.sim.count() : 0),
     humanLiving: () => humanSnakes().length,
@@ -230,6 +252,31 @@ function createBrMatch(opts) {
         if (w.wallet === wallet && room.humans.has(id) && room.sim.snake(id)) return true;
       }
       return false;
+    },
+    // SEATS_PER_ADDR (night review 2026-10-29): this address's network already has that many living snakes here
+    // (slRoom.refusal 'limit'). An unknown address is never refused: the per-address socket cap still bounds it.
+    addrFull(ip) {
+      const net = addressGroup(ip);
+      if (!room || !net || seatsPerAddr <= 0) return false;
+      let n = 0;
+      for (const [id, w] of who) {
+        if (w.net === net && room.humans.has(id) && room.sim.snake(id) && ++n >= seatsPerAddr) return true;
+      }
+      return false;
+    },
+    // The proven seats as the doors shut, [{ wallet, net }] (a copy): payBattleRoyaleWinner reads them, before its
+    // database lookup, to pay only when the winner and another person have really played paid (brPrizeRule).
+    startedSeats: () => started.map((s) => ({ wallet: s.wallet, net: s.net })),
+    // The server found the prize cannot be paid automatically after all (brPrizeRule stakedPeople): this decided match
+    // reports it held, as one held at the start does (prize 0, "settled by hand"), and the next step tells every seat.
+    // Only for the match it names: a later match is never touched. -> true when it was this match.
+    holdPrize(matchId) {
+      if (!matchId || m.matchId !== matchId) return false;
+      if (m.prizeHeld === true) return true;
+      m.prizeHeld = true;
+      if (m.podium) m._keepPodium();
+      lastSent = -Infinity;
+      return true;
     },
     canStart: () => m.state === 'waiting' && m.livingCount() >= BRM.MIN_SNAKES,
     // Q (leaving with the snake) is refused only while the match is being fought: the countdown is still open
@@ -293,6 +340,7 @@ function createBrMatch(opts) {
       m.cashoutAt = 0;
       m.winner = null;
       m.matchId = null;
+      started = [];
       m._prevAlive = null;
       zone.clear();
       holdBorder(false);

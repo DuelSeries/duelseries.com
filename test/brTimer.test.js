@@ -10,7 +10,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { decide, pending, joinOpen, nextSlot, slotKey } = require('../server/slBr/brAutoStart');
-const { createBrJournal } = require('../server/slBr/brJournal');
+const { createBrJournal, PRIZES_KEPT } = require('../server/slBr/brJournal');
 const C = require('../shared/constants');
 
 const quiet = { log() {}, warn() {}, error() {} };
@@ -149,12 +149,14 @@ test('journal: the live match, the timer night and the prizes survive a restart 
 test('journal: a bad state, a file that is not ours, and the kept prize count', () => {
   const file = tmpFile();
   const j = createBrJournal({ file, log: quiet });
-  assert.strictEqual(j.setPrize('br_z', { state: 'maybe' }), false, 'only paying, paid, failed, unknown');
+  assert.strictEqual(j.setPrize('br_z', { state: 'maybe' }), false, 'only checking, paying, paid, failed, unknown, held');
   assert.strictEqual(j.prize('br_z'), null);
-  for (let i = 0; i < 40; i++) j.setPrize('br_' + i, { state: 'paid' });
-  assert.strictEqual(j.prizes().length, 30);
+  // a week of slots (four a day) and Owen's own starts fit: the prize cooldown reads a week of them (night review)
+  assert.ok(PRIZES_KEPT >= 4 * 7 * 3, String(PRIZES_KEPT));
+  for (let i = 0; i < PRIZES_KEPT + 10; i++) j.setPrize('br_' + i, { state: 'paid' });
+  assert.strictEqual(j.prizes().length, PRIZES_KEPT);
   assert.strictEqual(j.prize('br_0'), null, 'the oldest go first');
-  assert.ok(j.prize('br_39'));
+  assert.ok(j.prize('br_' + (PRIZES_KEPT + 9)));
   fs.writeFileSync(file, '{not json');
   const k = createBrJournal({ file, log: quiet });
   assert.strictEqual(k.live(), null);

@@ -846,6 +846,23 @@ async function recordStake(id, amount, game = null) {
   );
 }
 
+// Which of these wallets have ever played a paid game: a stakes_history row, written
+// only by recordEntry for a real on-chain stake that was seated. The battle royale
+// pays its house prize automatically only when the winner and another person in the
+// match are among them (server/slBr/brPrizeRule.js, night review 2026-10-29: a proven
+// wallet alone costs nothing to make). Returns a Set; a query that fails rejects, and
+// the caller holds the prize for the owner.
+async function walletsWithStakes(wallets) {
+  const ids = [...new Set((Array.isArray(wallets) ? wallets : [])
+    .filter((w) => typeof w === 'string' && w && w.length <= 64))].slice(0, 200);
+  if (!ids.length) return new Set();
+  const r = await pool.query(
+    `SELECT DISTINCT google_id FROM stakes_history WHERE google_id = ANY($1::text[])`,
+    [ids]
+  );
+  return new Set(r.rows.map((x) => x.google_id));
+}
+
 // ─── House revenue (the owner's take: game rake + cosmetic sales) ────────────────
 // One append-only ledger of everything the house earns, so the owner can see total
 // take at a glance. Callers use .catch() — a missed revenue log must never break a
@@ -1296,7 +1313,7 @@ module.exports = {
   features, NO_USDC_ACCOUNT,
   recordEarnings,
   onEarningsRecorded,
-  recordStake, getTopEarners,
+  recordStake, walletsWithStakes, getTopEarners,
   getProfile, getMyProfile, setAccountName, searchPlayerNames, getGlobalWinnings, getGlobalWinningsSplit,
   addCosmetic, getOwnedCosmetics, ownsCosmetic,
   skinOpen, skinRow, skinSubmit, skinReopen, skinClose, skinGrant, skinDue, skinExpiredDue, skinExpire, skinExpireOpen,
