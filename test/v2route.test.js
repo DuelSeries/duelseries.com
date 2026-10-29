@@ -623,16 +623,23 @@ test('the service worker exists and caches nothing', () => {
   assert.ok(/caches\.delete/.test(sw), 'and clears any cache a previous version left');
 });
 
-test('agar.io client scripts revalidate; everything else stays no-store', () => {
-  /* Owen's pick (2026-10-08): /js/ag is no-cache, so a repeat visit gets a 304
-     on the ETag express.static already sends, and never runs a stale build.
-     The rest of the site keeps no-store (see public/sw.js for why). */
+test('static assets revalidate; pages, /api and the service worker stay no-store', () => {
+  /* Owen's pick (2026-10-08) for /js/ag, widened to every asset folder in the night review
+     (2026-10-29): no-cache, so a repeat visit gets a 304 on the ETag express.static already
+     sends and never runs a stale build. Pages and everything dynamic keep no-store (see
+     public/sw.js for why). test/staticCache.test.js runs the rule against a real server. */
+  const { revalidates } = require('../server/staticCache');
+  for (const p of ['/js/ag/agClient.js', '/js/v2/play.js', '/wallet/widget.js', '/css/v2.css', '/img/games/x.webp',
+    '/fonts/a.woff2', '/vendor/three/three.module.min.js', '/updates/a.webp', '/og/snake.png', '/shared/constants.js',
+    '/updates.json', '/hexbg.jpg', '/manifest.webmanifest']) assert.ok(revalidates(p), p + ' revalidates');
+  for (const p of ['/', '/v2', '/v2.html', '/game.html', '/sl', '/owner', '/api/live', '/api/owner/state', '/sw.js',
+    '/play/snake', '/js/x.html', '/wallet/debug']) assert.ok(!revalidates(p), p + ' stays no-store');
   const src = server();
-  assert.match(src, /const revalidate = \(p\) => p\.startsWith\('\/js\/ag\/'\);/, 'only /js/ag/ revalidates');
-  assert.match(src, /res\.setHeader\('Cache-Control', revalidate\(req\.path\) \? 'no-cache' : 'no-store'\)/,
-    'no-cache there, no-store for everything else');
-  assert.ok(src.indexOf("revalidate(req.path) ? 'no-cache'") < src.indexOf("app.use(express.static(path.join(__dirname, '../public')))"),
+  assert.ok(src.indexOf('app.use(cacheControl);') > 0, 'the rule is installed');
+  assert.ok(src.indexOf('app.use(cacheControl);') < src.indexOf("app.use(express.static(path.join(__dirname, '../public')))"),
     'set before express.static, which keeps a Cache-Control that is already there');
+  assert.ok(src.indexOf("app.get('/wallet/debug'") < src.indexOf('app.use(cacheControl);'),
+    '/wallet/debug answers before the rule, so its /wallet/ prefix never makes it cacheable');
 });
 
 test('the service worker hands socket.io straight back to the browser', async () => {
