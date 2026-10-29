@@ -287,15 +287,17 @@ test('the memory the copies hold is capped, oldest out first', async () => {
 
 // ── 3. The byte budget ───────────────────────────────────────────────────────────────────────────────────────────
 
-test('STATIC_BUDGET_MB: unset or junk keeps the default, 0 turns it off', () => {
-  assert.strictEqual(DEFAULT_BUDGET_MB, 1000);
-  for (const v of [undefined, '', '  ', 'lots', '-5', '1.5', null]) assert.strictEqual(budgetMbFrom({ STATIC_BUDGET_MB: v }), 1000, String(v));
-  assert.strictEqual(budgetMbFrom({}), 1000);
+test('STATIC_BUDGET_MB: unset or junk keeps the default (300 MB), 0 turns it off', () => {
+  assert.strictEqual(DEFAULT_BUDGET_MB, 300, 'night review 2026-10-29: 1000 was ~144 GB a day per address');
+  for (const v of [undefined, '', '  ', 'lots', '-5', '1.5', null]) assert.strictEqual(budgetMbFrom({ STATIC_BUDGET_MB: v }), 300, String(v));
+  assert.strictEqual(budgetMbFrom({}), 300);
   assert.strictEqual(budgetMbFrom({ STATIC_BUDGET_MB: '0' }), 0);
   assert.strictEqual(budgetMbFrom({ STATIC_BUDGET_MB: ' 250 ' }), 250);
   assert.strictEqual(byteBudget({ maxMb: 0 }).enabled, false);
   const b = byteBudget({});
-  assert.strictEqual(b.maxBytes, 1000 * 1024 * 1024);
+  assert.strictEqual(b.maxBytes, 300 * 1024 * 1024);
+  assert.strictEqual(b.maxActive, 8, 'one address: 8 answered at once');
+  assert.strictEqual(b.maxWaiting, 256);
   b.stop();
 });
 
@@ -362,6 +364,139 @@ test('through a real app: full downloads count, 304s and /api do not, past the b
   assert.strictEqual((await get(port, '/api/thing', A)).status, 200, '/api still answers');
   assert.strictEqual((await get(port, '/js/big.js', B)).status, 200, 'another player is untouched');
   assert.strictEqual((await get(port, '/js/big.js')).status, 200, 'a local request is never metered');
+});
+
+/* Night review 2026-10-29, re-review of finding 27: the budget was checked when a request arrived and charged on
+   'finish', so parallel downloads all passed together and a download the client cut off was never charged. */
+
+async function until(fn, ms = 3000) {
+  const t0 = Date.now();
+  while (!fn()) {
+    if (Date.now() - t0 > ms) throw new Error('timed out waiting');
+    await new Promise((r) => setTimeout(r, 10));
+  }
+}
+
+test('a burst of parallel downloads from one address cannot pass the budget together', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ds-burst-'));
+  const file = Buffer.alloc(2 * 1024 * 1024, 9);                  // a 2 MB file, the wallet widget's kind
+  fs.writeFileSync(path.join(dir, 'widget.png'), file);
+  const budget = byteBudget({ maxBytes: file.length * 2, windowMs: 600000, log: () => {} });
+  t.after(() => budget.stop());
+  const app = express();
+  app.set('trust proxy', TRUST_PROXY);
+  app.use(cacheControl);
+  app.use(budget.middleware);
+  app.use(express.static(dir));
+  const server = await listen(app);
+  t.after(() => server.close());
+  const port = server.address().port;
+  const A = { 'X-Forwarded-For': '203.0.113.77' };
+
+  const all = await Promise.all(Array.from({ length: 30 }, () => get(port, '/widget.png', A)));
+  const ok = all.filter((r) => r.status === 200);
+  const refused = all.filter((r) => r.status === 429);
+  assert.strictEqual(ok.length + refused.length, 30, 'every answer is a download or a 429');
+  for (const r of ok) assert.strictEqual(r.body.length, file.length, 'a download that starts is whole');
+  // At most the budget's worth plus the 8 being answered at once; before the fix all 30 (60 MB) went out.
+  assert.ok(ok.length <= 2 + budget.maxActive, ok.length + ' full downloads against a 2-file budget');
+  assert.ok(refused.length >= 30 - 2 - budget.maxActive);
+  for (const r of refused) assert.ok(Number(r.headers['retry-after']) > 0);
+  assert.strictEqual((await get(port, '/widget.png', { 'X-Forwarded-For': '198.51.100.77' })).status, 200,
+    'another player is untouched');
+  await until(() => budget.inFlight() === 0);
+});
+
+test('a download the client cuts off counts the bytes it was sent', async (t) => {
+  const budget = byteBudget({ maxBytes: 900 * 1024, windowMs: 600000, log: () => {} });
+  t.after(() => budget.stop());
+  const app = express();
+  app.set('trust proxy', TRUST_PROXY);
+  app.use(budget.middleware);
+  // A slow 4 MB answer that never finishes on its own: 'finish' never fires for a client that leaves.
+  app.get('/img/slow.png', (req, res) => {
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Content-Length', String(4 * 1024 * 1024));
+    let sent = 0;
+    const tick = setInterval(() => {
+      if (res.destroyed || sent >= 4 * 1024 * 1024) { clearInterval(tick); return; }
+      res.write(Buffer.alloc(64 * 1024, 1));
+      sent += 64 * 1024;
+    }, 2);
+    res.on('close', () => clearInterval(tick));
+  });
+  app.get('/img/small.png', (_req, res) => res.type('png').send(Buffer.alloc(100, 2)));
+  const server = await listen(app);
+  t.after(() => server.close());
+  const port = server.address().port;
+  const A = { 'X-Forwarded-For': '203.0.113.88' };
+
+  const got = await new Promise((resolve, reject) => {
+    const r = http.request({ host: '127.0.0.1', port, path: '/img/slow.png', headers: A, agent: false }, (res) => {
+      let n = 0;
+      res.on('data', (c) => { n += c.length; if (n >= 1024 * 1024) { r.destroy(); resolve(n); } });
+    });
+    r.on('error', () => {});
+    r.on('close', () => resolve(-1));
+    r.end();
+  });
+  assert.ok(got >= 1024 * 1024, 'the client read a megabyte, then left');
+  await until(() => budget.inFlight() === 0);
+  const after = await get(port, '/img/small.png', A);
+  assert.strictEqual(after.status, 429, 'the megabyte it pulled counted');
+  assert.strictEqual((await get(port, '/img/small.png', { 'X-Forwarded-For': '198.51.100.88' })).status, 200);
+});
+
+test('an honest page load\'s many parallel requests all answer; past the waiting line it is a 429, come back soon', async (t) => {
+  const { dir } = fixture();
+  const budget = byteBudget({ windowMs: 600000, log: () => {} });            // the real defaults
+  t.after(() => budget.stop());
+  const app = express();
+  app.set('trust proxy', TRUST_PROXY);
+  app.use(cacheControl);
+  app.use(budget.middleware);
+  app.use(precompressed(dir));
+  app.use(express.static(dir));
+  const server = await listen(app);
+  t.after(() => server.close());
+  const port = server.address().port;
+  const A = { 'X-Forwarded-For': '203.0.113.99', 'Accept-Encoding': 'br, gzip' };
+  const files = ['/js/big.js', '/js/tiny.js', '/page.html', '/img/a.png'];
+  const all = await Promise.all(Array.from({ length: 80 }, (_, i) => get(port, files[i % files.length], A)));
+  assert.deepStrictEqual([...new Set(all.map((r) => r.status))], [200], 'none refused, none lost');
+  await until(() => budget.inFlight() === 0);
+
+  // A tight line, to see it work: 1 answered at once, 2 waiting, the rest refused at once.
+  const tight = byteBudget({ maxBytes: 1e9, windowMs: 600000, maxActive: 1, maxWaiting: 2, log: () => {} });
+  t.after(() => tight.stop());
+  let ran = 0;
+  const app2 = express();
+  app2.set('trust proxy', TRUST_PROXY);
+  app2.use(tight.middleware);
+  app2.get('/slow.html', (_req, res) => { ran++; setTimeout(() => res.send('ok'), 120); });
+  const server2 = await listen(app2);
+  t.after(() => server2.close());
+  const port2 = server2.address().port;
+  const B = { 'X-Forwarded-For': '203.0.113.100' };
+  const five = await Promise.all(Array.from({ length: 5 }, () => get(port2, '/slow.html', B)));
+  assert.deepStrictEqual(five.map((r) => r.status).sort(), [200, 200, 200, 429, 429]);
+  assert.strictEqual(ran, 3, 'a refused request never ran');
+  for (const r of five.filter((x) => x.status === 429)) assert.strictEqual(r.headers['retry-after'], '5');
+  assert.strictEqual((await get(port2, '/slow.html', { 'X-Forwarded-For': '198.51.100.100' })).status, 200);
+
+  // One that leaves while it waits is dropped and never runs.
+  ran = 0;
+  const first = get(port2, '/slow.html', B);
+  await until(() => ran === 1);
+  const quitter = http.request({ host: '127.0.0.1', port: port2, path: '/slow.html', headers: B, agent: false });
+  quitter.on('error', () => {});
+  quitter.end();
+  await new Promise((r) => setTimeout(r, 30));
+  quitter.destroy();
+  assert.strictEqual((await first).status, 200);
+  await until(() => tight.inFlight() === 0);
+  await new Promise((r) => setTimeout(r, 150));
+  assert.strictEqual(ran, 1, 'the one that left was never answered');
 });
 
 // ── 4. The build-only artwork ────────────────────────────────────────────────────────────────────────────────────

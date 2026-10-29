@@ -27,9 +27,17 @@
 
    3. byteBudget(): bytes of full downloads per address per window. An honest
       visit is a few MB and a repeat visit a few hundred KB of 304s and pages;
-      the default, 1000 MB per 10 minutes, is hundreds of cold lobby loads from
-      one address, and holds one looping client to under 2 MB/s instead of the
-      whole box's bandwidth. STATIC_BUDGET_MB sets it, 0 turns it off. nginx
+      the default, 300 MB per 10 minutes (night review 2026-10-29, was 1000),
+      is still dozens of cold lobby loads from one address and holds one
+      looping client to about 0.5 MB/s on average. Bytes count as they are
+      written, so a download the client cuts off counts what it got, and at
+      most 8 of one address's requests are answered at once (the rest wait
+      their turn and are checked again when it comes), so a burst of parallel
+      downloads can no longer all pass the check together. STATIC_BUDGET_MB
+      sets it, 0 turns it off. It keys on the address nginx forwards: put a CDN
+      (CloudFront) in front and every visitor arrives from a few edge
+      addresses, so set STATIC_BUDGET_MB=0 (or have nginx take the viewer's
+      address from CloudFront-Viewer-Address) BEFORE switching the DNS. nginx
       limit_conn / limit_rate and a CDN in front are the real cure (owner
       actions); this is the backstop that ships with the code. */
 const fs = require('fs');
@@ -191,8 +199,13 @@ function precompressed(root, opts = {}) {
 
 // ── 3. The per-address byte budget ───────────────────────────────────────────────────────────────────────────────
 
-const DEFAULT_BUDGET_MB = 1000;
+/* 300 MB per 10 minutes (night review 2026-10-29: 1000 still let one address pull ~144 GB a day). A cold lobby
+   load counts about 3-6.5 MB, a repeat visit next to nothing (304s), so this is still 45+ cold loads per address. */
+const DEFAULT_BUDGET_MB = 300;
 const DEFAULT_WINDOW_MS = 10 * 60 * 1000;
+/* One address's requests being answered at once, and how many more may wait their turn. */
+const DEFAULT_MAX_ACTIVE = 8;
+const DEFAULT_MAX_WAITING = 256;
 
 /* STATIC_BUDGET_MB: a whole number of megabytes; 0 turns the budget off; unset or junk keeps the default. */
 function budgetMbFrom(env) {
@@ -208,9 +221,12 @@ function byteBudget(opts = {}) {
     : (opts.maxMb === undefined ? DEFAULT_BUDGET_MB : opts.maxMb) * 1024 * 1024;
   const windowMs = opts.windowMs || DEFAULT_WINDOW_MS;
   const maxKeys = opts.maxKeys || 200000;
+  const maxActive = opts.maxActive || DEFAULT_MAX_ACTIVE;
+  const maxWaiting = opts.maxWaiting === undefined ? DEFAULT_MAX_WAITING : opts.maxWaiting;
   const now = opts.now || Date.now;
   const log = opts.log || ((m) => console.warn(m));
   const seen = new Map();                     // key -> { start, bytes, told }
+  const busy = new Map();                     // key -> { active, waiting: [entry], told }, only while it has requests
   const on = maxBytes > 0;
 
   /* One address is one key; an IPv6 client is its /56, as express-rate-limit keys it, so a fresh address from the
@@ -239,10 +255,7 @@ function byteBudget(opts = {}) {
     const b = seen.get(key);
     return !!b && now() - b.start < windowMs && b.bytes >= maxBytes;
   }
-  function charge(req, n) {
-    if (!on || !(n > 0)) return;
-    const key = keyOf(req);
-    if (!key) return;
+  function chargeKey(key, n) {
     const b = slot(key);
     b.bytes += n;
     if (b.bytes >= maxBytes && !b.told) {
@@ -251,25 +264,97 @@ function byteBudget(opts = {}) {
         + Math.round((now() - b.start) / 1000) + ' s); refusing its downloads until the window ends');
     }
   }
-  function refuse(req, res) {
+  function charge(req, n) {
+    if (!on || !(n > 0)) return;
+    const key = keyOf(req);
+    if (!key) return;
+    chargeKey(key, n);
+  }
+  /* waitSec: how soon to come back; by default when this address's window ends. */
+  function refuse(req, res, waitSec) {
     const b = seen.get(keyOf(req));
-    const wait = b ? Math.max(1, Math.ceil((b.start + windowMs - now()) / 1000)) : 60;
+    const wait = waitSec > 0 ? waitSec : b ? Math.max(1, Math.ceil((b.start + windowMs - now()) / 1000)) : 60;
     res.setHeader('Retry-After', String(wait));
     res.setHeader('Cache-Control', 'no-store');
     return res.status(429).type('text/plain').send('Too many downloads from your address. Try again in a few minutes.');
   }
+
+  /* Night review 2026-10-29 (re-review of finding 27): the budget used to be checked when a request arrived and
+     charged its Content-Length on 'finish'. Every request already in flight passed the check, so 30 parallel
+     downloads of the wallet widget went out (151 MB against a 20 MB budget), and a download the client cut off
+     never finished, so it was never charged. Now:
+     - bytes count as they are written (res.write / res.end of a GET answered 200 or 206), so a cut-off download
+       counts what was sent;
+     - at most maxActive of one address's requests are answered at once. The rest wait their turn in arrival
+       order and are checked against the budget again when it comes, so a burst can overshoot by at most
+       maxActive files; past maxWaiting more waiting, a request is refused at once (429, come back in 5 s).
+     An honest page load is not refused: behind nginx (which reads a file off us at full speed) a cold lobby
+     load's dozens of requests drain in milliseconds, and a browser on HTTP/1.1 opens six connections, under
+     the cap. A 304 or a page holds its turn for a millisecond. */
+  function meter(res, key) {
+    const write = res.write;
+    const end = res.end;
+    const count = (chunk, enc) => {
+      if (!chunk || typeof chunk === 'function' || (res.statusCode !== 200 && res.statusCode !== 206)) return;
+      const n = typeof chunk === 'string' ? Buffer.byteLength(chunk, typeof enc === 'string' ? enc : 'utf8')
+        : (chunk.byteLength || 0);
+      if (n > 0) chargeKey(key, n);
+    };
+    res.write = function (chunk, enc) { count(chunk, enc); return write.apply(this, arguments); };
+    res.end = function (chunk, enc) { count(chunk, enc); return end.apply(this, arguments); };
+  }
+  function admit(key, req, res, go) {
+    let q = busy.get(key);
+    if (!q) { q = { active: 0, waiting: [], told: false }; busy.set(key, q); }
+    /* The turn ends on whichever 'close' comes first: the answer's (sent, or the client left), or the request's,
+       which is the only one Node emits for a pipelined request whose connection dropped before its turn to answer. */
+    const start = () => {
+      if (over(req)) { forget(key, q); return refuse(req, res); }
+      q.active++;
+      let done = false;
+      const end = () => {
+        if (done) return;
+        done = true;
+        q.active--;
+        while (q.active < maxActive && q.waiting.length) q.waiting.shift().start();
+        forget(key, q);
+      };
+      res.on('close', end);
+      req.on('close', end);
+      go();
+    };
+    if (q.active < maxActive && !q.waiting.length) return start();
+    if (q.waiting.length >= maxWaiting) {
+      if (!q.told) {
+        q.told = true;
+        log('[STATIC] ' + key + ' has ' + (q.active + q.waiting.length) + ' requests open at once; refusing more');
+      }
+      forget(key, q);
+      return refuse(req, res, 5);
+    }
+    const entry = { start };
+    q.waiting.push(entry);
+    const gone = () => {                      // the client left while it waited: never started, drop it
+      const i = q.waiting.indexOf(entry);
+      if (i >= 0) q.waiting.splice(i, 1);
+      forget(key, q);
+    };
+    res.on('close', gone);
+    req.on('close', gone);
+  }
+  function forget(key, q) {
+    if (q.active === 0 && !q.waiting.length && busy.get(key) === q) busy.delete(key);
+  }
+
   /* Pages and files only: /api has its own limiters and is never counted here. A full download (a GET answered
-     200 or 206) counts its Content-Length; a 304, a HEAD or an error counts nothing. */
+     200 or 206) counts the bytes written; a 304, a HEAD or an error counts nothing. */
   function middleware(req, res, next) {
     if (!on || (req.method !== 'GET' && req.method !== 'HEAD') || req.path.startsWith('/api/')) return next();
+    const key = keyOf(req);
+    if (!key) return next();
     if (over(req)) return refuse(req, res);
-    if (req.method === 'GET') {
-      res.on('finish', () => {
-        if (res.statusCode !== 200 && res.statusCode !== 206) return;
-        charge(req, Number(res.getHeader('content-length')) || 0);
-      });
-    }
-    next();
+    if (req.method === 'GET') meter(res, key);
+    admit(key, req, res, next);
   }
   const sweep = setInterval(() => {
     const t = now();
@@ -277,8 +362,8 @@ function byteBudget(opts = {}) {
   }, Math.min(windowMs, 60 * 1000));
   if (sweep.unref) sweep.unref();
 
-  return { middleware, over, charge, refuse, keyOf, enabled: on, maxBytes, windowMs,
-    size: () => seen.size, stop: () => clearInterval(sweep) };
+  return { middleware, over, charge, refuse, keyOf, enabled: on, maxBytes, windowMs, maxActive, maxWaiting,
+    size: () => seen.size, inFlight: () => busy.size, stop: () => clearInterval(sweep) };
 }
 
 module.exports = { revalidates, cacheControl, staticName, pickEncoding, statTag, precompressed, byteBudget, budgetMbFrom,
