@@ -378,7 +378,8 @@ test('server/index.js mounts the module, and the token is the one posthog-init.j
   const s = fs.readFileSync(path.join(ROOT, 'server/index.js'), 'utf8');
   assert.match(s, /app\.all\('\/ingest\/\*', ingestProxy\(\{ request: https\.request, budget: staticBudget \}\)\);/);
   assert.ok(!/\{ \.\.\.req\.headers, host \}/.test(s), 'no request headers copied wholesale anywhere');
-  assert.ok(s.indexOf("app.all('/ingest/*'") < s.indexOf('app.use(express.json());'), 'still before the JSON parser');
+  // express.json takes { inflate: false } since the body-parser fix (night review 2026-10-29).
+  assert.ok(s.indexOf('app.use(express.json(') > 0 && s.indexOf("app.all('/ingest/*'") < s.indexOf('app.use(express.json('), 'still before the JSON parser');
   const init = fs.readFileSync(path.join(ROOT, 'public/js/posthog-init.js'), 'utf8');
   assert.ok(init.includes("posthog.init('" + POSTHOG_TOKEN + "'"), 'the same project token');
   assert.match(init, /api_host: window\.location\.origin \+ '\/ingest'/, 'still proxied through /ingest');

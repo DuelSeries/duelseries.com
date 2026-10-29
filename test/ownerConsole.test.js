@@ -379,7 +379,9 @@ test('index.js: the paid Knockout and Battleship doors are saved switches that r
     const h = handler(ev);
     const shut = h.indexOf('if (!' + flag + ') { socket.emit(');
     const consume = h.indexOf('consumePaidEntryAtStake(');
-    const free = h.indexOf('if (!(wants > 0)) return seat(null);');
+    // A free seat may now meet the per-address free cap first (night review 2026-10-29), never the paid door.
+    const free = h.indexOf('if (!(wants > 0)) {');
+    assert.ok(free > 0 && h.indexOf('return seat(null);', free) > free, ev + ': the free branch seats with no entry');
     assert.ok(shut > 0 && consume > 0 && shut < consume, ev + ': refused before the token is consumed');
     assert.ok(free > 0 && free < shut, ev + ': a free seat never meets the paid door');
     assert.match(h, new RegExp('if \\(entry && entry\\.stakeSig && !' + flag + '\\) return false;'),
