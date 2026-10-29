@@ -353,11 +353,21 @@ test('upload: the store refuses everyone together past the daily cap, and its re
     assert.ok(r.ok, r.error);
     if (i % 2) s.uploadFailed(r.clip.id); else assert.ok(s.withdraw(r.clip.id, 'F' + i).ok);
   }
+  /* Nor do ones that delivered and that the player then deleted themselves: their files are gone with them, and a
+     delete frees the address's open place at once, so counting them let five addresses switch uploads off for a day. */
+  for (let i = 0; i < clips.UP_DAY_ALL + 5; i++) {
+    const r = s.startUpload({ wallet: 'D' + i, name: 'n', size: 70000, psize: 0, game: 'slither' });
+    assert.ok(r.ok, r.error);
+    assert.ok(s.uploadChecked(r.clip.id, { w: 1280, h: 720, ms: 9000 }, false));
+    if (i % 3 === 2) { assert.ok(s.decide(r.clip.id, 'live').ok); }
+    assert.ok(s.withdraw(r.clip.id, 'D' + i).ok, 'waiting or on the wall');
+  }
   for (let i = 0; i < clips.UP_DAY_ALL; i++) {
     const r = s.startUpload({ wallet: 'W' + i, name: 'n', size: 70000, psize: 0, game: 'slither' });
     assert.ok(r.ok, r.error);
     assert.ok(s.uploadChecked(r.clip.id, { w: 1280, h: 720, ms: 9000 }, false));
     if (i % 2) s.decide(r.clip.id, 'rejected');      // a delivered one counts whatever the owner says
+    else if (i % 4 === 0) assert.ok(s.decide(r.clip.id, 'live').ok && s.decide(r.clip.id, 'removed').ok, 'the owner taking it down is not a player delete');
   }
   assert.match(s.startUpload({ wallet: 'Wx', name: 'n', size: 70000, psize: 0, game: 'slither' }).error, /Too many/);
   t += 24 * 3600e3 + 1;
@@ -397,6 +407,103 @@ test('upload: fresh wallets from one address are capped there; other addresses a
     // A start that never delivers stops counting once the sweep marks it failed, and never uses up the day's budget.
     store.uploadFailed(ids[0]);
     assert.strictEqual((await up(keyPair(), spam)).status, 200);
+  } finally { srv.close(); }
+});
+
+/* A player's own delete frees their address's open place at once, so a delivered upload the player deleted used to
+   be the way round SRC_OPEN_MAX: share one real recording on a fresh wallet, delete it, again, twenty a day per
+   address, five addresses, and UP_DAY_ALL switched uploads off for everyone with the owner's queue empty (night
+   review 2026-10-29). Now a player's delete does not count against everyone, and one address delivers at most
+   SRC_DAY_MAX a day, deleted or not. */
+test('upload: sharing and deleting on fresh wallets cannot use up the day for everyone; one address gets SRC_DAY_MAX', () => {
+  let t = 7_000_000;
+  const file = tmpFile();
+  const s = clips.createClipStore({ file, log: quiet, now: () => t++ });
+  const start = (wallet, src) => s.startUpload({ wallet, name: 'n', size: 70000, psize: 0, game: 'other', src });
+  const per = [];
+  for (let a = 0; a < 5; a++) {
+    const src = s.source('198.51.100.' + (20 + a));
+    let n = 0;
+    for (let i = 0; i < 20; i++) {
+      const w = 'A' + a + 'W' + i;
+      const r = start(w, src);
+      if (!r.ok) { assert.match(r.error, /from here today/); continue; }
+      assert.ok(s.uploadChecked(r.clip.id, { w: 1280, h: 720, ms: 9000 }, false));
+      assert.ok(s.withdraw(r.clip.id, w).ok);
+      n++;
+    }
+    per.push(n);
+  }
+  assert.strictEqual(clips.SRC_DAY_MAX, 5);
+  assert.deepStrictEqual(per, [5, 5, 5, 5, 5]);
+  assert.strictEqual(s.waiting().length, 0);
+  assert.ok(start('honest', s.source('203.0.113.50')).ok, 'an honest player elsewhere still shares');
+
+  // Uploads still in flight count too, so a burst cannot slip past; one that fails stops counting.
+  const b = s.source('198.51.100.40');
+  for (let i = 0; i < 2; i++) {
+    const r = start('B' + i, b);
+    assert.ok(s.uploadChecked(r.clip.id, { w: 1280, h: 720, ms: 9000 }, false) && s.withdraw(r.clip.id, 'B' + i).ok);
+  }
+  const flying = [start('B2', b), start('B3', b), start('B4', b)];
+  assert.ok(flying.every(r => r.ok));
+  assert.match(start('B5', b).error, /from here today/);
+  s.uploadFailed(flying[0].clip.id);
+  assert.ok(start('B6', b).ok);
+
+  // The owner (no address) and a player alone on an address sharing a normal day never meet it.
+  for (let i = 0; i < clips.SRC_DAY_MAX + 3; i++) {
+    const r = start('owner', '');
+    assert.ok(r.ok, r.error);
+    assert.ok(s.uploadChecked(r.clip.id, { w: 1280, h: 720, ms: 9000 }, false) && s.decide(r.clip.id, 'live').ok);
+  }
+  const solo = s.source('203.0.113.60');
+  for (let i = 0; i < clips.SRC_DAY_MAX; i++) {
+    const r = start('solo', solo);
+    assert.ok(r.ok, r.error);
+    assert.ok(s.uploadChecked(r.clip.id, { w: 1280, h: 720, ms: 9000 }, false) && s.decide(r.clip.id, 'live').ok);
+  }
+
+  // A delete is remembered across a restart: the address stays spent, and the deletes still do not count for everyone.
+  const back = clips.createClipStore({ file, log: quiet, now: () => t++ });
+  const gone = back.mine('A0W0', 5);
+  assert.deepStrictEqual(gone, [], 'a deleted clip is out of the player\'s list');
+  assert.match(back.startUpload({ wallet: 'A0late', name: 'n', size: 70000, psize: 0, game: 'other', src: back.source('198.51.100.20') }).error,
+    /from here today/);
+  assert.ok(back.startUpload({ wallet: 'honest2', name: 'n', size: 70000, psize: 0, game: 'other', src: back.source('203.0.113.51') }).ok);
+  const raw = JSON.parse(fs.readFileSync(file, 'utf8')).clips;
+  assert.ok(raw.filter(c => c.withdrawn === true).every(c => c.status === 'removed' && c.wallet !== 'owner'));
+  assert.strictEqual(raw.filter(c => c.withdrawn === true).length, 5 * 5 + 2);
+  t += 24 * 3600e3 + 1;
+  assert.ok(back.startUpload({ wallet: 'A0next', name: 'n', size: 70000, psize: 0, game: 'other', src: back.source('198.51.100.20') }).ok,
+    'the next day the address has its own again');
+});
+
+test('upload: the reviewer\'s replay through the real routes and the real limiter config', async () => {
+  const { srv, post, bucket, store } = await server({ uploadLimiter: clips.clipLimiters().uploadLimiter });
+  const mp4 = clipBytes({ secs: 3 });
+  try {
+    const per = [];
+    for (let a = 0; a < 5; a++) {
+      const ip = '198.51.100.' + (20 + a);
+      let n = 0, refusal = null;
+      for (let i = 0; i < 20 && !refusal; i++) {
+        const k = keyPair();
+        const s = await post('/api/clips/upload', sign(k, 'clip:upload', { size: mp4.length, psize: 0, game: 'other' }), ip);
+        if (s.status !== 200) { refusal = s; break; }
+        assert.ok(bucket.upload(s.body.video, mp4, 'video/mp4'));
+        assert.strictEqual((await post('/api/clips/uploaded', { id: s.body.id, ticket: s.body.ticket }, ip)).body.status, 'waiting');
+        assert.strictEqual((await post('/api/clips/delete', sign(k, 'clip:delete', { id: s.body.id }), ip)).status, 200);
+        n++;
+      }
+      assert.strictEqual(refusal && refusal.status, 400);
+      assert.match(refusal.body.error, /from here today/);
+      per.push(n);
+    }
+    assert.deepStrictEqual(per, [clips.SRC_DAY_MAX, clips.SRC_DAY_MAX, clips.SRC_DAY_MAX, clips.SRC_DAY_MAX, clips.SRC_DAY_MAX]);
+    assert.strictEqual(store.waiting().length, 0);
+    const honest = await post('/api/clips/upload', sign(keyPair(), 'clip:upload', { size: mp4.length, psize: 0, game: 'slither' }), '203.0.113.50');
+    assert.strictEqual(honest.status, 200, JSON.stringify(honest.body));
   } finally { srv.close(); }
 });
 

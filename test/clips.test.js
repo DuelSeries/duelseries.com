@@ -3,11 +3,11 @@
    four routes end to end with real wallet signatures. */
 const test = require('node:test');
 const assert = require('node:assert');
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const express = require('express');
-const { rateLimit } = require('express-rate-limit');
 const { ed25519 } = require('@noble/curves/ed25519');
 const _bs58 = require('bs58');
 const bs58 = (_bs58 && _bs58.default) ? _bs58.default : _bs58;
@@ -155,7 +155,7 @@ const sign = (k, action, args, ts = Date.now()) => ({
 });
 
 async function server(opts = {}) {
-  const owner = keyPair();
+  const owner = opts.owner || keyPair();
   const store = createClipStore({ file: tmpFile(), log: quiet });
   const app = express();
   app.set('trust proxy', 'loopback');      // as behind nginx: post(..., ip) is the player's address
@@ -168,8 +168,8 @@ async function server(opts = {}) {
   });
   const srv = await new Promise(r => { const s = app.listen(0, () => r(s)); });
   const base = 'http://127.0.0.1:' + srv.address().port;
-  const post = (p, body, ip) => fetch(base + p, { method: 'POST', body: JSON.stringify(body),
-    headers: Object.assign({ 'content-type': 'application/json' }, ip ? { 'x-forwarded-for': ip } : {}) })
+  const post = (p, body, ip, headers) => fetch(base + p, { method: 'POST', body: JSON.stringify(body),
+    headers: Object.assign({ 'content-type': 'application/json' }, ip ? { 'x-forwarded-for': ip } : {}, headers || {}) })
     .then(async r => ({ status: r.status, body: await r.json() }));
   const get = (p) => fetch(base + p).then(async r => ({ status: r.status, body: await r.json() }));
   return { owner, store, srv, post, get, audits };
@@ -244,12 +244,12 @@ test('one address: fresh wallets cannot fill the queue; other addresses and the 
   let t = 1_000_000;
   const file = tmpFile();
   const s = createClipStore({ file, log: quiet, now: () => t++ });
-  const a = clips.sourceOf('198.51.100.7'), b = clips.sourceOf('198.51.100.8');
+  const a = s.source('198.51.100.7'), b = s.source('198.51.100.8');
   assert.match(a, /^[a-f0-9]{16}$/);
   assert.notStrictEqual(a, b);
-  assert.strictEqual(clips.sourceOf('::ffff:198.51.100.7'), a, 'an IPv4 address written as IPv6 is the same address');
-  assert.strictEqual(clips.sourceOf('2001:db8:1:2::1'), clips.sourceOf('2001:db8:1:3::99'), 'IPv6 by its /56, as the limiters count');
-  assert.strictEqual(clips.sourceOf(''), '');
+  assert.strictEqual(s.source('::ffff:198.51.100.7'), a, 'an IPv4 address written as IPv6 is the same address');
+  assert.strictEqual(s.source('2001:db8:1:2::1'), s.source('2001:db8:1:3::99'), 'IPv6 by its /56, as the limiters count');
+  assert.strictEqual(s.source(''), '');
   assert.strictEqual(clips.SRC_OPEN_MAX, 1 + clips.UP_OPEN_MAX, 'one player\'s own most: one link and their uploads');
 
   // The finding's script: 300 links from 300 fresh wallets, one address.
@@ -279,10 +279,34 @@ test('one address: fresh wallets cannot fill the queue; other addresses and the 
 
   // It survives a restart, and the address hash is never shown to anyone.
   const back = createClipStore({ file, log: quiet, now: () => t++ });
+  assert.strictEqual(back.source('198.51.100.7'), a, 'the hash key is kept beside the clips file');
   assert.match(back.submit({ wallet: 'spamAfter', name: 'x', url: 'x.com/a/status/999997', game: 'other', src: a }).error, /from here/);
   const c = back.waiting()[0];
   assert.strictEqual(c.src, a);
   for (const view of [clips.publicClip(c, ''), clips.ownerClip(c, '')]) assert.ok(!('src' in view), JSON.stringify(view));
+});
+
+/* The address hash is keyed with a secret of the store's own (night review 2026-10-29): a bare sha256 of an IPv4
+   address is undone by trying all 2^32 of them, so a leaked clips file would have given every sender's address. */
+test('one address: the hash is keyed with a secret kept beside the clips file, never a bare hash of the address', () => {
+  const file = tmpFile();
+  const s = createClipStore({ file, log: quiet });
+  const a = s.source('198.51.100.7');
+  const keyFile = path.join(path.dirname(file), 'clips-src.key');
+  const key = fs.readFileSync(keyFile, 'utf8').trim();
+  assert.match(key, /^[a-f0-9]{64}$/);
+  assert.strictEqual(a, clips.sourceOf('198.51.100.7', key));
+  for (const bare of [crypto.createHash('sha256').update('198.51.100.7').digest('hex'),
+                      crypto.createHash('sha256').update('clip-src:198.51.100.7').digest('hex')]) {
+    assert.notStrictEqual(a, bare.slice(0, 16), 'not something anyone can work out from the address alone');
+  }
+  assert.notStrictEqual(createClipStore({ file: tmpFile(), log: quiet }).source('198.51.100.7'), a, 'another box, another key');
+  assert.strictEqual(clips.sourceOf('198.51.100.7'), '', 'no key, no hash');
+  // A store that cannot save its key still works for this run.
+  const ro = createClipStore({ file: tmpFile(), log: quiet, fsx: Object.assign({}, fs, {
+    writeFileSync: () => { throw new Error('read-only'); } }) });
+  assert.match(ro.source('198.51.100.7'), /^[a-f0-9]{16}$/);
+  assert.strictEqual(ro.source('198.51.100.7'), ro.source('198.51.100.7'));
 });
 
 test('routes: fresh wallets from one address are capped there, the owner still sends and decides, the daily limiter counts', async () => {
@@ -311,20 +335,32 @@ test('routes: fresh wallets from one address are capped there, the owner still s
     assert.strictEqual((await send(keyPair(), 700000, spam)).status, 400, 'and it is full again');
   } finally { srv.close(); }
 
-  // The per-address daily limiter on the link route (index.js passes 10 a day): refused links do not count.
-  const lim = await server({
-    submitLimiter: rateLimit({ windowMs: 60 * 1000, max: 2, standardHeaders: true, legacyHeaders: false, skipFailedRequests: true,
-                               message: { error: 'That is a lot of clips from here today. Send the next one tomorrow.' } }),
-  });
+  /* The per-address daily limiter on the link route, with the exact config index.js passes (clipLimiters, night
+     review 2026-10-29): 10 a day, refused links do not count, the owner skips it (his own wallet's signature or a
+     console session), and claiming his wallet without his key opens nothing. */
+  const boss = keyPair();
+  const limits = clips.clipLimiters({ isOwner: (w) => w === boss.wallet, ownerSession: (req) => req.get('x-test-owner-session') === 'yes' });
+  const lim = await server({ owner: boss, submitLimiter: limits.submitLimiter });
   try {
     const sendL = sendVia(lim.post);
     const ip = '198.51.100.9';
-    assert.strictEqual((await sendL(keyPair(), 800000, ip)).status, 200);
-    assert.strictEqual((await sendL(keyPair(), 800000, ip)).status, 400, 'a duplicate is refused and not counted');
-    assert.strictEqual((await sendL(keyPair(), 800001, ip)).status, 200);
-    const spent = await sendL(keyPair(), 800002, ip);
+    for (let i = 0; i < 10; i++) {
+      const r = await sendL(keyPair(), 800000 + i, ip);
+      assert.strictEqual(r.status, 200, String(i));
+      assert.ok(lim.store.decide(r.body.clip.id, 'rejected').ok, 'turned down, so the address cap stays out of the way');
+      if (i === 0) assert.strictEqual((await sendL(keyPair(), 800000, ip)).status, 400, 'a duplicate is refused and not counted');
+    }
+    const spent = await sendL(keyPair(), 800100, ip);
     assert.strictEqual(spent.status, 429, 'the address has sent its day\'s links');
-    assert.match(spent.body.error, /tomorrow/);
-    assert.strictEqual((await sendL(keyPair(), 800003, '198.51.100.10')).status, 200, 'another address has its own');
+    assert.deepStrictEqual(spent.body, { error: 'That is a lot of clips from here today. Send the next one tomorrow.' });
+
+    const forged = { ...sign(keyPair(), 'clip:submit', { url: 'x.com/a/status/800101', caption: '', game: 'other' }), wallet: boss.wallet };
+    assert.strictEqual((await lim.post('/api/clips/submit', forged, ip)).status, 401, 'claiming the owner\'s wallet without his key');
+    assert.strictEqual((await sendL(keyPair(), 800102, ip)).status, 429, 'and the address is still spent');
+
+    assert.strictEqual((await sendL(boss, 800103, ip)).status, 200, 'the owner signing with his own wallet skips it');
+    assert.strictEqual((await lim.post('/api/clips/submit', sign(keyPair(), 'clip:submit', { url: 'x.com/a/status/800104', caption: '', game: 'other' }),
+      ip, { 'x-test-owner-session': 'yes' })).status, 200, 'so does anyone on the owner console\'s session');
+    assert.strictEqual((await sendL(keyPair(), 800105, '198.51.100.10')).status, 200, 'another address has its own');
   } finally { lim.srv.close(); }
 });
