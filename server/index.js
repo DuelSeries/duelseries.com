@@ -289,6 +289,24 @@ if (!privyServer) {
 // hold an owner grant, or an account identity, past the moment it stopped being true.
 const _walletForUser = new Map();
 const WALLET_CACHE_MS = 10 * 60 * 1000;
+/* Accounts Privy said have no Solana wallet, and when (night review 2026-10-29). Read only by the owner check
+   (isOwnerToken, which a socket can ask once a second): a token from a wallet-less account used to cost one
+   Privy REST lookup per message, enough to get the app throttled by Privy. The HTTP sign-in paths do not read
+   it, so a player who has just made a wallet is seen at once there, exactly as before. */
+const _noWalletAt = new Map();
+const NO_WALLET_HOLD_MS = 60 * 1000;
+/* The [AUTH] warnings below, at most one per 30 s, naming how many more there were (night review 2026-10-29):
+   one per rejected token let any caller turn a junk string into a log line, unbounded, until the disk filled. */
+let _authWarnAt = 0, _authWarnHeld = 0;
+function authWarn(what, e) {
+  const now = Date.now();
+  if (now - _authWarnAt < 30000) { _authWarnHeld++; return; }
+  const held = _authWarnHeld;
+  _authWarnAt = now; _authWarnHeld = 0;
+  const msg = e && e.message;
+  if (held) console.warn('[AUTH] ' + what + ':', msg, '(+' + held + ' more in the last 30 s)');
+  else console.warn('[AUTH] ' + what + ':', msg);
+}
 
 /* Resolve the Solana wallet behind a Privy login.
  *
@@ -301,7 +319,8 @@ const WALLET_CACHE_MS = 10 * 60 * 1000;
  * carries the linked accounts with it and is not rate limited; the access token is the
  * fallback, since identity tokens have to be switched on for the app and an older
  * cached login only has the access one. */
-async function walletFromIdToken(accessToken, identityToken) {
+/* opts.holdMiss: answer a wallet-less account from _noWalletAt for a minute instead of asking Privy again. */
+async function walletFromIdToken(accessToken, identityToken, opts) {
   if (!privyServer) return { wallet: null, reason: 'privy-not-configured' };
   if (!accessToken && !identityToken) return { wallet: null, reason: 'no-token' };
 
@@ -324,7 +343,7 @@ async function walletFromIdToken(accessToken, identityToken) {
       // Fall through to the access token rather than failing here: an identity token
       // is only present when the app has them enabled, and a stale one is not a reason
       // to reject a login that is otherwise good.
-      console.warn('[AUTH] identity token rejected:', e.message);
+      authWarn('identity token rejected', e);
     }
   }
 
@@ -337,18 +356,26 @@ async function walletFromIdToken(accessToken, identityToken) {
   try {
     claims = await privyServer.verifyAuthToken(bearer);        // local JWT check
   } catch (e) {
-    console.warn('[AUTH] access token rejected:', e.message);
+    authWarn('access token rejected', e);
     return { wallet: null, reason: accessToken ? 'bad-token' : 'bad-identity-token' };
   }
   const hit = _walletForUser.get(claims.userId);
   if (hit && Date.now() - hit.at < WALLET_CACHE_MS) return { wallet: hit.wallet, reason: 'ok' };
+  const missAt = opts && opts.holdMiss ? _noWalletAt.get(claims.userId) : 0;
+  if (missAt && Date.now() - missAt < NO_WALLET_HOLD_MS) return { wallet: null, reason: 'no-solana-wallet' };
   try {
     const wallet = solanaOf(await privyServer.getUser(claims.userId));
-    if (!wallet) return { wallet: null, reason: 'no-solana-wallet' };
+    if (!wallet) {
+      _noWalletAt.delete(claims.userId);   // re-set, so the Map stays oldest first
+      _noWalletAt.set(claims.userId, Date.now());
+      if (_noWalletAt.size > 5000) _noWalletAt.delete(_noWalletAt.keys().next().value);
+      return { wallet: null, reason: 'no-solana-wallet' };
+    }
+    _noWalletAt.delete(claims.userId);
     _walletForUser.set(claims.userId, { wallet, at: Date.now() });
     return { wallet, reason: 'ok' };
   } catch (e) {
-    console.warn('[AUTH] getUser failed:', e.message);
+    authWarn('getUser failed', e);
     return { wallet: null, reason: 'privy-lookup-failed' };
   }
 }
@@ -363,7 +390,7 @@ function tokensFrom(req) {
 }
 async function isOwnerToken(idToken) {
   if (!idToken || typeof idToken !== 'string') return false;   // the client's: a token is text
-  const { wallet } = await walletFromIdToken(idToken, null);
+  const { wallet } = await walletFromIdToken(idToken, null, { holdMiss: true });
   return !!wallet && OWNER_WALLETS.has(wallet);
 }
 /* An owner-signed action, or null. The signature is checked first because it
@@ -5414,7 +5441,11 @@ io.on('connection', (socket) => {
 
   on('ping_check', () => socket.emit('pong_check'));
 
+  /* The owner's typed 'bot N' in the game's console (game.js), by hand. Once a second, before the token is even
+     looked at (night review 2026-10-29): anyone can send this, and each one was a token check, a log line and, for
+     a real wallet-less Privy account, a Privy REST call. */
   on('admin:spawnbot', async ({ count, idToken } = {}) => {
+    if (!socketRL(socket, 'spawnbot', 1000)) return;
     if (!(await isOwnerToken(idToken))) return;
     const n = Math.min(Math.max(1, parseInt(count) || 1), 10);
     const room = socket._room || gameRooms[REGION].free;
