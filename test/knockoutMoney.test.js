@@ -291,3 +291,85 @@ test('the winner closing the tab on the settling board still wins it (decided be
   assert.strictEqual(settled.length, 1);
   assert.strictEqual(settled[0].winnerId, 'A', 'paid to the side that won, not to the one who stayed');
 });
+
+/* ── a result already decided by the tape (night review 2026-10-29) ──────────
+   resolve() runs the whole turn up front and the tape plays for several seconds
+   before the hold. Once the tape has decided it, nobody leaving in those seconds
+   may change who is paid: the board settles it, with both seats present. */
+function decidedReveal(draw) {
+  const { lob, settled, refunds } = lobby();
+  lob.enqueue(sock('A'), 'Ann', 'WA', 1, 1);
+  lob.enqueue(sock('B'), 'Bob', 'WB', 1, 1);
+  const room = lob.roomOf('A');
+  room.start(1000);
+  for (let i = 0; i < 4; i++) room.tick(1000 + KO.COUNTDOWN_MS);
+  // One piece each, sat on the edge and fired straight off it.
+  const off = (id, dir) => {
+    const [p, q] = room.piecesOf(id);
+    q.alive = false;
+    p.x = dir * (room.arenaR - KO.PIECE_R); p.y = 0;
+    room.submitAim(id, [{ pieceId: p.id, ax: dir * KO.MAX_PULL, ay: 0 }]);
+  };
+  off('B', 1);
+  if (draw) off('A', -1);
+  room.tick(1000 + KO.COUNTDOWN_MS + KO.AIM_MS);
+  assert.strictEqual(room.state, 'resolving', 'the tape is still playing');
+  assert.ok(room.decided(), 'and it has already decided the match');
+  return { lob, settled, refunds, room };
+}
+
+test('the winner dropping while the deciding tape plays is still paid, not the player knocked off', () => {
+  const { lob, settled, refunds, room } = decidedReveal(false);
+  assert.strictEqual(room.piecesOf('B').length, 0, 'B went off the disc');
+  lob.leave('A');                                  // the tab closing and the socket dropping both route here
+  assert.strictEqual(refunds.length, 0);
+  assert.strictEqual(settled.length, 1);
+  assert.strictEqual(settled[0].winnerId, 'A', 'paid to the side the tape says won');
+  assert.strictEqual(settled[0].why, 'last one standing');
+  assert.deepStrictEqual(settled[0].seats.map(s => s.wallet).sort(), ['WA', 'WB'], 'both seats present when it settled');
+  assert.strictEqual(room.state, 'over');
+});
+
+test('the loser leaving during the deciding tape pays the same winner', () => {
+  const { lob, settled } = decidedReveal(false);
+  lob.leave('B');
+  assert.strictEqual(settled.length, 1);
+  assert.strictEqual(settled[0].winnerId, 'A');
+  assert.strictEqual(settled[0].why, 'last one standing');
+});
+
+test('a draw tape is still each seat its own stake back when one of them drops during it', () => {
+  /* Before: whoever stayed took the whole pot less the cut. */
+  const { lob, settled, room } = decidedReveal(true);
+  assert.strictEqual(room.piecesOf('A').length + room.piecesOf('B').length, 0, 'both went off');
+  lob.leave('B');
+  assert.strictEqual(settled.length, 1);
+  assert.strictEqual(settled[0].winnerId, null, 'nobody won it');
+  assert.strictEqual(settled[0].why, 'everyone went off');
+  assert.strictEqual(settled[0].seats.length, 2, 'both seats are there to be refunded');
+  for (const s of settled[0].seats) assert.strictEqual(s.refund, 1);
+});
+
+test('both held seats running out during a deciding tape settle it by the tape too', () => {
+  const { settled, room } = decidedReveal(false);
+  room.bothGone();
+  assert.strictEqual(settled.length, 1);
+  assert.strictEqual(settled[0].winnerId, 'A');
+  assert.strictEqual(settled[0].why, 'last one standing');
+});
+
+test('leaving during a reveal that decided nothing is still a forfeit', () => {
+  const { lob, settled } = lobby();
+  lob.enqueue(sock('A'), 'Ann', 'WA', 1, 1);
+  lob.enqueue(sock('B'), 'Bob', 'WB', 1, 1);
+  const room = lob.roomOf('A');
+  room.start(1000);
+  for (let i = 0; i < 4; i++) room.tick(1000 + KO.COUNTDOWN_MS);
+  room.tick(1000 + KO.COUNTDOWN_MS + KO.AIM_MS);   // nobody aimed: everything stays on
+  assert.strictEqual(room.state, 'resolving');
+  assert.ok(!room.decided());
+  lob.leave('A');
+  assert.strictEqual(settled.length, 1);
+  assert.strictEqual(settled[0].winnerId, 'B', 'walking out of a live match is still walking out');
+  assert.strictEqual(settled[0].why, 'opponent left');
+});

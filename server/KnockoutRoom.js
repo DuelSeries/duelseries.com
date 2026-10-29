@@ -259,8 +259,11 @@ class KnockoutRoom {
     /* Leaving while the result sits on the board (settling): it is already decided, so it is settled as decided,
        with both seats still present, before the leaver is taken off. Otherwise the forfeit below would hand the
        table to whoever stayed, which is the LOSER whenever the winner closes the tab on the result (Fable review
-       2026-10-27). */
-    if (this.state === 'settling') this.decideNow();
+       2026-10-27). The same goes for a reveal whose tape has already decided it (resolving, decided): the pieces are
+       where the tape left them, so a winner whose phone blinks while it plays is still paid, and a draw is still each
+       seat its own stake back, never the pot to whoever stayed (night review 2026-10-29). Only Knockout itself uses
+       'resolving'; an undecided reveal is still the forfeit below. */
+    if (this.state === 'settling' || (this.state === 'resolving' && this.decided())) this.decideNow();
     this.players.delete(socketId);
     /* Somebody walking out ends it. The alternative is the person still here
        staring at a fifteen second timer for an opponent who will never move. */
@@ -328,7 +331,10 @@ class KnockoutRoom {
      is a draw, each seat its own stake back. A game whose result can still be read off what was sent overrides it. */
   bothGone() {
     if (this.state === 'over') return;
-    if (this.state === 'settling') { this.decideNow(); if (this.state === 'over') return; }
+    /* A decided reveal counts as decided here too, as in removePlayer (night review 2026-10-29). */
+    if (this.state === 'settling' || (this.state === 'resolving' && this.decided())) {
+      this.decideNow(); if (this.state === 'over') return;
+    }
     this.finish(null, 'both out');
   }
 
