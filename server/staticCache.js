@@ -62,13 +62,47 @@ function revalidates(p) {
   return ASSET_DIR.test(p) || ROOT_ASSET.test(p);
 }
 
-/* The file express.static would look for, as one spelling: decoded, separators and dot segments resolved, no
-   trailing slash, lower-cased. null for a path that does not decode (serve-static refuses it with a 400). For
-   matching a file the live site must not serve, however the URL spells it. */
-function staticName(pathname) {
+const UP_PATH = /(?:^|[\\/])\.\.(?:[\\/]|$)/;          // send's own dot-dot test
+
+/* What express.static (send) does with a path before it opens a file, step for step: decode it (400 if it does not
+   decode), refuse a NUL (400), resolve the dot segments with the path rules of the box it runs on, refuse anything
+   that still climbs out of the root (403). As one spelling: '/'-separated, no trailing slash, case kept. null when
+   send would open nothing. Night review 2026-10-29: the old one-spelling version always read a backslash as a
+   separator, which Linux (the live box) does not, so /a/x\y/../../img/logo-source.png named another file than the
+   one Linux serves for it. */
+function resolveAs(pathname, flavor) {
   let p;
   try { p = decodeURIComponent(String(pathname == null ? '' : pathname)); } catch (_) { return null; }
-  return path.posix.normalize('/' + p.replace(/\\/g, '/')).replace(/\/+$/, '').toLowerCase();
+  if (p.includes('\0')) return null;
+  let rel = p ? flavor.normalize('.' + flavor.sep + p) : '';
+  if (UP_PATH.test(rel)) return null;
+  if (rel === '.' || rel === '.' + flavor.sep) rel = '';
+  return ('/' + rel.split(flavor.sep).join('/')).replace(/\/+$/, '');
+}
+
+/* Every file express.static could open for this path: as Linux resolves it and as Windows (where a backslash is a
+   separator too) does, lower-cased, the ones it would refuse left out. For matching a file the live site must not
+   serve, however the URL spells it: it is that file if ANY of them is. */
+function staticNames(pathname) {
+  const out = [];
+  for (const flavor of [path.posix, path.win32]) {
+    const n = resolveAs(pathname, flavor);
+    if (n !== null && !out.includes(n.toLowerCase())) out.push(n.toLowerCase());
+  }
+  return out;
+}
+
+/* An /api call that express.static cannot turn into a file: sent as /api/..., and every way send could resolve it
+   (Linux and Windows rules, as above) stays under /api/, where public/ has no folder. Night review 2026-10-29: the
+   byte budget used to skip anything whose RAW path started /api/, and send resolves dot segments, so
+   /api/%2e%2e/wallet/widget.js (or /api/../wallet/widget.js) was the 5 MB widget with no meter and no gate. */
+function apiOnly(pathname) {
+  if (typeof pathname !== 'string' || !pathname.startsWith('/api/')) return false;
+  for (const flavor of [path.posix, path.win32]) {
+    const n = resolveAs(pathname, flavor);
+    if (n === null || !n.startsWith('/api/')) return false;
+  }
+  return true;
 }
 
 function cacheControl(req, res, next) {
@@ -79,7 +113,6 @@ function cacheControl(req, res, next) {
 // ── 2. Precompressed text assets ─────────────────────────────────────────────────────────────────────────────────
 
 const TEXT_EXT = new Set(['.js', '.mjs', '.css', '.json', '.svg', '.html', '.htm', '.txt', '.webmanifest']);
-const UP_PATH = /(?:^|[\\/])\.\.(?:[\\/]|$)/;          // send's own dot-dot test
 const brotli = promisify(zlib.brotliCompress);
 const gzip = promisify(zlib.gzip);
 
@@ -215,6 +248,43 @@ function budgetMbFrom(env) {
   return Number.isInteger(n) && n >= 0 ? n : DEFAULT_BUDGET_MB;
 }
 
+/* One address is one key; an IPv6 client is its /56, as express-rate-limit keys it, so a fresh address from the
+   same block is not a fresh budget. nginx itself (loopback / private peer with no forwarded address) and local
+   tests are null: never metered or capped. Shared with the /ingest relay's in-flight cap (server/ingestProxy.js). */
+function addressKey(req) {
+  const ip = bareIp(req.ip || (req.socket && req.socket.remoteAddress) || '');
+  if (!ip || isTrustedPeer(ip)) return null;
+  return ipKeyGenerator(ip);
+}
+
+/* Runs fn once this request is over for good: its answer closed (sent, or the client left) or its connection
+   closed. Returns a function that takes fn back off, or null when the connection is already gone (fn is then
+   never called). Night review 2026-10-29: NOT the request's own 'close'. Since Node 16 that fires as soon as its
+   body has been read, and express.json() (above the budget in server/index.js) reads the body of a GET sent with
+   Content-Type: application/json, so a turn ended while its file was still going out: 30 such GETs of the widget
+   were all answered at once (144 MB against a 20 MB budget). The connection's 'close' is the one that tells a
+   pipelined request whose connection dropped before its answer started: that answer never closes (measured on
+   Node 24), and its request may have closed long before. One listener per connection, however many of its
+   requests are waiting. */
+const closers = new WeakMap();                  // socket -> Set of fn to run when it closes
+function whenGone(req, res, fn) {
+  const sock = req.socket || null;
+  if (res.destroyed || (sock && sock.destroyed)) return null;
+  res.on('close', fn);
+  let set = null;
+  if (sock) {
+    set = closers.get(sock);
+    if (!set) {
+      const fresh = new Set();
+      closers.set(sock, fresh);
+      sock.once('close', () => { closers.delete(sock); for (const f of [...fresh]) f(); });
+      set = fresh;
+    }
+    set.add(fn);
+  }
+  return () => { res.removeListener('close', fn); if (set) set.delete(fn); };
+}
+
 function byteBudget(opts = {}) {
   // opts.maxBytes (tests) or opts.maxMb (STATIC_BUDGET_MB through budgetMbFrom).
   const maxBytes = opts.maxBytes !== undefined ? opts.maxBytes
@@ -229,14 +299,7 @@ function byteBudget(opts = {}) {
   const busy = new Map();                     // key -> { active, waiting: [entry], told }, only while it has requests
   const on = maxBytes > 0;
 
-  /* One address is one key; an IPv6 client is its /56, as express-rate-limit keys it, so a fresh address from the
-     same block is not a fresh budget. nginx itself (loopback / private peer with no forwarded address) and local
-     tests are never metered. */
-  function keyOf(req) {
-    const ip = bareIp(req.ip || (req.socket && req.socket.remoteAddress) || '');
-    if (!ip || isTrustedPeer(ip)) return null;
-    return ipKeyGenerator(ip);
-  }
+  const keyOf = addressKey;                   // see addressKey above
   function slot(key) {
     const t = now();
     let b = seen.get(key);
@@ -306,21 +369,23 @@ function byteBudget(opts = {}) {
   function admit(key, req, res, go) {
     let q = busy.get(key);
     if (!q) { q = { active: 0, waiting: [], told: false }; busy.set(key, q); }
-    /* The turn ends on whichever 'close' comes first: the answer's (sent, or the client left), or the request's,
-       which is the only one Node emits for a pipelined request whose connection dropped before its turn to answer. */
+    /* A turn ends when the request is over for good (whenGone above: its answer closed, or its connection did),
+       never on the request's own 'close' (night review 2026-10-29). */
     const start = () => {
       if (over(req)) { forget(key, q); return refuse(req, res); }
       q.active++;
       let done = false;
+      let off = null;
       const end = () => {
         if (done) return;
         done = true;
+        if (off) off();
         q.active--;
         while (q.active < maxActive && q.waiting.length) q.waiting.shift().start();
         forget(key, q);
       };
-      res.on('close', end);
-      req.on('close', end);
+      off = whenGone(req, res, end);
+      if (!off) return end();                 // the client already left: nothing to answer
       go();
     };
     if (q.active < maxActive && !q.waiting.length) return start();
@@ -332,24 +397,26 @@ function byteBudget(opts = {}) {
       forget(key, q);
       return refuse(req, res, 5);
     }
-    const entry = { start };
-    q.waiting.push(entry);
+    const entry = {};
     const gone = () => {                      // the client left while it waited: never started, drop it
       const i = q.waiting.indexOf(entry);
       if (i >= 0) q.waiting.splice(i, 1);
       forget(key, q);
     };
-    res.on('close', gone);
-    req.on('close', gone);
+    const offGone = whenGone(req, res, gone);
+    if (!offGone) return forget(key, q);
+    entry.start = () => { offGone(); start(); };
+    q.waiting.push(entry);
   }
   function forget(key, q) {
     if (q.active === 0 && !q.waiting.length && busy.get(key) === q) busy.delete(key);
   }
 
-  /* Pages and files only: /api has its own limiters and is never counted here. A full download (a GET answered
-     200 or 206) counts the bytes written; a 304, a HEAD or an error counts nothing. */
+  /* Pages and files only: /api has its own limiters and is never counted here, but only a path that stays under
+     /api/ however express.static resolves it (apiOnly above, night review 2026-10-29). A full download (a GET
+     answered 200 or 206) counts the bytes written; a 304, a HEAD or an error counts nothing. */
   function middleware(req, res, next) {
-    if (!on || (req.method !== 'GET' && req.method !== 'HEAD') || req.path.startsWith('/api/')) return next();
+    if (!on || (req.method !== 'GET' && req.method !== 'HEAD') || apiOnly(req.path)) return next();
     const key = keyOf(req);
     if (!key) return next();
     if (over(req)) return refuse(req, res);
@@ -366,5 +433,5 @@ function byteBudget(opts = {}) {
     size: () => seen.size, inFlight: () => busy.size, stop: () => clearInterval(sweep) };
 }
 
-module.exports = { revalidates, cacheControl, staticName, pickEncoding, statTag, precompressed, byteBudget, budgetMbFrom,
-  DEFAULT_BUDGET_MB, DEFAULT_WINDOW_MS, TEXT_EXT };
+module.exports = { revalidates, cacheControl, resolveAs, staticNames, apiOnly, addressKey, whenGone, pickEncoding,
+  statTag, precompressed, byteBudget, budgetMbFrom, DEFAULT_BUDGET_MB, DEFAULT_WINDOW_MS, TEXT_EXT };

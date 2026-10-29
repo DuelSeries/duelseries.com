@@ -45,7 +45,7 @@ const { isWalletString } = require('./b58Caps');     // a client address is a ke
 const Swap = require('./swap');                      // SOL <-> USDC in the player's own wallet
 const { TRUST_PROXY } = require('./clientAddr');     // X-Forwarded-For only from nginx (loopback / private)
 const { securityHeaders } = require('./securityHeaders');
-const { cacheControl, precompressed, byteBudget, budgetMbFrom, staticName } = require('./staticCache'); // static: no-cache + ETag, br/gzip, bytes per address
+const { cacheControl, precompressed, byteBudget, budgetMbFrom, staticNames } = require('./staticCache'); // static: no-cache + ETag, br/gzip, bytes per address
 const { ingestProxy } = require('./ingestProxy');    // the PostHog relay, credentials stripped
 const { liveCache } = require('./liveCache');        // /api/live's JSON, shared while busy
 const ops       = require('./ops');       // maintenance mode
@@ -2509,15 +2509,17 @@ slGate.slRoutes(app, {
    and above express.static, which would otherwise hand them out. */
 /* /img/logo-source.png is the 2 MB artwork scripts/make-icons.js cuts the icons
    from, build input only: no page uses it, so the live site no longer hands it to
-   a download loop. Matched by what express.static would resolve (staticName), not
+   a download loop. Matched by what express.static would resolve (staticNames), not
    one exact path, since /img/logo-source%2Epng or //img/./logo-source.png reach the
-   same file past an app.get (night review 2026-10-29). It stays on disk for the script. */
+   same file past an app.get (night review 2026-10-29). staticNames resolves it as
+   send does on Linux and on Windows, so a backslash spelling can't slip past either
+   (night review 2026-10-29). It stays on disk for the script. */
 const DEV_ONLY_PAGES = ['/admin.html', '/dev-bake-tiles.html', '/dev-soundcheck.html',
   '/dev-tankart.html', '/preview_snake.html', '/img/logo-source.png'];
 if (process.env.NODE_ENV === 'production') {
   const devOnly = new Set(DEV_ONLY_PAGES);
   app.use((req, res, next) => {
-    if ((req.method !== 'GET' && req.method !== 'HEAD') || !devOnly.has(staticName(req.path))) return next();
+    if ((req.method !== 'GET' && req.method !== 'HEAD') || !staticNames(req.path).some((n) => devOnly.has(n))) return next();
     res.status(404).sendFile(path.join(__dirname, '../public/404.html'));
   });
 }

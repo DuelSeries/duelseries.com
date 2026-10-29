@@ -12,11 +12,12 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const http = require('http');
+const net = require('net');
 const zlib = require('zlib');
 const express = require('express');
 
-const { revalidates, cacheControl, staticName, pickEncoding, statTag, precompressed, byteBudget, budgetMbFrom,
-  DEFAULT_BUDGET_MB } = require('../server/staticCache');
+const { revalidates, cacheControl, staticNames, apiOnly, resolveAs, pickEncoding, statTag, precompressed, byteBudget,
+  budgetMbFrom, DEFAULT_BUDGET_MB } = require('../server/staticCache');
 const { TRUST_PROXY } = require('../server/clientAddr');
 
 const ROOT = path.join(__dirname, '..');
@@ -504,12 +505,153 @@ test('an honest page load\'s many parallel requests all answer; past the waiting
 test('the live site refuses the 2 MB logo artwork by every spelling; it stays on disk for make-icons', () => {
   const s = src();
   assert.match(s, /const DEV_ONLY_PAGES = \[[^\]]*'\/img\/logo-source\.png'\]/, 'listed with the dev-only pages');
-  assert.match(s, /devOnly\.has\(staticName\(req\.path\)\)/, 'matched by what express.static would resolve');
+  assert.match(s, /staticNames\(req\.path\)\.some\(\(n\) => devOnly\.has\(n\)\)/, 'matched by what express.static would resolve');
   for (const p of ['/img/logo-source.png', '/img/logo-source%2Epng', '//img/./logo-source.png', '/img/x/../logo-source.png',
-    '/IMG/Logo-Source.PNG', '/img\\logo-source.png', '/img/logo-source.png/']) {
-    assert.strictEqual(staticName(p), '/img/logo-source.png', p);
+    '/IMG/Logo-Source.PNG', '/img\\logo-source.png', '/img/logo-source.png/', '/img%5clogo-source.png',
+    // Night review 2026-10-29: Linux reads x\y as one name, so this is img/logo-source.png there (and a/img/... on
+    // Windows); the old one-spelling version said /a/img/logo-source.png and let it through.
+    '/a/x\\y/../../img/logo-source.png']) {
+    assert.ok(staticNames(p).includes('/img/logo-source.png'), p + ' -> ' + JSON.stringify(staticNames(p)));
   }
-  assert.strictEqual(staticName('/img/%E0%A4%A'), null, 'a path that does not decode is not the file');
-  assert.notStrictEqual(staticName('/img/logo-source.png.bak'), '/img/logo-source.png');
+  assert.deepStrictEqual(staticNames('/img/%E0%A4%A'), [], 'a path that does not decode is no file');
+  assert.deepStrictEqual(staticNames('/img/%00/logo-source.png'), [], 'nor one with a NUL (send: 400)');
+  assert.ok(!staticNames('/img/logo-source.png.bak').includes('/img/logo-source.png'));
   assert.ok(fs.existsSync(path.join(ROOT, 'public/img/logo-source.png')), 'still on disk');
+});
+
+// ── 5. Night review 2026-10-29, second re-review ─────────────────────────────────────────────────────────────────
+
+test('resolveAs: what send opens for a path, by Linux and by Windows rules', () => {
+  const B = '\\';
+  assert.strictEqual(resolveAs('/api/%2e%2e/wallet/widget.js', path.posix), '/wallet/widget.js');
+  assert.strictEqual(resolveAs('/api/../wallet/widget.js', path.posix), '/wallet/widget.js');
+  assert.strictEqual(resolveAs('/js/a.js', path.win32), '/js/a.js');
+  assert.strictEqual(resolveAs('/../x', path.posix), null, 'climbs out of the root: send says 403');
+  assert.strictEqual(resolveAs('/api/..' + B + 'x', path.posix), null, 'a dot-dot next to a backslash: 403 on Linux');
+  assert.strictEqual(resolveAs('/api/..' + B + 'x', path.win32), '/x', 'but a separator on Windows');
+  assert.strictEqual(resolveAs('/api/x' + B + 'y/../../wallet/widget.js', path.posix), '/wallet/widget.js');
+  assert.strictEqual(resolveAs('/api/x' + B + 'y/../../wallet/widget.js', path.win32), '/api/wallet/widget.js');
+  assert.strictEqual(resolveAs('/', path.posix), '');
+  assert.strictEqual(resolveAs('/%E0%A4%A', path.posix), null);
+});
+
+test('only a path that stays under /api/ however express.static resolves it skips the byte budget', () => {
+  for (const p of ['/api/live', '/api/live/', '/api/stats/a%2Fb', '/api/player/Some%20Name', '/api/x/./y', '/api/x/../y',
+    '/api/a' + '\\' + 'b']) {
+    assert.strictEqual(apiOnly(p), true, p);
+  }
+  for (const p of ['/api/%2e%2e/wallet/widget.js', '/api/../wallet/widget.js', '/api/x/%2E%2E/%2e%2e/wallet/widget.js',
+    '/api/%2E%2E%2Fwallet%2Fwidget.js', '/api/..%5cwallet/widget.js', '/api/x' + '\\' + 'y/../../wallet/widget.js',
+    '/api/..' + '\\' + 'wallet/widget.js', '/api/', '/api', '/apix/y', '/wallet/widget.js', '/API/live', '/api/%E0%A4%A',
+    '/api/a%00b', '/%61pi/live', null, undefined, 7]) {
+    assert.strictEqual(apiOnly(p), false, String(p));
+  }
+  assert.ok(!fs.existsSync(path.join(ROOT, 'public/api')), 'public/ has no api folder for a skipped path to reach');
+});
+
+/* An app shaped like server/index.js around the budget: express.json() first (it reads a GET's JSON body), an /api
+   route, then the meter, then express.static. */
+async function budgetApp(t, budget, dir, extra) {
+  const app = express();
+  app.set('trust proxy', TRUST_PROXY);
+  app.use(express.json());
+  app.get('/api/thing', (_req, res) => res.json({ ok: true }));
+  app.use(cacheControl);
+  app.use(budget.middleware);
+  if (extra) extra(app);
+  app.use(express.static(dir));
+  const server = await listen(app);
+  t.after(() => server.close());
+  return server.address().port;
+}
+
+function send(port, target, headers = {}, body) {
+  return new Promise((resolve, reject) => {
+    const h = { ...headers };
+    if (body !== undefined) h['Content-Length'] = String(Buffer.byteLength(body));
+    const r = http.request({ host: '127.0.0.1', port, path: target, method: 'GET', headers: h }, (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) }));
+    });
+    r.on('error', reject);
+    r.end(body);
+  });
+}
+
+test('a file reached through /api/.. is metered like the file: an address past its budget gets a 429', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ds-apidots-'));
+  fs.mkdirSync(path.join(dir, 'wallet'));
+  const file = Buffer.alloc(300 * 1024, 5);
+  fs.writeFileSync(path.join(dir, 'wallet', 'widget.png'), file);
+  const budget = byteBudget({ maxBytes: file.length, windowMs: 600000, log: () => {} });
+  t.after(() => budget.stop());
+  const port = await budgetApp(t, budget, dir);
+  const A = { 'X-Forwarded-For': '203.0.113.120' };
+  assert.strictEqual((await send(port, '/wallet/widget.png', A)).status, 200);
+  assert.strictEqual((await send(port, '/wallet/widget.png', A)).status, 429, 'the budget is used up');
+  for (const p of ['/api/%2e%2e/wallet/widget.png', '/api/../wallet/widget.png', '/api/x/%2E%2E/%2e%2e/wallet/widget.png',
+    '/api/%2e%2e%2fwallet%2fwidget.png']) {
+    const r = await send(port, p, A);
+    assert.strictEqual(r.status, 429, p + ' was ' + r.status + ' (' + r.body.length + ' bytes)');
+  }
+  assert.strictEqual((await send(port, '/api/thing', A)).status, 200, 'a real /api call still skips the budget');
+  // The same spelling from a fresh address is the file itself, so the test is not passing on a 404.
+  const fresh = await send(port, '/api/%2e%2e/wallet/widget.png', { 'X-Forwarded-For': '198.51.100.120' });
+  assert.strictEqual(fresh.status, 200);
+  assert.strictEqual(fresh.body.length, file.length);
+  await until(() => budget.inFlight() === 0);
+});
+
+test('a burst of GETs sent with a JSON body cannot pass the budget together (their turn ends with the answer)', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ds-jsonburst-'));
+  const file = Buffer.alloc(2 * 1024 * 1024, 9);
+  fs.writeFileSync(path.join(dir, 'widget.png'), file);
+  const budget = byteBudget({ maxBytes: file.length * 2, windowMs: 600000, log: () => {} });
+  t.after(() => budget.stop());
+  const port = await budgetApp(t, budget, dir);
+  for (const [ip, type, body] of [['203.0.113.121', 'application/json', '{}'], ['203.0.113.122', 'text/plain', 'x']]) {
+    const all = await Promise.all(Array.from({ length: 30 }, () =>
+      send(port, '/widget.png', { 'X-Forwarded-For': ip, 'Content-Type': type }, body)));
+    const ok = all.filter((r) => r.status === 200);
+    assert.strictEqual(ok.length + all.filter((r) => r.status === 429).length, 30, type);
+    for (const r of ok) assert.strictEqual(r.body.length, file.length, 'a download that starts is whole');
+    // Before the fix: 30 of 30 with a JSON body (express.json read it, the request's 'close' ended the turn).
+    assert.ok(ok.length <= 2 + budget.maxActive, type + ': ' + ok.length + ' full downloads against a 2-file budget');
+    await until(() => budget.inFlight() === 0);
+  }
+});
+
+test('a JSON-body GET waiting its turn is answered, and a dropped pipelined connection frees every turn it held', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ds-pipe-'));
+  const tight = byteBudget({ maxBytes: 1e9, windowMs: 600000, maxActive: 1, maxWaiting: 4, log: () => {} });
+  t.after(() => tight.stop());
+  let ran = 0;
+  const port = await budgetApp(t, tight, dir, (app) => {
+    app.get('/slow.html', (_req, res) => { ran++; setTimeout(() => res.send('ok'), 80); });
+  });
+  const A = { 'X-Forwarded-For': '203.0.113.123', 'Content-Type': 'application/json' };
+
+  // Three at once on three connections, one answered at a time: each waits its turn and is answered (before the
+  // fix a waiting one was dropped as gone when express.json read its body, and never answered).
+  const three = await Promise.all(Array.from({ length: 3 }, () => send(port, '/slow.html', A, '{}')));
+  assert.deepStrictEqual(three.map((r) => r.status), [200, 200, 200]);
+  assert.strictEqual(ran, 3);
+  await until(() => tight.inFlight() === 0);
+
+  // Three pipelined on one connection with JSON bodies, and the connection drops while the first is answered:
+  // Node never closes the answers of the two behind it, and their requests closed when their bodies were read,
+  // so only the connection's 'close' can end their turns.
+  ran = 0;
+  const one = 'GET /slow.html HTTP/1.1\r\nHost: x\r\nX-Forwarded-For: 203.0.113.123\r\n'
+    + 'Content-Type: application/json\r\nContent-Length: 2\r\n\r\n{}';
+  const sock = net.connect(port, '127.0.0.1');
+  sock.on('error', () => {});
+  await new Promise((r) => sock.once('connect', r));
+  sock.write(one + one + one);
+  await until(() => ran === 1);
+  sock.destroy();
+  await until(() => tight.inFlight() === 0);
+  const after = await send(port, '/slow.html', A, '{}');
+  assert.strictEqual(after.status, 200, 'the address is not left holding a turn');
 });
