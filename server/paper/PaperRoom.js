@@ -17,6 +17,10 @@ const TRIM_ON = true;
 const REQUIRED_HOOKS = ['onCashout', 'onTransfer', 'onRefund', 'onSweep', 'onBreach'];
 const IN_RATE_MAX = 120; // pp:in per second per seat; more are ignored (6.2)
 const WATCHERS_MAX = 50; // read-only spectators per arena (the lobby's Spectate); one more is told 'full'
+// A paid arena (night review 2026-10-29): how long a watcher whose square died is shown around its killer, as its page's
+// camera glides there before following the next square (paperMirror FOLLOW_AFTER_KILL_MS 2000, with room to spare).
+const DEATH_VIEW_TICKS = Math.round(10000 / MP.STEP_MS);
+const NO_MEMBERS = new Set();
 let roomSeq = 0; // makes every arena's socket.io room name unique for the process
 const monotonicNow = () => performance.now();
 
@@ -135,8 +139,19 @@ class PaperRoom {
     this.wire = new ArenaWire(this.game, {
       queue: (e) => this.pending.push(e),
       microOf: (id) => this.bank.balance(id),
-      holdingOf: (u) => !!(u.isHuman && u.locked)
+      holdingOf: (u) => !!(u.isHuman && u.locked),
+      cull: this.paid
     });
+    // A paid arena sends each page only what is around its camera (night review 2026-10-29, finding 16; ArenaWire
+    // cull): the page's own square, the square it watches, or after a death the killer its camera glides to.
+    // views: socketId -> Map unit id -> { epoch, sent }, the reliable trail corners that page holds (trailsFor).
+    // watchFollow: a watcher's socketId -> the unit id its page follows (addWatcher, then pp:follow).
+    // deadViews: a dead seat's socketId -> { killer, x, y }, where its page's camera stays (the seat is gone).
+    // deaths: unit id -> { killer, x, y, tick } for DEATH_VIEW_TICKS, for a watcher whose square just died.
+    this.views = new Map();
+    this.watchFollow = new Map();
+    this.deadViews = new Map();
+    this.deaths = new Map();
   }
 
   // ---------------------------------------------------------------------------------------
@@ -274,7 +289,7 @@ class PaperRoom {
   }
 
   joinedPayload(seat, resumed) {
-    const w = this.wire.joinPayload();
+    const w = this._statePayload(seat.socketId, { x: seat.unit.position.x, y: seat.unit.position.y, unit: seat.unit });
     return {
       you: seat.unit.id,
       arenaId: this.lobbyType,
@@ -300,20 +315,24 @@ class PaperRoom {
   // and gets the whole state at once. From then on it gets the same pp:s and pp:ev as every player, and nothing
   // else: no unit, no input, no money, no resumeKey. -> false when this arena takes no watcher (stopped, warming,
   // full); the caller answers for it. A paid arena takes watchers too (the lobby's Spectate on a paid rung): a watcher
-  // there is never a member, so no money path ever sees it.
+  // there is never a member, so no money path ever sees it, and like every page there it is sent only what is around
+  // the square it follows (night review 2026-10-29: _culledFrames, pp:follow).
   addWatcher(socket, after) {
     if (this.stopped || this.warming || !socket || !socket.id) return false;
     if (!this.watchers.has(socket.id) && this.watchers.size >= WATCHERS_MAX) return false;
     this._flushPending(); // to the members already here, never to the watcher
     this.watchers.set(socket.id, socket);
     socket.join(this.ioRoom);
-    socket.emit('pp:watching', MP.packBin(this.watchPayload(after)));
+    socket.emit('pp:watching', MP.packBin(this.watchPayload(after, socket.id)));
     return true;
   }
 
-  // pp:joined's state fields, minus you and resumeKey, plus the square to follow.
-  watchPayload(after) {
-    const w = this.wire.joinPayload();
+  // pp:joined's state fields, minus you and resumeKey, plus the square to follow. socketId: the watcher's, whose
+  // page follows that square from now on (a paid arena sends it what is around it).
+  watchPayload(after, socketId) {
+    const follow = this.followFor(after);
+    if (socketId) this.watchFollow.set(socketId, follow);
+    const w = this._statePayload(socketId, this._focusOn(follow));
     return {
       arenaId: this.lobbyType,
       stake: this.stake,
@@ -321,7 +340,7 @@ class PaperRoom {
       radius: w.radius,
       targetRadius: w.targetRadius,
       holdTicks: MP.HOLD_TICKS,
-      follow: this.followFor(after),
+      follow,
       units: w.units,
       pickups: this.bank.pickups().map((p) => ({ pid: p.pid, x: p.x, y: p.y, micro: p.micro })),
       rings: w.rings,
@@ -339,10 +358,23 @@ class PaperRoom {
     return live[i >= 0 ? (i + 1) % live.length : 0].id;
   }
 
+  // pp:follow { id } (night review 2026-10-29): the square a watcher's page follows now (its Spectate bar's previous
+  // and next, or the next square after one died). Only a watcher of this arena, only a square alive here; a paid
+  // arena then sends that page what is around it. -> true when taken.
+  followWatch(socketId, id) {
+    if (!this.watchers.has(socketId) || !Number.isInteger(id) || id < 1) return false;
+    const u = this.game.byId.get(id);
+    if (!u || u.death) return false;
+    this.watchFollow.set(socketId, id);
+    return true;
+  }
+
   removeWatcher(socketId) {
     const s = this.watchers.get(socketId);
     if (!s) return false;
     this.watchers.delete(socketId);
+    this.watchFollow.delete(socketId);
+    this.views.delete(socketId);
     try {
       s.leave(this.ioRoom);
     } catch (e) {
@@ -359,6 +391,8 @@ class PaperRoom {
     if (!this.watchers.size) return;
     for (const [id, s] of Array.from(this.watchers)) {
       this.watchers.delete(id);
+      this.watchFollow.delete(id);
+      this.views.delete(id);
       try {
         s.leave(this.ioRoom);
         if (s._ppWatch === this) s._ppWatch = null;
@@ -366,6 +400,88 @@ class PaperRoom {
       } catch (e) {
         console.error('[PAPER] watcher drop', e && e.message);
       }
+    }
+  }
+
+  // ---------------------------------------------------------------------------------------
+  // What each page of a paid arena is sent (night review 2026-10-29, finding 16; see ArenaWire cull)
+  // ---------------------------------------------------------------------------------------
+
+  // The state of pp:joined and pp:watching: the whole arena in a free one; in a paid one, positions and trails only
+  // for the squares around focus, and the page's trail record (views) starts from what it is given here.
+  _statePayload(socketId, focus) {
+    if (!this.wire.cull) return this.wire.joinPayload();
+    const held = new Map();
+    if (socketId) {
+      this.views.set(socketId, held);
+      this.deadViews.delete(socketId);
+    }
+    return this.wire.joinPayload(this.wire.seenBy(focus), held);
+  }
+
+  // Where a page's camera is: its own live square; the square it watches; after its square died, the killer its
+  // camera glides to (or where it died). null: nothing to show (a page that follows nobody, or a socket this arena
+  // does not know).
+  _focusOf(socketId) {
+    const seat = this.bySocket.get(socketId);
+    if (seat && !seat.unit.death) return { x: seat.unit.position.x, y: seat.unit.position.y, unit: seat.unit };
+    if (this.watchers.has(socketId)) return this._focusOn(this.watchFollow.get(socketId) || 0);
+    const d = this.deadViews.get(socketId);
+    return d ? this._afterDeath(d) : null;
+  }
+
+  _focusOn(id) {
+    const u = id ? this.game.byId.get(id) : null;
+    if (u && !u.death) return { x: u.position.x, y: u.position.y, unit: u };
+    const d = id ? this.deaths.get(id) : null;
+    return d ? this._afterDeath(d) : null;
+  }
+
+  // A dead square's page looks at its killer while the killer lives (the stock followKiller), else where it died.
+  _afterDeath(d) {
+    const k = d.killer && !d.killer.death && this.game.byId.get(d.killer.id) === d.killer ? d.killer : null;
+    if (k) return { x: k.position.x, y: k.position.y, unit: k };
+    return { x: d.x, y: d.y, unit: null };
+  }
+
+  // The socket ids in this arena's io room (socket.io's adapter; a test io without one: the sockets that joined).
+  _members() {
+    const nsp = this.io && this.io.sockets;
+    const rooms = nsp && nsp.adapter && nsp.adapter.rooms;
+    if (rooms && typeof rooms.get === 'function') return rooms.get(this.ioRoom) || NO_MEMBERS;
+    const out = new Set();
+    if (nsp && nsp.sockets && typeof nsp.sockets.values === 'function') {
+      for (const s of nsp.sockets.values()) if (s && s.rooms && s.rooms.has(this.ioRoom)) out.add(s.id);
+    }
+    return out;
+  }
+
+  // The paid snapshot: one frame per page, of what is around its camera, before the shared bundle (see _snapshot);
+  // the trail batches each page is owed follow it (_culledTrails). Records of pages that left are dropped here.
+  _culledFrames(pickups) {
+    const members = this._members();
+    const seen = new Map();
+    for (const id of members) {
+      const s = this.wire.seenBy(this._focusOf(id));
+      seen.set(id, s);
+      this.io.to(id).volatile.emit('pp:s', this.wire.frame(pickups, s));
+    }
+    for (const id of Array.from(this.views.keys())) if (!members.has(id)) this.views.delete(id);
+    for (const id of Array.from(this.deadViews.keys())) if (!members.has(id)) this.deadViews.delete(id);
+    const old = this.game.tick - DEATH_VIEW_TICKS;
+    for (const [id, d] of Array.from(this.deaths)) if (d.tick < old) this.deaths.delete(id);
+    return seen;
+  }
+
+  _culledTrails(seen) {
+    for (const [id, s] of seen) {
+      let held = this.views.get(id);
+      if (!held) {
+        held = new Map();
+        this.views.set(id, held);
+      }
+      const ev = this.wire.trailsFor(held, s);
+      if (ev.length) this.io.to(id).emit('pp:ev', MP.packBin({ tick: this.game.tick, ev }));
     }
   }
 
@@ -528,8 +644,9 @@ class PaperRoom {
     return this.game.removeHuman(id, reason);
   }
 
-  geo(id) {
-    return this.wire.geo(id);
+  // pp:need. socketId: the asker's; a paid arena answers trails only for the squares that page is sent.
+  geo(id, socketId) {
+    return this.wire.cull ? this.wire.geo(id, this.wire.seenBy(this._focusOf(socketId))) : this.wire.geo(id);
   }
 
   _forgetSeat(seat) {
@@ -545,6 +662,13 @@ class PaperRoom {
 
   onDeath(victim, killer, reason, at) {
     const seat = victim.isHuman ? this.seats.get(victim.id) : null;
+    if (this.wire.cull) {
+      // where the dead square's page, and the pages watching it, look now (_afterDeath)
+      const p = victim.position || at || this.game.border.center;
+      const d = { killer: killer && killer !== victim ? killer : null, x: p.x, y: p.y, tick: this.game.tick };
+      this.deaths.set(victim.id, d);
+      if (seat && seat.socketId) this.deadViews.set(seat.socketId, d);
+    }
     if (seat && !seat.exit) {
       seat.exit = reason === REASON.CASHOUT ? { outcome: 'cashedout', why: 'hold' }
         : reason === REASON.FORCED_EXIT ? { outcome: 'removed', why: 'forced' }
@@ -903,12 +1027,21 @@ class PaperRoom {
   // snapshot tick that had an event (13 of 30 frames a second arrived, live and local; night
   // queue item 3). A frame that lands just before its own tick's bundle is harmless: entries
   // apply by tick, and the version compare waits RESYNC_AFTER_MS before it asks for anything.
+  // A paid arena (night review 2026-10-29): one frame per page instead, then the shared bundle, then each page's own
+  // trail batches (behind the bundle, so a square's ['j'] is always ahead of its trail).
   _snapshot() {
+    let seen = null;
     if (this.io) {
-      const buf = this.wire.frame(this.bank.pickups().map((p) => ({ pid: p.pid, x: p.x, y: p.y, micro: p.micro })));
-      this.io.to(this.ioRoom).volatile.emit('pp:s', buf);
+      const pickups = this.bank.pickups().map((p) => ({ pid: p.pid, x: p.x, y: p.y, micro: p.micro }));
+      if (this.wire.cull) {
+        seen = this._culledFrames(pickups);
+      } else {
+        const buf = this.wire.frame(pickups);
+        this.io.to(this.ioRoom).volatile.emit('pp:s', buf);
+      }
     }
     this._flushPending();
+    if (seen) this._culledTrails(seen);
   }
 
   // ---------------------------------------------------------------------------------------

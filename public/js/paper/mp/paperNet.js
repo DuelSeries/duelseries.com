@@ -486,8 +486,28 @@
       var u = units[i];
       if (!u || typeof u !== 'object') continue;
       var n = blobCount(trails[i]);
-      this.recv.set(u.id, { ver: u.ver & 0xFFFF, epoch: u.epoch & 255, count: n > 0 ? n : 0 });
+      // hidden (a paid arena's square away from this page's view): no trail held, its first one comes from corner 0
+      this.recv.set(u.id, { ver: u.ver & 0xFFFF, epoch: u.hidden ? -1 : u.epoch & 255, count: n > 0 ? n : 0 });
     }
+  };
+
+  // A paid arena stopped sending this square (out of this page's view, night review 2026-10-29): its trail is no
+  // longer held (the mirror dropped it), and the server sends it again from corner 0 once it is back in view.
+  ArenaNet.prototype.forget = function (id) {
+    var h = this.recv.get(id);
+    if (h) {
+      h.epoch = -1;
+      h.count = 0;
+    }
+    this.mismatch.delete(id);
+  };
+
+  // Watch mode: the square this page follows now (pp:follow { id }), so a paid arena sends it what is around that
+  // square (night review 2026-10-29). Only while watching with no seat.
+  ArenaNet.prototype.follow = function (id) {
+    if (!this.watching || this.seated || !(id > 0) || !this.socket) return false;
+    this.socket.emit('pp:follow', { id: id | 0 });
+    return true;
   };
 
   // Watch mode's answer: the arena's whole state (pp:joined's, with no you and no resumeKey, plus `follow`, the

@@ -316,7 +316,8 @@ class PaperArenas {
   // the awake free arena #1 and its bots (keepAwake: it ticks anyway). A pure query: never seatFor, never a new arena,
   // and null when no arena of the rung has a player and none is awake (an arena ticks only while someone is seated or
   // it is awake, and watchers alone must never cost a tick). A watcher of a paid arena is read only exactly as on Free
-  // (PaperRoom.addWatcher): every player there is already sent the whole arena, so it learns nothing they do not.
+  // (PaperRoom.addWatcher), and is sent only what is around the square it follows, as each player is sent only what
+  // is around its own (night review 2026-10-29: ArenaWire cull).
   watchFor(stake) {
     const rung = rungOf(stake);
     if (rung === null || !this.arenas[keyOf(rung)]) return null;
