@@ -62,6 +62,10 @@
   // A SOL amount exactly as typed, up to the six places the form takes: the confirm step shows what is sent.
   const solPlain = sol => parseFloat((Number(sol) || 0).toFixed(9)) + ' SOL';
   const maxSendLamports = () => Math.max(0, solLamports() - KEEP_LAMPORTS - SEND_FEE_LAMPORTS);
+  /* Whether the wallet's SOL has been read at all (night review 2026-10-29, third pass). Unread (a busy moment on the
+     server's reads), Withdraw still opens and sends: the widget checks a fresh balance when it can, and the network
+     refuses more than the wallet has. A read balance is checked here exactly as before. */
+  const solKnown = () => typeof w().sol === 'number' && isFinite(w().sol);
   // Old USDC, in whole cents, in SOL mode only; a smaller dust figure would read $0.00 and is left alone.
   const usdcBal = () => (solMode() ? cents(w().usdc) : 0);
   const usdcOn = () => usdcBal() > 0;
@@ -624,8 +628,9 @@
           ? '<div class="v num">' + money(usdcBal()) + '<span class="cvu"> USDC</span></div>'
           : '<div class="v num">' + bigBal(w().balance) + '</div>') +
       '</div>' +
-      (as === 'sol' ? '<p class="note">You have ' + solTxt(solLamports()) + '. Keep ' + solTxt(KEEP_LAMPORTS) +
-        ' in your wallet for network fees.</p>' : '') +
+      (as !== 'sol' ? '' : solKnown() ? '<p class="note">You have ' + solTxt(solLamports()) + '. Keep ' + solTxt(KEEP_LAMPORTS) +
+        ' in your wallet for network fees.</p>'
+        : '<p class="note">Could not read your balance just now. You can still withdraw: the network refuses more than your wallet has.</p>') +
       asRow +
       linkChip() +
       '<input class="fld" id="co-to" placeholder="Solana address" autocomplete="off" ' +
@@ -635,7 +640,7 @@
         '<input class="fld num" id="co-amt" inputmode="decimal" placeholder="' + (as === 'usdc' ? '0.00' : '0.0000') + '" ' +
           'autocomplete="off" aria-label="' + (as === 'usdc' ? 'Amount in USDC' : 'Amount in SOL') + '" ' +
           'oninput="V2Wallet.hint()" onkeydown="if(event.key===\'Enter\')V2Wallet.submitCash()">' +
-        '<button type="button" class="maxbtn" onclick="V2Wallet.max()">Max</button>' +
+        '<button type="button" class="maxbtn" onclick="V2Wallet.max()"' + (as === 'sol' && !solKnown() ? ' disabled' : '') + '>Max</button>' +
       '</div>' +
       '<p class="note" id="co-msg"></p>' +
       '<div class="brow">' +
@@ -749,7 +754,8 @@
     const r = a.rate;
     const fig = el('ad-fig'), have = el('ad-have'), mx = document.querySelector('#ad-body .maxbtn');
     if (fig) fig.textContent = a.have > 0 && r ? balMoney(a.have / 1e9 * r) : a.have > 0 ? solTxt(a.have) : a.have === 0 ? (r ? money(0) : solTxt(0)) : '…';
-    if (have) have.textContent = a.have == null ? 'Reading ' + L.name + '…' : a.have < 0 ? 'Could not read ' + L.name + '\'s balance. Press Add funds to read it again.'
+    // unreadable just now, the add still goes: the linked wallet shows what it can send (night review 2026-10-29)
+    if (have) have.textContent = a.have == null ? 'Reading ' + L.name + '…' : a.have < 0 ? 'Could not read ' + L.name + '\'s balance just now. You can still add: ' + L.name + ' shows what it can send.'
       : L.name + ' has ' + solTxt(a.have) + '. It keeps ' + solTxt(KEEP_LAMPORTS) + ' for network fees.';
     if (mx) mx.disabled = !(a.max > 0);
   }
@@ -817,8 +823,9 @@
     if (!(lam > 0)) return addSay('Enter an amount to add.', true);
     if (lam < 1000000) return addSay('Add at least ' + (r ? 'about ' + money(0.001 * r) : '0.001 SOL') + '.', true);
     if (a.have == null) return addSay('Still reading ' + L.name + '\'s balance.', true);
-    if (a.have < 0) { addSay('Reading ' + L.name + '\'s balance again.', false); return readLinked(); }
-    if (lam > a.max) return addSay('That is more than ' + L.name + ' can send. It keeps 0.001 SOL for network fees.', true);
+    /* An unreadable balance does not stop the add (night review 2026-10-29, third pass): the widget reads it again
+       fresh before it builds anything, and the linked wallet and the chain refuse what it cannot send. */
+    if (a.have >= 0 && lam > a.max) return addSay('That is more than ' + L.name + ' can send. It keeps 0.001 SOL for network fees.', true);
     // The sheet closes; one card follows the transfer: approve, then done or failed in place.
     adding = null;
     el('adveil').classList.remove('on');
@@ -900,9 +907,10 @@
     if (!window.duelWalletSend) return note('Your wallet is still starting. Try again in a moment.');
     if (solMode()) {
       // SOL mode: the SOL less what is kept for fees, or the old USDC, whichever there is. "Withdraw USDC" opens on USDC.
-      if (!maxSendLamports() && !usdcOn()) return note(solLamports() > 0
+      // (an unread balance still opens it: solKnown)
+      if (solKnown() && !maxSendLamports() && !usdcOn()) return note(solLamports() > 0
         ? 'The SOL in your wallet is kept for network fees.' : 'There is nothing to withdraw yet.');
-      wdAsset = (asset === 'usdc' && usdcOn()) || !maxSendLamports() ? 'usdc' : 'sol';
+      wdAsset = (asset === 'usdc' && usdcOn()) || (solKnown() && !maxSendLamports()) ? 'usdc' : 'sol';
     } else if ((Number(w().balance) || 0) <= 0) return note('There is nothing to withdraw yet.');
     cashing = true; pending = null;
     drawCash();
@@ -986,8 +994,8 @@
     } else {
       if (/\.\d{7,}$/.test(raw)) return say('Use six decimal places at most.');
       const lamports = Math.round(amt * 1e9);
-      if (lamports > solLamports() - SEND_FEE_LAMPORTS) return say('That is more than the ' + solTxt(solLamports()) + ' you have.');
-      if (lamports > maxSendLamports()) return say('Keep at least 0.001 SOL in your wallet for network fees. Max sends the most you can.');
+      if (solKnown() && lamports > solLamports() - SEND_FEE_LAMPORTS) return say('That is more than the ' + solTxt(solLamports()) + ' you have.');
+      if (solKnown() && lamports > maxSendLamports()) return say('Keep at least 0.001 SOL in your wallet for network fees. Max sends the most you can.');
     }
     pending = { to: to, amt: amt, asset: as };
     drawCash();
