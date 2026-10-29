@@ -234,3 +234,69 @@ test('the coin sense: a safe bot heads for a nearby coin', () => {
   room.game._seekCoin(bot);
   assert.equal(bot.target, null);
 });
+
+// A player's own exit in a bot room (night review 2026-10-29, findings results[9]): a coin dropped by pp:leave, a closed
+// tab or the player's own trail, that nobody collects within the hour, came back 100% with no rake, so leaving by the
+// wall (bots never go for a coin past 0.8 of the radius) skipped the hold cash-out's 10%. Now it comes back 90/10, as
+// the hold pays; a coin from a bot's kill still comes back whole and a restart is unchanged (100%, as a live seat).
+function ledgerSwept(w, room, rows) {
+  const back = w.bank.view().log.filter((x) => x.kind === 'back').reduce((n, x) => n + Math.round(x.usd * 1e6), 0);
+  const out = w.calls.cashout.reduce((n, o) => n + o.grossMicro, 0) + w.calls.owed.concat(rows || []).reduce((n, x) => n + x.micro, 0);
+  const house = w.calls.sweep.reduce((n, x) => n + x.micro, 0);
+  const seeded = w.bank.view().log.filter((x) => x.kind === 'seed').reduce((n, x) => n + Math.round(x.usd * 1e6), 0);
+  const stakes = room.bank.ledger.inMicro - seeded;
+  assert.equal(stakes + seeded, out + back + house + room.bank.totalMicro(), 'stakes in + seed in == out + seed back + house + live');
+}
+
+for (const [label, exit] of [
+  ['pp:leave', (room, st) => room.removeHuman(st.unit.id, REASON.LEAVE)],
+  ['a closed tab (the grace runs out)', (room, st) => room.game.removeHuman(st.unit.id, REASON.DISCONNECT)],
+  ['its own trail', (room, st) => room.game.kill(st.unit, undefined, REASON.SELF_CROSS)],
+  ['its own trail by the wall', (room, st) => room.game.kill(st.unit, undefined, REASON.WALL)]
+]) {
+  test('a bot room: a coin left by ' + label + ' that nobody collects comes back 90%, the 10% to the house', () => {
+    const { w, room, a } = scene();
+    assert.equal(room.botRoom, true);
+    exit(room, a);
+    assert.equal(room.bank.pickups().length, 1);
+    room.sweepPickups(w.clock.now() + 3600001);
+    assert.deepEqual(w.calls.owed.map((x) => [x.wallet, x.micro]), [[a.wallet, STAKE - STAKE / 10]], 'the dropper, 90%');
+    assert.match(w.calls.owed[0].key, KEY_RE);
+    assert.equal(w.calls.sweep.length, 1);
+    assert.equal(w.calls.sweep[0].micro, STAKE / 10, 'the hold cash-out\'s cut, on the floor sweep\'s path');
+    assert.equal(w.calls.sweep[0].srcWallet, a.wallet);
+    assert.equal(room.bank.pickups().length, 0);
+    ledgerSwept(w, room);
+  });
+}
+
+test('a bot room: a coin from a bot\'s kill still comes back whole, nothing to the house', () => {
+  const { w, room, a, bot } = scene();
+  room.game.kill(a.unit, bot, REASON.TRACK_CUT);
+  room.sweepPickups(w.clock.now() + 3600001);
+  assert.deepEqual(w.calls.owed.map((x) => [x.wallet, x.micro]), [[a.wallet, STAKE]]);
+  assert.deepEqual(w.calls.sweep, []);
+  ledger(w, room);
+});
+
+test('a bot room: a left coin at a restart is owed whole (as a live seat is); one somebody grabs is just theirs', () => {
+  const { w, room, a, b } = scene();
+  room.removeHuman(a.unit.id, REASON.LEAVE);
+  const rows = w.arenas.shutdownSettle('shutdown');
+  assert.equal(rows.find((r) => r.wallet === a.wallet).micro, STAKE);
+  assert.deepEqual(w.calls.sweep, []);
+  assert.equal(room.bank.totalMicro(), 0);
+
+  const s2 = scene();
+  s2.room.removeHuman(s2.a.unit.id, REASON.LEAVE);
+  const c = s2.room.bank.pickups()[0];
+  s2.b.unit.position.x = c.x;
+  s2.b.unit.position.y = c.y;
+  s2.room._collectPickups();
+  assert.equal(s2.room.bank.balance(s2.b.unit.id), 2 * STAKE);
+  s2.room.sweepPickups(s2.w.clock.now() + 3600001);
+  assert.deepEqual(s2.w.calls.owed, []);
+  assert.deepEqual(s2.w.calls.sweep, []);
+  assert.ok(b);
+  ledger(s2.w, s2.room);
+});

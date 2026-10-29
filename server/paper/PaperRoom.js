@@ -27,6 +27,9 @@ function stakeLabel(stake) {
 const BANK_SRC = '#botbank'; // a bounty bot's seed, from the owner's bot bank
 // seed a bot picked up from another bot's coin: still the bot bank's, but already in play (not that bot's inflight)
 const BANK_SPENT = '#botbank:spent';
+// A person's death that is its own doing, with no killer: pp:leave, the grace running out, its own trail (night review
+// 2026-10-29). A bot room's hour sweep takes the house cut from such a coin (sweepPickups).
+const SELF_EXIT = new Set([REASON.LEAVE, REASON.DISCONNECT, REASON.SELF_CROSS, REASON.WALL]);
 
 class PaperRoom {
   // now: the wall clock of every deadline (grace, stale hold, coin age). clock: the monotonic
@@ -576,6 +579,9 @@ class PaperRoom {
         const c = this._clampInside(at);
         const p = this.bank.drop(victim.id, c.x, c.y, this.now());
         if (p) {
+          // The player's own exit, nobody's kill (pp:leave, a closed tab, its own trail): a bot room's hour sweep gives
+          // this coin back as a hold cash-out would, 90/10 (night review 2026-10-29). sweepPickups reads it.
+          if (victim.isHuman && !killer && SELF_EXIT.has(reason)) p.selfExit = true;
           pid = p.pid;
           this.pending.push(['p+', p.pid, p.x, p.y, p.micro]);
         }
@@ -882,8 +888,18 @@ class PaperRoom {
         continue;
       }
       if (this.botRoom) {
-        // a room bots played in: the coin goes back to the player who dropped it, never to the house
-        this._coinBack(s, 'botfloor');
+        // a room bots played in: the coin goes back to the player who dropped it, never to the house. A coin the
+        // player dropped by its own exit (onDeath's selfExit) comes back less the house cut, as the hold cash-out
+        // pays, so leaving by the wall where no bot goes is no way round the 10% (night review 2026-10-29).
+        const cut = p.selfExit ? Math.floor(s.micro / MP.HOUSE_CUT_DIV) : 0;
+        this._coinBack(cut > 0 ? Object.assign({}, s, { micro: s.micro - cut }) : s, 'botfloor');
+        if (cut > 0) {
+          try {
+            this.hooks.onSweep({ sweepId: crypto.randomUUID(), micro: cut, srcWallet: s.srcWallet, srcName: s.srcName, label: this.lobbyType, pid: p.pid });
+          } catch (e) {
+            console.error('[PAPER] BOTFLOOR cut of coin ' + p.pid + ' (' + cut + ' micro, ' + this.lobbyType + '): ' + (e && e.message));
+          }
+        }
         continue;
       }
       this.hooks.onSweep({ sweepId: crypto.randomUUID(), micro: s.micro, srcWallet: s.srcWallet, srcName: s.srcName, label: this.lobbyType, pid: p.pid });
