@@ -162,6 +162,23 @@ require('./perfEcho').install(io);
    the path can be checked from outside (deploy/nginx-sl-io.conf). */
 ioOpts.installPathAlias(server, ioOpts.SL_IO_PATH, '/socket.io/');
 ioOpts.tagEngine(io, 'main');
+/* The server split (server/split/slLink.js): SL_SPLIT=1 in .env runs free
+   slither and the battle royale in a second process on 127.0.0.1:SL_CHILD_PORT
+   (forked at the listen below), and this one keeps paid slither and every bit
+   of money. Unset, the link is inert and everything below runs as it always
+   has. Refused, and logged, while SL_ENABLED is off. */
+const slLink = require('./split/slLink').create({
+  enabled: process.env.SL_SPLIT === '1' && require('./slRoutes').slSwitch(process.env.SL_ENABLED),
+  port: Number(process.env.SL_CHILD_PORT) || (Number(process.env.PORT || 3000) + 1),
+  heapMb: Number(process.env.SL_CHILD_HEAP_MB) || 192,
+  inspectPort: Number(process.env.SL_CHILD_INSPECT_PORT) || 9230,
+  staleMs: 5000,
+  hangMs: Number(process.env.SL_CHILD_HANG_MS) || 30000,
+  ops,
+  notify,
+  log: console,
+});
+if (process.env.SL_SPLIT === '1' && !slLink.remote) console.warn('[SPLIT] SL_SPLIT=1 ignored: SL_ENABLED is off');
 
 // Keep idle connections from nginx open longer than its upstream keep-alive, so a reused one is never cut mid-request.
 server.keepAliveTimeout = 120000;
@@ -1678,6 +1695,9 @@ app.post('/api/my-name', sigLimiter, async (req, res) => {
    actually measure something with the bots out of the way, short enough that a
    forgotten click heals itself. */
 const BOTS_PAUSE_MS = 15 * 60 * 1000;
+/* What the console says a Clear does, for a room of either process (the server
+   split's slOwnerReply says the same). */
+const BOTS_CLEARED_TAIL = ' — staying empty for ' + Math.round(BOTS_PAUSE_MS / 60000) + ' minutes';
 
 const brClosed = (room) => room.state === 'running' || room.state === 'countdown';
 
@@ -1742,6 +1762,37 @@ app.use('/api/owner', (req, res, next) => { res.set('Cache-Control', 'no-store')
    paid seat waiting for an opponent (console audit finding C). */
 const duelStatusNow = () => ops.duelStatus([knockoutLobby, battleshipLobby, swimLobby, headSoccerLobby, pool8Lobby, airHockeyLobby, rooftopLobby, crossy.lobby]);
 const drainNow = () => ops.drainStatus(ALL_ROOMS(), entryStore.pending(), duelStatusNow(), brDrainWhy());
+
+/* bots:set's answer from setBots' result (ownerConsole.setBots), for a room of
+   either process: this one's, or the slither process's (slOwnerReply). */
+function botsSetReply(room, r, done) {
+  broadcastLobbyState();
+  const label = roomLabel(room);
+  const s = (k) => (k === 1 ? '' : 's');
+  if (r.auto) return done(label + ' is back on its own bots: ' + r.live + ' bot' + s(r.live) + ' now.');
+  const held = Number.isInteger(r.held) ? r.held : r.asked;
+  return done(label + ': ' + r.live + ' bot' + s(r.live) + ' now, held at ' + held + ' until you change it.'
+    + (held < r.asked ? ' This room holds ' + held + ' at most.' : '')
+    + (r.live < held ? ' It would not take more just now (full, or the server is busy); the rest join as it allows.' : ''));
+}
+
+/* The answer to an owner command the slither process ran (the server split:
+   /api/owner/do hands it bots:add, bots:clear and bots:set on its rooms, and
+   br:start and br:stop while the event is on the sl engine). The same words as
+   when this process runs it; a command it could not answer says so (slLink:
+   restarting, or no answer in 5 s, "it may still have done it"), and is never
+   sent again. A refusal before any bot moved tells nobody, as here. */
+function slOwnerReply(action, args, r, { done, refuse }) {
+  if (action === 'br:start' || action === 'br:stop') return r.ok ? done(r.note) : refuse(r.why);
+  const room = slLink.room(args.room) || { lobbyType: String(args.room) };
+  const out = Object.assign({}, r.result || {}, { ok: r.ok, why: r.why });
+  if (action === 'bots:set') return r.ok ? botsSetReply(room, out, done) : refuse(r.why);
+  if (!out.ok && out.made === undefined) return refuse(out.why);
+  broadcastLobbyState();
+  if (!out.ok) return refuse(out.why);
+  if (action === 'bots:add') return done('Added ' + out.made + ' bot(s) to ' + room.lobbyType);
+  return done('Removed ' + out.removed + ' bot(s) from ' + room.lobbyType + BOTS_CLEARED_TAIL);
+}
 
 /* A room's name in words, for the owner console. `na_free` and `ag_na_s0#1`
    are what the code calls them; nobody should have to translate that in their
@@ -2018,6 +2069,7 @@ function emitMaintenance() {
   io.emit('maintenance', m);
   if (agArenas) io.of('/ag').emit('maintenance', m);
   if (slArenas) io.of('/sl').emit('maintenance', m);
+  slLink.emit('maintenance', m);   // the slither process's /sl (server split; nothing while it is off)
   if (chompArenas) io.of('/chomp').emit('maintenance', m);
 }
 const UPDATE_BANNER = 'Updating, back in a few minutes';
@@ -2046,6 +2098,13 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
                            res.json({ ok: true, note, state: opsSnapshot(req, who) }); };
   const refuse = (why) => { ops.audit({ action, args, who: actor, ok: false, note: why });
                             res.status(409).json({ error: why, state: opsSnapshot(req, who) }); };
+
+  /* The server split: the slither process's rooms and its battle royale are
+     its own (slLink.ownsCommand); off, this is never true. */
+  if (slLink.ownsCommand(action, args)) {
+    const r = await slLink.call(action, args);
+    return slOwnerReply(action, args, r, { done, refuse });
+  }
 
   const br = activeBr();
 
@@ -2115,8 +2174,7 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
             ? '. This arena tops its bots back up on its own within seconds.'
             : '. A paid Paper arena never has bots.'));
       }
-      return done('Removed ' + out.removed + ' bot(s) from ' + room.lobbyType
-        + ' — staying empty for ' + Math.round(BOTS_PAUSE_MS / 60000) + ' minutes');
+      return done('Removed ' + out.removed + ' bot(s) from ' + room.lobbyType + BOTS_CLEARED_TAIL);
     }
 
     /* AN EXACT NUMBER, HELD. bots:add stacks bots on top of the room's own
@@ -2160,14 +2218,7 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
           '. They never cash out and never hold money.' + (r.saved ? '' : ' Not saved, so a restart drops them.'));
       }
       if (!r.ok) return refuse(r.why);
-      broadcastLobbyState();
-      const label = roomLabel(room);
-      const s = (k) => (k === 1 ? '' : 's');
-      if (r.auto) return done(label + ' is back on its own bots: ' + r.live + ' bot' + s(r.live) + ' now.');
-      const held = Number.isInteger(r.held) ? r.held : r.asked;
-      return done(label + ': ' + r.live + ' bot' + s(r.live) + ' now, held at ' + held + ' until you change it.'
-        + (held < r.asked ? ' This room holds ' + held + ' at most.' : '')
-        + (r.live < held ? ' It would not take more just now (full, or the server is busy); the rest join as it allows.' : ''));
+      return botsSetReply(room, r, done);
     }
 
     /* Maintenance. Turning it ON is always allowed: the point of it is to stop
@@ -2198,6 +2249,7 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
       const msg = { text: UPDATE_ANNOUNCE, at: _announcedAt };
       io.emit('announce', msg);
       if (slArenas) io.of('/sl').emit('announce', msg);
+      slLink.emit('announce', msg);
       return done('Maintenance on for an update. New games closed, players told to finish up or cash out. '
         + (kept.ok ? 'Update when Control says Safe to update now; the game reopens by itself after the restart.'
           : 'It could not be saved (' + kept.why + '), so the restart opens the game straight away.'));
@@ -2416,6 +2468,7 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
     case 'sl:smooth:off':
     case 'sl:smooth:on': {
       const on = require('./sl/slRoom').setSmooth(action === 'sl:smooth:on');
+      slLink.send({ t: 'smooth', on });   // the slither process's rooms too (server split)
       console.warn('[SL] owner console: early point ' + (on ? 'ON' : 'OFF'));
       return done('Snake early point ' + (on ? 'on.' : 'off until the next restart.'));
     }
@@ -2472,6 +2525,7 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
       const msg = { text, at: _announcedAt };
       io.emit('announce', msg);
       if (slArenas) io.of('/sl').emit('announce', msg);
+      slLink.emit('announce', msg);
       return done('Sent. It shows on every open lobby, over the game a player is in.');
     }
 
@@ -2733,6 +2787,9 @@ const slOpened = slBoot.openSl({
     /* The bot governor's paid-seat input, once a second (SERVER-DESIGN 11). */
     paidLoad: () => ({ paidPlayers: ops.drainStatus(ALL_ROOMS(), entryStore.pending()).paid, paid: [] }),
   },
+  /* Split on (slLink.remote): no free room here, /sl takes paid seats and paid
+     watchers only, and slArenas below is the link's view of the other process. */
+  link: slLink,
   /* No biggest cash-out box (Owen 2026-10-16, "this was a bad idea"): no
      topCashout read, so slBoot starts none and no seat is sent {t: 'top'}. */
   topCashout: null,
@@ -3795,7 +3852,10 @@ const brJournal = createBrJournal({
 });
 /* Who counts as a different person for the house prize (night review 2026-10-29). */
 const brPrizeRule = require('./slBr/brPrizeRule');
-const slBr = slArenas ? new SlBrArena(slArenas.laws, {
+/* Split on: the event's arena runs in the slither process, and this is the
+   link's view of it (slProxies brProxy). Its decisions still come here to be
+   paid, by payBattleRoyaleWinner below, once per match id. */
+const slBr = slArenas && slLink.remote ? slLink.brProxy() : slArenas ? new SlBrArena(slArenas.laws, {
   region: REGION,
   shippableOnly: slArenas.shippableOnly,
   governor: slArenas.governor,
@@ -3842,12 +3902,19 @@ const { ownerStartBr } = require('./slBr/brOwnerStart');
    off a prize being sent (it is then settled by hand): not safe for maintenance. */
 function brDrainWhy() {
   const why = [];
+  /* Its match cannot be seen, so a restart is not known to be safe (stale is unknown, never idle). */
+  if (brUnseen()) why.push('the slither process is not reporting, so its battle royale cannot be checked');
   const room = activeBr();
   if (room && (room.state === 'countdown' || room.state === 'running')) why.push('a battle royale match is live');
   if (brJournal.prizes().some((p) => p.state === 'paying')) why.push('a battle royale prize is being sent');
   return why;
 }
 function brOnSl() { return !!(slBr && brOnNew); }
+/* The server split: the event runs in the slither process and it is not
+   reporting (no snapshot for 5 s, or it is restarting). Unknown, never "no
+   match": the drain says unsafe, /api/live says unknown 'br' with no br, and
+   the slot timer waits. Never true while the split is off. */
+function brUnseen() { return slLink.remote && brOnSl() && slLink.stale(); }
 function activeBr() {
   if (brOnSl()) return slBr.match;
   return (gameRooms[REGION] && gameRooms[REGION].br) || null;
@@ -4278,7 +4345,7 @@ function duelPaidDoors() {
    courtesy for the UI: the rule is enforced on join, where it already is. */
 function liveBattleRoyale() {
   const room = activeBr();
-  if (!room) return null;
+  if (!room || brUnseen()) return null;
   const st = room.publicState();
   const a = brAutoArgs(room);
   const { hour, minute, second } = a.et;
@@ -4444,6 +4511,8 @@ function liveSnapshot() {
         unknown.push('chomp');
       }
     }
+    /* The server split: an event the slither process is not reporting is not "no event" (reopenAfterUpdate waits on it). */
+    if (brUnseen()) unknown.push('br');
     const slRungs = slPaidRows.filter(r => r && r.state === 'open').map(r => r.stake);
     const lobbies = liveBoard({ skipFree: slRows.length > 0, slRungs })
       .concat(slRows, slPaidRows, paperArenas.boardRows(), agRows);
@@ -4777,6 +4846,8 @@ function brAutoArgs(room) {
   };
 }
 setInterval(() => {
+  /* No slot is marked on a state nobody can see (brAutoStart would skip 'unknown'). */
+  if (brUnseen()) return;
   const room = activeBr();
   if (!room) return;
   const a = brAutoArgs(room);
@@ -5192,6 +5263,8 @@ app.get('/api/debug/tick', sigLimiter, async (req, res) => {
       now: Date.now(),
       recent: debugTick.parseRecent(req.query && req.query.recent),
     }),
+    /* The server split's slither process (slLink debug): absent while the split is off. */
+    sl: slLink.debug(),
   };
   res.json(out);
 });
@@ -5309,7 +5382,7 @@ if (chompArenas) everyStaggered(() => chompArenas.sweep(Date.now()), 60000, 7500
 /* The new slither.io free room (only while SL_ENABLED opened it): replaces a
    room that closed itself. 26 mod 30 sits 3s from paper-sweep (29) and 4s from
    stake-sweep (22). */
-if (slArenas) everyStaggered(() => slArenas.sweep(Date.now()), 60000, 26000, 'sl-sweep');
+if (slArenas && !slLink.remote) everyStaggered(() => slArenas.sweep(Date.now()), 60000, 26000, 'sl-sweep');   // split: the slither process sweeps its own
 /* Paid snake on the sl engine (only while openSlPaid built it): a paid room
    empty for FLOOR_SWEEP_MS books its floor gold to the house and retires, and a
    settling room is retried (PAID-SL-DESIGN.md 7.5), and so is an owed row the
@@ -6025,6 +6098,16 @@ io.on('connection', (socket) => {
        else (a console action, an identify) is not a start. */
     if (!proof || proof.action !== 'br:start' || !ownerFromSignature(proof)) {
       socket.emit('br:error', { message: 'That did not come from the owner wallet.' });
+      return;
+    }
+    /* Split on: the slither process holds the match and starts it by the same rule. */
+    if (slLink.remote && brOnSl()) {
+      slLink.call('br:start', { force: !!force }).then((r) => {
+        if (!r.ok) {
+          socket.emit('br:error', { message: r.why });
+          socket.emit('br:state', room.publicState());
+        }
+      });
       return;
     }
     /* One at a time, and the reason when it is no (ownerStartBr). */
@@ -7369,10 +7452,38 @@ function reopenAfterUpdate() {
 }
 /* The slither path's first door (deploy/nginx-sl-io.conf): nginx sends /sl-io/
    to 127.0.0.1:SL_CHILD_PORT (default PORT + 1) and to PORT only as its backup.
-   With no slither process of its own, this server answers on that port too
-   (127.0.0.1 only, the same app), so nginx's first choice is always served and
-   no nginx edit is ever part of a rollback. Only while /sl is open. */
-if (slArenas) ioOpts.aliasListener(server, Number(process.env.SL_CHILD_PORT) || (Number(PORT) + 1), console);
+   Split on (SL_SPLIT=1), the slither process listens there: forked now, before
+   this server listens, and supervised by slLink (refork with backoff, a hang
+   kill). What it tells this process: a free or BR join for the push gates, a
+   push, the live match's record (brJournal, still written only here) and a
+   decision, paid here once per match id (_brPaid). A match it was running when
+   it stopped is void, as at a restart. Off, this server answers on that port
+   too (127.0.0.1 only, the same app), so nginx's first choice is always served
+   and no nginx edit is ever part of a rollback. Only while /sl is open. */
+if (slLink.remote && slArenas) {
+  slLink.start({
+    init: () => ({ region: REGION, owners: [...OWNER_WALLETS], ops: ops.get(), smooth: require('./sl/slRoom').smoothOn(),
+      door: slLink.doorWanted(), brOnNew, podiumFile: brLastPodium.file, botsPauseMs: BOTS_PAUSE_MS, load: null }),
+    onJoin: (m) => {
+      const socket = { request: { method: 'GET', headers: m.h } };   // only ever asked whether it is the owner's
+      joinAlerts.joined({ game: m.where === 'br' ? 'br' : 'sl', stake: 0, name: m.name, socket });
+    },
+    onPush: (p) => notify.pushOwner(p.text, { title: p.title, priority: p.priority }),
+    onLive: (rec) => brJournal.setLive(rec),
+    onDecided: (d) => {
+      /* Decided: from here a restart is the prize journal's business, not a
+         void (brMatch clears its live record at the decision too; the slither
+         process sends the clear after this). */
+      const cut = brJournal.live();
+      if (cut && cut.matchId === d.matchId) brJournal.setLive(null);
+      payBattleRoyaleWinner(slLink.decisionProxy(d)).catch((e) => console.error('[BR]', e.message));
+    },
+    onExit: () => { if (brJournal.live()) voidCutOffBr('the slither process stopping'); },
+    brOnSl: () => brOnSl(),
+  });
+  /* Before the other handlers, so the settle's own count of who else listens is unchanged (agShutdown). */
+  for (const sig of ['SIGINT', 'SIGTERM']) process.prependOnceListener(sig, () => slLink.stop());
+} else if (slArenas) ioOpts.aliasListener(server, slLink.port, console);
 server.listen(PORT, () => {
   console.log(`Server running at http://localhost:${PORT}`);
   reopenAfterUpdate();
