@@ -2096,75 +2096,27 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
          to the same addBot/clearBots, so the console did not need to learn
          about either of them — it needed to stop looking in one list. */
       const room = ALL_ROOMS().find(r => r.lobbyType === args.room);
-      if (!room) return refuse('No room called ' + args.room);
-      /* A paid room's bots go only through its rung's held count (bots:set paidbots:...). */
-      if (room.money || room.paid === true) return refuse('Set paid bots on the room row in the sheet');
-      /* These two manage the room their own way, so a number bots:set was
-         holding is let go first rather than left to fight them. */
-      ownerConsole.releaseHold(room);
-      if (action === 'bots:clear') {
-        let removed = 0;
-        if (typeof room.clearBots === 'function') {
-          /* Counted when the room does not say: PaperRoom.clearBots returns
-             nothing, and the console reported 'Removed undefined'. */
-          const before = room.botCount;
-          const n = room.clearBots();
-          removed = typeof n === 'number' ? n : Math.max(0, (before || 0) - (room.botCount || 0));
-        } else if (room.snakes) {
-          for (const [id, s] of [...room.snakes]) {
-            if (s && s.isBot) { room.snakes.delete(id); removed++; }
-          }
-        }
-        /* AND THEY STAY GONE. The automatic top-up runs once a second, so
-           clearing a room used to last about one second — the ops log shows
-           four clears in two minutes, each reporting success, because each one
-           really did remove them and the next tick really did put them back.
-           The button is for taking the bots off to see what the game costs
-           without them, and it could not do that.
-
-           A window rather than a switch: a room cannot be left permanently
-           empty by a click somebody forgot about, and the console says how long
-           it has. Adding bots by hand lifts it immediately. */
-        /* Paper has no such window: the free arena tops its own bots back up
-           within seconds, and a paid one never has any, so the console says
-           that instead of promising a pause. */
-        if (String(room.lobbyType).startsWith('paper_')) {
-          broadcastLobbyState();
-          return done('Removed ' + removed + ' bot(s) from ' + room.lobbyType
-            + (room.botsAllowed()
-              ? '. This arena tops its bots back up on its own within seconds.'
-              : '. A paid Paper arena never has bots.'));
-        }
-        room._botsPausedUntil = Date.now() + BOTS_PAUSE_MS;
-        broadcastLobbyState();
-        return done('Removed ' + removed + ' bot(s) from ' + room.lobbyType
-          + ' — staying empty for ' + Math.round(BOTS_PAUSE_MS / 60000) + ' minutes');
-      }
-      /* By hand means by hand. The automatic floor is a floor, not a ceiling,
-         and an owner asking for a hundred bots to test something with should
-         get a hundred. The only thing that still refuses is a room that takes
-         a stake, and that one is not negotiable. */
-      const n = Math.min(Math.max(1, parseInt(args.count, 10) || 1), 500);
-      if (!room.addBot) return refuse('That room does not take bots');
-      /* COUNTED, not assumed. addBot returns null when it refuses, and this
-         reported 'Added 3' for three refusals — a console that lies about what
-         it just did is worse than one that fails out loud. */
-      /* Asking for bots lifts a Clear. Otherwise +5 during a pause would look
-         exactly as broken as Clear did, in the other direction. */
-      room._botsPausedUntil = 0;
-      let made = 0;
-      for (let i = 0; i < n; i++) {
-        const b = room.addBot();
-        if (!b) continue;
-        /* Marked by hand, so the room's own top-up leaves it alone. Asking for
-           twenty and getting eight because the floor is eight would make this
-           control useless for the thing it is for, which is testing. */
-        if (typeof b === 'object') b._manual = b.manual = true;
-        made++;
-      }
+      /* The room logic (paid rooms refused untouched, a held number let go
+         first, Clear's 15 minute window, bots by hand marked so the fill leaves
+         them) is ownerConsole.botsAddClear, which the slither process of the
+         server split runs on its own rooms too. The answers below are the
+         console's words, unchanged. */
+      const out = ownerConsole.botsAddClear(room, action, args, { now: Date.now(), pauseMs: BOTS_PAUSE_MS });
+      if (!out.ok && out.made === undefined) return refuse(out.why);   // refused before any bot moved
       broadcastLobbyState();
-      if (!made) return refuse('That room would not take any bots');
-      return done('Added ' + made + ' bot(s) to ' + room.lobbyType);
+      if (!out.ok) return refuse(out.why);
+      if (action === 'bots:add') return done('Added ' + out.made + ' bot(s) to ' + room.lobbyType);
+      /* Paper has no Clear window: the free arena tops its own bots back up
+         within seconds, and a paid one never has any, so the console says
+         that instead of promising a pause. */
+      if (out.paper) {
+        return done('Removed ' + out.removed + ' bot(s) from ' + room.lobbyType
+          + (room.botsAllowed()
+            ? '. This arena tops its bots back up on its own within seconds.'
+            : '. A paid Paper arena never has bots.'));
+      }
+      return done('Removed ' + out.removed + ' bot(s) from ' + room.lobbyType
+        + ' — staying empty for ' + Math.round(BOTS_PAUSE_MS / 60000) + ' minutes');
     }
 
     /* AN EXACT NUMBER, HELD. bots:add stacks bots on top of the room's own
@@ -3882,36 +3834,10 @@ if (slBr && slOpened.sockets) {
       ? ownerAuth.walletForPlayerAction(p) : nameProof.verifyIdentityProof(p)),
   });
 }
-/* The owner's Start, one rule for every door to it: the console and the Events
-   tab (/api/owner/do 'br:start') and the in-game button (socket br:start), all
-   owner-signed. ONE MATCH AT A TIME (Owen 2026-10-16): only a waiting arena
-   starts one; while a match counts down or runs, or is finishing (one snake
-   left, the winner's moment and the circle reopening), the answer is no, for
-   the owner too. On the sl engine a match may start with bots alone (brMatch
-   MIN_SNAKES). The arena's own state after the call is the answer, so a start
-   that did nothing is never reported as one. -> { ok, note } or { ok: false, why } */
-function ownerStartBr(room, force) {
-  if (!room) return { ok: false, why: 'No battle royale room' };
-  if (room.state === 'countdown' || room.state === 'running') {
-    return { ok: false, why: 'A match is already running. You can start the next one once a single snake is left.' };
-  }
-  if (room.state === 'over' || room.state === 'reopening') {
-    return { ok: false, why: 'The last match is finishing. Try again in a few seconds.' };
-  }
-  if (room.state !== 'waiting') return { ok: false, why: 'A match is already under way' };
-  // people, not snakes: bots wait in the arena now, and forceStart refuses a room with no human (BattleRoyaleRoom)
-  const humans = typeof room.humanLiving === 'function' ? room.humanLiving() : room.livingCount();
-  if (force && humans < 1) return { ok: false, why: 'Nobody is in the room to start with' };
-  if (force) room.forceStart('owner override');
-  else if (room.canStart()) room.startMatch('owner');
-  if (room.state === 'waiting') {
-    return { ok: false, why: room.engine === 'sl'
-      ? 'The arena is empty: a match needs ' + room.publicState().minPlayers + ' snakes, bots count.'
-      : 'Needs ' + room.publicState().minPlayers + ' players' };
-  }
-  const people = typeof room.humanLiving === 'function' ? room.humanLiving() : room.livingCount();
-  return { ok: true, note: 'Started with ' + people + ' player(s) and ' + Math.max(0, room.livingCount() - people) + ' bot(s)' };
-}
+/* The owner's Start, one rule for every door to it (the console, the Events
+   tab and the in-game button): server/slBr/brOwnerStart.js, its own file so the
+   slither process of the server split starts a match by the same rule. */
+const { ownerStartBr } = require('./slBr/brOwnerStart');
 /* A restart voids a battle royale that is counting down or running, and cuts
    off a prize being sent (it is then settled by hand): not safe for maintenance. */
 function brDrainWhy() {
@@ -4611,20 +4537,24 @@ const _brPaid = new Set();
    is settled for good: never paid again by this process, whatever it says. */
 for (const p of brJournal.prizes()) _brPaid.add(p.matchId);
 /* A match the last process was running when it died: it is void (Owen
-   2026-10-16), nobody is paid, and he is told who was in it. */
-{
+   2026-10-16), nobody is paid, and he is told who was in it. why says what cut
+   it off: 'a restart' here at boot; the server split's slither process stopping
+   mid-match is the other caller. A prize already being decided or sent is this
+   process's own work and is not touched. -> true when there was one. */
+function voidCutOffBr(why) {
   const cut = brJournal.live();
-  if (cut) {
-    console.warn(`[BR] ${cut.matchId} was cut off by a restart (${cut.seats} player(s)): void, no prize`);
-    try {
-      notify.pushOwner(`Battle royale ${cut.matchId} was cut off by a restart with ${cut.seats} player(s)` +
-        (cut.people.length ? ` (${cut.people.slice(0, 8).join(', ')})` : '') + '. No winner, no prize.',
-        { title: 'Battle Royale voided' });
-    } catch (_) {}
-    brJournal.setLive(null);
-  }
-  sweepBrPrizesAtBoot();
+  if (!cut) return false;
+  console.warn(`[BR] ${cut.matchId} was cut off by ${why} (${cut.seats} player(s)): void, no prize`);
+  try {
+    notify.pushOwner(`Battle royale ${cut.matchId} was cut off by ${why} with ${cut.seats} player(s)` +
+      (cut.people.length ? ` (${cut.people.slice(0, 8).join(', ')})` : '') + '. No winner, no prize.',
+      { title: 'Battle Royale voided' });
+  } catch (_) {}
+  brJournal.setLive(null);
+  return true;
 }
+voidCutOffBr('a restart');
+sweepBrPrizesAtBoot();
 /* A prize whose send was under way when the last process died: it may or may
    not have landed. It is NEVER sent again from here (that is how a prize gets
    paid twice); Owen checks the escrow's history and settles by hand. A function

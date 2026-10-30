@@ -139,7 +139,16 @@ function slPageRoute(opened) {
 //   slHtml (tests; default public/sl.html), slxTail (tests; default SLX_TAIL), laws (tests; a table treated as the
 //   real one), autoTick, seed, clock, now, timers, bots, monitor (tests; default perf_hooks.monitorEventLoopDelay at
 //   slBots LOOP_RESOLUTION_MS, 1 ms), awake (true: the free room ticks from boot, slArenas keepAwake),
-//   every (tests) }
+//   every (tests), link, role }
+//
+// The server split (spec 6.4): link is the main server's link to a slither process (server/split/slLink.js), inert
+// unless link.remote. With link.remote the free room and the battle royale live in that process, so this one checks
+// the law table and composes the page as always but builds NO SlArenas, starts no timer, no event-loop histogram and
+// no keepAwake: /sl here is a router with role 'paid' (paid seats and paid-rung watchers, server/sl/slSockets.js
+// Roles) over { laws, shippableOnly, governor: link.mirrorGovernor() }, the link gets the paidLoad helper for the
+// load it sends, and the answer's arenas is link.freeProxy(that), with sockets { setPaid, paidSeated } for the paid
+// directory (server/slPaid/slPaidBoot.js uses those two) and a setBr that attaches nothing. role 'free' (the slither
+// process itself): today's path with a router that never takes a paid handshake. Otherwise nothing changes.
 function openSl(opts) {
   const o = opts || {};
   const env = o.env || process.env;
@@ -157,12 +166,13 @@ function openSl(opts) {
     const page = composePage(html, o.slxTail);
     const prey = preyNotShippable(laws);
     if (prey.length) log.warn('[SL] prey off until these rows are approved: ' + prey.join('; '));
+    if (o.link && o.link.remote) return openRemote(o, laws, dev, page, log);
     const { SlArenas } = require('./slArenas');
     const { attachSlSockets } = require('./slSockets');
     const ao = { region: o.region || 'na', shippableOnly: !dev, log, bots: o.bots };
     for (const k of ['autoTick', 'seed', 'clock', 'now', 'timers']) if (o[k] !== undefined) ao[k] = o[k];
     arenas = new SlArenas(laws, ao);
-    const helpers = Object.assign({ log }, o.helpers);
+    const helpers = Object.assign({ log }, o.helpers, o.role === 'free' ? { role: 'free' } : {});
     const sockets = attachSlSockets(o.io ? o.io.of('/sl') : null, arenas, helpers);
     const safeStats = createSafeStats();
     const every = typeof o.every === 'function' ? o.every : (fn, ms, label) => safeEvery(fn, ms, label, safeStats, { log });
@@ -183,6 +193,19 @@ function openSl(opts) {
     log.error('[SL] slither.io (new) stays closed: ' + (e && e.message));
     return { arenas: null, page: null, why: (e && e.message) || 'refused', dev: false, sockets: null };
   }
+}
+
+// The main server beside a slither process (see openSl): the paid-only router and the link's proxy, no room here.
+function openRemote(o, laws, dev, page, log) {
+  const { attachSlSockets } = require('./slSockets');
+  const link = o.link;
+  const local = { laws, shippableOnly: !dev, governor: link.mirrorGovernor() };
+  link.useHelpers({ paidLoad: (o.helpers || {}).paidLoad });
+  const r = attachSlSockets(o.io ? o.io.of('/sl') : null, local, Object.assign({ log }, o.helpers, { role: 'paid' }));
+  log.log('[SL] slither.io (new): the free room and the battle royale run in the slither process; /sl here takes paid' +
+    ' seats and paid watchers' + (dev ? ' (DEV law table)' : ''));
+  return { arenas: link.freeProxy(local), page, why: null, dev,
+    sockets: { setPaid: r.setPaid, paidSeated: r.paidSeated, setBr: () => false } };
 }
 
 // The biggest cash-out box (slTopCashout). A fault here never closes the game: the box stays hidden.

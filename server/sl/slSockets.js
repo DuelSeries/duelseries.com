@@ -51,7 +51,8 @@
 // attachSlSockets(nsp, arenas, helpers): nsp is io.of('/sl') (null: attach sockets by hand, tests). arenas is
 // slArenas (join, leave, disconnect, input, hold, vis, chat, diag, isOpen, laws). helpers: { socketRL (required),
 // ops, notifyJoin(name, where, socket) (the socket only keeps the owner's own join off his phone), ownerSocket(socket)
-// (is this the owner's: his join spends no push gate), clientIp(socket), now() wall ms for the input window, seed, log }.
+// (is this the owner's: his join spends no push gate), clientIp(socket), now() wall ms for the input window, seed, log,
+// role ('all' by default, 'paid' or 'free': Roles below) }.
 //
 // Paid (PAID-SL-DESIGN.md 3.1; task T4): the returned handle's setPaid({ arenas, door }) attaches the paid directory
 // and its door, which the server builds (no server/sl file requires anything under server/slPaid: critic C-2,
@@ -87,6 +88,16 @@
 // watcher's address has a live snake seated in those rooms (a second tab or a friend on the same network could see
 // round every other snake), and a snake seated or resumed from an address ends that address's watchers of the same
 // rooms (the paid door calls paidSeated). Free rooms are not guarded (no money). The client asks again on 'nobody'.
+//
+// Roles (the server split, spec 6.3): helpers.role says which sockets this router serves. 'all' (the default, one
+// process): every one, as above. 'paid' (the main server while a slither process holds the free room and the battle
+// royale): a paid handshake (auth.paid 1, read only with the paid helper attached) or a paid rung's watcher
+// (auth.watch 1 with a watchStake naming a rung), nothing else. 'free' (the slither process, which has no paid
+// helper): never a handshake whose auth has paid 1 or any watchStake. Without that check such a socket would be
+// seated FREE there, since paidOf is false with no paid helper. The other side's socket is refused 'closed' at
+// connect, before the address gate counts it and before any sl:join: its entry token is never read and stays
+// spendable. The page puts each kind on its own engine.io path (public/js/slx/slxNet.js), so only a misrouted or
+// stale page meets this.
 
 const W = require('../../shared/slWire.js');
 const { assertLawsComplete } = require('./slLaws');
@@ -119,6 +130,8 @@ const WATCH_REFUSED = Object.freeze(['paid', 'idProof'].concat(MONEY_FIELDS));
 const BAD_SKIN_MODES = Object.freeze({ random0to8: 9 });
 const REFUSALS = Object.freeze(['limit', 'not-open', 'maintenance', 'closed', 'full', 'flood', WHY_GONE, WHY_TAKEN,
   'match', 'nobody', 'twice']);
+// helpers.role (see the header): which sockets a router serves.
+const ROLES = Object.freeze(['all', 'paid', 'free']);
 // sl:diag fields (SERVER-DESIGN 12.2): whole or fractional counters, each a finite number from 0 to INT32_MAX; and
 // lastClose, one short enum the layer names (T17), kept only as up to L45 nameMax letters, digits, '_', '-' or ':'.
 const DIAG_NUMBERS = Object.freeze(['applyThrows', 'wireErrors', 'fps', 'lag', 'lagEntries', 'pongP95', 'maxGapMs',
@@ -344,6 +357,8 @@ function attachSlSockets(nsp, arenas, helpers) {
   const socketRL = h.socketRL;
   if (typeof socketRL !== 'function') throw new TypeError('slSockets: helpers.socketRL must be a function');
   if (!arenas || !arenas.laws) throw new TypeError('slSockets: arenas with a law table is required');
+  if (h.role !== undefined && !ROLES.includes(h.role)) throw new TypeError('slSockets: helpers.role must be all, paid or free');
+  const role = h.role === undefined ? 'all' : h.role;
   const ops = h.ops || null;
   const log = h.log || console;
   const now = typeof h.now === 'function' ? h.now : Date.now;
@@ -508,6 +523,20 @@ function attachSlSockets(nsp, arenas, helpers) {
     const hs = socket.handshake;
     const auth = hs && isPlainObject(hs.auth) ? hs.auth : null;
     return !!auth && field(auth, 'paid') === 1;
+  }
+
+  // A socket this router's role does not serve (see the header): 'paid' serves a paid handshake or a paid rung's
+  // watcher only; 'free' never a handshake with paid 1 or any watchStake; 'all' every one.
+  function wrongSide(socket) {
+    if (role === 'all') return false;
+    if (role === 'paid') {
+      if (paidOf(socket)) return false;
+      const w = watchOf(socket);
+      return !(w && w.stake > 0);
+    }
+    const hs = socket.handshake;
+    const auth = hs && isPlainObject(hs.auth) ? hs.auth : null;
+    return !!auth && (field(auth, 'paid') === 1 || hasOwn(auth, 'watchStake'));
   }
 
   function limited(socket, kind) {
@@ -866,6 +895,9 @@ function attachSlSockets(nsp, arenas, helpers) {
     }));
     guard('connect', () => {
       stats.connects++;
+      // the other process's socket: refused before the address gate counts it (its disconnect finds no state, and
+      // gate.remove of an uncounted socket is a no-op)
+      if (wrongSide(socket)) return refuse(socket, 'closed', stats);
       if (!gate.add(socket)) return refuse(socket, 'limit', stats);
       const pd = paidOf(socket) ? paid : null;
       const bd = pd ? null : brOf(socket);
@@ -914,7 +946,7 @@ function attachSlSockets(nsp, arenas, helpers) {
   if (nsp && typeof nsp.on === 'function') nsp.on('connection', (socket) => safeCall(() => attach(socket), 'sl.attach', safeStats, { log }));
 
   return { attach, admit, gate, badKeys, stats, laws: L, sockets: () => states.size, setPaid,
-    paid: () => !!paid, setBr, br: () => !!br, paidSeated };
+    paid: () => !!paid, setBr, br: () => !!br, paidSeated, role };
 }
 
 module.exports = {
@@ -926,6 +958,7 @@ module.exports = {
   MONEY_FIELDS,
   WATCH_REFUSED,
   REFUSALS,
+  ROLES,
   isPlainObject,
   field,
   clientIp,

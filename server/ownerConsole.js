@@ -3,7 +3,7 @@
    server/index.js owns the routes (/api/owner/state, /api/owner/do) and knows
    where every room lives; this file turns those rooms into the console's state
    (state v2: one row per game and rung, the battle royale, the audit) and runs
-   bots:set. Nothing here moves money or reads a client's number for money: it
+   bots:set, bots:add and bots:clear. Nothing here moves money or reads a client's number for money: it
    counts what the rooms already hold, so it can be tested with plain objects.
 
    The rule the rows follow: a row is a place a player can actually be sent.
@@ -320,6 +320,78 @@ function setBots(room, args) {
   return { ok: true, live: Number(room.botCount) || 0, held: auto ? null : roomBotTarget(room), asked: n, auto };
 }
 
+/* bots:add and bots:clear on one room (the console's +N and Clear): the room
+   logic only. server/index.js finds the room, tells the lobby and words the
+   answer; the slither process of the server split runs the same function on its
+   own rooms and sends the result back. { now, pauseMs }: the clock and the
+   Clear window (index.js BOTS_PAUSE_MS).
+   -> { ok: true, made } (add), { ok: true, removed, paper } (clear), or
+      { ok: false, why } refused before any bot moved, or
+      { ok: false, made: 0, why } when the room took none of them (the hold was
+      let go and its pause lifted, so the caller still tells the lobby). */
+function botsAddClear(room, action, args, { now, pauseMs }) {
+  const a = args && typeof args === 'object' ? args : {};
+  if (!room) return { ok: false, why: 'No room called ' + a.room };
+  /* A paid room's bots go only through its rung's held count (bots:set paidbots:...). */
+  if (room.money || room.paid === true) return { ok: false, why: 'Set paid bots on the room row in the sheet' };
+  /* These two manage the room their own way, so a number bots:set was
+     holding is let go first rather than left to fight them. */
+  releaseHold(room);
+  if (action === 'bots:clear') {
+    let removed = 0;
+    if (typeof room.clearBots === 'function') {
+      /* Counted when the room does not say: PaperRoom.clearBots returns
+         nothing, and the console reported 'Removed undefined'. */
+      const before = room.botCount;
+      const n = room.clearBots();
+      removed = typeof n === 'number' ? n : Math.max(0, (before || 0) - (room.botCount || 0));
+    } else if (room.snakes) {
+      for (const [id, s] of [...room.snakes]) {
+        if (s && s.isBot) { room.snakes.delete(id); removed++; }
+      }
+    }
+    /* AND THEY STAY GONE. The automatic top-up runs once a second, so
+       clearing a room used to last about one second: the ops log shows four
+       clears in two minutes, each reporting success, because each one really
+       did remove them and the next tick really did put them back. The button
+       is for taking the bots off to see what the game costs without them, and
+       it could not do that.
+
+       A window rather than a switch: a room cannot be left permanently empty
+       by a click somebody forgot about, and the console says how long it has.
+       Adding bots by hand lifts it immediately. Paper has no such window: the
+       free arena tops its own bots back up within seconds, and a paid one never
+       has any, so the console says that instead of promising a pause. */
+    const paper = String(room.lobbyType).startsWith('paper_');
+    if (!paper) room._botsPausedUntil = now + pauseMs;
+    return { ok: true, removed, paper };
+  }
+  /* By hand means by hand. The automatic floor is a floor, not a ceiling,
+     and an owner asking for a hundred bots to test something with should get
+     a hundred. The only thing that still refuses is a room that takes a
+     stake, and that one is not negotiable. */
+  const n = Math.min(Math.max(1, parseInt(a.count, 10) || 1), 500);
+  if (!room.addBot) return { ok: false, why: 'That room does not take bots' };
+  /* COUNTED, not assumed. addBot returns null when it refuses, and this
+     reported 'Added 3' for three refusals: a console that lies about what it
+     just did is worse than one that fails out loud. Asking for bots lifts a
+     Clear. Otherwise +5 during a pause would look exactly as broken as Clear
+     did, in the other direction. */
+  room._botsPausedUntil = 0;
+  let made = 0;
+  for (let i = 0; i < n; i++) {
+    const b = room.addBot();
+    if (!b) continue;
+    /* Marked by hand, so the room's own top-up leaves it alone. Asking for
+       twenty and getting eight because the floor is eight would make this
+       control useless for the thing it is for, which is testing. */
+    if (typeof b === 'object') b._manual = b.manual = true;
+    made++;
+  }
+  if (!made) return { ok: false, made, why: 'That room would not take any bots' };
+  return { ok: true, made };
+}
+
 /* Any hold on a room let go, for the older bots:add and bots:clear, which
    manage the room their own way and would otherwise fight a held number. */
 function releaseHold(room) {
@@ -336,5 +408,5 @@ function releaseHold(room) {
 module.exports = {
   PAID_BOTS_NOTE, BOT_SET_MAX,
   roomStake, roomPeople, roomMoney, roomBotTarget,
-  rungRows, duelRows, paidDoor, brState, mergeAudit, cleanAnnounce, setBots, releaseHold,
+  rungRows, duelRows, paidDoor, brState, mergeAudit, cleanAnnounce, setBots, releaseHold, botsAddClear,
 };

@@ -4,6 +4,8 @@
    - maintenance outlives a restart and fails closed;
    - bots:set holds an exact number in each kind of free room (agar.io and Paper for real, slither through its
      driver or the fallback hold) and refuses paid rooms before touching anything;
+   - bots:add and bots:clear (botsAddClear, moved out of index.js for the server split): the Clear window, Paper's
+     own top-up, bots by hand marked and counted, paid rooms refused untouched;
    - the rows, the battle royale block and the announcement text have the shape the console builds against;
    - server/index.js wires all of it: the paid duel doors refuse before a token is spent, the start alone button
      checks what forceStart returns, and the snapshot is v2. */
@@ -299,6 +301,91 @@ test('bots:set refuses paid rooms before touching anything, bad counts, and the 
   assert.match(oc.setBots(br.room, { count: 3 }).why, /A match is under way/);
   match.state = 'waiting';
   assert.equal(oc.setBots(br.room, { count: 3 }).live, 3);
+});
+
+// ---- bots:add and bots:clear (ownerConsole.botsAddClear, the room logic moved out of index.js) -----
+
+const T0 = 1.7e12;
+const PAUSE = 15 * 60 * 1000;
+const addClear = (room, action, args) => oc.botsAddClear(room, action, args || {}, { now: T0, pauseMs: PAUSE });
+
+test('bots:clear empties a free room for the window, counting what the room does not say; Paper gets no window', () => {
+  const s = slRoom({ full: true });
+  s.driver.setTarget(s.room, 12);
+  s.room._botsHeld = 12;
+  assert.deepEqual(addClear(s.room, 'bots:clear'), { ok: true, removed: 30, paper: false });
+  assert.equal(s.room.botCount, 0);
+  assert.equal(s.room._botsPausedUntil, T0 + PAUSE, 'empty for the window');
+  assert.deepEqual([s.driver.target(), s.room._botsHeld], [null, null], 'the held number let go first');
+  // a room whose clearBots returns nothing (PaperRoom): counted from botCount
+  let bots = 7;
+  const quietClear = { lobbyType: 'ag_x', get botCount() { return bots; }, clearBots() { bots = 0; } };
+  assert.deepEqual(addClear(quietClear, 'bots:clear'), { ok: true, removed: 7, paper: false });
+  // the old snake rooms: their bots taken out of the map, people left
+  const snakes = new Map([[1, { isBot: true }], [2, { isBot: false }], [3, { isBot: true }]]);
+  const old = { lobbyType: 'free', snakes };
+  assert.deepEqual(addClear(old, 'bots:clear'), { ok: true, removed: 2, paper: false });
+  assert.deepEqual([...snakes.keys()], [2]);
+  // Paper: no window, the arena tops itself back up
+  const p = paperRoom(0);
+  for (let i = 0; i < 20; i++) p.tickOnce();
+  p.game.setBotCap(4);
+  const pausedBefore = p._botsPausedUntil;
+  const x = addClear(p, 'bots:clear');
+  assert.deepEqual([x.ok, x.paper], [true, true]);
+  assert.ok(x.removed > 0);
+  assert.equal(p._botsPausedUntil, pausedBefore, 'no pause on Paper');
+  assert.equal(p.game.botCap, null, 'its held cap let go');
+  p.stop();
+});
+
+test('bots:add adds by hand up to 500, marks them, lifts a Clear, and counts refusals', () => {
+  const s = slRoom({ full: false });
+  s.room._botsPausedUntil = T0 + PAUSE;
+  const before = s.room.botCount;
+  assert.deepEqual(addClear(s.room, 'bots:add', { count: 3 }), { ok: true, made: 3 });
+  assert.equal(s.room.botCount, before + 3);
+  assert.equal(s.room._botsPausedUntil, 0, 'asking for bots lifts a Clear');
+  assert.equal([...s.recs.values()].filter((r) => r.manual === true && r._manual === true).length, 3, 'marked by hand');
+  for (const [count, made] of [[undefined, 1], ['x', 1], [0, 1], [-4, 1], ['2', 2], [900, 500]]) {
+    const r = { lobbyType: 'r', addBot: () => ({}) };
+    assert.deepEqual(addClear(r, 'bots:add', { count }), { ok: true, made }, String(count));
+  }
+  let tries = 0;
+  const half = { lobbyType: 'h', _botsPausedUntil: 9, addBot: () => (++tries % 2 ? { id: tries } : null) };
+  assert.deepEqual(addClear(half, 'bots:add', { count: 4 }), { ok: true, made: 2 }, 'refusals are not counted');
+  const full = { lobbyType: 'f', _botsPausedUntil: 9, addBot: () => null };
+  assert.deepEqual(addClear(full, 'bots:add', { count: 5 }),
+    { ok: false, made: 0, why: 'That room would not take any bots' });
+  assert.equal(full._botsPausedUntil, 0, 'touched: its pause lifted, so the caller still tells the lobby');
+});
+
+test('bots:add and bots:clear refuse an unknown room, a paid room untouched, and a room with no bots', () => {
+  assert.deepEqual(addClear(undefined, 'bots:add', { room: 'nope' }), { ok: false, why: 'No room called nope' });
+  for (const paid of [paperRoom(0.5), agRoom(0.5)]) {
+    paid._botsHeld = 3;
+    const before = [paid.botCount, paid._botsPausedUntil, paid._botsHeld];
+    for (const action of ['bots:add', 'bots:clear']) {
+      assert.deepEqual(addClear(paid, action, { count: 2 }), { ok: false, why: 'Set paid bots on the room row in the sheet' });
+    }
+    assert.deepEqual([paid.botCount, paid._botsPausedUntil, paid._botsHeld], before, 'nothing was touched');
+    paid.stop();
+  }
+  const paidSl = { lobbyType: 'sl_na_s0.5', paid: true, addBot() { throw new Error('touched'); } };
+  assert.equal(addClear(paidSl, 'bots:add').why, 'Set paid bots on the room row in the sheet');
+  const none = { lobbyType: 'x', _botsHeld: 4 };
+  assert.deepEqual(addClear(none, 'bots:add', { count: 2 }), { ok: false, why: 'That room does not take bots' });
+  assert.equal(none._botsHeld, null, 'its hold let go first, as before');
+});
+
+test('index.js: bots:add and bots:clear ask ownerConsole.botsAddClear and keep the console\'s words', () => {
+  const c = SRC.slice(SRC.indexOf("case 'bots:add':"), SRC.indexOf("case 'botbank:cap'"));
+  assert.match(c, /const room = ALL_ROOMS\(\)\.find\(r => r\.lobbyType === args\.room\);/);
+  assert.match(c, /const out = ownerConsole\.botsAddClear\(room, action, args, \{ now: Date\.now\(\), pauseMs: BOTS_PAUSE_MS \}\);/);
+  assert.match(c, /'Added ' \+ out\.made \+ ' bot\(s\) to ' \+ room\.lobbyType/);
+  assert.match(c, /'Removed ' \+ out\.removed \+ ' bot\(s\) from ' \+ room\.lobbyType/);
+  assert.ok(c.indexOf('return refuse(out.why);') < c.indexOf('broadcastLobbyState();'), 'a refusal before any bot moved tells nobody');
+  assert.doesNotMatch(c, /room\.addBot\(|room\.clearBots\(|_botsPausedUntil/, 'no room logic left here');
 });
 
 // ---- the rows, the battle royale, the announcement ------------------------------------------------

@@ -15,6 +15,8 @@
 //   - second pass: one automatic prize a week per wallet and per winner's network (brPrizeRule.recentPrize, on a real
 //     brJournal); 'checking' is journaled before the lookup's await and the boot sweep holds it, never sends it; a
 //     proxy's own (loopback/private) address is no network
+//   - voidCutOffBr, lifted the same way: the boot block that voids a match the last process left live, now a
+//     function (the server split's slither process stopping is its second caller)
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -571,4 +573,29 @@ test('payBattleRoyaleWinner: checking is journaled before the lookup; a restart 
   await r.settle();
   assert.deepStrictEqual(r.journal, [['br_WIN', 'checking'], ['br_WIN', 'paying'], ['br_WIN', 'paid']]);
   assert.strictEqual(r.sends.length, 1);
+});
+
+// voidCutOffBr (server split step 2, spec 8.4): the boot block that voids a match the last process left live, as a
+// function, so the slither process stopping mid-match can run it too. Lifted from server/index.js and run on stubs.
+test('voidCutOffBr: a live match is voided once with why in the push; nothing live is a no-op; boot passes a restart', () => {
+  const pushes = [];
+  const warned = [];
+  let live = { matchId: 'br_9', seats: 3, people: ['Ann', 'Bob'] };
+  const lives = [];
+  const ctx = {
+    console: { warn: (m) => warned.push(m), log() {}, error() {} },
+    notify: { pushOwner: (msg, meta) => pushes.push({ msg, title: meta && meta.title }) },
+    brJournal: { live: () => live, setLive: (rec) => { lives.push(rec); live = rec; } },
+  };
+  vm.createContext(ctx);
+  vm.runInContext(lift('voidCutOffBr') + '\nthis.cut = voidCutOffBr;', ctx);
+  assert.strictEqual(ctx.cut('the slither process stopping'), true);
+  assert.deepStrictEqual(pushes, [{ title: 'Battle Royale voided',
+    msg: 'Battle royale br_9 was cut off by the slither process stopping with 3 player(s) (Ann, Bob). No winner, no prize.' }]);
+  assert.deepStrictEqual(warned, ['[BR] br_9 was cut off by the slither process stopping (3 player(s)): void, no prize']);
+  assert.deepStrictEqual(lives, [null], 'cleared from the journal');
+  assert.strictEqual(ctx.cut('a restart'), false, 'nothing live: nothing to void');
+  assert.strictEqual(pushes.length, 1, 'once');
+  // the boot still runs it where the block was, with the words br-sl-smoke and Owen's phone know
+  assert.match(INDEX.replace(/\r\n/g, '\n'), /\nvoidCutOffBr\('a restart'\);\nsweepBrPrizesAtBoot\(\);\n/);
 });
