@@ -241,16 +241,26 @@ test('owner commands: bots:set, br:start and br:stop answer with the room\'s own
   assert.deepStrictEqual([none.ok, none.why], [false, 'No room called sl_na_s9']);
   const stop = await H.call('br:stop', {});
   assert.deepStrictEqual([stop.ok, stop.why], [false, 'No match is running']);
+  // the arena fills with bots from boot (brOnNew), so after a few seconds it can start
+  const canStart = await until(() => {
+    const s = H.msgs.filter((m) => m.t === 'snap').pop();
+    return s && s.br.match.canStart;
+  }, 10000);
   const start = await H.call('br:start', { force: false });
   assert.ok(start);
-  if (start.ok) {
-    assert.match(start.note, /^Started with \d+ player\(s\) and \d+ bot\(s\)$/);
-    assert.strictEqual(start.snap.br.match.state, 'countdown');
-    const stopped = await H.call('br:stop', {});
-    assert.deepStrictEqual([stopped.ok, stopped.note], [true, 'Match stopped, no prize paid']);
-  } else {
-    assert.match(start.why, /The arena is empty: a match needs \d+ snakes, bots count\./);
-  }
+  assert.ok(canStart, 'the arena filled with bots');
+  assert.strictEqual(start.ok, true, JSON.stringify([start.note, start.why]));
+  assert.match(start.note, /^Started with \d+ player\(s\) and \d+ bot\(s\)$/);
+  assert.strictEqual(start.snap.br.match.state, 'countdown');
+  // the slot timer's start, decided on a snapshot a second old: checked again here, never a second match
+  const slot = await H.call('br:autoStart', { why: 'auto 14:00 ET' });
+  assert.deepStrictEqual([slot.ok, slot.why, slot.snap.br.match.state], [false, 'state changed', 'countdown']);
+  assert.ok(await until(() => /slot start not made: the arena is countdown/.test(H.out.text), 3000), 'logged');
+  const again = await H.call('br:start', { force: false });
+  assert.deepStrictEqual([again.ok, again.why], [false, 'A match is already running. You can start the next one once a single snake is left.']);
+  const stopped = await H.call('br:stop', {});
+  assert.deepStrictEqual([stopped.ok, stopped.note], [true, 'Match stopped, no prize paid']);
+  assert.strictEqual(stopped.snap.br.match.state, 'waiting');
   const door = await H.call('door', { open: false });
   assert.deepStrictEqual([door.ok, door.result.door, door.snap.door, door.snap.free.live], [true, false, false, false]);
   await H.call('door', { open: true });

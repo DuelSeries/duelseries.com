@@ -283,7 +283,12 @@ function main() {
         return { ok: true, result: {} };
       case 'br:autoStart': {
         const m = slBr ? slBr.match : null;
-        if (!m || m.state !== 'waiting' || !m.canStart()) return { ok: false, why: 'state changed' };
+        if (!m || m.state !== 'waiting' || !m.canStart()) {
+          // decided on a snapshot up to a second old (spec 7.3): the main server has marked the slot, so say why
+          log.log('[BR] slot start not made: the arena is ' + (m ? m.state : 'gone') + (m && m.state === 'waiting'
+            ? ' with ' + m.livingCount() + ' snake(s)' : ''));
+          return { ok: false, why: 'state changed' };
+        }
         m.startMatch(typeof a.why === 'string' ? a.why : 'slot', { countdownMs: 0 });
         return { ok: true, result: {} };
       }
