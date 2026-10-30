@@ -39,7 +39,7 @@
   const NAME = 'Swim';
   /* Bumped whenever the step or the traffic rules change: a page left open across a deploy runs the old
      step and would disagree with the server on every tick, so the server turns it away (sw:queue). */
-  const VERSION = 5;
+  const VERSION = 6;
 
   const HZ = 60;
   const DT = 1 / HZ;
@@ -80,10 +80,15 @@
   const MAX_HL = Math.max(...TYPES.map(t => t.hl));
 
   /* ── speed ────────────────────────────────────────────────────────────────
-     The road gets faster for as long as the match lasts: a cruise speed that
-     starts at 130 km/h and climbs towards 302, half way there after 70 s, and
-     the top speed is 16% over it (about 350 km/h late on, Owen 2026-10-28).
-     Both cars start on tick 0 at V0.
+     FULL SPEED FROM THE FIRST SECOND (Owen 2026-10-30: "make it so my car can
+     go through all the gears and actually reach top speed from the start").
+     Both cars start on tick 0 at V0 (130 km/h) and the gas takes them to TOP
+     (V1 * TOP_K, about 351 km/h) in about 5.6 s, through every gear. Until
+     then the top speed was tied to the clock, 16% over cruise(), so it was
+     150 km/h at the start and still only 305 after four minutes. cruise() is
+     now only the steady pace of the tuning script's plain driver
+     (scripts/swimBotSim.js); the road still gets harder with time through the
+     traffic, which gets denser (server/swim/swimTraffic.js).
 
      NO AUTO-THROTTLE (Owen 2026-10-28: "letting go of W can still speed you
      up"). The car only gains speed while the gas is held, up to topSpeed. Let
@@ -103,7 +108,7 @@
      30 minute cap calls it a draw and refunds both stakes: nobody profits, so
      it is no way to win and no way to take money (test/swim.test.js). */
   const V0 = 36, V1 = 84, T_HALF = 70;
-  const TOP_K = 1.16;
+  const TOP_K = 1.16, TOP = V1 * TOP_K;
   const GAS = 11, BRAKE = 22, COAST = 1.2, DRAG = 0.00035, SCRAPE = 9;
 
   /* THE WHEEL GETS HEAVIER WITH SPEED (Owen 2026-10-28). Sideways speed at
@@ -142,7 +147,8 @@
     const t = (tick > 0 ? tick : 0) * DT;
     return V0 + (V1 - V0) * t / (t + T_HALF);
   }
-  function topSpeed(tick) { return cruise(tick) * TOP_K; }
+  /* The same on every tick; callers still pass the tick, which it ignores. */
+  function topSpeed() { return TOP; }
   /* What the car loses in a second with no pedal at speed v: engine braking plus drag. */
   function coastDecel(v) { return COAST + DRAG * v * v; }
 
@@ -188,7 +194,7 @@
     if (!car.alive) { car.tick = n + 1; return car; }
     let cool = car.cool > 0 ? car.cool - 1 : 0;
     const steer = steerOf(code), pedal = pedalOf(code);
-    const hi = topSpeed(n);
+    const hi = TOP;
 
     let v = car.v;
     if (pedal < 0) v -= BRAKE * DT;
@@ -398,7 +404,7 @@
   return {
     NAME, VERSION, HZ, DT, TICK_MS, COUNTDOWN_MS, BEHIND_LOSE,
     LANES, LANE_W, ROAD_HALF, LANE_V, laneX, CAR, WALL, TYPES, MAX_HL,
-    V0, V1, T_HALF, TOP_K, GAS, BRAKE, COAST, DRAG, VX_LO, VX_HI, VX_SLIP, CLOSE_M, BOOST_MAX, OVER_EASE, BOOST_COOL,
+    V0, V1, T_HALF, TOP_K, TOP, GAS, BRAKE, COAST, DRAG, VX_LO, VX_HI, VX_SLIP, CLOSE_M, BOOST_MAX, OVER_EASE, BOOST_COOL,
     cruise, topSpeed, coastDecel, vxMax, vxAcc, SIGNAL, MOVE,
     STEER_Q, INPUT_MAX, packInput, steerOf, pedalOf, NEUTRAL, validInput,
     newCar, copyCar, step, zAt, xAt, changes, occFrom, occTo, occupies, signalAt, brakingAt, validRecord, Traffic, rng, kmh,

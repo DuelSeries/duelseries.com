@@ -95,6 +95,7 @@ function passBy(gap, opts) {
   const sedan = S.TYPES[0];
   const car = S.newCar(0);
   if (o.tick) car.tick = o.tick;
+  if (o.v != null) car.v = o.v;
   car.x = S.laneX(o.lane != null ? o.lane : 2) + (o.side || -1) * (S.CAR.HW + sedan.hw + gap);
   const tr = new S.Traffic();
   tr.add([1, o.lane != null ? o.lane : 2, 0, o.z != null ? o.z : 30, car.tick, 0]);
@@ -157,7 +158,7 @@ test('no boost for a wide pass, a car that overtakes us, or a touch (that is a c
 
 test('a boost eases back down to the top speed, gas or not, never cut off at once', () => {
   for (const code of [S.packInput(0, 1), S.NEUTRAL]) {
-    const r = passBy(0.02, { code: S.packInput(0, 1), ticks: 400 });
+    const r = passBy(0.02, { code: S.packInput(0, 1), ticks: 400, v: S.TOP });   // flat out, so the boost goes over the top
     const s = r.seen[0];
     assert.ok(s.v > s.top + 5, 'the boost went over the top');
     const car = r.states[s.n];
@@ -165,12 +166,13 @@ test('a boost eases back down to the top speed, gas or not, never cut off at onc
     while (car.v > S.topSpeed(car.tick) && ticks < 60 * 10) {
       S.step(car, code, null);
       assert.ok(car.v < last, 'falling every tick');
-      assert.ok(last - car.v <= S.OVER_EASE * S.DT + (code === S.NEUTRAL ? 0 : 1e-12) + 1e-9, 'by OVER_EASE a second, not at once');
+      /* Off the gas up here the coast itself is harder than OVER_EASE, and it is never softened. */
+      const most = code === S.NEUTRAL ? Math.max(S.OVER_EASE, S.coastDecel(last)) : S.OVER_EASE;
+      assert.ok(last - car.v <= most * S.DT + 1e-9, 'by OVER_EASE a second (or the coast, if harder), not at once');
       last = car.v; ticks++;
     }
-    // The top speed itself still climbs about 1 m/s a second this early, so the two meet a little sooner.
-    assert.ok(ticks > 60 * (s.v - s.top) / (S.OVER_EASE + 1.5), 'it took its time (' + ticks + ' ticks)');
-    assert.ok(ticks < 60 * ((s.v - s.top) / S.OVER_EASE + 1), 'and got there');
+    assert.ok(ticks >= 60 * (s.v - s.top) / Math.max(S.OVER_EASE, S.coastDecel(s.v)) - 1, 'it took its time (' + ticks + ' ticks)');
+    assert.ok(ticks <= Math.ceil(60 * (s.v - s.top) / S.OVER_EASE) + 1, 'and got there');
     for (let i = 0; i < 120; i++) { S.step(car, code, null); assert.ok(car.v <= S.topSpeed(car.tick)); }
   }
 });
@@ -271,14 +273,16 @@ test('a server room and a screen replaying the same inputs agree to the bit thro
   assert.ok(codes, 'a nudge that passes close');
   const { room } = racing();
   room.traffic.add(sedan.slice());
-  const BOB = S.packInput(0, -1);                          // Bob, behind the sedan in lane 2, drops back out of its way
+  /* Bob, behind the sedan in lane 2, pulls right out of its way on the gas (braking to a stop would leave
+     him the 200 m behind that loses: Ann is flat out within seconds). */
+  const BOB = S.packInput(1, 1);
   let mid = null;
   for (let t = 1; t <= TICKS; t++) {
     room.input('a', { t: t - 1, k: [codes[t - 1]] });
     room.input('b', { t: t - 1, k: [BOB] });
     room.tick(at(room, t));
     const a = room.bySide(0).car;
-    if (!mid && a.v > S.topSpeed(a.tick - 1) + 1) mid = room.carRows().find(r => r[0] === 0).slice();
+    if (!mid && a.cool > 0 && a.cool <= S.BOOST_COOL - 10) mid = room.carRows().find(r => r[0] === 0).slice();   // 10 ticks into the boost
   }
   assert.strictEqual(room.state, 'racing');
   const server = room.bySide(0);
@@ -397,7 +401,7 @@ test('lane changes: the server and a screen fed the same records agree on x and 
   /* A race: a sedan in lane 2 moves into Ann's lane 1 ahead of her and she drives straight into it.
      The server's verdict and a screen's own replay agree on the tick and the car. */
   const { room } = racing();
-  const cut = [7, 2, 0, 120, 0, 3, 120, 1];
+  const cut = [7, 2, 0, 200, 0, 3, 120, 1];
   room.traffic.add(cut.slice());
   const GO = S.packInput(0, 1);
   run(room, 1200, GO, GO);
@@ -454,8 +458,9 @@ test('a crash loses, judged on the own tick of the car that crashed, even when t
   room.traffic.add(rec.slice());
   const c = crashTickFor(0, rec, S.NEUTRAL);
   assert.ok(c > 60);
-  // Bob's inputs stop well before Ann's crash, so his car trails the clock by LAG_MAX.
-  run(room, c + 10, S.NEUTRAL, S.packInput(0, 1), c - 40);
+  // Bob's inputs stop well before Ann's crash, so his car trails the clock by LAG_MAX. He coasts beside her:
+  // on the gas he would be the 200 m clear that wins before she reaches the sedan.
+  run(room, c + 10, S.NEUTRAL, S.NEUTRAL, c - 40);
   assert.strictEqual(room.bySide(0).car.alive, false);
   assert.strictEqual(room.bySide(0).car.crashTick, c);
   assert.strictEqual(room.bySide(1).car.tick, c + 10 - LAG_MAX);
@@ -631,7 +636,7 @@ test('a server room and a screen replaying the same inputs agree to the bit thro
   const plan = [];
   for (let t = 0; t < 1500; t++) {
     const steer = t >= 200 && t < 230 ? 0.6 : t >= 900 && t < 960 ? -0.4 : 0;
-    plan.push(S.packInput(steer, t < 90 ? 1 : t < 520 ? 0 : t < 700 ? -1 : t < 780 ? 0 : 1));
+    plan.push(S.packInput(steer, t < 30 ? 1 : t < 520 ? 0 : t < 700 ? -1 : t < 780 ? 0 : 1));
   }
   const TICKS = plan.length;
   const { room } = racing();
@@ -833,11 +838,14 @@ test('the bot holds the gas itself, close passes with daylight, and lasts its fi
       S.step(car, code, tr);
       if (car.close >= 0) { passes++; closest = Math.min(closest, car.close); }
       tr.prune(car.z - 120, t + 1);
-      sv += car.v; st += S.topSpeed(t);
+      sv += car.v; st += S.cruise(t);
     }
     assert.strictEqual(car.alive, true, 'seed ' + seed + ': crashed at ' + (car.crashTick / 60).toFixed(1) + ' s');
     assert.ok(gas > 0.6 * 3600, 'seed ' + seed + ': the gas held ' + (gas / 36).toFixed(0) + '% of the time');
-    assert.ok(sv / st > 0.75, 'seed ' + seed + ': ' + (100 * sv / st).toFixed(0) + '% of the top speed on average');
+    /* Measured against the cruise pace, not the top speed: the top is all there from the start now (Owen
+       2026-10-30) and nobody averages 350 km/h through the first minute's traffic. The bot did 94 to 101% of
+       the cruise pace with the old climbing top speed and 96 to 107% now. */
+    assert.ok(sv / st > 0.9, 'seed ' + seed + ': ' + (100 * sv / st).toFixed(0) + '% of the cruise pace on average');
     assert.ok(passes >= 8 && closest > 0.1, 'seed ' + seed + ': ' + passes + ' close passes, closest ' + closest.toFixed(2) + ' m');
   }
 });

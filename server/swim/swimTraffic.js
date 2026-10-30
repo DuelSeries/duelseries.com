@@ -8,8 +8,9 @@
 
    HARDER WITH TIME. The gap behind each car shrinks from about 95 m at the
    start towards 17 m, half way there after 75 s, and trucks and buses get more
-   common. With the cruise speed climbing at the same time, the road is denser
-   and closing faster every second it lasts.
+   common, so the road is denser every second it lasts. (The players' top
+   speed no longer climbs with it: it is all there from the start, Owen
+   2026-10-30, shared/swimSim.js.)
 
    NEVER A WALL. Before a car is placed, the other three lanes are checked for
    a car alongside it, twice: where they all are now, and where they will be
