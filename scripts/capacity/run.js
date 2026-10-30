@@ -13,6 +13,11 @@
 //   --first    the first player's number (its address and name); default 0
 //   --workers  processes; default 6
 //   --report   seconds between lines; default 5
+//   --br-leave N  battle royale safety (2026-10-30): read /api/live every 2 s, log the event's state, and once a match is
+//              under way ('running') stop every player when N or fewer snakes are alive, or when it ends: test players
+//              are always gone before the last snake is decided, so none can win (and a win with no proven wallet would
+//              only hold the prize and push Owen). Also stops them if the event ends any other way.
+//   --until    epoch ms: stop everything then, whatever else is going on
 // Free rooms only: the game modules never send a token, a stake or a wallet. Ctrl-C (or the end) stops every player.
 
 const { fork } = require('child_process');
@@ -41,6 +46,8 @@ const WORKERS = Number(arg('workers', 6));
 const REPORT = Number(arg('report', 5));
 const OUT = arg('out', null);
 const LABEL = arg('label', MIX.map((m) => m.game + m.n).join('+'));
+const BR_LEAVE = Number(arg('br-leave', 0));
+const UNTIL = Number(arg('until', 0));
 
 const workers = [];
 for (let i = 0; i < WORKERS; i++) {
@@ -182,6 +189,38 @@ async function stopAll() {
   if (out) out.end();
   process.exit(0);
 }
+// The battle royale watch (--br-leave): see the header.
+let brSeen = null;
+let brLive = false;
+function brWatch() {
+  const mod = BASE.startsWith('https') ? require('https') : require('http');
+  if (stopping) return;
+  const req = mod.get(BASE + '/api/live', { timeout: 4000 }, (res) => {
+    let b = '';
+    res.on('data', (d) => (b += d));
+    res.on('end', () => {
+      let br;
+      try { br = JSON.parse(b).br; } catch (_) { return; }
+      if (!br) return;
+      const key = br.state + ' ' + br.alive + ' ' + br.humans;
+      if (key !== brSeen) {
+        brSeen = key;
+        log({ type: 'br', state: br.state, phase: br.phase, alive: br.alive, humans: br.humans, prizeHeld: br.prizeHeld,
+          countdownMs: br.countdownMs, winner: br.winner || null });
+      }
+      if (br.state === 'running' || br.state === 'countdown') brLive = brLive || br.state === 'running';
+      if (brLive && (br.state !== 'running' || br.alive <= BR_LEAVE)) {
+        log({ type: 'br-leave', why: br.state !== 'running' ? 'match left running (' + br.state + ')' : br.alive + ' alive' });
+        stopAll();
+      }
+    });
+  });
+  req.on('timeout', () => req.destroy());
+  req.on('error', () => {});
+}
+if (BR_LEAVE > 0) setInterval(brWatch, 2000);
+if (UNTIL > 0) setInterval(() => { if (!stopping && Date.now() >= UNTIL) { log({ type: 'until' }); stopAll(); } }, 1000);
+
 process.on('SIGINT', stopAll);
 process.on('SIGTERM', stopAll);
 
