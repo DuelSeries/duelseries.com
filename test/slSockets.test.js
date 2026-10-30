@@ -365,6 +365,23 @@ test('handshake skin: a shipped cv is kept; a picture skin (switch off), junk or
   }
 });
 
+test('owner push: the owner\'s own joins (helpers.ownerSocket) are not pushed and spend none of the gate', async () => {
+  const his = new WeakSet();
+  let broken = false;
+  const r = rig({ patch: { C_SL_PER_IP: 100 }, helpers: { ownerSocket: (s) => { if (broken) throw new Error('x'); return his.has(s); } } });
+  const join = (nick, mine) => { const s = r.sock(); if (mine) his.add(s); s.fire('sl:join', { nick }); return s; };
+  for (let i = 0; i < 8; i++) join(i ? 'owen' + i : 'owen', true);
+  join('owen');                                  // a player with his name, inside the window
+  for (let i = 0; i < 5; i++) join('p' + i);
+  await new Promise((res) => setImmediate(res));
+  assert.deepStrictEqual(r.pushes, ['owen', 'p0', 'p1', 'p2', 'p3', 'p4']);
+  r.wall.t += 600000;
+  broken = true;
+  join('owen9', true);                           // a check that throws counts as a player
+  await new Promise((res) => setImmediate(res));
+  assert.strictEqual(r.pushes[r.pushes.length - 1], 'owen9');
+});
+
 test('owner push: at most one per name per 10 minutes and 6 per 10 minutes in total (C_PUSH)', async () => {
   const r = rig({ patch: { C_SL_PER_IP: 100 } });
   const join = (nick) => { const s = r.sock(); s.fire('sl:join', { nick }); };

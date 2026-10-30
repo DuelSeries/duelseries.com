@@ -207,7 +207,8 @@ test('play again still works, and a free one goes through the capped join alerts
   const h = src.slice(src.indexOf('on(C.EVENTS.RESPAWN'), src.indexOf("on('ping_check'"));
   assert.match(h, /^on\(C\.EVENTS\.RESPAWN, \(msg\) => \{\s*if \(socketRL\(socket, 'respawn', 500\)\) \{ respawn\(msg\); return; \}\s*if \(socket\._respawnLater\) return;/,
     'once each half second, and at most one press waiting');
-  assert.match(h, /if \(entry\.worth > 0\) \{\s*notify\.pushOwner\(/, 'only a paid play again pushes directly');
+  assert.match(h, /if \(entry\.worth > 0\) \{\s*if \(!isOwnerPaid\(socket, entry\.walletAddress\)\) notify\.pushOwner\(/,
+    "only a paid play again pushes directly, and never the owner's own");
   assert.match(h, /\} else \{[\s\S]*joinAlerts\.joined\(\{ game: room\.isBattleRoyale \? 'br' : 'snake', stake: 0,/, 'a free one is a capped join alert');
   assert.strictEqual((h.match(/notify\.pushOwner\(/g) || []).length, 1);
 });

@@ -612,6 +612,36 @@ test('sign-in is rate limited: about 10 attempts per 10 minutes per address', as
   assert.equal(codes[10], 429);
 });
 
+/* ownerDevice (2026-10-29): is this the owner's own browser, for keeping his own visits and joins off his phone. The
+   cookie rules of check() with only the read gate: the visit beacon is a POST without X-DS-Owner, and a socket's
+   handshake is a GET. It authorises nothing, so check() still refuses that POST. */
+test('ownerDevice: his live cookie on a beacon POST or a socket handshake; a forged, revoked or cross-site one is not', async (t) => {
+  const r = await rig(t);
+  const c = r.browser();
+  assert.equal((await signIn(c)).status, 200);
+  const v = c.jar.get('ds_owner');
+  const beacon = { method: 'POST', headers: { host: r.host, cookie: 'ds_owner=' + v, origin: 'http://' + r.host,
+    'sec-fetch-site': 'same-origin', 'content-type': 'application/json' } };
+  assert.equal(r.sessions.ownerDevice(beacon), true);
+  assert.equal(r.sessions.check(beacon).why, 'csrf', 'the same POST is no owner write');
+  const handshake = fakeReq(r.host, 'ds_owner=' + v, { 'sec-fetch-site': 'same-origin' });
+  assert.equal(r.sessions.ownerDevice(handshake), true);
+  assert.equal(r.sessions.ownerDevice(fakeReq(r.host, 'other=1; ds_owner=' + v)), true, 'no fetch headers (a Node client)');
+
+  const [body, mac] = v.split('.');
+  const no = (cookie, extra) => assert.equal(r.sessions.ownerDevice(fakeReq(r.host, cookie, extra)), false, cookie);
+  no('');
+  no('ds_owner=' + body + '.' + (mac.slice(-2) === 'AA' ? mac.slice(0, -2) + 'BB' : mac.slice(0, -2) + 'AA'));
+  no('ds_owner=' + body);
+  no('ds_owner_owner=1; owner=1; isOwner=true');
+  no('ds_owner=' + v, { 'sec-fetch-site': 'cross-site' });
+  no('ds_owner=' + v, { origin: 'https://evil.example' });
+  for (const bad of [null, undefined, {}, { headers: null }, 'ds_owner=' + v]) assert.equal(r.sessions.ownerDevice(bad), false);
+
+  assert.equal((await c.post('/api/owner/session/logout', {})).status, 200);
+  no('ds_owner=' + v);
+});
+
 test('uaSummary names the browser and the system, and nothing else', () => {
   assert.equal(uaSummary('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36'),
     'Chrome on Windows');

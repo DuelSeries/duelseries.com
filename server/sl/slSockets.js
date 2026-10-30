@@ -50,7 +50,8 @@
 //
 // attachSlSockets(nsp, arenas, helpers): nsp is io.of('/sl') (null: attach sockets by hand, tests). arenas is
 // slArenas (join, leave, disconnect, input, hold, vis, chat, diag, isOpen, laws). helpers: { socketRL (required),
-// ops, notifyJoin(name), clientIp(socket), now() wall ms for the input window, seed, log }.
+// ops, notifyJoin(name, where, socket) (the socket only keeps the owner's own join off his phone), ownerSocket(socket)
+// (is this the owner's: his join spends no push gate), clientIp(socket), now() wall ms for the input window, seed, log }.
 //
 // Paid (PAID-SL-DESIGN.md 3.1; task T4): the returned handle's setPaid({ arenas, door }) attaches the paid directory
 // and its door, which the server builds (no server/sl file requires anything under server/slPaid: critic C-2,
@@ -348,6 +349,10 @@ function attachSlSockets(nsp, arenas, helpers) {
   const now = typeof h.now === 'function' ? h.now : Date.now;
   const timers = h.timers || REAL_TIMERS; // the pending sl:vis timer (tests pass fake timers)
   const notifyJoin = typeof h.notifyJoin === 'function' ? h.notifyJoin : null;
+  // the owner's own join (h.ownerSocket: index.js isOwnerSocket) is never pushed, so it never spends the push gate;
+  // a check that throws counts as a player
+  const ownerSocket = typeof h.ownerSocket === 'function' ? h.ownerSocket : null;
+  const ownJoin = (socket) => { try { return !!ownerSocket && ownerSocket(socket) === true; } catch (_) { return false; } };
   const ipOf = typeof h.clientIp === 'function' ? h.clientIp : clientIp;
   const L = sockLaws(arenas.laws);
   const gate = createConnGate(L.perIp, ipOf);
@@ -584,10 +589,10 @@ function attachSlSockets(nsp, arenas, helpers) {
     if (st.br && !st.br.watch) dropWatchersFrom(addrOf(socket), brRooms()); // seated: its address's BR watchers end
     if (st.watch) stats.watches++;
     if (st.watch || (st.br && st.br.watch)) return; // a watcher is nobody joining
-    if (notifyJoin && pushGate.allow(nick, now())) {
+    if (notifyJoin && !ownJoin(socket) && pushGate.allow(nick, now())) {
       stats.pushes++;
       const where = st.br ? 'br' : 'free';
-      safeAsync(() => notifyJoin(nick, where), 'sl.notifyJoin', safeStats, { log });
+      safeAsync(() => notifyJoin(nick, where, socket), 'sl.notifyJoin', safeStats, { log });
     }
   }
 

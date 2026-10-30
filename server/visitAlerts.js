@@ -11,7 +11,10 @@
        caps that keeps every alert this server sends well under ntfy's refill, so a money alert always has room.
      - the text is only what can be checked: the page is a plain path or "/", the referrer is its host name only, the
        country two capital letters or nothing.
-   Obvious bots, crawlers and monitors are skipped as before. */
+   Obvious bots, crawlers and monitors are skipped as before, and so is the owner himself (Owen 2026-10-29): a visit
+   whose request carries his live owner console cookie (opts.isOwnerReq, ownerSession.ownerDevice in index.js), asked
+   before the cap so his own page loads spend none of it. Nothing in the request body is ever read for that, and a
+   check that throws counts as a visitor. */
 
 const WINDOW_MS = 10 * 60 * 1000;
 const CAP = 6;
@@ -41,14 +44,20 @@ function createVisitAlerts(opts) {
   const now = typeof o.now === 'function' ? o.now : Date.now;
   const cap = o.cap || CAP;
   const windowMs = o.windowMs || WINDOW_MS;
+  const isOwnerReq = typeof o.isOwnerReq === 'function' ? o.isOwnerReq : () => false;
   let sent = [];
   let held = 0;
+  const fromOwner = (req) => {
+    try { return !!req && typeof req === 'object' && isOwnerReq(req) === true; } catch (_) { return false; }
+  };
 
+  // v: { ua, page, ref, country, req (the server's request object, only ever asked whether it is the owner's) }
   // -> true when a push went out. Never throws.
   function visit(v) {
     try {
       const x = v || {};
       if (BOT_UA.test(String(x.ua || ''))) return false;
+      if (fromOwner(x.req)) return false;
       const t = now();
       sent = sent.filter((at) => t - at < windowMs && at <= t);
       if (sent.length >= cap) { held++; return false; }

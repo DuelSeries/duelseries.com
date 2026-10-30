@@ -18,6 +18,16 @@
 // Callers are on join paths, some of them paid (a seat that already holds the money). So every entry point is one
 // try/catch, returns nothing and awaits nothing: an alert can be lost, a seat can never be.
 //
+// The owner's own joins are never pushed (Owen 2026-10-29: his phone is for other people), by server-side proof only,
+// asked before the latch and the cap so they spend neither:
+//   - a PAID join whose wallet is in the owner list: that wallet is the payer the server verified for the stake
+//     (the entry token's), never one the client named. A free join's wallet proves nothing and is not asked.
+//   - a join that hands in the socket it came from, when that socket is the owner's (deps.ownerSocket: index.js
+//     asks the owner console cookie on its handshake, or the wallet the socket proved). Silence only: it lets the
+//     owner do nothing he could not do before.
+// A flag a caller copies from the client (owner, isOwner, a name) is never read. An owner check that throws counts
+// as not the owner: the push goes out.
+//
 // Off switches (env, read on every call): NTFY_DISABLED=1 (every push, notify.js), NTFY_JOINS_OFF=1 (both join
 // topics), NTFY_FREE_JOINS_OFF=1 (the free topic only). NTFY_PAID_URL / NTFY_FREE_URL override a topic.
 //
@@ -98,10 +108,13 @@ function createGate(rule, now) {
   };
 }
 
-// deps: { push(message, opts) (notify.pushOwner), region ('na'), env (process.env), now (Date.now), log }
+// deps: { push(message, opts) (notify.pushOwner), region ('na'), env (process.env), now (Date.now), log,
+//         isOwner(wallet) (the owner list), ownerSocket(socket) (is this the owner's socket; both optional) }
 function createJoinAlerts(deps) {
   const d = deps || {};
   const push = d.push;
+  const isOwner = typeof d.isOwner === 'function' ? d.isOwner : () => false;
+  const ownerSocket = typeof d.ownerSocket === 'function' ? d.ownerSocket : () => false;
   const env = d.env || process.env;
   const now = typeof d.now === 'function' ? d.now : Date.now;
   const log = d.log || console;
@@ -112,14 +125,25 @@ function createJoinAlerts(deps) {
     return String(env[name] == null ? '' : env[name]).trim() === '1';
   }
 
+  function fromOwner(info, paid) {
+    try {
+      if (paid && typeof info.wallet === 'string' && info.wallet && isOwner(info.wallet) === true) return true;
+      return !!info.socket && typeof info.socket === 'object' && ownerSocket(info.socket) === true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   // info: { game (a GAMES key), stake (0 or absent = free), name, wallet (paid key only, never sent), queued (a duel
-  //         queue rather than a seat), region (the room's, when this server hosts another region's room) }
+  //         queue rather than a seat), region (the room's, when this server hosts another region's room), socket (the
+  //         server's socket the join came from, optional: only ever asked whether it is the owner's) }
   function joined(info) {
     try {
       if (typeof push !== 'function' || !info || typeof info !== 'object') return;
       if (on('NTFY_JOINS_OFF')) return;
       const paid = Number(info.stake) > 0;
       if (!paid && on('NTFY_FREE_JOINS_OFF')) return;
+      if (fromOwner(info, paid)) return;
       const kind = paid ? 'paid' : 'free';
       const game = Object.prototype.hasOwnProperty.call(GAMES, info.game) ? GAMES[info.game] : 'a game';
       const rung = rungText(info.stake);

@@ -134,7 +134,7 @@ function slPageRoute(opened) {
 // -> { arenas, page, why, dev, sockets }: arenas, page and sockets null when the game is off ('off') or closed (why says
 // which). sockets is attachSlSockets' handle: the server attaches the paid helper through its setPaid (PAID-SL-DESIGN
 // 3.1, task T4), so this file names nothing paid.
-// opts: { env, io (the socket.io server), region, helpers: { socketRL, ops, notifyJoin(name), paidLoad(),
+// opts: { env, io (the socket.io server), region, helpers: { socketRL, ops, notifyJoin(name, where, socket), paidLoad(),
 //   clientIp }, topCashout(since, exclude) (null: no box), excludeWallets (owner and revenue wallets), log,
 //   slHtml (tests; default public/sl.html), slxTail (tests; default SLX_TAIL), laws (tests; a table treated as the
 //   real one), autoTick, seed, clock, now, timers, bots, monitor (tests; default perf_hooks.monitorEventLoopDelay at

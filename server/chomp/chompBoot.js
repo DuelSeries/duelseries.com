@@ -207,7 +207,8 @@ function openChomp({ io, env = process.env, helpers = {}, money = null, paidSwit
       if (!p) { socket.emit('c:refused', { why: 'full' }); return; }
       socket.emit('c:you', { id: p.id, metas: room.metas() });
       if (typeof helpers.notifyJoin === 'function') {
-        try { helpers.notifyJoin(p.name); } catch (e) { log.error('[CHOMP] notifyJoin', e && e.message); }
+        // the socket only keeps the owner's own join off his phone (joinAlerts)
+        try { helpers.notifyJoin(p.name, socket); } catch (e) { log.error('[CHOMP] notifyJoin', e && e.message); }
       }
     });
     on('c:dir', (msg) => {

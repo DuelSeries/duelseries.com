@@ -84,8 +84,9 @@ module.exports = function createPaperSockets({
   // before the stake claim (step 7j)
   journal = arenas && arenas.journal ? arenas.journal : null,
   paidEnabled = process.env.PAPER_PAID === '1',
-  // onFreeJoin({ name }): the owner's quiet phone push (joinAlerts), once a free seat exists; never on a respawn. A
-  // paid seat's push rides the arenas' onStake instead (the buy-in counts once the player steers).
+  // onFreeJoin({ name, socket }): the owner's quiet phone push (joinAlerts; the socket only keeps his own join off his
+  // phone), once a free seat exists; never on a respawn. A paid seat's push rides the arenas' onStake instead (the
+  // buy-in counts once the player steers).
   onFreeJoin = null,
   // the shared in-game chat guard (server/chatGuard.js); a test passes its own
   chatGuard = require('./chatGuard').shared,
@@ -395,7 +396,7 @@ module.exports = function createPaperSockets({
     // 10. a free seat's phone push, after the seat exists (nothing paid rides on a free seat, and it cannot throw out)
     if (stake === 0 && !respawn && typeof onFreeJoin === 'function') {
       try {
-        onFreeJoin({ name });
+        onFreeJoin({ name, socket });
       } catch (e) {
         console.error('[PAPER] free join push', e && e.message);
       }

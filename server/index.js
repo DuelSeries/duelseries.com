@@ -61,8 +61,10 @@ const { liveCounts, withBoardBots } = require('./liveCounts'); // per-game total
 
 const REGION = process.env.REGION || 'na';
 /* Join pushes on their own two topics, paid loud and free quiet (server/joinAlerts.js). Never throws,
-   so a join path calls it after the seat exists and a lost push can never cost a seat. */
-const joinAlerts = require('./joinAlerts').createJoinAlerts({ push: notify.pushOwner, region: REGION });
+   so a join path calls it after the seat exists and a lost push can never cost a seat. The owner's own joins
+   are skipped: a paid one by its verified payer, any one that hands in its socket by isOwnerSocket. */
+const joinAlerts = require('./joinAlerts').createJoinAlerts({ push: notify.pushOwner, region: REGION,
+  isOwner: (w) => OWNER_WALLETS.has(w), ownerSocket: (s) => isOwnerSocket(s) });
 
 // Record a house money event to BOTH our own ledger (source of truth) and PostHog (dashboards).
 // amountUsdc is signed: positive = revenue (rake, skins), negative = cost (bot entries).
@@ -1534,7 +1536,9 @@ app.get('/api/ping', (req, res) => {
 // here, at most 6 pushes per 10 minutes for the whole process, and only checked text in them
 // (server/visitAlerts.js). The page ignores the answer, so a 429 changes nothing for a player.
 const visitLimiter = rateLimit({ windowMs: 60 * 1000, max: 5, standardHeaders: true, legacyHeaders: false, message: { ok: true } });
-const visitAlerts = require('./visitAlerts').createVisitAlerts({ push: notify.pushOwner });
+// The owner's own visits are skipped (his console cookie on the request; it authorises nothing here).
+const visitAlerts = require('./visitAlerts').createVisitAlerts({ push: notify.pushOwner,
+  isOwnerReq: (req) => ownerSessions.ownerDevice(req) });
 app.post('/api/track/visit', visitLimiter, express.json({ limit: '8kb' }), (req, res) => {
   res.json({ ok: true });
   visitAlerts.visit({
@@ -1542,6 +1546,7 @@ app.post('/api/track/visit', visitLimiter, express.json({ limit: '8kb' }), (req,
     page: req.body && req.body.page,
     ref: req.body && req.body.ref,
     country: req.headers['cf-ipcountry'],
+    req,
   });
 });
 
@@ -2777,7 +2782,8 @@ const slOpened = slBoot.openSl({
     socketRL,
     ops,
     /* SERVER-DESIGN 13 item 9: slSockets throttles (C_PUSH) before calling this. */
-    notifyJoin: (name, where) => joinAlerts.joined({ game: where === 'br' ? 'br' : 'sl', stake: 0, name }),
+    notifyJoin: (name, where, socket) => joinAlerts.joined({ game: where === 'br' ? 'br' : 'sl', stake: 0, name, socket }),
+    ownerSocket: (s) => isOwnerSocket(s),   // the owner's own join spends none of slSockets' push gate
     /* The bot governor's paid-seat input, once a second (SERVER-DESIGN 11). */
     paidLoad: () => ({ paidPlayers: ops.drainStatus(ALL_ROOMS(), entryStore.pending()).paid, paid: [] }),
   },
@@ -3457,7 +3463,7 @@ const paper = require('./paperSockets')({
      through it to the owed-payout lane (STATUS item 7a). Dev tokens have no row. */
   ledger: stakeLedger,
   paidEnabled: PAPER_PAID,
-  onFreeJoin: ({ name }) => joinAlerts.joined({ game: 'paper', stake: 0, name }),
+  onFreeJoin: ({ name, socket }) => joinAlerts.joined({ game: 'paper', stake: 0, name, socket }),
   /* A door refund's stake_refunded. */
   analytics: arenaAnalytics,
 });
@@ -3615,7 +3621,7 @@ const agBoot = require('./ag/agBoot').openAg({
   env: process.env,
   io,
   region: REGION,
-  helpers: { socketRL, sanitizeName, ops, notifyJoin: (name) => joinAlerts.joined({ game: 'agar', stake: 0, name }) },
+  helpers: { socketRL, sanitizeName, ops, notifyJoin: (name, socket) => joinAlerts.joined({ game: 'agar', stake: 0, name, socket }) },
   money: { hooks: agMoneyHooks, door: agPaidDoorDeps },
   /* A saved agar:paid:off opens the paid door shut (security review item b). */
   paidSwitch: agPaidSwitch,
@@ -4020,7 +4026,7 @@ const chompMoneyHooks = {
 const chompGame = require('./chomp/chompBoot').openChomp({
   io,
   env: process.env,
-  helpers: { socketRL, sanitizeName, ops, notifyJoin: (name) => joinAlerts.joined({ game: 'chomp', stake: 0, name }) },
+  helpers: { socketRL, sanitizeName, ops, notifyJoin: (name, socket) => joinAlerts.joined({ game: 'chomp', stake: 0, name, socket }) },
   money: {
     hooks: chompMoneyHooks,
     door: {
@@ -4999,6 +5005,21 @@ const socketIdentity = require('./socketIdentity').createSocketIdentity({
 });
 // A device signed out loses its live alerts at once.
 ownerSessions.onRevoke((hashes) => socketIdentity.dropSessions(hashes));
+/* Is this the owner's own socket, any namespace? Only for keeping his own joins off his phone (server/joinAlerts.js):
+   a wallet the socket proved by signature (socketIdentity) that is in the owner list, or his live owner console
+   cookie on its handshake (ownerSession.ownerDevice; the cookie rides every same-origin socket). It silences a push
+   and nothing else: no handler reads it as authority, which still takes a ticket or an owner signature. */
+function isOwnerSocket(socket) {
+  if (!socket || typeof socket !== 'object') return false;
+  const w = socketIdentity.proven(socket);
+  if (w && OWNER_WALLETS.has(w)) return true;
+  return !!socket.request && ownerSessions.ownerDevice(socket.request);
+}
+// The same for a paid push outside joinAlerts (the old snake's paid play again): the verified payer is an owner, or
+// the socket is his. Never throws: a check that fails is a player, and the push goes out.
+function isOwnerPaid(socket, payer) {
+  try { return (typeof payer === 'string' && OWNER_WALLETS.has(payer)) || isOwnerSocket(socket); } catch (_) { return false; }
+}
 
 // Collusion monitor: persist flags to the DB and push a live alert to the owner's socket.
 collusion.init({
@@ -5705,7 +5726,7 @@ io.on('connection', (socket) => {
       room.addPlayer(socket, playerName, entry.walletAddress || socketIdentity.proven(socket) || null, color || null, entry.worth);
       if (entry.worth > 0) trackOldSnakeDeaths(room);   // product analytics: this room's paid deaths (game_ended)
       joinAlerts.joined({ game: room.isBattleRoyale ? 'br' : 'snake', stake: entry.worth > 0 ? (socket._stake || entry.worth) : 0,
-        name: playerName, wallet: entry.walletAddress, region: rgn });
+        name: playerName, wallet: entry.walletAddress, region: rgn, socket });
       lobbyConnections.delete(socket);
       broadcastLobbyState();
     }, (why) => {
@@ -5995,16 +6016,17 @@ io.on('connection', (socket) => {
       /* A paid play again is a real stake, so it stays the loud push it was. A free one goes through joinAlerts like
          every free join (the muted free topic, capped, once per name per 10 min): it used to be a direct push to the
          owner's phone each time, and a free die-and-respawn loop from many sockets flooded it and spent this box's
-         ntfy.sh budget, silencing the payout and solvency alerts behind it (night review 2026-10-29). */
+         ntfy.sh budget, silencing the payout and solvency alerts behind it (night review 2026-10-29). Neither is
+         pushed for the owner's own play again (2026-10-29: his verified payer, or his socket). */
       if (entry.worth > 0) {
-        notify.pushOwner(
+        if (!isOwnerPaid(socket, entry.walletAddress)) notify.pushOwner(
           `${(_rs && _rs.name) || 'A player'} pressed play again in the ${roomLabel} lobby for ${entry.worth} ${money.unit}`,
           { title: 'Player respawned: slither.io', tags: 'arrows_counterclockwise' }
         );
       } else {
         const _rg = /^([a-z]{2})_/.exec(String(room.lobbyType || ''));
         joinAlerts.joined({ game: room.isBattleRoyale ? 'br' : 'snake', stake: 0, name: (_rs && _rs.name) || 'Player',
-          region: _rg ? _rg[1] : REGION });
+          region: _rg ? _rg[1] : REGION, socket });
       }
     }, (why) => {
       socket.emit(C.EVENTS.ERROR, { message: ENTRY_REFUSED[why] || 'Entry fee not verified. Please return to the lobby and try again.' });
@@ -6123,7 +6145,7 @@ io.on('connection', (socket) => {
     if (ops.get().maintenance) { socket.emit('maintenance', ops.get()); return; }
     tanksLobby.enqueue(socket, sanitizeName(name), strOr(wallet, null) || socket._walletAddress || null);
     socket.emit('tanks:queued', { waitingMs: tanksLobby.queuedFor(socket.id) || 0 });
-    joinAlerts.joined({ game: 'tanks', stake: 0, name: sanitizeName(name), queued: true });
+    joinAlerts.joined({ game: 'tanks', stake: 0, name: sanitizeName(name), queued: true, socket });
   });
 
   on('tanks:unqueue', () => {
@@ -6248,7 +6270,7 @@ io.on('connection', (socket) => {
         });
       }
       // After the queue holds the seat (never between the token and it): joinAlerts never throws.
-      joinAlerts.joined({ game: 'knockout', stake: rung, name: sanitizeName(name), wallet: payTo, queued: true });
+      joinAlerts.joined({ game: 'knockout', stake: rung, name: sanitizeName(name), wallet: payTo, queued: true, socket });
     };
     if (!(wants > 0)) {
       if (freeDuelRefused(socket, knockoutLobby, 'ko')) return;   // the address holds enough free seats already
@@ -6426,7 +6448,7 @@ io.on('connection', (socket) => {
         });
       }
       // After the queue holds the seat (never between the token and it): joinAlerts never throws.
-      joinAlerts.joined({ game: 'headsoccer', stake: rung, name: sanitizeName(name), wallet: payTo, queued: true });
+      joinAlerts.joined({ game: 'headsoccer', stake: rung, name: sanitizeName(name), wallet: payTo, queued: true, socket });
     };
     if (!(wants > 0)) {
       if (freeDuelRefused(socket, headSoccerLobby, 'hs')) return;   // the address holds enough free seats already
@@ -6581,7 +6603,7 @@ io.on('connection', (socket) => {
         });
       }
       // After the queue holds the seat (never between the token and it): joinAlerts never throws.
-      joinAlerts.joined({ game: 'pool8', stake: rung, name: sanitizeName(name), wallet: payTo, queued: true });
+      joinAlerts.joined({ game: 'pool8', stake: rung, name: sanitizeName(name), wallet: payTo, queued: true, socket });
     };
     if (!(wants > 0)) {
       if (freeDuelRefused(socket, pool8Lobby, 'p8')) return;   // the address holds enough free seats already
@@ -6758,7 +6780,7 @@ io.on('connection', (socket) => {
         });
       }
       // After the queue holds the seat (never between the token and it): joinAlerts never throws.
-      joinAlerts.joined({ game: 'airhockey', stake: rung, name: sanitizeName(name), wallet: payTo, queued: true });
+      joinAlerts.joined({ game: 'airhockey', stake: rung, name: sanitizeName(name), wallet: payTo, queued: true, socket });
     };
     if (!(wants > 0)) {
       if (freeDuelRefused(socket, airHockeyLobby, 'ah')) return;   // the address holds enough free seats already
@@ -6914,7 +6936,7 @@ io.on('connection', (socket) => {
         });
       }
       // After the queue holds the seat (never between the token and it): joinAlerts never throws.
-      joinAlerts.joined({ game: 'rooftop', stake: rung, name: sanitizeName(name), wallet: payTo, queued: true });
+      joinAlerts.joined({ game: 'rooftop', stake: rung, name: sanitizeName(name), wallet: payTo, queued: true, socket });
     };
     if (!(wants > 0)) {
       if (freeDuelRefused(socket, rooftopLobby, 'rt')) return;   // the address holds enough free seats already
@@ -7044,7 +7066,7 @@ io.on('connection', (socket) => {
         });
       }
       // After the queue holds the seat (never between the token and it): joinAlerts never throws.
-      joinAlerts.joined({ game: 'battleship', stake: rung, name: sanitizeName(name), wallet: payTo, queued: true });
+      joinAlerts.joined({ game: 'battleship', stake: rung, name: sanitizeName(name), wallet: payTo, queued: true, socket });
     };
     if (!(wants > 0)) {
       if (freeDuelRefused(socket, battleshipLobby, 'bs')) return;   // the address holds enough free seats already
@@ -7171,7 +7193,7 @@ io.on('connection', (socket) => {
         });
       }
       // After the queue holds the seat (never between the token and it): joinAlerts never throws.
-      joinAlerts.joined({ game: 'swim', stake: rung, name: sanitizeName(name), wallet: payTo, queued: true });
+      joinAlerts.joined({ game: 'swim', stake: rung, name: sanitizeName(name), wallet: payTo, queued: true, socket });
     };
     if (!(wants > 0)) {
       if (freeDuelRefused(socket, swimLobby, 'sw')) return;   // the address holds enough free seats already
@@ -7262,7 +7284,7 @@ io.on('connection', (socket) => {
     shooterRoom.removePlayer(socket.id);         // a second Play replaces the first
     shooterRoom.addPlayer(socket, sanitizeName(name), strOr(weapon, ''));
     socket.emit('sh:map', shooterRoom.mapPayload());
-    joinAlerts.joined({ game: 'shooter', stake: 0, name: sanitizeName(name) });
+    joinAlerts.joined({ game: 'shooter', stake: 0, name: sanitizeName(name), socket });
   });
 
   on('sh:input', (input) => {

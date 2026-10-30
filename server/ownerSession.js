@@ -299,8 +299,9 @@ function createOwnerSessions({
 
   /* Is this request from our own page? For a read, only "not from another site" (SameSite=Strict already keeps
      the cookie off cross-site requests, and no GET changes anything). For a write: X-DS-Owner: 1, JSON or no body,
-     and an Origin equal to this host (or, with no Origin, Sec-Fetch-Site same-origin / none). */
-  function csrfOk(req) {
+     and an Origin equal to this host (or, with no Origin, Sec-Fetch-Site same-origin / none). asRead (ownerDevice
+     only) takes any method as a read. */
+  function csrfOk(req, asRead) {
     if (!req || !req.headers) return false;
     const h = req.headers;
     const host = hostOf(req);
@@ -311,7 +312,7 @@ function createOwnerSessions({
     const hasOrigin = typeof origin === 'string' && origin !== '';
     if (hasOrigin && (!host || origin.toLowerCase() !== want)) return false;
     const m = String(req.method || 'GET').toUpperCase();
-    if (m === 'GET' || m === 'HEAD') return true;
+    if (asRead === true || m === 'GET' || m === 'HEAD') return true;
     if (h[HEADER] !== '1') return false;
     const type = h['content-type'];
     if (typeof type === 'string' && type && !/^application\/json\s*(;|$)/i.test(type)) return false;
@@ -322,11 +323,12 @@ function createOwnerSessions({
   /* The session a request carries: { sess, why, hadCookie }. sess is { wallet, sidHash, id, tag, device,
      createdAt, lastSeen, exp } or null; why says which rule refused it ('none', 'csrf', 'nokey', 'forged',
      'expired', 'unlisted', 'revoked', 'wallet', 'not-owner'). Never throws. */
-  function check(req) {
+  function check(req) { return checkAs(req, false); }
+  function checkAs(req, asRead) {
     try {
       const vals = cookieValues(req, namesFor(req).session);
       if (!vals.length) return { sess: null, why: 'none', hadCookie: false };
-      if (!csrfOk(req)) return { sess: null, why: 'csrf', hadCookie: true };
+      if (!csrfOk(req, asRead)) return { sess: null, why: 'csrf', hadCookie: true };
       if (!theKey()) return { sess: null, why: 'nokey', hadCookie: true };
       load();
       const t = now();
@@ -353,6 +355,12 @@ function createOwnerSessions({
     }
   }
   const fromRequest = (req) => check(req).sess;
+  /* Is this the owner's own browser? check()'s cookie rules with only the read gate, whatever the method: for a
+     POST from our page that carries no X-DS-Owner (the visit beacon) and for a socket's handshake (socket.request).
+     It keeps the owner's own visits and joins off his phone (server/visitAlerts.js, server/joinAlerts.js) and
+     AUTHORISES NOTHING: a route or socket that acts as the owner uses check() or a ticket, never this. -> boolean.
+     Never throws. */
+  const ownerDevice = (req) => !!checkAs(req, true).sess;
 
   /* ── signing in ──────────────────────────────────────────────────────────── */
   // -> { nonce, host, cookie } or null when sign-in is off (no usable key).
@@ -486,8 +494,8 @@ function createOwnerSessions({
   }
 
   return {
-    check, fromRequest, csrfOk, challenge, login, list, revoke, isLive, onRevoke, issueTicket, ticketWallet,
-    clearCookie, clearChallenge, names: namesFor, verifyProof, isOwner, file, keyFile: keyPath,
+    check, fromRequest, ownerDevice, csrfOk: (req) => csrfOk(req), challenge, login, list, revoke, isLive, onRevoke,
+    issueTicket, ticketWallet, clearCookie, clearChallenge, names: namesFor, verifyProof, isOwner, file, keyFile: keyPath,
   };
 }
 

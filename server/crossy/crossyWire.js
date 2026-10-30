@@ -154,7 +154,7 @@ function create(deps) {
             paidWaitMs: rung > 0 ? CrossyLobby.PAID_WAIT_MS : 0,
           });
         }
-        h.joinAlerts.joined({ game: 'crossy', stake: rung, name: h.sanitizeName(name), wallet: payTo, queued: true });
+        h.joinAlerts.joined({ game: 'crossy', stake: rung, name: h.sanitizeName(name), wallet: payTo, queued: true, socket });
       };
       if (!(wants > 0)) {
         // The address already holds enough free duel seats (index.js freeDuelRefused, night review 2026-10-29).

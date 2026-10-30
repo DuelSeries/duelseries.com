@@ -69,6 +69,27 @@ test('the visit route has a per-address limiter and goes through visitAlerts', (
   assert.match(src, /app\.get\('\/api\/my-profile', myProfileLimiter, /, 'finding 28: the profile read is limited (its own count, so search typing never blocks it)');
 });
 
+test('the owner\'s own visit is not pushed and spends none of the cap; nothing in the body says who he is', () => {
+  const sent = [];
+  const mine = { headers: {} };
+  const v = createVisitAlerts({ push: (text) => sent.push(text), now: () => 1000, isOwnerReq: (req) => req === mine });
+  for (let i = 0; i < CAP + 2; i++) assert.strictEqual(v.visit({ ua: UA, page: '/', req: mine }), false);
+  assert.strictEqual(sent.length, 0);
+  // a visitor is pushed, whatever flag the page sent, and the owner's loads held nothing back
+  assert.strictEqual(v.visit({ ua: UA, page: '/', owner: true, isOwner: true, req: { headers: {}, body: { owner: true } } }), true);
+  assert.strictEqual(v.visit({ ua: UA, page: '/x', req: 'owner' }), true);
+  assert.deepStrictEqual(sent, ['Someone opened your site (/)', 'Someone opened your site (/x)']);
+  // a check that throws counts as a visitor
+  const boom = createVisitAlerts({ push: (text) => sent.push(text), isOwnerReq: () => { throw new Error('x'); } });
+  assert.strictEqual(boom.visit({ ua: UA, page: '/', req: mine }), true);
+});
+
+test('the visit route asks the owner cookie with ownerSession.ownerDevice and hands visitAlerts the request', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'server', 'index.js'), 'utf8');
+  assert.match(src, /createVisitAlerts\(\{ push: notify\.pushOwner,\s+isOwnerReq: \(req\) => ownerSessions\.ownerDevice\(req\) \}\)/);
+  assert.match(src, /country: req\.headers\['cf-ipcountry'\],\s+req,\s+\}\);/);
+});
+
 // ---- notify.js ------------------------------------------------------------------------------------------------------
 
 function capture(t, env, fn) {

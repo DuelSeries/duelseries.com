@@ -280,3 +280,78 @@ test('Paper free join: onFreeJoin once the seat exists, never on a respawn or a 
   assert.doesNotThrow(() => q.fire('pp:join', { name: 'Free2', stake: 0 }));
   assert.ok(q._ppRoom && q._ppRoom.hasLiveUnit(q.id), 'seated anyway');
 });
+
+/* The owner's own joins (Owen 2026-10-29): skipped by server-side proof only, before the latch and the cap. */
+const OWNER_W = 'OwnerWa11et111111111111111111111111111111';
+function ownerRig() {
+  const sent = [];
+  const mine = new WeakSet();
+  const alerts = createJoinAlerts({ push: (m, o) => sent.push({ m, o }), region: 'na', env: {}, now: () => 1e9,
+    log: { error() {} }, isOwner: (w) => w === OWNER_W, ownerSocket: (s) => mine.has(s) });
+  const his = {};
+  mine.add(his);
+  return { sent, his, joined: alerts.joined };
+}
+
+test('the owner: a paid join by his verified payer and any join from his socket are not pushed; a player still is', () => {
+  const r = ownerRig();
+  r.joined({ game: 'sl', stake: 1, name: 'Owen', wallet: OWNER_W });
+  r.joined({ game: 'knockout', stake: 0.5, name: 'Owen', wallet: OWNER_W, queued: true, socket: {} });
+  r.joined({ game: 'knockout', stake: 0, name: 'Owen', queued: true, socket: r.his });
+  r.joined({ game: 'agar', stake: 0.5, name: 'Owen', wallet: WALLET, socket: r.his });
+  assert.equal(r.sent.length, 0, 'none of his own joins');
+  r.joined({ game: 'sl', stake: 1, name: 'Kai', wallet: WALLET, socket: {} });
+  r.joined({ game: 'knockout', stake: 0, name: 'Ann', queued: true, socket: {} });
+  r.joined({ game: 'paper', name: 'Bo' });
+  assert.deepEqual(r.sent.map((x) => x.m),
+    ['Kai joined slither.io $1.00 in NA', 'Ann queued for Knockout Free in NA', 'Bo joined Paper.io Free in NA']);
+});
+
+test('the owner skip trusts no client word: his wallet on a free join, owner flags, a socket-shaped flag', () => {
+  const r = ownerRig();
+  // a free join's wallet is whatever the client named (his address is public): it proves nothing
+  r.joined({ game: 'knockout', stake: 0, name: 'Fake1', wallet: OWNER_W, queued: true });
+  r.joined({ game: 'agar', name: 'Fake2', owner: true, isOwner: true, fromOwner: true, ownerSocket: true });
+  r.joined({ game: 'paper', name: 'Fake3', socket: 'owner' });
+  r.joined({ game: 'pool8', name: 'Fake4', socket: { owner: true, _ownerAlerts: true, data: { owner: true } } });
+  assert.deepEqual(r.sent.map((x) => x.m.split(' ')[0]), ['Fake1', 'Fake2', 'Fake3', 'Fake4']);
+});
+
+test('the owner spends neither the latch nor the cap; an owner check that throws still pushes', () => {
+  const r = ownerRig();
+  for (let i = 0; i < RULES.free.cap + 3; i++) r.joined({ game: 'agar', name: i ? 'Owen' + i : 'Owen', socket: r.his });
+  // a player with his name, in his room, inside the window: pushed (his own join latched nothing)
+  r.joined({ game: 'agar', name: 'Owen', socket: {} });
+  for (let i = 1; i < RULES.free.cap; i++) r.joined({ game: 'agar', name: 'P' + i });
+  assert.equal(r.sent.length, RULES.free.cap);
+  assert.ok(r.sent.every((x) => !/held back/.test(x.m)), 'nothing was held back for him');
+
+  const sent = [];
+  const boom = createJoinAlerts({ push: (m) => sent.push(m), region: 'na', env: {}, log: { error() {} },
+    isOwner: () => { throw new Error('list broke'); }, ownerSocket: () => { throw new Error('cookie broke'); } });
+  assert.doesNotThrow(() => boom.joined({ game: 'sl', stake: 1, name: 'Kai', wallet: WALLET, socket: {} }));
+  assert.doesNotThrow(() => boom.joined({ game: 'agar', name: 'Ann', socket: {} }));
+  assert.equal(sent.length, 2, 'a broken check counts as not the owner');
+});
+
+test('server/index.js hands the owner list and isOwnerSocket to joinAlerts, and every free join site its socket', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const read = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  const src = read('server/index.js');
+  assert.match(src, /createJoinAlerts\(\{ push: notify\.pushOwner, region: REGION,\s+isOwner: \(w\) => OWNER_WALLETS\.has\(w\), ownerSocket: \(s\) => isOwnerSocket\(s\) \}\)/);
+  assert.match(src, /function isOwnerSocket\(socket\) \{[\s\S]{0,200}socketIdentity\.proven\(socket\)[\s\S]{0,120}OWNER_WALLETS\.has\(w\)[\s\S]{0,120}ownerSessions\.ownerDevice\(socket\.request\)/);
+  // every joined() call in index.js names its socket, or is a paid hook whose wallet is the verified payer
+  const calls = src.match(/joinAlerts\.joined\(\{[^}]*\}\)/g);
+  assert.ok(calls.length >= 18, calls.length + ' calls');
+  for (const c of calls) {
+    assert.ok(/\bsocket \}\)$/.test(c) || /stake, name, wallet \}\)$/.test(c), 'no socket and not a paid hook: ' + c);
+  }
+  assert.match(read('server/crossy/crossyWire.js'), /h\.joinAlerts\.joined\(\{ game: 'crossy',[^}]*queued: true, socket \}\)/);
+  assert.match(read('server/sl/slSockets.js'), /notifyJoin && !ownJoin\(socket\) && pushGate\.allow\(nick, now\(\)\)[\s\S]{0,200}notifyJoin\(nick, where, socket\)/);
+  assert.match(src, /ownerSocket: \(s\) => isOwnerSocket\(s\),/, 'the sl push gate is told the owner too');
+  assert.match(src, /function isOwnerPaid\(socket, payer\) \{\s+try \{ return \(typeof payer === 'string' && OWNER_WALLETS\.has\(payer\)\) \|\| isOwnerSocket\(socket\); \} catch \(_\) \{ return false; \}/);
+  assert.match(read('server/ag/agSockets.js'), /h\.notifyJoin\(name, socket\)/);
+  assert.match(read('server/chomp/chompBoot.js'), /helpers\.notifyJoin\(p\.name, socket\)/);
+  assert.match(read('server/paperSockets.js'), /onFreeJoin\(\{ name, socket \}\)/);
+});
