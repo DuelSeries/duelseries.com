@@ -70,6 +70,7 @@ Self-custody only (the old custodial escrow + `accounts.balance` ledger were ful
 - `npm start` — run the server (`server/index.js`).
 - `npm run dev` — run with nodemon (auto-restart).
 - `npm run build` — Vite build (the wallet widget).
+- Live capacity test (2026-10-29): `scripts/capacity/` (run.js players per game over the real protocols, serverMon.js on the box, levelSum.js per-level rows; how-to in each file's header). Needs a load box whose address nginx temporarily lets pass its own X-Forwarded-For; results in `Claude Code Test/capacity-test-2026-10-29.html`.
 - `npm run loadtest` — headless socket load test (`scripts/loadtest.js`). Env: `LT_URL`, `LT_LEVELS`, `LT_HZ`, `LT_SAMPLE`, `LT_REGION`, `LT_LOBBY`. NOTE: its server-tick columns show `-` because the `/api/debug/tick` endpoint was removed; re-add it to restore them.
 - Sanity-check a changed JS file: `node --check <file>`.
 
