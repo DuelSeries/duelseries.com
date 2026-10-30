@@ -15,6 +15,11 @@
 //           Rooms are found once with a heap query (a short pause, logged); touch /tmp/lt/refresh to find them again.
 // It reads; it changes nothing in the game. On exit (SIGINT/SIGTERM) it removes what it installed and closes the
 // inspector (inspector.close()), so the process is as it was.
+//
+// One per process when the server is split (the slither process beside the main one):
+//   --port <its port> (the probe; the slither process answers /healthz too), --inspect-port <its inspector port>
+//   (default 9229, the main process's; the slither process's is SL_CHILD_INSPECT_PORT, 9230), --proc <name> (main, sl:
+//   written into every record, so levelSum.js and monSum.js keep the processes apart).
 
 const fs = require('fs');
 const http = require('http');
@@ -34,7 +39,14 @@ const EVERY = Number(arg('every', 2000));
 const APP = arg('app', '/home/ubuntu/duelseries');
 const PORT = Number(arg('port', 3000));
 const NIC = arg('nic', 'ens5');
+const INSPECT_PORT = Number(arg('inspect-port', 9229));
+const PROC = typeof arg('proc', null) === 'string' ? arg('proc', null) : null; // the process's label, every record
 const out = fs.createWriteStream(OUT, { flags: 'a' });
+// One JSON line, with the process's label when --proc gave one.
+function put(rec) {
+  if (PROC) rec.proc = PROC;
+  out.write(JSON.stringify(rec) + '\n');
+}
 const TICK = 100; // jiffies per second (CONFIG_HZ USER_HZ on Ubuntu)
 
 function procCpu(pid) {
@@ -191,7 +203,7 @@ async function findRooms() {
     await cdp('Runtime.releaseObject', { objectId: p.result.objectId });
   }
   const n = await evalJson('globalThis.__lt.rooms.map(x => x.kind + ":" + (x.r.id || x.r.lobbyType || x.r.roomId || "?")).join(",")');
-  out.write(JSON.stringify({ type: 'rooms', at: Date.now(), tookMs: Date.now() - t0, rooms: n }) + '\n');
+  put({ type: 'rooms', at: Date.now(), tookMs: Date.now() - t0, rooms: n });
 }
 
 async function openInspector() {
@@ -201,7 +213,7 @@ async function openInspector() {
     await new Promise((r) => setTimeout(r, 250));
     try {
       const list = await new Promise((resolve, reject) => {
-        http.get('http://127.0.0.1:9229/json/list', (res) => {
+        http.get('http://127.0.0.1:' + INSPECT_PORT + '/json/list', (res) => {
           let b = '';
           res.on('data', (d) => (b += d));
           res.on('end', () => { try { resolve(JSON.parse(b)); } catch (e) { reject(e); } });
@@ -223,7 +235,7 @@ async function openInspector() {
       else w.resolve(m.result);
     }
   });
-  out.write(JSON.stringify({ type: 'inspector', at: Date.now(), setup: await evalJson(SETUP) }) + '\n');
+  put({ type: 'inspector', at: Date.now(), setup: await evalJson(SETUP) });
   if (!NO_ROOMS) await findRooms();
 }
 
@@ -231,11 +243,11 @@ async function cleanup() {
   if (!ws) return;
   try {
     await evalJson(`(() => { const L = globalThis.__lt; if (L) { L.h.disable(); L.obs.disconnect(); delete globalThis.__lt; } return 'cleared'; })()`);
-    // closing from inside: the inspector stops listening on 9229, as before SIGUSR1
+    // closing from inside: the inspector stops listening on its port (INSPECT_PORT), as before SIGUSR1
     await cdp('Runtime.evaluate', { expression: `setTimeout(() => process.mainModule.require('inspector').close(), 200); 'closing'` });
-    out.write(JSON.stringify({ type: 'inspector', at: Date.now(), closed: true }) + '\n');
+    put({ type: 'inspector', at: Date.now(), closed: true });
   } catch (e) {
-    out.write(JSON.stringify({ type: 'inspector', at: Date.now(), cleanupError: e.message }) + '\n');
+    put({ type: 'inspector', at: Date.now(), cleanupError: e.message });
   }
 }
 
@@ -278,7 +290,7 @@ async function sample() {
       rec.inprocError = e.message;
     }
   }
-  out.write(JSON.stringify(rec) + '\n');
+  put(rec);
 }
 
 let stopping = false;
@@ -295,8 +307,8 @@ process.on('SIGTERM', stop);
 (async () => {
   if (!PID) throw new Error('--pid needed');
   if (INSPECT) await openInspector();
-  setInterval(() => { sample().catch((e) => out.write(JSON.stringify({ type: 'error', at: Date.now(), e: e.message }) + '\n')); }, EVERY);
+  setInterval(() => { sample().catch((e) => put({ type: 'error', at: Date.now(), e: e.message })); }, EVERY);
 })().catch((e) => {
-  out.write(JSON.stringify({ type: 'fatal', at: Date.now(), e: e.message }) + '\n');
+  put({ type: 'fatal', at: Date.now(), e: e.message });
   process.exit(1);
 });

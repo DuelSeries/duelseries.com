@@ -15,6 +15,9 @@
         match in flight is in the journal, and a hard kill and a reboot void it
         (logged, pushed) and clear it
      6. the owner's own Stop voids nothing behind his back (no restart push)
+     7. the slither path /sl-io/ (server/ioOptions.js): its handshake is the
+        main server's (x-ds-proc), and a free and a battle royale socket on it
+        are seated, as the page connects them
      BR_SMOKE_FULL=1 also plays a whole bots-only match out (about 4 minutes). */
 
 const { spawn } = require('child_process');
@@ -83,6 +86,22 @@ async function until(fn, ms, what) {
   return null;
 }
 const readJournal = () => { try { return JSON.parse(fs.readFileSync(JOURNAL, 'utf8')); } catch (_) { return null; } };
+/* One /sl socket on the path the page gives a free or battle royale socket (public/js/slx/slxNet.js): it joins, and
+   the answer is 'ok' at its first bundle, else the refusal or the error. */
+function slJoin(auth, nick) {
+  const sock = io(BASE + '/sl', { path: '/sl-io/', transports: ['websocket'], forceNew: true, reconnection: false, auth });
+  return new Promise((resolve) => {
+    const done = (r) => { clearTimeout(t); sock.close(); resolve(r); };
+    const t = setTimeout(() => done('no answer'), 8000);
+    sock.on('connect', () => sock.emit('sl:join', { nick }));
+    sock.on('connect_error', (e) => done('connect error: ' + (e && e.message)));
+    sock.on('sl:x', (m) => {
+      const r = Array.isArray(m) ? m.find((x) => x && x.t === 'refused') : null;
+      if (r) done('refused ' + r.why);
+    });
+    sock.on('sl:f', () => done('ok'));
+  });
+}
 
 (async () => {
   let srv = boot();
@@ -159,6 +178,14 @@ const readJournal = () => { try { return JSON.parse(fs.readFileSync(JOURNAL, 'ut
     check(stop.status === 200 && (await live()).state === 'waiting', 'the owner Stop ends it');
     check(!/cut off \(/.test(srv.out), 'his own Stop is not reported back to him as a cut-off');
     check(readJournal().live === null, 'the journal is clear after his Stop');
+
+    const hs = await fetch(BASE + '/sl-io/?EIO=4&transport=polling');
+    check(hs.status === 200 && hs.headers.get('x-ds-proc') === 'main',
+      'the /sl-io/ handshake is served by the main server: ' + hs.status + ' ' + hs.headers.get('x-ds-proc'));
+    const free = await slJoin({ cv: 1 }, 'smoke free');
+    check(free === 'ok', 'a free /sl socket on /sl-io/ is seated: ' + free);
+    const brj = await slJoin({ br: 1 }, 'smoke br');
+    check(brj === 'ok', 'a battle royale /sl socket on /sl-io/ is seated: ' + brj);
   } catch (e) {
     check(false, 'threw: ' + (e && e.message));
   } finally {

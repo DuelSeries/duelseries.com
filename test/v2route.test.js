@@ -663,6 +663,7 @@ test('the service worker hands socket.io straight back to the browser', async ()
   };
   assert.equal(run('https://duelseries.com/socket.io/?EIO=4&transport=polling&t=abc'), false, 'socket.io polling is left alone');
   assert.equal(run('https://duelseries.com/ag-io/?EIO=4&transport=polling'), false, 'and so is agar.io\'s own path');
+  assert.equal(run('https://duelseries.com/sl-io/?EIO=4&transport=polling'), false, 'and free slither\'s and the battle royale\'s');
   assert.equal(run('https://duelseries.com/socket.io/socket.io.js'), false, 'the client script too: same path, nothing to gain');
   assert.equal(run('https://duelseries.com/js/ag/agMain.js'), true, 'everything else still goes through the handler');
   assert.equal(run('https://duelseries.com/'), true, 'including the page, which Chrome needs for an installed app');

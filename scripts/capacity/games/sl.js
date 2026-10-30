@@ -9,6 +9,7 @@
 //
 // ctx.opts.br: join the battle royale instead of the free room. A BR player whose seat is refused because a match is
 // under way ('match') waits and asks again every 15 s; a BR death during a match is out for the match, as for a person.
+// Both connect on the page's engine.io path for free and event sockets, /sl-io/ (server/ioOptions.js SL_IO_PATH).
 
 const W = require('../../../shared/slWire.js');
 const { createTracker } = require('../../slLoad.js');
@@ -78,7 +79,7 @@ function start(ctx) {
     refusedAny = false;
     tr = createTracker();
     const auth = br ? { cv, br: 1 } : { cv };
-    const s = openSocket(base, '/sl', ip, { auth });
+    const s = openSocket(base, '/sl', ip, { auth, path: '/sl-io/' });
     sock = s;
     countBytes(s, stats);
     s.on('connect', () => {

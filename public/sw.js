@@ -16,8 +16,8 @@
 /* The browser installs a new worker whenever a byte of this file changes, so
    this line is the version: change it with any edit that must reach phones
    that already have the old worker. CHOSEN: a plain counter, 1 being the
-   unnumbered first file; 2 = socket.io left alone (below). */
-const SW_VERSION = 2;
+   unnumbered first file; 2 = socket.io left alone (below); 3 = and /sl-io/. */
+const SW_VERSION = 3;
 
 self.addEventListener('install', (e) => { self.skipWaiting(); });
 
@@ -36,9 +36,10 @@ self.addEventListener('fetch', (e) => {
      on the live agar.io page, 2026-10-08), an extra hop in every game's
      connection that buys nothing, since nothing is cached. Returning without
      respondWith hands the request straight back to the browser. /ag-io/ is
-     agar.io's path if it ever moves to its own socket.io server. */
+     agar.io's path if it ever moves to its own socket.io server; /sl-io/ is
+     free slither's and the battle royale's (server/ioOptions.js). */
   const path = new URL(e.request.url).pathname;
-  if (path.startsWith('/socket.io/') || path.startsWith('/ag-io/')) return;
+  if (path.startsWith('/socket.io/') || path.startsWith('/ag-io/') || path.startsWith('/sl-io/')) return;
   // Straight to the network. Present so the app is installable; not a cache.
   e.respondWith(fetch(e.request));
 });

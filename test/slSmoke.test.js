@@ -6,6 +6,8 @@
    - /sl serves public/sl.html composed with the layer tail; every spelling of /sl.html still sends the browser to /sl.
    - A real socket.io client joins /sl over WebSocket and over long-polling (what production runs) and gets init, its
      own snake_add, and the world (food sectors), every bundle decoding with no wire_error.
+   - The same join on the page's own path for a free socket, /sl-io/ (server/ioOptions.js), on the main port and on
+     SL_CHILD_PORT, both answered by this one unsplit server (x-ds-proc: main).
    - A money field in sl:join is refused: sl:x {t: 'refused', why: 'not-open'}, then the disconnect.
    - The per-address cap (C_SL_PER_IP, 30): the next handshake from that address is refused { why: 'limit' }.
    - Hidden: /api/live lists no sl: row (the board row waits for the Phase 6 swap). */
@@ -39,8 +41,9 @@ function get(port, url) {
       const head = out.split('\r\n\r\n')[0];
       const loc = /\r\nlocation: ([^\r\n]*)/i.exec(head);
       const cache = /\r\ncache-control: ([^\r\n]*)/i.exec(head);
+      const proc = /\r\nx-ds-proc: ([^\r\n]*)/i.exec(head);
       resolve({ status: Number(out.split(' ')[1]), location: loc ? loc[1] : null, cache: cache ? cache[1] : null,
-        body: out.slice(head.length + 4) });
+        proc: proc ? proc[1] : null, body: out.slice(head.length + 4) });
     });
     s.on('error', reject);
     s.setTimeout(5000, () => s.destroy(new Error('timeout')));
@@ -49,11 +52,14 @@ function get(port, url) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let port;
+let aliasPort; // SL_CHILD_PORT: the slither path's first door, which the server answers itself while not split
 let ownerSecret = null; // dev-local's throwaway owner key (local only), read from its own boot line
 
 test.before(async () => {
   port = await freePort();
+  aliasPort = await freePort();
   process.env.DEV_LOCAL_PORT = String(port);
+  process.env.SL_CHILD_PORT = String(aliasPort);
   process.env.SL_ENABLED = '1';
   process.env.SL_DEV_LAWS = path.join(__dirname, 'slLawsFixture.js');
   const log = console.log; const warn = console.warn;
@@ -70,7 +76,7 @@ test.before(async () => {
   const blockedRequest = http.request;
   const blockedGet = http.get;
   const local = (a) => a && typeof a === 'object' && ['localhost', '127.0.0.1'].includes(a.hostname || a.host) &&
-    Number(a.port) === port;
+    (Number(a.port) === port || Number(a.port) === aliasPort);
   http.request = function (...a) { return local(a[0]) ? realRequest.apply(http, a) : blockedRequest.apply(http, a); };
   http.get = function (...a) { return local(a[0]) ? realGet.apply(http, a) : blockedGet.apply(http, a); };
   for (let i = 0; i < 60; i++) {
@@ -80,12 +86,13 @@ test.before(async () => {
   throw new Error('server did not come up');
 });
 
-// Resolves { s, ok } on connect or connect_error.
+// Resolves { s, ok } on connect or connect_error. o.path: the engine.io path (the page's /sl-io/), o.port: another port.
 function open(opts) {
   const o = opts || {};
   const { io } = require('socket.io-client');
-  const s = io(`http://127.0.0.1:${port}/sl`, { transports: [o.transport || 'websocket'], forceNew: true,
-    reconnection: false, timeout: 5000, extraHeaders: o.xff ? { 'x-forwarded-for': o.xff } : {}, auth: o.auth });
+  const s = io(`http://127.0.0.1:${o.port || port}/sl`, Object.assign({ transports: [o.transport || 'websocket'],
+    forceNew: true, reconnection: false, timeout: 5000, extraHeaders: o.xff ? { 'x-forwarded-for': o.xff } : {},
+    auth: o.auth }, o.path ? { path: o.path } : {}));
   return new Promise((resolve) => {
     const bail = setTimeout(() => resolve({ s, ok: false, err: new Error('no answer') }), 8000);
     s.on('connect', () => { clearTimeout(bail); resolve({ s, ok: true }); });
@@ -93,9 +100,9 @@ function open(opts) {
   });
 }
 
-// Joins and collects decoded events until `done(events)` or the time runs out.
-async function joinAndCollect(transport, xff) {
-  const c = await open({ transport, xff, auth: { cv: 7 } });
+// Joins and collects decoded events until `done(events)` or the time runs out. extra: { path, port } for open.
+async function joinAndCollect(transport, xff, extra) {
+  const c = await open(Object.assign({ transport, xff, auth: { cv: 7 } }, extra || {}));
   assert.ok(c.ok, transport + ' connected: ' + (c.err && c.err.message));
   const events = [];
   let bundles = 0;
@@ -148,6 +155,19 @@ test('a socket.io client joins /sl over WebSocket: init, own snake_add, the worl
 
 test('a socket.io client joins /sl over long-polling (production): init, own snake_add, the world', async () => {
   checkJoin(await joinAndCollect('polling', '10.77.0.2'), 'polling');
+});
+
+// The page's own path for a free socket (public/js/slx/slxNet.js): /sl-io/, which this unsplit server serves through its
+// alias of /socket.io/, on its own port and on SL_CHILD_PORT (server/ioOptions.js; nginx asks that port first).
+test('the slither path /sl-io/: the same /sl over long-polling and WebSocket, on the main port and on SL_CHILD_PORT', async () => {
+  for (const p of [port, aliasPort]) {
+    const h = await get(p, '/sl-io/?EIO=4&transport=polling');
+    assert.strictEqual(h.status, 200, 'port ' + p);
+    assert.ok(h.body.startsWith('0{"sid"'), 'an engine.io handshake on port ' + p + ': ' + h.body.slice(0, 40));
+    assert.strictEqual(h.proc, 'main', 'answered by the main server');
+  }
+  checkJoin(await joinAndCollect('polling', '10.77.0.5', { path: '/sl-io/' }), 'polling');
+  checkJoin(await joinAndCollect('websocket', '10.77.0.6', { path: '/sl-io/', port: aliasPort }), 'websocket');
 });
 
 test('a money field in sl:join is refused (not-open), then the socket is disconnected', async () => {

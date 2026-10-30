@@ -159,6 +159,8 @@ function record(p, stripLayer) {
     socks: p.socks.map((s) => {
       const opts = Object.assign({}, s.opts);
       if (stripLayer) delete opts.auth;
+      if (stripLayer) delete opts.path; // the free socket's engine path (/sl-io/), the layer's too
+
       // the layer's own listeners come first on every /sl socket (slxNet sockSubs): sl:x and disconnect
       const on = stripLayer && s.order[0] === 'sl:x' && s.order[1] === 'disconnect' ? s.order.slice(2) : s.order;
       return { ns: s.ns, opts, on, emitted: s.emitted,
@@ -179,15 +181,18 @@ test('the frozen transport alone and the tapped one give identical handler calls
   assert.strictEqual(frozen.socks.length, 6);
   assert.strictEqual(frozen.log.filter((x) => x[0] === 'applyClose').length, 2, 'a server close and a failed connect');
   assert.strictEqual(frozen.D.stats.wireErrors, 1);
-  // the only differences: each /sl socket got the layer's sl:x and disconnect listeners (first) and an auth object
+  // the only differences: each /sl socket got the layer's sl:x and disconnect listeners (first), an auth object and,
+  // free, the /sl-io/ engine path
   for (const s of tapped.socks) {
     assert.deepStrictEqual(s.order.filter((ev) => ev === 'sl:x'), ['sl:x']);
     assert.deepStrictEqual(s.order.slice(0, 2), ['sl:x', 'disconnect']);
     assert.strictEqual(JSON.stringify(s.opts.auth), '{}');
+    assert.strictEqual(s.opts.path, '/sl-io/');
     assert.strictEqual(s.opts.forceNew, true);
     assert.strictEqual(s.opts.reconnection, false);
   }
   for (const s of frozen.socks) assert.strictEqual(s.opts.auth, undefined);
+  for (const s of frozen.socks) assert.strictEqual(s.opts.path, undefined);
 });
 
 test('inert under a harness transport: nothing installed, wrapped or listened to', () => {
@@ -222,11 +227,38 @@ test('io wrapper: /sl only, every argument through, the layer auth added, io pro
   assert.deepStrictEqual(other.order, [], 'no layer listener on another namespace');
   p.D.slx.auth = () => ({ cv: 12 });
   const s = p.ctx.io('/sl', { forceNew: true, reconnection: false, auth: { keep: 1 } });
-  assert.strictEqual(JSON.stringify(s.opts), '{"forceNew":true,"reconnection":false,"auth":{"keep":1,"cv":12}}');
+  assert.strictEqual(JSON.stringify(s.opts), '{"forceNew":true,"reconnection":false,"auth":{"keep":1,"cv":12},"path":"/sl-io/"}');
   p.D.slx.auth = () => { throw new Error('boom'); };
   const t = p.ctx.io('/sl', { forceNew: true });
   assert.strictEqual(JSON.stringify(t.opts.auth), '{}', 'a throwing auth hook adds nothing');
+  assert.strictEqual(t.opts.path, '/sl-io/', 'a free socket all the same');
   assert.strictEqual(p.D.slx.errors, 1);
+});
+
+test('io wrapper: the engine path, /sl-io/ for free and event sockets, none for paid ones, theirs kept', () => {
+  const p = page({ layer: true });
+  const pathOf = (auth, opts) => {
+    p.D.slx.auth = () => auth;
+    const s = p.ctx.io('/sl', Object.assign({ forceNew: true }, opts || {}));
+    return s.opts.path;
+  };
+  assert.strictEqual(pathOf({ cv: 3 }), '/sl-io/', 'free play');
+  assert.strictEqual(pathOf({ watch: 1 }), '/sl-io/', 'free watching');
+  assert.strictEqual(pathOf({ br: 1, idProof: { a: 1 } }), '/sl-io/', 'the battle royale');
+  assert.strictEqual(pathOf({ br: 1, watch: 1, follow: 4 }), '/sl-io/', 'the battle royale watched');
+  assert.strictEqual(pathOf({ br: 1, watch: 1, watchStake: 0.5 }), '/sl-io/', 'an event socket whatever its stake field');
+  assert.strictEqual(pathOf({ paid: 1, stake: 0.5 }), undefined, 'paid: the default path, where its money lives');
+  assert.strictEqual(pathOf({ paid: 1, br: 1 }), undefined, 'paid first, as the server reads it');
+  assert.strictEqual(pathOf({ watch: 1, watchStake: 0.5 }), undefined, 'a paid rung watched');
+  assert.strictEqual(pathOf({ watch: 1, watchStake: 1, after: 9 }), undefined, 'a paid rung watched, Next');
+  assert.strictEqual(pathOf({ watch: 1, watchStake: 0 }), '/sl-io/', 'no rung: free');
+  assert.strictEqual(pathOf({ watch: 1, watchStake: '0.5' }), '/sl-io/', 'not a number: free (the server refuses it)');
+  assert.strictEqual(pathOf({ paid: '1' }), '/sl-io/', 'only paid 1 is paid');
+  assert.strictEqual(pathOf({ cv: 3 }, { path: '/own/' }), '/own/', 'an explicit path is kept');
+  assert.strictEqual(pathOf({ paid: 1 }, { path: '/own/' }), '/own/');
+  // a resume attempt goes through the same wrapper with the same auth, so a paid life resumes on the paid side
+  p.D.slx.auth = () => ({ paid: 1 });
+  assert.strictEqual(p.ctx.io('/sl', { forceNew: true, reconnection: false }).opts.path, undefined);
 });
 
 test('observers: open after their join, own add, own kills, own dead, pong with the ping round trip, close before theirs', () => {
@@ -438,7 +470,8 @@ test('resume: a transport drop holds their close; a new socket sends sl:back {k,
   assert.strictEqual(socks.length, 2, 'one attempt at once');
   const b = socks[1];
   assert.strictEqual(b.ns, '/sl');
-  assert.strictEqual(JSON.stringify(b.opts), '{"forceNew":true,"reconnection":false,"auth":{}}', 'their options, the layer auth');
+  assert.strictEqual(JSON.stringify(b.opts), '{"forceNew":true,"reconnection":false,"auth":{},"path":"/sl-io/"}',
+    'their options, the layer auth, the free engine path');
   // their client keeps sending while away: nothing leaves, the newest angle and boost are kept
   D.slNet.send({ type: 'angle', q: 9 });
   D.slNet.send({ type: 'boost', on: true });

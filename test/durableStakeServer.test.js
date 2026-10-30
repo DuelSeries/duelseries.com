@@ -74,6 +74,9 @@ const until = async (fn, ms = 4000) => {
 test.before(async () => {
   port = await freePort();
   process.env.DEV_LOCAL_PORT = String(port);
+  // the slither path's second port (server/ioOptions.js aliasListener), its own free one rather than PORT + 1, which
+  // another test file booting at the same time may have been handed
+  process.env.SL_CHILD_PORT = String(await freePort());
   // paid snake on the sl engine, for its door's claim (this process only: every test file has its own)
   process.env.SL_ENABLED = '1';
   process.env.SL_PAID = '1';

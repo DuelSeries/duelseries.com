@@ -130,6 +130,10 @@ async function main() {
     res.end();
   });
   const io = new Server(server, { pingInterval: 5000, pingTimeout: 10000 });
+  // The wanderers connect on /sl-io/, the page's path for a free socket; served here as server/index.js serves it
+  // while the server is not split (its alias of /socket.io/).
+  const ioOpts = require('../server/ioOptions');
+  ioOpts.installPathAlias(server, ioOpts.SL_IO_PATH, '/socket.io/');
   const logLines = [];
   const log = {
     log: (...a) => logLines.push('log ' + a.join(' ')),
@@ -365,7 +369,7 @@ async function main() {
 
   // ---- the wanderers
   const child = fork(path.join(__dirname, 'slLoad.js'), ['--ipc', '--url', 'http://127.0.0.1:' + port, '--clients',
-    String(CLIENTS), '--polling', String(POLLING), '--seed', String(SEED), '--minutes', '0'],
+    String(CLIENTS), '--polling', String(POLLING), '--seed', String(SEED), '--minutes', '0', '--path', ioOpts.SL_IO_PATH],
   { stdio: ['ignore', 'inherit', 'inherit', 'ipc'] });
   let lastClient = null;
   let finalClient = null;

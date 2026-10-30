@@ -27,7 +27,9 @@
 // this script; on a local run the link is clean, so a kick or a refusal is reported as a failure by slSoak.
 //
 // Usage: node scripts/slLoad.js --url http://127.0.0.1:4409 [--clients 30] [--minutes 10] [--polling 0.5] [--seed 1]
-//        [--ip-base 198.18.0.] [--json out.json]
+//        [--ip-base 198.18.0.] [--path /sl-io/] [--json out.json]
+// --path: the engine.io path, /sl-io/ by default as the page uses for a free socket (server/ioOptions.js SL_IO_PATH);
+// a server that does not serve /sl-io/ needs --path /socket.io/.
 // Forked with --ipc (scripts/slSoak.js): progress and the final report go to the parent; {cmd: 'stop'} ends the run.
 // Exit code 1 when any bundle failed.
 
@@ -356,12 +358,13 @@ function bump(m, k, n) {
 // The wanderers
 
 // opts: { url, clients, polling (share 0..1 on long-polling, the rest WebSocket), seed, ipBase, nickBase, now,
-//         resume: { share, fromMs, spanMs, alternate } }
+//         resume: { share, fromMs, spanMs, alternate }, path (the engine.io path, default '/sl-io/') }
 function createWanderers(opts) {
   const o = opts || {};
   const { io } = require('socket.io-client');
   const now = typeof o.now === 'function' ? o.now : Date.now;
   const url = String(o.url || 'http://127.0.0.1:4409').replace(/\/+$/, '') + '/sl';
+  const ioPath = typeof o.path === 'string' && o.path ? o.path : '/sl-io/';
   const n = Number.isInteger(o.clients) && o.clients > 0 ? o.clients : 30;
   const pollShare = typeof o.polling === 'number' ? o.polling : 0.5;
   const ipBase = typeof o.ipBase === 'string' ? o.ipBase : '198.18.0.'; // RFC 2544 benchmark range
@@ -519,7 +522,7 @@ function createWanderers(opts) {
     function open() {
       return io(url, {
         transports: [w.transport], forceNew: true, reconnection: false, timeout: 10000,
-        extraHeaders: { 'x-forwarded-for': w.ip }, auth: { cv: w.cv }, agent: w.agent || false,
+        extraHeaders: { 'x-forwarded-for': w.ip }, auth: { cv: w.cv }, agent: w.agent || false, path: ioPath,
       });
     }
 
@@ -855,6 +858,7 @@ function main() {
     polling: Number(arg('polling', '0.5')),
     seed: Number(arg('seed', '1')),
     ipBase: arg('ip-base', '198.18.0.'),
+    path: arg('path', '/sl-io/'),
   });
   run.start();
   const finish = () => {

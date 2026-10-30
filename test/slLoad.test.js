@@ -113,6 +113,8 @@ test('live: four wanderers and the probe on a local /sl, every bundle decoded, 0
     res.end();
   });
   const io = new Server(server, { pingInterval: 5000, pingTimeout: 10000 });
+  // the wanderers' path, /sl-io/, served as server/index.js serves it while not split (server/ioOptions.js)
+  require('../server/ioOptions').installPathAlias(server, '/sl-io/', '/socket.io/');
   const quiet = { log() {}, warn() {}, error() {} };
   const opened = require('../server/sl/slBoot').openSl({
     env: { SL_ENABLED: '1', SL_DEV_LAWS: path.join(__dirname, 'slLawsFixture.js') }, io, region: 'na', seed: 3, log: quiet,
@@ -166,6 +168,8 @@ test('live: resume blips, parked and taken over, come back inside the glide; the
     res.end();
   });
   const io = new Server(server, { pingInterval: 5000, pingTimeout: 10000 });
+  // the wanderers' path, /sl-io/, served as server/index.js serves it while not split (server/ioOptions.js)
+  require('../server/ioOptions').installPathAlias(server, '/sl-io/', '/socket.io/');
   const quiet = { log() {}, warn() {}, error() {} };
   const opened = require('../server/sl/slBoot').openSl({
     env: { SL_ENABLED: '1', SL_DEV_LAWS: path.join(__dirname, 'slLawsFixture.js') }, io, region: 'na', seed: 5, log: quiet,
@@ -229,6 +233,8 @@ test('a long-polling wanderer keeps its HTTP connections (keep-alive, as a brows
   let requests = 0;
   server.on('connection', () => { tcp++; });
   const io = new Server(server, { pingInterval: 5000, pingTimeout: 10000 });
+  // the wanderers' path, /sl-io/, served as server/index.js serves it while not split (server/ioOptions.js)
+  require('../server/ioOptions').installPathAlias(server, '/sl-io/', '/socket.io/');
   server.on('request', () => { requests++; }); // after engine.io's own handler (it takes over the earlier ones)
   const timers = [];
   io.of('/sl').on('connection', (sock) => {

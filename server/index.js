@@ -146,28 +146,22 @@ allTimeLb.setDb(db);
 
 const app    = express();
 const server = http.createServer(app);
-// Origins allowed to call this server cross-origin: the NA + EU domains (so the lobby on
-// duelseries.com can stake against the EU game server it's about to play on) plus local dev.
-const ALLOWED_ORIGINS = ['https://duelseries.com', 'https://www.duelseries.com', 'https://eu.duelseries.com', 'http://localhost:3000'];
-const io     = new Server(server, {
-  cors: {
-    origin: ALLOWED_ORIGINS,
-    credentials: true,
-  },
-  pingInterval: 5000,   // heartbeat every 5s (default 25s) — keeps mobile WiFi radio awake
-  pingTimeout:  10000,  // declare dead after 10s of no response (default 20s)
-  /* The largest message one client may send (default 1 MB). Every honest client
-     message in every game is a small object, well under 2 KB (the biggest are the
-     sl:diag stats, a join with its entry token, Battleship's ship placement), so
-     64 KB is over 30x headroom. A 1 MB message was enough to hand a handler a
-     megabyte string, which is what made the quadratic base58 decode a 20-minute
-     stall. The served socket.io client reads this limit from the handshake and
-     splits a polling batch to fit under it. */
-  maxHttpBufferSize: 64 * 1024,
-});
+/* The origins, the heartbeat and the largest client message (64 KB) live in
+   server/ioOptions.js, one copy for every process that serves socket.io. */
+const ioOpts = require('./ioOptions');
+const ALLOWED_ORIGINS = ioOpts.ALLOWED_ORIGINS;
+const io     = new Server(server, Object.assign({}, ioOpts.IO_OPTIONS));
 // The ping readout every game shows (public/js/shared/dsPerfHud.js) times 'ds:ping' on its own socket: answered on
 // every namespace, including /ag, /sl and /chomp made further down.
 require('./perfEcho').install(io);
+/* Free slither and the battle royale connect on the engine.io path /sl-io/
+   (public/js/slx/slxNet.js); paid seats and paid watchers stay on /socket.io/.
+   This one engine serves both: /sl-io/ is read as /socket.io/ before engine.io
+   looks (after new Server, so it runs first), and every socket meets today's
+   /sl router. Each handshake answer says x-ds-proc: main, so nginx's routing of
+   the path can be checked from outside (deploy/nginx-sl-io.conf). */
+ioOpts.installPathAlias(server, ioOpts.SL_IO_PATH, '/socket.io/');
+ioOpts.tagEngine(io, 'main');
 
 // Keep idle connections from nginx open longer than its upstream keep-alive, so a reused one is never cut mid-request.
 server.keepAliveTimeout = 120000;
@@ -7443,6 +7437,12 @@ function reopenAfterUpdate() {
   const wait = parseInt(process.env.MAINT_REOPEN_DELAY_MS, 10);
   setTimeout(tick, wait >= 0 ? wait : 15000);
 }
+/* The slither path's first door (deploy/nginx-sl-io.conf): nginx sends /sl-io/
+   to 127.0.0.1:SL_CHILD_PORT (default PORT + 1) and to PORT only as its backup.
+   With no slither process of its own, this server answers on that port too
+   (127.0.0.1 only, the same app), so nginx's first choice is always served and
+   no nginx edit is ever part of a rollback. Only while /sl is open. */
+if (slArenas) ioOpts.aliasListener(server, Number(process.env.SL_CHILD_PORT) || (Number(PORT) + 1), console);
 server.listen(PORT, () => {
   console.log(`Server running at http://localhost:${PORT}`);
   reopenAfterUpdate();

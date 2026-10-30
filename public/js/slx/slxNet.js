@@ -73,6 +73,7 @@
   if (!cfg) cfg = root.DuelSlitherConfig = {};
 
   var NS = '/sl';                                // the frozen transport's namespace (slNet.js:154)
+  var SL_IO_PATH = '/sl-io/';                    // free and event sockets' engine.io path (server/ioOptions.js)
   var LAYER_EMITS = { 'sl:hold': true, 'sl:vis': true, 'sl:chat': true, 'sl:diag': true };
   // An sl:x array longer than this is not ours (the server sends a handful of items per flush).
   var X_MAX = 256;
@@ -205,7 +206,10 @@
     if (curRec) curRec.reason = reason == null ? '' : String(reason);
   }
 
-  // The handshake options: theirs, copied, plus the layer's auth fields.
+  // The handshake options: theirs, copied, plus the layer's auth fields, and the engine.io path when theirs names none.
+  // Free play, free watching and the battle royale use /sl-io/ (the slither process when the server is split, else the
+  // main server's alias of /socket.io/); paid seats and paid-rung watchers stay on /socket.io/, where their money lives.
+  // The same order as the server's routing (server/sl/slSockets.js: paid, then the event's, then a watcher).
   function withAuth(opts) {
     var o = {};
     var k;
@@ -220,6 +224,11 @@
     }
     if (extra && typeof extra === 'object') for (k in extra) if (has.call(extra, k)) auth[k] = extra[k];
     o.auth = auth;
+    if (!has.call(o, 'path')) {
+      var paidSide = auth.paid === 1 || (auth.watch === 1 && typeof auth.watchStake === 'number' && auth.watchStake > 0 &&
+        !has.call(auth, 'br'));
+      if (!paidSide) o.path = SL_IO_PATH;
+    }
     return o;
   }
 
