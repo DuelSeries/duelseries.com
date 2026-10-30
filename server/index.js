@@ -5492,7 +5492,7 @@ function broadcastLobbyState() {
      each is a real stake. It was 6; a campus or carrier NAT puts many people behind one address, so it is 10 for the
      launch, and every refusal is logged (logLimit) so a real shared address meeting it shows up (night review
      2026-10-29).
-   - FREE_DUEL_ROOM_CAP: the most free tables each duel runs at once (Head Soccer and Swim 40, the others 60,
+   - FREE_DUEL_ROOM_CAP: the most free tables each duel runs at once (Head Soccer 40, Swim 75, the others 60,
      Knockout 100; Battleship is turn-based and not capped). At the ceiling a free seat keeps waiting until a
      table ends. Paid tables are never held.
    A loopback or private address (this box, its own network) is never counted, so nothing local is limited. */
@@ -5528,7 +5528,7 @@ io.use((socket, next) => {
   knockoutLobby.freeRoomCap = cap(100);
   battleshipLobby.freeRoomCap = cap(100);   // turn-based like Knockout, and it had no ceiling at all (night review 2026-10-29)
   headSoccerLobby.freeRoomCap = cap(40);
-  swimLobby.freeRoomCap = cap(40);
+  swimLobby.freeRoomCap = cap(75);   // 75 tables ran smoothly in the 2026-10-29 capacity test (thread 57% busy)
   pool8Lobby.freeRoomCap = cap(60);
   airHockeyLobby.freeRoomCap = cap(60);
   rooftopLobby.freeRoomCap = cap(60);
