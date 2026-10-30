@@ -18,8 +18,9 @@
 //
 // Night review 2026-10-29: the default topic is named in this repo, and an ntfy.sh topic nobody
 // reserved can be read and posted to by anyone who knows its name, so a forged "Bot bank needs
-// SOL" push looks exactly like a real one. The default stays (Owen's app is subscribed to it);
-// moving to a long random topic, or a reserved one with NTFY_TOKEN, is env only, no code change.
+// SOL" push looks exactly like a real one. Since 2026-10-29 the live box sends to long random topics
+// set in its .env (NTFY_TOPIC_URL, and NTFY_FREE_URL for joinAlerts.js), never in git; the default here
+// is only a fallback for a box without them.
 // Any query string on the URL is kept now (it was dropped). ntfy throttles by publishing IP, so a
 // refusal is logged (at most once a minute) instead of vanishing: a 429 means alerts are being lost.
 

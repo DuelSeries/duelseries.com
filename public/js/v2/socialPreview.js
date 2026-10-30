@@ -21,8 +21,8 @@
    board.", and never LIVE: sample winnings on a real-money site are only ever
    shown labelled as sample data. The lobby strip, Wallet and server stay real.
 
-   Fifty players, a long tail from a few dollars up to a few thousand with a
-   clear top 3. Each has a profile whose cash-outs add up to the board's figure
+   Fifty players, a long tail from about 50 cents up to about $30 with a clear
+   top 3, about $200 to $260 in all (Owen 2026-10-29: much lower). Each has a profile whose cash-outs add up to the board's figure
    to the cent, in bursts with quiet stretches between (so the graph's squeeze
    and zoom show), and a win rate and per-game split that fit the cash-outs.
    Global player winnings shows their total (social.js). Made from a fixed
@@ -56,21 +56,26 @@
     };
   }
 
-  /* The board's figures, in cents, biggest first and no ties: a clear top 3
-     (about $5k, $3.3k, $2.3k), then a long tail from about $1,150 at 4th down
-     to a few dollars at 50th, each nudged a little so the curve is not smooth. */
+  /* The board's figures at day 0, in cents, biggest first and no ties: a clear
+     top 3 (about $28, $20, $15), then a long tail from about $9 at 4th down to
+     about 50 cents at 50th, each nudged a little so the curve is not smooth, all
+     scaled to a seeded total between $200 and $250 (Owen 2026-10-29: Global
+     player winnings between $200 and $300, the slow daily climb inside that). */
   function amounts(r) {
-    const out = [480000 + Math.floor(r() * 45000), 315000 + Math.floor(r() * 30000), 215000 + Math.floor(r() * 30000)];
-    const top = 115000, low = 300, k = NAMES.length - 3;
-    for (let i = 0; i < k; i++) out.push(Math.max(150, Math.round(top * Math.pow(low / top, i / (k - 1)) * (0.88 + r() * 0.24))));
+    const out = [2600 + Math.floor(r() * 400), 1900 + Math.floor(r() * 300), 1400 + Math.floor(r() * 300)];
+    const top = 800, low = 50, k = NAMES.length - 3;
+    for (let i = 0; i < k; i++) out.push(Math.round(top * Math.pow(low / top, i / (k - 1)) * (0.88 + r() * 0.24)));
+    const want = 20000 + Math.floor(r() * 5000);
+    const sum = out.reduce((s, c) => s + c, 0);
+    for (let i = 0; i < out.length; i++) out[i] = Math.max(45, Math.round(out[i] * want / sum));
     out.sort((a, b) => b - a);
-    for (let i = 1; i < out.length; i++) if (out[i] >= out[i - 1]) out[i] = out[i - 1] - 1 - Math.floor(r() * 40);
+    for (let i = 1; i < out.length; i++) if (out[i] >= out[i - 1]) out[i] = out[i - 1] - 1 - Math.floor(r() * 3);
     return out;
   }
 
-  /* Every day a little more (Owen 2026-10-28): from day 0, midnight Eastern on 2026-10-28, each player
-     cashes out a few times a day, about $10 to $20 a day in all, the top of the board more and the tail
-     less, so the board, the profiles and Global player winnings climb. The history before day 0 is
+  /* Every day a little more (Owen 2026-10-28, lowered 2026-10-29): from day 0, midnight Eastern on
+     2026-10-28, now and then a player cashes out one round's prize, the top of the board most often, about
+     $2 to $3 a day across the whole board, so the board, the profiles and Global player winnings climb slowly. The history before day 0 is
      anchored to it rather than to today, so a profile's past never moves. Each player and each day has
      its own seed: every browser shows the same figures at the same moment. Tests pin the clock with
      window.DS_PREVIEW_NOW. */
@@ -90,9 +95,9 @@
       // This player's own numbers: one player's new day never moves anyone else's past.
       const pr = rng(20261026 + (i + 1) * 7919);
       const baseCents = cents[i];
-      /* Cash-outs up to day 0: a few dollars to a few tens each, so the big
-         earners have a lot of them. Weighted shares that add up exactly. */
-      const n0 = Math.max(1, Math.min(200, Math.round(Math.sqrt(baseCents / 100) * (2 + pr()))));
+      /* Cash-outs up to day 0: about $1 to $2.50 each on average, so the big
+         earners have more of them. Weighted shares that add up exactly. */
+      const n0 = Math.max(1, Math.min(200, Math.round(baseCents / (90 + pr() * 160))));
       const w = [];
       for (let k = 0; k < n0; k++) w.push(0.25 + pr() * pr() * 3);
       const sum = w.reduce((s, x) => s + x, 0);
@@ -115,24 +120,17 @@
         const at = Math.min(BASE - 3600e3, s + pr() * Math.min(9, 2 + n0 / 20) * DAY);
         return { amount: c / 100, at: new Date(at).toISOString() };
       });
-      /* From day 0: about perDay dollars a day (half to one and a half times
-         it), in one to four cash-outs at random times through the day. Only
-         the ones already past count, so the figure climbs through the day. */
-      const perDay = i < 3 ? 20 + pr() * 10 : i < 15 ? 12 + pr() * 10 : 6 + pr() * 12;
+      /* From day 0: on some days one cash-out at a random time, the top 3
+         about one day in five, the next 12 one in sixteen, the tail one in
+         fifty; a duel or Paper.io prize ($0.45, $0.90 or $1.80) or a snake
+         cash-out up to about $3. Only the ones already past count. */
+      const odds = i < 3 ? 0.2 : i < 15 ? 0.06 : 0.02;
       for (let d = 0; d <= Math.floor((now - BASE) / DAY); d++) {
         const dr = rng((20261026 ^ Math.imul(i + 1, 0x9E3779B1)) + d * 104729);
-        const day = Math.round(perDay * (0.5 + dr()) * 100);
-        const k = 1 + Math.floor(dr() * 4);
-        const dw = [];
-        for (let j = 0; j < k; j++) dw.push(0.5 + dr());
-        const dsum = dw.reduce((s, x) => s + x, 0);
-        let rest = day;
-        for (let j = 0; j < k; j++) {
-          const c = j === k - 1 ? rest : Math.round(day * dw[j] / dsum);
-          rest -= c;
-          const at = BASE + d * DAY + dr() * DAY;
-          if (at <= now) games.push({ amount: c / 100, at: new Date(at).toISOString() });
-        }
+        if (dr() >= odds) continue;
+        const c = dr() < 0.6 ? [45, 90, 90, 180][Math.floor(dr() * 4)] : 45 + Math.floor(dr() * 260);
+        const at = BASE + d * DAY + dr() * DAY;
+        if (at <= now) games.push({ amount: c / 100, at: new Date(at).toISOString() });
       }
       games.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
       const amount = games.reduce((s, g) => s + Math.round(g.amount * 100), 0) / 100;

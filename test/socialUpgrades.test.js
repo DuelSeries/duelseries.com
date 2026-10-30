@@ -249,14 +249,15 @@ test('preview: without the link there are no sample players at all', () => {
   }
 });
 
-test('preview: fifty sample players, a few dollars to a few thousand, and profiles that add up', () => {
+test('preview: fifty sample players, cents to about $30, $200 to $300 in all, and profiles that add up (Owen 2026-10-29)', () => {
   const { P, classes } = previewWindow('?leaderboard=preview');
   assert.strictEqual(P.on, true);
   const all = Array.from(P.board(50).top);
   assert.strictEqual(all.length, 50);
   const amounts = all.map((r) => r.amount);
-  assert.ok(amounts.every((a) => a >= 1 && a < 10000 && Math.abs(Math.round(a * 100) - a * 100) < 1e-6), 'dollars and cents');
-  assert.ok(amounts[0] > 4000 && amounts[2] > 2000 && amounts[3] < amounts[2] / 1.5 && amounts[49] < 10, 'a clear top 3 and a long tail');
+  assert.ok(amounts.every((a) => a >= 0.3 && a < 60 && Math.abs(Math.round(a * 100) - a * 100) < 1e-6), 'dollars and cents');
+  assert.ok(amounts[0] > 20 && amounts[2] > 12 && amounts[3] < amounts[2] / 1.5 && amounts[49] < 1, 'a clear top 3 and a long tail');
+  assert.ok(P.total() >= 200 && P.total() < 260, 'Global player winnings between $200 and $300, room left to climb: ' + P.total());
   assert.strictEqual(new Set(amounts).size, 50, 'no ties');
   const cents = amounts.reduce((s, a) => s + Math.round(a * 100), 0);
   assert.strictEqual(Math.round(P.total() * 100), cents, 'Global player winnings is the board added up');
@@ -278,16 +279,20 @@ test('preview: fifty sample players, a few dollars to a few thousand, and profil
   assert.ok(classes.includes('ph-no-capture'), 'kept out of analytics and session replay');
 });
 
-test('preview: every sample player earns a little every day, and the past never moves (Owen 2026-10-28)', () => {
+test('preview: the board climbs a little every day, and the past never moves (Owen 2026-10-28, lowered 2026-10-29)', () => {
   const DAY = 864e5;
   const at = (t) => previewWindow('?leaderboard=preview', t).P;
   const before = at(PREVIEW_BASE - 1), d10 = at(PREVIEW_BASE + 10 * DAY), d11 = at(PREVIEW_BASE + 11 * DAY);
   const growth = Math.round((d10.total() - before.total()) * 100) / 100;
-  assert.ok(growth > 50 * 10 * 8 && growth < 50 * 10 * 20, 'about $10 to $20 a player a day, 10 days: ' + growth);
-  assert.ok(d11.total() > d10.total(), 'still climbing the next day');
+  assert.ok(growth > 10 && growth < 60, 'about $1 to $6 a day across the board, 10 days: ' + growth);
+  assert.ok(d10.total() < 300, 'still under $300 after 10 days: ' + d10.total());
+  const d30 = at(PREVIEW_BASE + 30 * DAY);
+  assert.ok(d30.total() > d10.total(), 'still climbing weeks later');
+  let up = 0;
   for (const r of Array.from(before.board(50).top)) {
     const a = d10.profile(r.name), b = d11.profile(r.name);
-    assert.ok(d10.amountOf(r.name) > r.amount && d11.amountOf(r.name) > d10.amountOf(r.name), r.name + ' goes up every day');
+    assert.ok(d10.amountOf(r.name) >= r.amount && d11.amountOf(r.name) >= d10.amountOf(r.name), r.name + ' never goes down');
+    if (d10.amountOf(r.name) > r.amount) up++;
     const cents = (p) => p.games.reduce((s, g) => s + Math.round(g.amount * 100), 0);
     assert.strictEqual(cents(a), Math.round(a.totalEarnings * 100), r.name + ' cash-outs add up to the figure');
     // JSON, not deepStrictEqual: each window is its own vm realm, so the arrays' prototypes differ.
@@ -295,6 +300,7 @@ test('preview: every sample player earns a little every day, and the past never 
     assert.ok(b.games.every((g) => Date.parse(g.at) <= PREVIEW_BASE + 11 * DAY), 'nothing in the future');
     assert.ok(b.winRate.won >= a.winRate.won && b.winRate.won <= b.winRate.entered && b.winRate.entered <= b.gamesPlayed);
   }
+  assert.ok(up >= 5, 'several players have cashed out since day 0: ' + up);
 });
 
 test('preview: only the visit with the link; no browser keeps it or wears LIVE (Owen 2026-10-28)', () => {

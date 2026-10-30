@@ -21,7 +21,8 @@
 // Off switches (env, read on every call): NTFY_DISABLED=1 (every push, notify.js), NTFY_JOINS_OFF=1 (both join
 // topics), NTFY_FREE_JOINS_OFF=1 (the free topic only). NTFY_PAID_URL / NTFY_FREE_URL override a topic.
 //
-// To see the free ones: ntfy app, +, topic duelseries-free-8382.
+// Live topics are private since 2026-10-29: NTFY_TOPIC_URL and NTFY_FREE_URL in the server's .env (long random
+// names, never in git: this repo is public). The names below are only a fallback for a box without them.
 
 const PAID_URL = null; // null: notify.js's own topic (NTFY_TOPIC_URL or the players topic)
 const FREE_URL = 'https://ntfy.sh/duelseries-free-8382';
