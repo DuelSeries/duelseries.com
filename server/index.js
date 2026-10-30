@@ -2367,7 +2367,8 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
       console.warn('[SOON] owner console: ' + comingSoon.nameOf(id) + (on ? ' is Coming soon' : ' is Live'));
       broadcastLobbyState();
       if (!on) return done(comingSoon.nameOf(id) + ' is Live again. Lobbies that reload show it open.'
-        + (id === 'agar' ? ' Its paid bots come back as they were, funded from the Bot bank.' : ''));
+        + (id === 'agar' ? ' Its paid bots come back as they were, funded from the Bot bank.'
+          + (fx && fx.why ? ' Stopped short: ' + fx.why + '.' : '') : ''));
       return done(comingSoon.nameOf(id) + ' is Coming soon. Its card is locked and new players are turned away; anyone '
         + 'already playing finishes and cashes out as normal. It stays this way across restarts and deploys until you '
         + 'switch it back to Live.' + (id === 'agar' ? ' Its paid bots are paused (their money back in the Bot bank) '

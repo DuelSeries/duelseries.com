@@ -162,10 +162,17 @@ class AgArenas {
     this._saveTargets();
   }
 
+  // -> the first reason a rung stopped short (the bank, the daily limit, funding), or null
   startBots() {
-    if (!this.botBank || this.soon) return;
-    for (const [stake, n] of Array.from(this.botTargets)) if (n > 0) this._applyBots(stake, n);
+    if (!this.botBank || this.soon) return null;
+    let why = null;
+    for (const [stake, n] of Array.from(this.botTargets)) {
+      if (n <= 0) continue;
+      const r = this._applyBots(stake, n);
+      if (!why && r && r.why) why = r.why;
+    }
     this._saveTargets();
+    return why;
   }
 
   botTarget(stake) {
@@ -301,14 +308,16 @@ class AgArenas {
       const was = this.soon;
       this.soon = false;
       if (this.awakeWanted) this.keepAwake();
+      let why = null;
       if (was && this.paidEnabled && !this.stopping) {
         try {
-          this.startBots();
+          why = this.startBots();
         } catch (e) {
+          why = 'Paid bots could not be brought back just now';
           this.log.error('[AG] paid bots not brought back: ' + (e && e.message));
         }
       }
-      return { botsLeft: 0, why: null };
+      return { botsLeft: 0, why };
     }
     // the counts as they are now (bots waiting on their seed included), held for Live, before any bot leaves; with no
     // bot live or waiting (a boot: none spawned yet) the counts already held are kept as they are

@@ -282,3 +282,14 @@ test('Open lobbies: a Coming soon game has no row (free rung, pinned duel) and E
   const lob2 = open.el('lob').innerHTML;
   assert.ok(lob2.includes('ag:na:s0') && lob2.includes('battleship:free'));
 });
+
+test('Live with a Bot bank that cannot fund every held bot says why it stopped short', () => {
+  const { arenas, bank } = paidRig(1);
+  assert.strictEqual(arenas.setBotTarget(0.5, 2).live, 2);
+  arenas.setSoon(true);
+  assert.strictEqual(bank.balanceMicro(), 1000000);
+  assert.ok(bank.take(800000, 'elsewhere'), 'the bank is spent meanwhile');
+  const r = arenas.setSoon(false);
+  assert.strictEqual(arenas.botCount(0.5), 0);
+  assert.match(String(r.why), /bot bank cannot cover/);
+});
