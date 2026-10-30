@@ -2,6 +2,13 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-10-30-agar-battleship-break",
+      "date": "2026-10-30",
+      "tag": "heads-up",
+      "title": "Agar.io and Battleship are taking a short break",
+      "body": "Agar.io and Battleship are off for a little while so we can make them better. Their cards show Coming soon until they are back.\n\nEvery other game is open as usual, and your stats and leaderboard spots are all still here."
+    },
+    {
       "id": "2026-10-30-clips-show-everything",
       "date": "2026-10-30",
       "tag": "new",

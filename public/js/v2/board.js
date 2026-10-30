@@ -38,6 +38,7 @@
   /* Which duels' paid doors the server has open ({ knockout: true, ... }, server duelPaidDoors). Null until an
      answer carries it: an unknown door is a shut one, so a duel's paid rungs stay struck through. */
   let DOORS = null;
+  let SOON = [];   // the games the server says are Coming soon right now (server/comingSoon.js)
   let timer = null;
 
   /* A failed poll keeps the last good board instead of wiping it: a wiped
@@ -61,6 +62,7 @@
     EXTRAS = Array.isArray(j.extras) ? j.extras : [];
     COUNTS = j.counts && typeof j.counts === 'object' ? j.counts : null;
     DOORS = j.paidDoors && typeof j.paidDoors === 'object' ? j.paidDoors : null;
+    if (Array.isArray(j.soon)) SOON = j.soon.filter(id => typeof id === 'string');
     /* The Battle Royale state rides along on the same answer: the PC sidebar's clock reads it
        (V2Event.feed) rather than asking the server again. */
     if (j.br && window.V2Event && window.V2Event.feed) window.V2Event.feed(j.br);
@@ -140,7 +142,7 @@
   const listable = l => {
     const names = window.V2_GAME_NAMES;
     if (names && !names[l.game]) return false;
-    return !(window.V2_IS_SOON && window.V2_IS_SOON(l.game));
+    return !soonGame(l.game);
   };
   /* The lobby's first four games, in the order the cards are (public/v2.html GAMES). */
   const GAME_ORDER = ['chomp', 'snake', 'agar', 'paper'];
@@ -214,6 +216,15 @@
     return !!(DOORS && Object.prototype.hasOwnProperty.call(DOORS, game) && DOORS[game] === true);
   }
 
+  /* Coming soon now, by the server's latest board: the play path asks this too (V2_IS_SOON), so a lobby opened before
+     Owen switched a game off cannot start it. The card's look follows at the next page load (/api/soon.js). */
+  function soonNow(game) {
+    return SOON.indexOf(game) !== -1;
+  }
+
+  /* Shut on this page: a locked or Coming soon card (V2_IS_SOON), or Coming soon by the server's latest board. */
+  const soonGame = g => (typeof window.V2_IS_SOON === 'function' && window.V2_IS_SOON(g)) || soonNow(g);
+
   function rowsToShow() {
     const rows = occupied().filter(listable);
     const free = LOBBIES.find(l => Number(l.stake) === 0 && l.game === 'snake');
@@ -221,13 +232,14 @@
     /* Paper's, agar.io's and Pac-Man's free rungs are always listed too, from the server's own
        row (paper:na:s0, ag:na:s0, chomp:na:s0); GAME_ORDER below puts them in the lobby's order. */
     ['paper', 'agar', 'chomp'].forEach(g => LOBBIES.forEach(l => {
-      if (l.game === g && Number(l.stake) === 0 && !rows.includes(l)) rows.push(l);
+      if (l.game === g && Number(l.stake) === 0 && !rows.includes(l) && !soonGame(g)) rows.push(l);
     }));
     PINNED.forEach(p => {
       if (rows.some(r => r.id === p.id)) return;
       /* A locked game (shared/lockedGames.js) has no room behind its row, so
          it is not listed. Its pinned entry stays above for when it unlocks. */
       if (window.DS_LOCKED && window.DS_LOCKED.isLocked(p.game)) return;
+      if (soonGame(p.game)) return;   // Coming soon (server/comingSoon.js): not listed until it is Live again
       if (p.needsCard && (!(window.V2_GAME_NAMES && window.V2_GAME_NAMES[p.game])
         || (typeof window.V2_IS_SOON === 'function' && window.V2_IS_SOON(p.game)))) return;
       /* The pinned row keeps its own id, stake and door — those are what make
@@ -317,6 +329,7 @@
       || EXTRAS.find(x => x.id === id && Number(x.stake) > 0 && (x.game === 'knockout' || x.game === 'battleship' || x.game === 'swim' || x.game === 'headsoccer' || x.game === 'pool8' || x.game === 'airhockey' || x.game === 'rooftop' || x.game === 'crossy') && listable(x));
     if (!l || !isOpen(l)) return;
     if (window.DS_LOCKED && window.DS_LOCKED.isLocked(l.game)) return;
+    if (soonGame(l.game)) return;
     if (window.V2Play) return window.V2Play.enter(l);
     // play.js is always on the page; without it there is nothing to enter, and nothing pretends to.
   }
@@ -341,7 +354,7 @@
     document.addEventListener('visibilitychange', () => { if (timer && !document.hidden) load(); });
 
   window.V2Board = { load: load, push: push, draw: draw, join: join, start: start, stop: stop, setRows: setRows,
-                     playableStakes: playableStakes, duelPaidOpen: duelPaidOpen, rowsToShow: rowsToShow,
+                     playableStakes: playableStakes, duelPaidOpen: duelPaidOpen, soonNow: soonNow, rowsToShow: rowsToShow,
                      get lobbies() { return LOBBIES; },
                      get counts() { return COUNTS; },
                      /* People in a duel's queue, every rung, for the game cards: { knockout: 1 }. */

@@ -100,6 +100,8 @@ class AgArenas {
     this.emptySince = new Map();     // room -> ms
     this.awake = false;              // keepAwake: the free room #0 ticks from boot, a replacement too
     this.awakeAt = -Infinity;
+    this.awakeWanted = false;        // keepAwake was asked for: Coming soon off wakes room #0 again
+    this.soon = false;               // Coming soon (setSoon, server/comingSoon.js): new joins and watchers refused
     this._create(0);
 
     // Paid rungs (design 5.3).
@@ -145,6 +147,10 @@ class AgArenas {
   // A fund from the Bot bank wallet landed: spawn the bots that were waiting for it (only counts Owen asked for).
   resumeBots() {
     if (!this.botBank || !this.botWant || this.stopping) return;
+    if (this.soon) {
+      this.botWant.clear();      // Coming soon: no bot spawns, so none waits on its seed either
+      return;
+    }
     for (const [stake, more] of Array.from(this.botWant)) {
       try {
         this._applyBots(stake, this.botCount(stake) + more);
@@ -157,7 +163,7 @@ class AgArenas {
   }
 
   startBots() {
-    if (!this.botBank) return;
+    if (!this.botBank || this.soon) return;
     for (const [stake, n] of Array.from(this.botTargets)) if (n > 0) this._applyBots(stake, n);
     this._saveTargets();
   }
@@ -185,6 +191,8 @@ class AgArenas {
     if (!this.botBank) return { ok: false, why: 'Paid agar.io bots are not wired on this server' };
     if (this.stopping) return { ok: false, why: 'The server is stopping' };
     if (!Number.isInteger(n) || n < 0 || n > AG_PAID_BOT_MAX) return { ok: false, why: 'Bots: a whole number from 0 to ' + AG_PAID_BOT_MAX };
+    if (this.soon && n > 0) return { ok: false, why: 'agar.io is Coming soon: switch it back to Live first' };
+    if (this.soon) this.botTargets.delete(st);   // 0 while paused: none come back at Live
     let r;
     try {
       r = this._applyBots(st, n);
@@ -198,11 +206,14 @@ class AgArenas {
   }
 
   _saveTargets() {
-    for (const st of this.rungs.keys()) {
-      // bots still waiting for their seed to reach escrow count too, so a restart meanwhile keeps them
-      const live = this.botCount(st) + ((this.botWant && this.botWant.get(st)) || 0);
-      if (live > 0) this.botTargets.set(st, live);
-      else this.botTargets.delete(st);
+    // Coming soon (setSoon): the bots are paused, not given up, so the held counts wait for Live as they are
+    if (!this.soon) {
+      for (const st of this.rungs.keys()) {
+        // bots still waiting for their seed to reach escrow count too, so a restart meanwhile keeps them
+        const live = this.botCount(st) + ((this.botWant && this.botWant.get(st)) || 0);
+        if (live > 0) this.botTargets.set(st, live);
+        else this.botTargets.delete(st);
+      }
     }
     if (!this.botStore || typeof this.botStore.save !== 'function') return false;
     const obj = {};
@@ -278,6 +289,56 @@ class AgArenas {
     return room;
   }
 
+  // Coming soon (server/comingSoon.js, Owen 2026-10-30). On: agSockets and the paid door refuse every new join and
+  // new watcher (a paid entry is refunded 'not-open'); the free room #0 is no longer held awake, so it stops ticking
+  // once nobody is in it and its bots cost nothing; the owner's paid bots are paused: they leave now (each seed back to
+  // the Bot bank, what a bot took back to its players, the removal path setBotTarget uses) and none spawn, while their
+  // counts stay held (saved, so a restart keeps them too). Seated players, open paid accounts, resumes and cash-outs
+  // are never touched. Off: room #0 is held awake again if it was, and the held paid bots come back (startBots, funded
+  // from the bank like a boot's). -> { botsLeft, why }
+  setSoon(on) {
+    if (on !== true) {
+      const was = this.soon;
+      this.soon = false;
+      if (this.awakeWanted) this.keepAwake();
+      if (was && this.paidEnabled && !this.stopping) {
+        try {
+          this.startBots();
+        } catch (e) {
+          this.log.error('[AG] paid bots not brought back: ' + (e && e.message));
+        }
+      }
+      return { botsLeft: 0, why: null };
+    }
+    // the counts as they are now (bots waiting on their seed included), held for Live, before any bot leaves; with no
+    // bot live or waiting (a boot: none spawned yet) the counts already held are kept as they are
+    const anyBots = Array.from(this.rungs.keys())
+      .some((st) => this.botCount(st) > 0 || ((this.botWant && this.botWant.get(st)) || 0) > 0);
+    if (this.paidEnabled && !this.soon && anyBots) this._saveTargets();
+    this.soon = true;
+    this.awake = false;
+    const r0 = this.rooms.find((x) => x.index === 0 && !x.stopped);
+    if (r0 && typeof r0.setAwake === 'function') r0.setAwake(false);
+    if (this.botWant) this.botWant.clear();
+    let botsLeft = 0;
+    let why = null;
+    for (const st of this.rungs.keys()) {
+      if (this.botCount(st) <= 0) continue;
+      if (this.stopping) {
+        why = 'The server is stopping';
+      } else {
+        try {
+          this._applyBots(st, 0);
+        } catch (e) {
+          why = String(e && e.message).slice(0, 120);
+          this.log.error('[AG] paid bots: pause at ' + st + ' failed: ' + why);
+        }
+      }
+      botsLeft += this.botCount(st);
+    }
+    return { botsLeft, why };
+  }
+
   // The free room #0 from boot (the server, agBoot openAg awake): it ticks before anybody comes, so its bots are
   // grown and playing when the first person arrives and a Spectate always finds someone to follow (Owen
   // 2026-10-16: "the bots should already be there, they should already be playing"). slither.io's free room does the
@@ -285,6 +346,8 @@ class AgArenas {
   // minute (a fault that repeats on every wake of an empty room must not become a create, fail, close loop).
   // Paid rooms never: they have no bots. Returns whether the room is awake.
   keepAwake() {
+    this.awakeWanted = true;
+    if (this.soon) return false;   // Coming soon: wanted, and woken by setSoon(false)
     this.awake = true;
     this.awakeAt = this.now();
     const r = this.rooms.find((x) => x.index === 0 && !x.stopped);
@@ -1010,7 +1073,7 @@ class AgArenas {
         parked,
         bots: list.reduce((k, r) => k + (Number(r.botCount) || 0), 0),
         capacity: this.cap,
-        state: this.paidOpen ? 'open' : 'closed',
+        state: this.paidOpen && !this.soon ? 'open' : 'closed',
       });
     }
     return rows;

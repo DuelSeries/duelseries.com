@@ -1881,7 +1881,7 @@ function consoleGames(ko, bs, sw, hs, p8, ah, rt) {
       rungs: paidBotRows(rows([...slFree, ...(slPaid ? slPaid.all() : []), ...oldPaid], [...tiers, ...oldFree]), 'sl') },
     { id: 'paper', name: 'Paper.io', duel: false, paid: door(paperArenas, paperPaidSwitch, 'paper:paid'),
       rungs: paidBotRows(rows(paperArenas ? paperArenas.all() : [], []), 'paper') },
-    { id: 'agar', name: 'agar.io', duel: false, paid: door(agArenas, agPaidSwitch, 'agar:paid'),
+    { id: 'agar', name: 'agar.io', duel: false, paid: door(agArenas, agPaidSwitch, 'agar:paid'), soon: soonRow('agar'),
       rungs: paidBotRows(rows(agArenas ? agArenas.all() : [], []), 'ag') },
     ...(chompArenas ? [{ id: 'chomp', name: 'Chomp', duel: false, paid: door(chompArenas, chompPaidSwitch, 'chomp:paid'),
       rungs: paidBotRows(rows(chompArenas.all(), []), 'chomp') }] : []),
@@ -1890,6 +1890,7 @@ function consoleGames(ko, bs, sw, hs, p8, ah, rt) {
       rungs: ownerConsole.duelRows(ko) },
     { id: 'battleship', name: 'Battleship', duel: true,
       paid: ownerConsole.paidDoor({ enabled: true, open: bsPaidOpen, stopping: false }, bsPaidSwitch.saved(), 'bs:paid'),
+      soon: soonRow('battleship'),
       rungs: ownerConsole.duelRows(bs) },
     { id: 'swim', name: SWIM_NAME, duel: true,
       paid: ownerConsole.paidDoor({ enabled: true, open: swPaidOpen, stopping: false }, swPaidSwitch.saved(), 'sw:paid'),
@@ -1908,6 +1909,11 @@ function consoleGames(ko, bs, sw, hs, p8, ah, rt) {
       rungs: ownerConsole.duelRows(rt) },
     crossy.consoleRow(ownerConsole, ops.duelStatus([crossy.lobby])),
   ];
+}
+
+/* A game's Coming soon switch for the console (server/comingSoon.js): on, and the action whose :on / :off flips it. */
+function soonRow(id) {
+  return comingSoon.lockable(id) ? { on: comingSoon.isSoon(id), action: id + ':soon' } : null;
 }
 
 /* The owner's paid bots (Owen 2026-10-16): each arena game's paid directory holds
@@ -2345,6 +2351,29 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
       return done('Paid Chomp open.' + (kept.ok ? ''
         : ' The saved close could not be cleared (' + kept.why + '), so the next restart opens it closed again.'));
     }
+    /* Coming soon (server/comingSoon.js, Owen 2026-10-30): one switch per game, saved first, then applied. On, the
+       lobby shows the card locked, new joins (free and paid) and watchers are refused, and the game's bots stop
+       (agar.io: the free room sleeps once empty, paid bots leave with their seed back to the Bot bank). Nobody is
+       kicked: seated players finish, resume and cash out. Off, the game is Live again. */
+    case 'agar:soon:on':
+    case 'agar:soon:off':
+    case 'battleship:soon:on':
+    case 'battleship:soon:off': {
+      const id = action.slice(0, action.indexOf(':'));
+      const on = action.endsWith(':on');
+      const kept = comingSoon.set(id, on);
+      if (!kept.ok) return refuse('Not saved (' + kept.why + '), so nothing changed');
+      const fx = id === 'agar' && agArenas ? agArenas.setSoon(on) : null;
+      console.warn('[SOON] owner console: ' + comingSoon.nameOf(id) + (on ? ' is Coming soon' : ' is Live'));
+      broadcastLobbyState();
+      if (!on) return done(comingSoon.nameOf(id) + ' is Live again. Lobbies that reload show it open.'
+        + (id === 'agar' ? ' Its paid bots come back as they were, funded from the Bot bank.' : ''));
+      return done(comingSoon.nameOf(id) + ' is Coming soon. Its card is locked and new players are turned away; anyone '
+        + 'already playing finishes and cashes out as normal. It stays this way across restarts and deploys until you '
+        + 'switch it back to Live.' + (id === 'agar' ? ' Its paid bots are paused (their money back in the Bot bank) '
+        + 'and return at Live.' : '') + (fx && fx.botsLeft > 0 ? ' ' + fx.botsLeft + ' paid bot(s) could not leave yet: '
+        + fx.why : ''));
+    }
     /* Paid Knockout's and paid Battleship's door switches, the same contract
        as agar's: off, a NEW paid queue join is refused before its entry token
        is touched (the player keeps the token, which refunds itself when it
@@ -2718,7 +2747,7 @@ app.get('/', noindexPreview, (_req, res) => res.sendFile(path.join(__dirname, '.
 app.get('/v2', noindexPreview, (_req, res) => res.sendFile(path.join(__dirname, '../public/v2.html')));
 /* An invite (/play/snake and the rest, shared/shareGames.js): the lobby with that game's link preview in its head;
    the lobby's invite.js then opens the game's free room. */
-app.get('/play/:slug', require('./sharePreview').playRoute());
+app.get('/play/:slug', require('./sharePreview').playRoute({ isSoon: (id) => comingSoon.isSoon(id) }));
 /* The owner console, without the file extension. The page itself is not a
    secret and does not need to be — it shows nothing and does nothing until an
    owner wallet signs for it, and every route behind it checks that server-side.
@@ -2733,7 +2762,10 @@ const gamePage = (id, file) => (_req, res) => (isLocked(id)
   : res.sendFile(path.join(__dirname, '../public/' + file)));
 app.get(['/tanks', '/tanks.html'], gamePage('tanks', 'tanks.html'));
 app.get('/knockout', (_req, res) => res.sendFile(path.join(__dirname, '../public/knockout.html')));
-app.get('/battleship', (_req, res) => res.sendFile(path.join(__dirname, '../public/battleship.html')));
+/* Coming soon (server/comingSoon.js): the Coming soon page, unless somebody is still seated there, whose reload
+   must find its seat (soonPageFor). */
+app.get('/battleship', (_req, res) => (soonPageFor('battleship', res)
+  || res.sendFile(path.join(__dirname, '../public/battleship.html'))));
 // Swim, the traffic race. Reachable by this URL while its lobby card stays shut (SWIM_IN_LOBBY).
 app.get('/swim', (_req, res) => res.sendFile(path.join(__dirname, '../public/swim.html')));
 app.get('/headsoccer', (_req, res) => res.sendFile(path.join(__dirname, '../public/headsoccer.html')));
@@ -3294,6 +3326,17 @@ const bsPaidSwitch = createPaidSwitchStore({
   file: process.env.BS_PAID_SWITCH_PATH || path.join(path.dirname(agJournal.file), 'bs-paid-switch.json'),
   tag: '[BS]', what: 'paid Battleship',
 });
+/* Coming soon (server/comingSoon.js, Owen 2026-10-30): agar.io and Battleship off the lobby for a while, each brought
+   back by its "Live / Coming soon" switch in Control (<game>:soon:off), saved across restarts and deploys. While on,
+   new joins, paid entries and watchers are refused and the game's bots stop; seated players finish and cash out. */
+const comingSoon = require('./comingSoon').createComingSoon({
+  file: process.env.COMING_SOON_PATH || path.join(path.dirname(agJournal.file), 'coming-soon.json'),
+});
+for (const id of comingSoon.list()) console.warn('[SOON] ' + comingSoon.nameOf(id) + ' is Coming soon (Control: switch it to Live)');
+/* What a Coming soon game's queue says to a page that asks for a new seat (a sentence, the duel pages show it). */
+const soonRefused = (id) => comingSoon.nameOf(id) + ' is coming soon. It is taking a short break and will be back.';
+/* Said after it to a paid ask (an in-game Play again staked before it reached the queue): the token was never spent. */
+const SOON_ENTRY_BACK = ' An entry you have not used is refunded within a few minutes.';
 /* Paid Head Soccer: HS_PAID_ON is the build switch (paid rungs exist at all), hs:paid:off the owner's door on top
    of it, saved like the other two. */
 const HS_PAID_ON = true;
@@ -3628,6 +3671,8 @@ const agBoot = require('./ag/agBoot').openAg({
   money: { hooks: agMoneyHooks, door: agPaidDoorDeps },
   /* A saved agar:paid:off opens the paid door shut (security review item b). */
   paidSwitch: agPaidSwitch,
+  /* Coming soon at boot: set before any paid bot spawns or the free room wakes (agArenas.setSoon). */
+  soon: comingSoon.isSoon('agar'),
   /* Bots already playing in the free room before anybody comes (agArenas
      keepAwake). Paid rooms take only the owner's bots from Control, saved here;
      they never eat a person's cell and carry no money (Owen 2026-10-16). */
@@ -4076,8 +4121,49 @@ const AG_CLOSED_PAGE = '<!doctype html><html lang="en"><head><meta charset="utf-
   + '<script>document.getElementById("back").onclick=function(){'
   + 'if(window.parent&&window.parent!==window){window.parent.postMessage("game:done","*")}'
   + 'else{location.href="/"}};</script></body></html>';
+/* A Coming soon game's page (server/comingSoon.js), in the closed page's look: the lobby's way back from its frame,
+   else a link home. Served instead of the game while the switch is on, unless somebody still holds a seat there
+   (agar.io: an open paid account, away ones included; Battleship: a person waiting or at a table), so a reload after
+   a drop finds its seat; a new page that connects meanwhile is refused 'soon' by the server and sent back.
+   -> true when it answered. 503 with Retry-After: off for a while, back later, and no browser keeps it. */
+function soonPageFor(id, res) {
+  if (!comingSoon.isSoon(id)) return false;
+  let seated = false;
+  try {
+    seated = id === 'agar' ? !!agArenas && agArenas.paidOpenCount() > 0
+      : id === 'battleship' ? ops.duelStatus([battleshipLobby]).people > 0 : false;
+  } catch (e) {
+    console.error('[SOON] seat check for ' + id + ' failed, page served:', e && e.message);
+    seated = true;   // unsure: a seated player's reload must never lose the way back to its seat
+  }
+  if (seated) return false;
+  const name = comingSoon.nameOf(id);
+  res.status(503).set('Retry-After', '3600').type('html').send('<!doctype html><html lang="en"><head><meta charset="utf-8">'
+    + '<meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex">'
+    + '<title>' + name + ' - DuelSeries</title></head>'
+    + '<body style="margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;'
+    + 'background:#100e0b;color:#f5f1e8;font:16px Arial,sans-serif;text-align:center">'
+    + '<div><p style="font-size:22px;font-weight:700;margin:0 0 8px">Coming soon</p>'
+    + '<p style="margin:0 0 20px;color:#a89c8a">' + name + ' is taking a short break. It will be back soon.</p>'
+    // a lobby that had not heard yet may have staked just before: that entry was never used
+    + '<p style="margin:0 0 20px;color:#a89c8a;font-size:13px">If you paid to enter and did not get in, '
+    + 'that entry is refunded automatically.</p>'
+    + '<button id="back" type="button" style="font:600 16px Arial,sans-serif;padding:10px 22px;border:0;'
+    + 'border-radius:8px;background:#f0a830;color:#100e0b;cursor:pointer">Back to the lobby</button></div>'
+    + '<script>document.getElementById("back").onclick=function(){'
+    + 'if(window.parent&&window.parent!==window){window.parent.postMessage("game:done","*")}'
+    + 'else{location.href="/"}};</script></body></html>');
+  return true;
+}
+/* The lobby's Coming soon list (server/comingSoon.js), read as a plain script at page load, before the cards are
+   drawn, so a locked card never shows open for a moment (public/v2.html applies it with shared/lockedGames.js).
+   /api: no-store, never counted against the static budget. */
+app.get('/api/soon.js', (_req, res) => {
+  res.type('application/javascript').send('window.DS_SOON=Object.freeze(' + JSON.stringify(comingSoon.list()) + ');\n');
+});
 app.get('/ag', (_req, res) => {
   if (!agArenas) return res.status(503).type('html').send(AG_CLOSED_PAGE);
+  if (soonPageFor('agar', res)) return;
   res.sendFile(path.join(__dirname, '../public/ag.html'));
 });
 
@@ -4318,7 +4404,8 @@ function liveExtras() {
 function duelPaidDoors() {
   return {
     knockout: typeof knockoutLobby !== 'undefined' && !!knockoutLobby && koPaidOpen === true,
-    battleship: typeof battleshipLobby !== 'undefined' && !!battleshipLobby && bsPaidOpen === true,
+    battleship: typeof battleshipLobby !== 'undefined' && !!battleshipLobby && bsPaidOpen === true
+      && !comingSoon.isSoon('battleship'),
     swim: typeof swimLobby !== 'undefined' && !!swimLobby && swPaidOpen === true,
     headsoccer: typeof headSoccerLobby !== 'undefined' && !!headSoccerLobby && HS_PAID_ON === true && hsPaidOpen === true,
     pool8: typeof pool8Lobby !== 'undefined' && !!pool8Lobby && P8_PAID_ON === true && p8PaidOpen === true,
@@ -4522,7 +4609,7 @@ function liveSnapshot() {
        same rows, so a card never reads 0 above a row saying 20 playing. */
     const out = { lobbies, stakes: ALL_STAKES, extras,
                   br: liveBattleRoyale(), counts: withBoardBots(liveGameCounts(), lobbies.concat(extras)),
-                  paidDoors: duelPaidDoors() };
+                  paidDoors: duelPaidDoors(), soon: comingSoon.list() };
     if (unknown.length) out.unknown = unknown;
     /* The lobby's update banner and its Play gate (public/js/v2/maint.js). Only
        what players already see: the switch and its message. */
@@ -4550,7 +4637,7 @@ setInterval(() => {
   if (!room || !room.size) { liveSig = ''; return; }
   const s = liveSnapshot();
   const board = { lobbies: s.lobbies, extras: s.extras, counts: s.counts, maintenance: s.maintenance,
-                  paidDoors: s.paidDoors };
+                  paidDoors: s.paidDoors, soon: s.soon };
   const sig = JSON.stringify(board);
   if (sig === liveSig) return;
   liveSig = sig;
@@ -7025,6 +7112,13 @@ io.on('connection', (socket) => {
       return;
     }
     if (back && back.refunded) { socket.emit('bs:unqueued', { refunded: true, why: 'connection dropped' }); return; }
+    // Coming soon (server/comingSoon.js): no new seat, free or paid, and no token touched (an unspent paid entry
+    // refunds itself). The reconnect above still took its seat back.
+    if (comingSoon.isSoon('battleship')) {
+      const paidAsk = (typeof stake === 'number' || typeof stake === 'string') && Number(stake) > 0;
+      socket.emit('bs:refused', { why: soonRefused('battleship') + (paidAsk ? SOON_ENTRY_BACK : '') });
+      return;
+    }
 
     // A bought skin is proved, not claimed (see ko:queue): the seat's fleet wears it only on a genuine pass, else null.
     const skin = skinPasses.wornFrom('battleship', {
@@ -7036,8 +7130,8 @@ io.on('connection', (socket) => {
     const wants = (typeof stake === 'number' || typeof stake === 'string') ? Number(stake) || 0 : 0;
     const want = wants > 0 ? rungOf(wants) : 0;   // the ladder's own number, as in ko:queue
     const seat = (entry) => {
-      // Shut (bs:paid:off) while the claim was in flight: refunded once through the row (enterPaid).
-      if (entry && entry.stakeSig && !bsPaidOpen) return false;
+      // Shut (bs:paid:off, or Coming soon) while the claim was in flight: refunded once through the row (enterPaid).
+      if (entry && entry.stakeSig && (!bsPaidOpen || comingSoon.isSoon('battleship'))) return false;
       let worth = 0, rung = 0, paid, payTo = null;
       if (entry) {
         worth = entry.worth;
@@ -7121,6 +7215,7 @@ io.on('connection', (socket) => {
   on('bs:watch', (msg) => {
     try {
       if (!socketRL(socket, 'bswatch', 100)) return;   // Previous / Next is tapped quickly: 10 a second is plenty
+      if (comingSoon.isSoon('battleship')) return;     // Coming soon: no new watcher (the lobby offers none either)
       const after = msg && typeof msg.after === 'string' && msg.after.length <= 40 ? msg.after : null;
       const stake = msg && typeof msg.stake === 'number' && isStake(msg.stake) ? msg.stake : undefined;
       const dir = msg && msg.dir === 'prev' ? 'prev' : 'next';

@@ -647,3 +647,76 @@ test('the /ag handshake hands the watcher address to connectWatch', () => {
   assert.deepStrictEqual(seen, [[0.5, '4.4.4.4']]);
   assert.deepStrictEqual(w.of('ag:refused'), [{ why: 'nobody' }]);
 });
+
+/* Coming soon (server/comingSoon.js, Owen 2026-10-30): agar.io off the lobby. A new paid join still reaches the door
+   (a stale lobby, a hand-made client) and is refunded exactly once as 'not-open', the same as a closed door; a seated
+   player's resume after a drop still takes the seat back and cashes out as always. */
+test('Coming soon: a new paid join is refunded once (not-open); a seated player still resumes', async () => {
+  const env = setup();
+  const s = sock();
+  joinPaid(env, s, { entryToken: env.store.mint({ walletAddress: 'WS' }) });
+  const room = roomOf(env, s);
+  const key = s.last('ag:joined').resumeKey;
+  room.tickOnce();
+  room.ready(s.id);
+  env.arenas.setSoon(true);
+  // a newcomer with a dev token: refunded through the payout, never seated
+  const n = sock();
+  joinPaid(env, n, { entryToken: env.store.mint({ walletAddress: 'WN' }) });
+  assert.deepStrictEqual(env.refunds.map((r) => [r.why, r.wallet, r.micro]), [['not-open', 'WN', 500000]]);
+  assert.deepStrictEqual(n.last('ag:refused'), { why: 'not-open', refunded: true, text: n.last('ag:refused').text });
+  assert.strictEqual(roomOf(env, n), null);
+  // a newcomer with a real stake row: claimed, then refunded through the row, reason 'refund agar not-open'
+  const r = sock();
+  joinPaid(env, r, { entryToken: env.store.mint({ walletAddress: 'WR', stakeSig: 'SIGS', claimKey: 'CKS' }) });
+  await tick();
+  assert.deepStrictEqual(env.ledgerRefunds, [{ sig: 'SIGS', reason: 'refund agar not-open', claimKey: 'CKS' }]);
+  assert.strictEqual(roomOf(env, r), null);
+  // the seated player drops and comes back: same seat, same money
+  env.arenas.disconnect(s.id);
+  const t = sock();
+  joinPaid(env, t, { resumeKey: key });
+  assert.strictEqual(roomOf(env, t), room);
+  assert.strictEqual(t.last('ag:joined').resumed, true);
+  assert.strictEqual(room.money.openCount(), 1);
+  assert.strictEqual(env.refunds.length, 1, 'no other refund');
+});
+
+/* Coming soon, through the sockets (review LOW 1): a free Play from a socket that holds a paid seat is still dropped
+   silently, never answered 'soon' (the page would go back to the lobby with its seat open); a plain page is refused. */
+test('Coming soon: a socket with a paid seat is never sent soon; a new plain page is', () => {
+  const env = setup();
+  const api = attachAgSockets(null, env.arenas, {
+    socketRL: () => true, sanitizeName: (x) => String(x || ''), ops: env.ops, log: quiet, perIp: 1000,
+    paidDoor: { consumeAtStake: (t, st) => env.store.consumeAtStake(t, st), ledger: null, refund: (x) => env.refunds.push(x) },
+  });
+  const p = sock();
+  p.handshake.auth = { paid: 1 };
+  api.attach(p);
+  env.clock.t += 1000;
+  p.fire('ag:join', { stake: 0.5, entryToken: env.store.mint({ walletAddress: 'WZ' }), name: 'p' });
+  assert.ok(p.last('ag:joined'), 'seated before the switch');
+  env.arenas.setSoon(true);
+  p.fire('ag:join', { name: 'p' });
+  assert.deepStrictEqual(p.of('ag:refused'), [], 'dropped silently');
+  assert.ok(roomOf(env, p), 'still seated');
+  const w = sock();
+  api.attach(w);
+  assert.deepStrictEqual(w.of('ag:refused'), [{ why: 'soon' }]);
+  assert.strictEqual(w.disconnected, true);
+});
+
+/* The switch flips while a real token's stake row is being claimed (review LOW 5): step 11 runs after the await, in the
+   same turn as the seat, so the entry is refunded once through its row and never seated. */
+test('Coming soon flipped during the claim: refunded once through the row, never seated', async () => {
+  const env = setup();
+  const s = sock();
+  joinPaid(env, s, { entryToken: env.store.mint({ walletAddress: 'WC', stakeSig: 'SIGC', claimKey: 'CKC' }) });
+  env.arenas.setSoon(true);   // between the consume and the claim's answer
+  await tick();
+  assert.strictEqual(env.claims.length, 1);
+  assert.deepStrictEqual(env.ledgerRefunds, [{ sig: 'SIGC', reason: 'refund agar not-open', claimKey: 'CKC' }]);
+  assert.deepStrictEqual(env.refunds, [], 'no second refund through the payout');
+  assert.strictEqual(roomOf(env, s), null);
+  assert.strictEqual(s.last('ag:refused').why, 'not-open');
+});

@@ -3389,6 +3389,9 @@ body.scr-anim { overflow-x:hidden }
 
 <script src="/shared/constants.js"></script>
 <script src="/shared/lockedGames.js"></script>
+<!-- Coming soon (server/comingSoon.js): the games Owen switched off in Control, as window.DS_SOON, read before the
+     cards are drawn so a locked card never shows open for a moment. -->
+<script src="/api/soon.js"></script>
 <script src="/shared/swimSim.js"></script>
 <script src="/shared/stakeLadder.js"></script>
 <script src="/shared/chompName.js"></script>
@@ -3604,11 +3607,13 @@ const GAMES=[
    shut behind a padlock. The flags that would open Play or a paid rung on
    that screen are cleared, and V2_IS_SOON then refuses it in the
    play path too. Unlocking is taking the id out of that list. */
-(window.DS_LOCKED?DS_LOCKED.LOCKED_GAMES:[]).forEach(id=>{
+/* A Coming soon game (window.DS_SOON from /api/soon.js: built, switched off by Owen in Control, back with the same
+   switch, server/comingSoon.js) is shown exactly the same way, and loses its New tag while it is shut. */
+[...(window.DS_LOCKED?DS_LOCKED.LOCKED_GAMES:[]),...(Array.isArray(window.DS_SOON)?window.DS_SOON:[])].forEach(id=>{
   const g=GAMES.find(x=>x.id===id);
   if(!g)return;
   g.soon=1; g.locked=1;
-  for(const k of ['built','duel','solo','freeOnly','paid','ladder'])delete g[k];
+  for(const k of ['built','duel','solo','freeOnly','paid','ladder','isNew'])delete g[k];
 });
 /* Playable games first (Owen, 2026-10-10: "shift them off to the side so that
    the games that are actually open show up first"). Worked out here, at load
@@ -5571,7 +5576,9 @@ function restoreBackdrop(k){
 window.V2Detail={get game(){return cur?cur.id:'snake'},get stake(){return STEPS[si]},flip:flipGame,keepBackdrop,restoreBackdrop};
 /* The one list that knows which games are built, so the play path can refuse
    an unbuilt one without keeping a second copy of that fact. */
-window.V2_IS_SOON=id=>{const g=G(id);return !!(g&&g.soon&&!g.built)};
+/* And a game the server says is Coming soon now (V2Board.soonNow, the soon list in /api/live): a lobby opened
+   before Owen switched it off refuses it too, though its card still looks open until a reload. */
+window.V2_IS_SOON=id=>{const g=G(id);return !!(g&&g.soon&&!g.built)||!!(typeof V2Board==='object'&&V2Board&&V2Board.soonNow&&V2Board.soonNow(id))};
 /* Whether this game is priced in RUNGS. Asked by the play path when the board
    has told it nothing, because "no rows" and "no ladder" are two different
    facts and reading one as the other sent snake players to the fixed tier. */

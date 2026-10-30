@@ -551,6 +551,17 @@
         case 'ag:refused':
           // The lobby's Spectate on a paid rung nobody is at (agArenas.connectWatch): the empty map, then ask again.
           if (!flow && watchAsk > 0 && p.why === 'nobody') watchEmpty();
+          // Coming soon (server/comingSoon.js): agar.io is off the lobby for now, so a new page goes back to it (the
+          // frame's game:done, or the lobby page itself when opened on its own). A seated player is never sent this.
+          if (p.why === 'soon') {
+            var framed = false;
+            try { framed = !!win.parent && win.parent !== win; } catch (e) { framed = true; }
+            if (framed) {
+              try { win.parent.postMessage('game:done', '*'); } catch (e) { /* the lobby is gone */ }
+            } else {
+              try { win.location.href = '/'; } catch (e) { /* nowhere to go */ }
+            }
+          }
           break;
         case 'ag:watching':
           // Who the Spectate camera follows ({ name }), or nobody alive ({ none: true }): the bar's plate.

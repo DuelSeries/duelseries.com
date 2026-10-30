@@ -23,7 +23,7 @@
 //   9. after the await: still connected and still no open account, else refund
 //  10. from here to the end in ONE synchronous turn: this wallet already holds a seat -> reattach it to this socket
 //      and refund this token ('reattach', token-proof: Owen Q8 one seat per wallet)
-//  11. the door is closed (AG_PAID off, owner console agar:paid:off) -> refund 'not-open'
+//  11. the door is closed (AG_PAID off, owner console agar:paid:off) or the game is Coming soon -> refund 'not-open'
 //  12. the release cooldown -> refund 'cooldown'
 //  13. a room of the rung: addPaidHuman; 'no-room' -> one other room; else refund 'no-room'; full -> 'full'; a throw ->
 //      'seat-failed'. walletSeat is set inside this turn (onAccountOpen).
@@ -299,8 +299,8 @@ function createAgPaidDoor({ arenas, consumeAtStake, ledger = null, refund, ops =
       }
       return refuse(socket, 'seat-failed', { refunded: true });
     }
-    // 11. the door switch
-    if (!arenas.paidOpen) return refundAndRefuse(socket, token, entry, 'not-open', name, st);
+    // 11. the door switch, and Coming soon (agArenas.setSoon: the game is off the lobby): both refund 'not-open'
+    if (!arenas.paidOpen || arenas.soon === true) return refundAndRefuse(socket, token, entry, 'not-open', name, st);
     // 12. the release cooldown
     if (arenas.releaseCooldown(entry.walletAddress)) {
       log.warn(tag + ' COOLDOWN ' + String(entry.walletAddress).slice(0, 8) + ' ' + stake);

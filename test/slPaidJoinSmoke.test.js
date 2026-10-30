@@ -109,7 +109,7 @@ async function boot(extra, opts) {
   const aliasPort = await freePort();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'slpsmoke-'));
   const journal = o.journal || path.join(dir, 'ag-money-journal.log');
-  const env = { ...process.env, REGION: 'na', PORT: String(port), SESSION_SECRET: 'test', MONEY_MODE: 'usdc',
+  const env = { ...process.env, COMING_SOON_PATH: process.env.COMING_SOON_PATH || require('../scripts/soonLive').soonLiveFile(), REGION: 'na', PORT: String(port), SESSION_SECRET: 'test', MONEY_MODE: 'usdc',
     DATABASE_URL: '', NTFY_DISABLED: '1', POSTHOG_DISABLED: '1', PAPER_PAID: '0', PAPER_DEV_TOKENS: '1',
     ESCROW_PRIVATE_KEY: '', ESCROW_PUBLIC_KEY: '', RPC_URL: 'https://rpc.invalid/never-called', SOLANA_NETWORK: 'devnet',
     NODE_ENV: 'test', SL_ENABLED: '1', SL_PAID: '1', SL_DEV_LAWS: '', AG_JOURNAL_PATH: journal, ALLOW_TEST_OWNER: '1',

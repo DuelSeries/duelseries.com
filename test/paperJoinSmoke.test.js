@@ -54,7 +54,7 @@ async function waitForServer(port, srv, tries = 60) {
 // inherited shell value can never decide what a test is testing.
 function boot(extra) {
   const port = nextPort++;
-  const env = { ...process.env, REGION: 'na', PORT: String(port),
+  const env = { ...process.env, COMING_SOON_PATH: process.env.COMING_SOON_PATH || require('../scripts/soonLive').soonLiveFile(), REGION: 'na', PORT: String(port),
                 SESSION_SECRET: 'test', MONEY_MODE: 'usdc', DATABASE_URL: '',
                 NTFY_DISABLED: '1', POSTHOG_DISABLED: '1',
                 PAPER_PAID: '0', PAPER_DEV_TOKENS: '', ESCROW_PRIVATE_KEY: '', NODE_ENV: 'test',

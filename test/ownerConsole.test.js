@@ -471,8 +471,11 @@ test('index.js: the paid Knockout and Battleship doors are saved switches that r
     assert.ok(free > 0 && h.indexOf('return seat(null);', free) > free, ev + ': the free branch seats with no entry');
     assert.ok(shut > 0 && consume > 0 && shut < consume, ev + ': refused before the token is consumed');
     assert.ok(free > 0 && free < shut, ev + ': a free seat never meets the paid door');
-    assert.match(h, new RegExp('if \\(entry && entry\\.stakeSig && !' + flag + '\\) return false;'),
-      ev + ': shut while the claim was in flight is refunded through the row (seat returns false)');
+    // Battleship's also refunds a claim that lands after Coming soon went on (server/comingSoon.js, 2026-10-30).
+    const inFlight = flag === 'bsPaidOpen'
+      ? "if (entry && entry.stakeSig && (!bsPaidOpen || comingSoon.isSoon('battleship'))) return false;"
+      : 'if (entry && entry.stakeSig && !' + flag + ') return false;';
+    assert.ok(h.includes(inFlight), ev + ': shut while the claim was in flight is refunded through the row (seat returns false)');
   }
   const caseOf = (name) => SRC.slice(SRC.indexOf("case '" + name + "'"), SRC.indexOf('\n    }', SRC.indexOf("case '" + name + "'")));
   assert.match(caseOf('ko:paid:off'), /if \(ko\) koPaidOpen = false; else bsPaidOpen = false;\n\s+const kept = \(ko \? koPaidSwitch : bsPaidSwitch\)\.save\(false\);/);

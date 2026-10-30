@@ -55,7 +55,7 @@ async function boot(extra, preload) {
   const port = await freePort();
   // the paid money journal of this boot only, never the checkout's server/data
   const journal = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'agsmoke-')), 'ag-money-journal.log');
-  const env = { ...process.env, REGION: 'na', PORT: String(port), SESSION_SECRET: 'test', MONEY_MODE: 'usdc', DATABASE_URL: '',
+  const env = { ...process.env, COMING_SOON_PATH: process.env.COMING_SOON_PATH || require('../scripts/soonLive').soonLiveFile(), REGION: 'na', PORT: String(port), SESSION_SECRET: 'test', MONEY_MODE: 'usdc', DATABASE_URL: '',
     NTFY_DISABLED: '1', POSTHOG_DISABLED: '1', PAPER_PAID: '0', PAPER_DEV_TOKENS: '', ESCROW_PRIVATE_KEY: '', NODE_ENV: 'test',
     AG_ENABLED: '1', AG_PAID: '', AG_JOURNAL_PATH: journal, ...extra };
   for (const k of Object.keys(env)) if (env[k] === undefined) delete env[k];

@@ -69,7 +69,7 @@ const ownerProof = (action, args) => {
 
 async function boot(dir) {
   const port = await freePort();
-  const env = { ...process.env, REGION: 'na', PORT: String(port), SESSION_SECRET: 'test', MONEY_MODE: 'usdc',
+  const env = { ...process.env, COMING_SOON_PATH: process.env.COMING_SOON_PATH || require('../scripts/soonLive').soonLiveFile(), REGION: 'na', PORT: String(port), SESSION_SECRET: 'test', MONEY_MODE: 'usdc',
     DATABASE_URL: '', NTFY_DISABLED: '1', POSTHOG_DISABLED: '1', PAPER_PAID: '1', PAPER_DEV_TOKENS: '1',
     ESCROW_PRIVATE_KEY: '', ESCROW_PUBLIC_KEY: '', RPC_URL: 'https://rpc.invalid/never-called', SOLANA_NETWORK: 'devnet',
     NODE_ENV: 'test', SL_PAID: '0', AG_ENABLED: '1', AG_PAID: '1', AG_JOURNAL_PATH: path.join(dir, 'ag-money-journal.log'),

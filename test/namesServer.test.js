@@ -47,7 +47,7 @@ function signedName(who, name) {
 test('names, the visit push and the profile read on a real server', { timeout: 120000 }, async (t) => {
   const owner = key();
   const port = await freePort();
-  const env = { ...process.env, REGION: 'na', PORT: String(port), SESSION_SECRET: 'test', MONEY_MODE: 'usdc',
+  const env = { ...process.env, COMING_SOON_PATH: process.env.COMING_SOON_PATH || require('../scripts/soonLive').soonLiveFile(), REGION: 'na', PORT: String(port), SESSION_SECRET: 'test', MONEY_MODE: 'usdc',
     DATABASE_URL: '', NTFY_DISABLED: '1', POSTHOG_DISABLED: '1', ESCROW_PRIVATE_KEY: '', ESCROW_PUBLIC_KEY: '',
     RPC_URL: 'https://rpc.invalid/never-called', SOLANA_NETWORK: 'devnet', NODE_ENV: 'test', SL_PAID: '0',
     PGCONNECT_TIMEOUT: '2', ALLOW_TEST_OWNER: '1', TEST_OWNER_WALLET: owner.wallet };

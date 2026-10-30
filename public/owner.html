@@ -96,6 +96,9 @@ input.say:focus{outline:none;border-color:var(--gold)}
 .s1 th:last-child,.s1 td:last-child{padding-right:36px}
 .s1 td{padding:14px 18px;border-bottom:1px solid var(--s2);vertical-align:middle}
 .s1 td.g{font-weight:650;font-size:16px;width:180px}
+.soonsw{margin-top:6px;font-weight:400}
+.soonsw .tg{height:28px}
+.soonsw .tg button{padding:0 10px;font-size:12.5px}
 .s1 .cell{display:flex;align-items:center;gap:14px}
 .s1 .cell .p{width:76px;color:var(--tx2);font-size:14px;flex:none}
 .s1 .cell .p b{color:var(--tx);font-weight:600}
@@ -781,6 +784,27 @@ function partDoor(ups, gid) {
     },
   });
 }
+/* Coming soon (server/comingSoon.js, Owen 2026-10-30): Live, or off the lobby with its card locked and new players
+   turned away, saved across restarts and deploys. Only on the rows whose game has the switch (agar.io, Battleship). */
+function partSoon(ups, gid) {
+  const g0 = game(S, gid);
+  if (!g0 || !g0.soon || !g0.soon.action) return null;
+  return toggle(ups, {
+    key: 'soon:' + gid, yes: 'Live', no: 'Coming soon', label: g0.name + ' in the lobby',
+    get: (s) => {
+      const p = (game(s, gid) || {}).soon || {};
+      return { on: p.on === false,
+        title: p.on ? 'Locked in the lobby as Coming soon. It stays that way across restarts and deploys until you switch it to Live.' : '' };
+    },
+    pick: (live) => {
+      const g = game(S, gid);
+      const p = g && g.soon;
+      if (!p || !p.action) return;
+      if (live) act('soon:' + gid, p.action + ':off', {}, { confirm: 'Bring ' + g.name + ' back?\n\nIts lobby card opens again (lobbies show it on their next load) and new players can join.' });
+      else act('soon:' + gid, p.action + ':on', {}, { confirm: 'Make ' + g.name + ' Coming soon?\n\nIts lobby card locks and new players are turned away. Anyone already playing finishes and cashes out as normal, and its bots stop. It stays this way across restarts and deploys until you switch it back to Live.' });
+    },
+  });
+}
 function rungStepper(ups, gid, c) {
   const g0 = game(S, gid);
   return stepper(ups, { key: 'bots:' + gid + ':' + c, label: (g0 ? g0.name : gid) + ' ' + COL_NAME[c], get: (s) => rungAt(game(s, gid), c) });
@@ -1026,8 +1050,10 @@ function buildPC(ups, next) {
   const parts = partEscrowParts(ups, 'parts', '10px 36px;border-bottom:1px solid var(--ln)');
 
   const rows = S.games.map((g0) => {
-    const name = h('td', { class: 'g' });
-    ups.push((s) => { const g = game(s, g0.id); name.textContent = g ? String(g.name || g.id) : ''; });
+    const nm = h('span');
+    ups.push((s) => { const g = game(s, g0.id); nm.textContent = g ? String(g.name || g.id) : ''; });
+    const sw = partSoon(ups, g0.id);
+    const name = h('td', { class: 'g' }, nm, sw ? h('div', { class: 'soonsw' }, sw) : null);
     const cells = COLS.map((c) => pcCell(ups, g0.id, c));
     return h('tr', null, name, cells, h('td', { class: 'door' }, partDoor(ups, g0.id)));
   });
@@ -1110,6 +1136,8 @@ function buildPhone(ups, next) {
     const name = h('b');
     ups.push((s) => { const g = game(s, g0.id); name.textContent = g ? String(g.name || g.id) : ''; });
     blocks.push(h('div', { class: 'pg' }, name, partDoor(ups, g0.id)));
+    const sw = partSoon(ups, g0.id);
+    if (sw) blocks.push(h('div', { class: 'line' }, h('span', { class: 'l' }, 'In the lobby'), sw));
     for (const c of COLS) { const row = phRow(ups, g0.id, c); if (row) blocks.push(row); }
   }
   if (S.battleRoyale) blocks.push(...phBr(ups));

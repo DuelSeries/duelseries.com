@@ -108,7 +108,9 @@ test('/play/<slug>: the lobby with that game\'s preview; an unknown or locked ga
     if (slug === 'SNAKE') { assert.strictEqual(res.status, 200, 'a slug is read in lower case'); continue; }
     assert.deepStrictEqual([res.status, res.redirected], [302, '/'], slug);
   }
-  assert.match(read('server/index.js'), /app\.get\('\/play\/:slug', require\('\.\/sharePreview'\)\.playRoute\(\)\);/);
+  // and a Coming soon game goes home too, asked on every visit (server/comingSoon.js, test/comingSoon.test.js)
+  assert.ok(read('server/index.js').includes(
+    "app.get('/play/:slug', require('./sharePreview').playRoute({ isSoon: (id) => comingSoon.isSoon(id) }));"));
 });
 
 test('withMeta: the marked block only, and a page without marks is sent unchanged', () => {

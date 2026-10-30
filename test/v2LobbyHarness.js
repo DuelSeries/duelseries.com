@@ -53,7 +53,7 @@ function lobbyHarness(liveRows, opts) {
       if (url === '/api/live') {
         if (!liveRows) throw new Error('offline');
         return { json: async () => Object.assign({ lobbies: liveRows, extras: [] },
-          o.paidDoors ? { paidDoors: o.paidDoors } : {}) };
+          o.paidDoors ? { paidDoors: o.paidDoors } : {}, o.soon ? { soon: o.soon } : {}) };
       }
       throw new Error('no server here for ' + url);
     },

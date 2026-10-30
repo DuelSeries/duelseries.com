@@ -692,7 +692,7 @@ test('on the real server the session signs in, runs the console, feeds the alert
     s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => res(p)); });
   });
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ownersess-live-'));
-  const env = { ...process.env, REGION: 'na', PORT: String(port), SESSION_SECRET: 'test', MONEY_MODE: 'usdc',
+  const env = { ...process.env, COMING_SOON_PATH: process.env.COMING_SOON_PATH || require('../scripts/soonLive').soonLiveFile(), REGION: 'na', PORT: String(port), SESSION_SECRET: 'test', MONEY_MODE: 'usdc',
     DATABASE_URL: '', NTFY_DISABLED: '1', POSTHOG_DISABLED: '1', ESCROW_PRIVATE_KEY: '', ESCROW_PUBLIC_KEY: '',
     RPC_URL: 'https://rpc.invalid/never-called', SOLANA_NETWORK: 'devnet', NODE_ENV: 'test', SL_PAID: '0', AG_PAID: '0',
     AG_JOURNAL_PATH: path.join(dir, 'ag-money-journal.log'), OWNER_SESSIONS_PATH: path.join(dir, 'owner-sessions.json'),

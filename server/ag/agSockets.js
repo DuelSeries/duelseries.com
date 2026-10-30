@@ -192,6 +192,13 @@ function attachAgSockets(io, arenas, helpers) {
       return;
     }
     if (!limited(socket, 'join')) return;
+    // Coming soon (agArenas.setSoon): no new free life. A paid seat's resume went to the door above and still works;
+    // a socket that holds a paid seat is dropped silently here as arenas.join would ('paid'), never sent 'soon' (the
+    // page answers that by going back to the lobby).
+    if (arenas.soon === true) {
+      if (!(arenas.paidRoomOf && arenas.paidRoomOf(socket.id))) socket.emit('ag:refused', { why: 'soon' });
+      return;
+    }
     const name = cleanName(msg === undefined ? undefined : msg.name, nameCap, sanitizeName);
     if (name === null) return;
     if (ops && typeof ops.get === 'function') {
@@ -225,6 +232,11 @@ function attachAgSockets(io, arenas, helpers) {
       if (room && room.followStep(socket.id, step)) return;
     }
     if (!limited(socket, 'spectate')) return;
+    // Coming soon: no new watcher; a socket already in a room (a free player who just died) watches on.
+    if (arenas.soon === true && !arenas.roomOfSocket(socket.id)) {
+      socket.emit('ag:refused', { why: 'soon' });
+      return;
+    }
     arenas.spectate(socket);
   }
 
@@ -372,6 +384,9 @@ function attachAgSockets(io, arenas, helpers) {
       // The lobby's Spectate on a paid rung (auth { watchStake }, never with paid): a read-only watcher seat in that
       // rung's busiest room (agArenas.connectWatch), refused 'nobody' when nobody plays there, and while this address
       // holds an open paid account at that rung (night review 2026-10-29: no second view of your own table).
+      // Coming soon (agArenas.setSoon): a new page is neither seated as a watcher nor let watch a paid rung, so
+      // nothing wakes the free room; the paid hand-off above (a resume after a drop) still connects.
+      if (arenas.soon === true) return refuse(socket, 'soon');
       const ws = hs && hs.auth && typeof hs.auth.watchStake === 'number' ? hs.auth.watchStake : 0;
       if (ws > 0 && typeof arenas.connectWatch === 'function') {
         let ip = '';

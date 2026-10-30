@@ -71,7 +71,8 @@ function agPaidSwitch(raw, log) {
 // rungs exist.
 // opts: { env, io (the socket.io server), region, helpers: { socketRL, sanitizeName, ops }, log, autoTick, awake,
 //   money: { hooks (agMoney's payout hooks, see AgArenas), door: { consumeAtStake, ledger, refund } },
-//   paidSwitch: slPaidBoot.createPaidSwitchStore's store for agar:paid:off (a saved close opens the door shut) }
+//   paidSwitch: slPaidBoot.createPaidSwitchStore's store for agar:paid:off (a saved close opens the door shut),
+//   soon: true while agar.io is Coming soon (server/comingSoon.js), set before any bot spawns or the free room wakes }
 function openAg(opts) {
   const o = opts || {};
   const env = o.env || process.env;
@@ -87,6 +88,7 @@ function openAg(opts) {
     const arenas = new AgArenas({ region: o.region || 'na', laws, shippableOnly: !dev, log,
       autoTick: o.autoTick !== false, paid, moneyHooks: paid ? m.hooks : null, botStore: paid ? o.botStore : null, botBank: paid ? o.botBank : null,
       botCurve: o.botCurve === false ? null : () => gameBotTarget('agar') });
+    if (o.soon === true) arenas.setSoon(true);
     if (paid) {
       try {
         arenas.startBots();

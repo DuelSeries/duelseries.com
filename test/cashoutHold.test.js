@@ -44,7 +44,7 @@ test('cashing out requires the hold, and the server times it', { timeout: 90000 
 
   const srv = spawn(process.execPath, [path.join(ROOT, 'server/index.js')], {
     cwd: ROOT,
-    env: { ...process.env, REGION: 'na', PORT: String(PORT), SESSION_SECRET: 'test',
+    env: { ...process.env, COMING_SOON_PATH: process.env.COMING_SOON_PATH || require('../scripts/soonLive').soonLiveFile(), REGION: 'na', PORT: String(PORT), SESSION_SECRET: 'test',
            MONEY_MODE: 'usdc', DATABASE_URL: '', NTFY_DISABLED: '1' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });

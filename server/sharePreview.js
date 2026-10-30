@@ -71,12 +71,13 @@ function withMeta(html, block) {
   return html.slice(0, a) + block + html.slice(b + MARK_CLOSE.length);
 }
 
-/* app.get('/play/:slug', ...). The lobby file is read once and kept (a deploy restarts the server). */
-function playRoute({ lobbyFile = path.join(__dirname, '../public/v2.html'), read = fs.readFileSync } = {}) {
+/* app.get('/play/:slug', ...). The lobby file is read once and kept (a deploy restarts the server). isSoon(game): a
+   game that is Coming soon (server/comingSoon.js) goes to the lobby too, asked on every visit (it is a runtime switch). */
+function playRoute({ lobbyFile = path.join(__dirname, '../public/v2.html'), read = fs.readFileSync, isSoon = null } = {}) {
   let html = null;
   return (req, res) => {
     const g = SHARE.bySlug(String((req.params && req.params.slug) || '').toLowerCase());
-    if (!g || isLocked(g.game)) return res.redirect(302, '/');
+    if (!g || isLocked(g.game) || (typeof isSoon === 'function' && isSoon(g.game))) return res.redirect(302, '/');
     if (html === null) html = read(lobbyFile, 'utf8');
     res.set('Cache-Control', 'no-cache');
     res.type('html').send(withMeta(html, gameMeta(g, originOf(req))));
