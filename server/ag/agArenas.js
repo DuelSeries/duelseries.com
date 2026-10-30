@@ -407,6 +407,7 @@ class AgArenas {
       onAccountOpen: (acct) => this._accountOpened(roomOf(), acct),
       onAccountConfirmed: (acct) => this._accountConfirmed(roomOf(), acct),
       onAccountClosed: (acct, outcome, extra) => this._accountClosed(roomOf(), acct, outcome, extra),
+      analytics: h.analytics || null,   // product analytics (agMoney _trackEnd), optional
     };
   }
 

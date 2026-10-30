@@ -36,6 +36,7 @@
 const crypto = require('crypto');
 const { rungOf } = require('../stakeRules');
 const { toMicro, HOUSE_CUT_DIV } = require('../paperPayout');
+const agTrack = require('./agTrack');
 
 const TEXT = Object.freeze({
   'bad-stake': 'That table does not exist.',
@@ -89,8 +90,10 @@ function wantsPaid(msg) {
 // ops: { get() -> { maintenance } }; cleanName(raw) -> string | null; clientIp(socket); now: clock for the limiter
 // Reuse by another game (Chomp, server/chomp/chompBoot.js): ev (its event prefix), game (the word in a refund's
 // reason) and text (its own wording of some answers). Their defaults are agar's, so agar's door is as before.
+// analytics (optional, server/analytics.js): a refund's stake_refunded, after the refund went out (agTrack).
 function createAgPaidDoor({ arenas, consumeAtStake, ledger = null, refund, ops = null, cleanName, clientIp = null,
-  now = Date.now, log = console, track = (p) => p, ev = 'ag', game = 'agar', text = null, tag = '[AG]' } = {}) {
+  now = Date.now, log = console, track = (p) => p, ev = 'ag', game = 'agar', text = null, tag = '[AG]',
+  analytics = null } = {}) {
   const words = text ? Object.assign({}, TEXT, text) : TEXT;
   if (!arenas) throw new Error('agPaidDoor: arenas is required');
   if (typeof consumeAtStake !== 'function') throw new Error('agPaidDoor: consumeAtStake must be a function');
@@ -113,14 +116,18 @@ function createAgPaidDoor({ arenas, consumeAtStake, ledger = null, refund, ops =
   // A spent token the door did not seat: through its stake row when it has one (the owed-payout lane, once, whatever
   // restarts), else through the agar payout (dev tokens: the fake withdraw). What landed, capped at the rung.
   function refundEntry(entry, why, name) {
+    let p;
     try {
-      if (entry.stakeSig && ledger) return track(ledger.refund(entry.stakeSig, 'refund ' + game + ' ' + why, entry.claimKey));
-      return track(refund({ wallet: entry.walletAddress, name, micro: toMicro(entry.worth), paid: entry.paid, why }));
+      p = entry.stakeSig && ledger
+        ? track(ledger.refund(entry.stakeSig, 'refund ' + game + ' ' + why, entry.claimKey))
+        : track(refund({ wallet: entry.walletAddress, name, micro: toMicro(entry.worth), paid: entry.paid, why }));
     } catch (e) {
       log.error(tag + ' DOOR CRITICAL refund threw, owed ' + entry.worth + ' to ' + entry.walletAddress + ' (' + why +
         '): ' + (e && e.message));
       return null;
     }
+    agTrack.doorRefunded(analytics, game, entry, why);   // never started: stake_refunded only; never throws
+    return p;
   }
 
   // A refusal decided after a buy-in, with the token not yet consumed: consume it here and refund.

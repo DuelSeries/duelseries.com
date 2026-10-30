@@ -112,6 +112,34 @@ const WATCH_STAKE = (() => {
     return Number.isFinite(s) && s > 0 ? s : 0;
   } catch (_) { return 0; }
 })();
+
+/* PRODUCT TRACKING (public/js/shared/dsTrack.js; every event name is in shared/trackPlan.js), as knockout.js does
+   it: one session for this page, the wait, each match and its result, or Spectate. A paid match's start and end are
+   the server's to send; leaving mid-match is the helper's own. Never lets a failure reach the game. */
+const TRACKER = (() => {
+  try {
+    if (!window.DSTrack) return null;
+    const stake = WATCH ? WATCH_STAKE : myStake;
+    const t = window.DSTrack.game('battleship', { paid: stake > 0, stake, mode: stake > 0 ? 'paid' : 'free' });
+    if (WATCH) t.spectate();
+    return t;
+  } catch (_) { return null; }
+})();
+function trackStep(step, arg) {
+  if (!TRACKER) return;
+  try {
+    if (step === 'queue') {
+      if (TRACKER.stage === 'queue') return;              // a reconnect's resumed seat is the same wait
+      TRACKER.set({ vs_bot: undefined, room: undefined });   // the last match's, not this queue's
+    }
+    TRACKER[step](arg);
+  } catch (_) { /* analytics never breaks the game */ }
+}
+// won, lost or draw; lost because this seat's own connection stayed down is 'left' (see knockout.js).
+function trackResult(won, why) {
+  return won === true ? 'won' : won === false ? (why === 'opponent left' ? 'left' : 'lost') : 'draw';
+}
+
 const WATCH_NEXT_MS = 3000;   // between asks while no match is running
 const WATCH_OVER_MS = 2500;   // how long a finished match's result and fleets stay up before the next one
 const WATCH_SWAP_MS = 1500;   // how long the arrows rest for an answer that never comes
@@ -886,6 +914,8 @@ let myId = null;          // my socket id as of the last connect, for reading my
 socket.on('connect', () => {
   myId = socket.id;
   if (WATCH) { swapping = false; watch(null); return; }
+  // A reconnect mid-match queues afresh below: the match it was in is lost with the old socket.
+  if (st && !overShown) trackStep('end', { result: 'left', reason: 'disconnected' });
   // A reconnect while waiting takes the same seat back by the key the server sent (see knockout.js).
   if (waiting && resumeKey) { queue(null, resumeKey); return; }
   queue();
@@ -932,6 +962,7 @@ socket.on('bs:queued', (q = {}) => {
   if (typeof q.resumeKey === 'string') resumeKey = q.resumeKey;
   const total = Number(q.waitMs) > 0 ? Number(q.waitMs) : WAIT_MS;
   startWait(total - (Number(q.waitingMs) || 0));
+  trackStep('queue');
 });
 
 /* "Playing a bot", said as the match starts and kept on the name above (Owen 2026-10-21). */
@@ -1037,6 +1068,10 @@ socket.on('bs:state', (view) => {
     stopWait();
     resumeKey = null;                      // the seat is a match now, not a place in the queue
     if (view && view.vsBot) botNote();
+    if (view) trackStep('start', { vs_bot: !!view.vsBot, room: view.id });
+  } else if (view && TRACKER && TRACKER.stage !== 'playing' && TRACKER.base.room !== view.id) {
+    // a match after a reconnect: st still holds the lost one, so this is not "first", but it is a new game
+    trackStep('start', { vs_bot: !!view.vsBot, room: view.id });
   }
   const wasPlacing = st && st.state === 'placing';
   soundFor(view);
@@ -1095,6 +1130,7 @@ socket.on('bs:refused', ({ why } = {}) => {
   if (!WATCH && !st) {
     // A paid reconnect whose seat could not be taken back: never "unpaid", it was paid (see knockout.js).
     const lost = waiting && waitPaid && resumeKey;
+    trackStep('unqueue', 'refused');
     stopWait(); resumeKey = null; waitPaid = false;
     $('wait').hidden = false;
     waitSpin(false);
@@ -1119,6 +1155,7 @@ socket.on('bs:unqueued', ({ refunded, why } = {}) => {
   if (WATCH || st) return;
   if (!refunded) {
     if (why !== 'the match could not start') return;
+    trackStep('unqueue', why);
     stopWait(); resumeKey = null;
     $('wait').hidden = false;
     waitSpin(false);
@@ -1127,6 +1164,7 @@ socket.on('bs:unqueued', ({ refunded, why } = {}) => {
     $('waitCancel').textContent = 'Back to the lobby';
     return;
   }
+  trackStep('unqueue', why || 'refunded');
   stopWait(); resumeKey = null; waitPaid = false;
   $('wait').hidden = false;
   waitSpin(false);                      // no longer looking
@@ -1156,6 +1194,9 @@ socket.on('bs:over', (m) => {
   });
   restake = null; restakeLine = '';
   paintOver();
+  // The score is my hits on their fleet.
+  trackStep('end', { result: trackResult(m.won === true ? true : m.won === false ? false : null, m.why),
+    score: lastOver.hits, reason: m.why });
 
   /* Both fleets, now that it is over. Drawn onto the two charts so you can see
      where everything actually was, which is the thing everybody wants after a

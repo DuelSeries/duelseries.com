@@ -471,7 +471,7 @@
     const guest = !connected();
     if (guest && !guestFree(game, sel)) {
       say('Sign in first — your wallet is your account here.');
-      if (window.duelWalletLogin) window.duelWalletLogin();
+      if (window.duelWalletLogin) window.duelWalletLogin('play');
       return;
     }
     const name = guest ? guestName() : requireName();
@@ -554,7 +554,8 @@
       }
       const frame = document.getElementById('game-frame');
       if (!frame) { say('That game could not be opened. Refresh and try again.'); return; }
-      if (window.phEvent) window.phEvent('game_started', Object.assign({ game: game, lobbyType: brPage ? 'br' : 'free' }, guest ? { guest: true } : {}));
+      playClicked(game, { paid: false, stake: hasStake ? Number(sel.stake) : undefined, mode: brPage ? 'br' : hasStake ? 'free' : sel.lobbyType,
+        guest: guest, engine: page === '/sl' ? 'sl' : undefined });
       /* The keyboard goes to the game: the frame takes the focus once it loads (and again a moment later), as the
          widget's launch does (wallet-widget/src/main.jsx), else Space and Q land on this page's Play button under
          the frame and never reach the game. The button lets go of the focus now, so Space cannot press it again. */
@@ -583,11 +584,22 @@
     /* Remembered at launch, not at selection, so the buy-in that comes back
        tomorrow is one actually played rather than one idly scrolled past. */
     if (hasStake && window.rememberStake) window.rememberStake(Number(sel.stake));
-    if (window.phEvent) window.phEvent('game_started', detail);
+    playClicked(game, { paid: staking, stake: hasStake ? Number(sel.stake) : undefined,
+      mode: hasStake ? (staking ? 'paid' : 'free') : sel.lobbyType, guest: false, engine: engine || undefined });
     /* The widget stakes if the room is paid, then launches. It owns the money;
        this only says which room. Exactly one of stake and lobbyType is sent, so
        the server never has to guess which the player meant. */
     window.dispatchEvent(new CustomEvent('duel:play', { detail: detail }));
+  }
+
+  /* Product tracking (shared/trackPlan.js): Play pressed, once per launch, before any stake is asked for or any page
+     loads. The game's own page sends game_started once it is really in a game (the server, for a paid one).
+     mode: 'free', 'paid', 'br', or a duel's lobbyType. Never the name typed or the wallet. */
+  function playClicked(game, p) {
+    try {
+      if (!window.DSTrack) return;
+      window.DSTrack.event('play_clicked', { game: game, paid: p.paid, stake: p.stake, mode: p.mode, guest: p.guest, engine: p.engine });
+    } catch (_) {}
   }
 
   /* Guests: free play signed out (Owen 2026-10-26). Only a free room whose page asks no wallet: slither.io's
@@ -633,7 +645,7 @@
     set('entrySol', '0');
     set('region', region());
     if (window.rememberStake) window.rememberStake(0);
-    if (window.phEvent) window.phEvent('game_started', { game: game, stake: 0, guest: true });
+    playClicked(game, { paid: false, stake: 0, mode: 'free', guest: true });
     if (window._pauseLobbyAnims) window._pauseLobbyAnims();
     frame.addEventListener('load', () => {
       const take = () => { try { frame.contentWindow.focus(); } catch (_) {} };

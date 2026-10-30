@@ -336,7 +336,21 @@ class SwimLobby {
     if (withBot) room.addBot(botNameAgainst(entries));
     this.rooms.set(room.id, room);
     room.start(typeof now === 'number' ? now : Date.now());
+    this.matchStarted(room);
     return room;
+  }
+
+  /* Product analytics: the race began, once per room, after its seats exist (KnockoutLobby.matchStarted). */
+  matchStarted(room) {
+    if (typeof this.onMatchStart === 'function') {
+      try {
+        if (!room || room.state === 'waiting' || !room.players) return;
+        const seats = [...room.players.entries()].map(([id, p]) => ({
+          id, wallet: (p && p.wallet) || null, worth: (room.worth && room.worth.get(id)) || 0,
+        }));
+        this.onMatchStart({ roomId: room.id, seats, vsBot: !!room.bot });
+      } catch (e) { /* analytics never breaks a match */ }
+    }
   }
 
   refund(entry, why) {

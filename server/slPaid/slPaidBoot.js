@@ -235,9 +235,10 @@ function refusingHelper() {
 //   sockets   slBoot.openSl's sockets handle (setPaid), or null
 //   laws      the free room's law table (slBoot.openSl's arenas.laws); dev: it is the dev table (rooms not shippable)
 //   region    'na'
-//   hooks     slMoney's server hooks: onCashout, onOwed, onFloor, onHouse, onBreach, onTransfer, journal
+//   hooks     slMoney's server hooks: onCashout, onOwed, onFloor, onHouse, onBreach, onTransfer, journal (and the
+//             optional analytics, product analytics: server/ag/agTrack.js)
 //   door      the door's server deps: consumeAtStake(token, stake), ledger, slPayout, journal, ops, recordEntry, onSeated,
-//             alert, track
+//             alert, track, analytics (optional)
 //   arenas    tests only: more SlPaidArenas options (clock, timers, autoTick, seed, checkEvery, ...)
 //   paidSwitch  createPaidSwitchStore's store: a close saved before this boot opens the rungs CLOSED (sl:paid:on reopens)
 //   log
@@ -290,6 +291,7 @@ function openSlPaid(opts) {
         onSeatedSocket: sockets && typeof sockets.paidSeated === 'function' ? sockets.paidSeated : null,
         alert: d.alert || null,
         track: typeof d.track === 'function' ? d.track : (p) => p,
+        analytics: d.analytics || null,
         log,
       });
     } catch (e) {

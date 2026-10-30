@@ -352,6 +352,7 @@ class SlPaidArenas {
       // a bot died: its seed is in play now, no longer held by a live bot (the bank's hard-stop recovery)
       onSeedSpent: (micro) => { if (this.botBank) this.botBank.spent(micro); },
       journal: h.journal,
+      analytics: h.analytics || null,   // product analytics (slMoney _trackEnd), optional
     };
   }
 

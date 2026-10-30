@@ -2477,6 +2477,16 @@ body.scr-anim { overflow-x:hidden }
   setTimeout(hide,30000);
 })();
 </script>
+<!-- Product tracking (Owen 2026-10-29, "track absolutely everything"): PostHog,
+     then the one plan of event names, then the helper every event goes through
+     (window.DSTrack: the three tags right below). Before any lobby script,
+     because dsTrack reads where this visit came from before invite.js turns a
+     /play/<game> address back into /. Here rather than in <head> for the same
+     reason as the stylesheets below: a script in <head> holds back the splash's
+     first paint, down here it holds back only what comes after it. -->
+<script src="/js/posthog-init.js" data-no-visit-ping></script>
+<script src="/shared/trackPlan.js"></script>
+<script src="/js/shared/dsTrack.js"></script>
 <!-- The lobby's stylesheets, moved here from <head> (where they are only
      preloaded). A stylesheet in <head> holds back the first paint of the
      whole page, the splash included; down here it holds back only what comes
@@ -2491,7 +2501,7 @@ body.scr-anim { overflow-x:hidden }
   <div class="sp"></div>
   <!-- Signed out this reads "—", not $0.00: a real zero balance and having no
        wallet at all are very different things to tell someone about money. -->
-  <div class="balbox"><span class="v num" id="hdr-balance" data-cu aria-label="Balance">—</span></div>
+  <div class="balbox"><span class="v num ph-no-capture" id="hdr-balance" data-cu aria-label="Balance">—</span></div>
   <!-- One wallet surface. The dropdown that used to hang here was a second
        place to do money in, with its own tabs and its own idea of the balance. -->
   <button class="wbtn" id="wbtn" onclick="V2Wallet.headerTap()">
@@ -2508,7 +2518,7 @@ body.scr-anim { overflow-x:hidden }
   <div class="mepop" id="mepop" role="dialog" aria-label="Your profile" hidden>
     <div class="mehd">
       <span class="medisc big q" id="medisc2" aria-hidden="true">?</span>
-      <span class="meid"><b id="mename">Your name</b><span class="meaddr num" id="meaddr"></span></span>
+      <span class="meid"><b id="mename">Your name</b><span class="meaddr num ph-no-capture" id="meaddr"></span></span>
     </div>
         <!-- The name is stored under the live lobby's key, so switching between
              the two does not ask for it twice, and it is saved to the account so
@@ -3062,7 +3072,7 @@ body.scr-anim { overflow-x:hidden }
        public/js/v2/stats.js, which kept its ids. -->
   <div id="w-earn" hidden>
     <div class="head"><div><h2>Earnings</h2></div></div>
-    <div id="s-body"></div>
+    <div id="s-body" class="ph-no-capture"></div>
   </div>
 
   <!-- Add funds and Withdrawals, in place of Recent payouts (Owen,
@@ -3357,10 +3367,10 @@ body.scr-anim { overflow-x:hidden }
     <p class="bs-sub" id="bs-sub"></p>
     <div class="bs-rows">
       <div><span>Price</span><b class="num" id="bs-price"></b></div>
-      <div><span id="bs-bal-k">Your USDC</span><b class="num" id="bs-bal"></b></div>
-      <div class="bs-after"><span>After</span><b class="num" id="bs-after"></b></div>
+      <div><span id="bs-bal-k">Your USDC</span><b class="num ph-no-capture" id="bs-bal"></b></div>
+      <div class="bs-after"><span>After</span><b class="num ph-no-capture" id="bs-after"></b></div>
     </div>
-    <p class="bs-msg" id="bs-msg" aria-live="polite"></p>
+    <p class="bs-msg ph-no-capture" id="bs-msg" aria-live="polite"></p>
     <button class="bs-go" id="bs-go" onclick="confirmBuy()"></button>
     <button class="bs-no" id="bs-no" onclick="closeBuy()">Not now</button>
     <p class="bs-fine" id="bs-fine">Paid in USDC from your wallet. Skins are final, so there are no refunds.</p>
@@ -4372,6 +4382,7 @@ function drawSkins(){
 }
 function openLook(){
   if(!hasLook(cur))return;
+  if(window.DSTrack)DSTrack.event('customize_opened',{game:cur.id});
   LK=lookList(cur);
   /* Swim's choice is a car (its paint and engine come with it), not a skin. */
   const hint=document.querySelector('#lookveil .ap-hint');
@@ -4638,7 +4649,7 @@ function buyPaint(){
 }
 function buyMsg(text,kind){
   const m=document.getElementById('bs-msg');
-  m.textContent=text||''; m.className='bs-msg'+(kind?' '+kind:'');
+  m.textContent=text||''; m.className='bs-msg ph-no-capture'+(kind?' '+kind:'');
 }
 function buyRows(){
   const s=BUY.s, w=window.duelWallet||{}, price=Number(s.price)||0;
@@ -4664,6 +4675,9 @@ function buyRows(){
 function openBuy(s){
   if(!s||!s.shop||BUY.busy)return;
   const S=window.V2Shop, sg=S&&S.game(s.game);
+  /* The Shop tab is gone (2026-10-16): a paid skin's unlock sheet is the shop
+     page now, so opening it is the shop_viewed step between Customize and Buy. */
+  if(window.DSTrack)DSTrack.event('shop_viewed',{tab:'unlock',game:s.game});
   BUY.s=s; BUY.later=false;
   document.getElementById('bs-case').style.background=sg&&sg.bg?sg.bg:'var(--s2)';
   document.getElementById('bs-title').textContent='Unlock '+s.name;
@@ -4700,7 +4714,7 @@ async function confirmBuy(){
   const s=BUY.s, w=window.duelWallet||{};
   if(!s||BUY.busy)return;
   if(BUY.later)return closeBuy();
-  if(!w.authenticated){closeBuy();if(window.duelWalletLogin)window.duelWalletLogin();return}
+  if(!w.authenticated){closeBuy();if(window.duelWalletLogin)window.duelWalletLogin('skin_buy');return}
   if(BUY.short){BUY.s=null;closeBuy();closeLook(false);go('wallet');return}
   if(!DSK())return buyMsg('Still loading. Try again in a moment.','err');
   const go_=document.getElementById('bs-go'), no=document.getElementById('bs-no');
@@ -5313,6 +5327,14 @@ function open_(id){
      it was first reached from, so Back still returns there. */
   if(!(from&&from.id==='detail'))_cameFrom=(from&&from.id==='allgames')?'allgames':'home';
   cur=G(id);
+  /* Product tracking: which game was opened, and from where. A card names its
+     list (the Home rail or All games); the sidebar, the swipe between games and
+     an invite link pass their own name as a second argument. A game the plan
+     does not list yet (a "soon" card) is sent without one. */
+  if(window.DSTrack){
+    const where=typeof arguments[1]==='string'?arguments[1]:(from&&from.id==='allgames')?'all_games':'home';
+    DSTrack.event('game_card_clicked',{game:(window.DSTrackPlan&&DSTrackPlan.game(id))||undefined,where});
+  }
   /* Steps first: the default buy-in has to be chosen from what the board is
      actually offering, not from a fixed amount that may not exist. */
   refreshSteps(id); si=stepFor(id);
@@ -5436,7 +5458,7 @@ function closeHow(){document.getElementById('howveil').classList.remove('on');sh
 /* Home, All games and a game's screen all belong to the Home tab, so reaching
    one without go() (a sidebar game row, Back, the logo) must light Home: the
    sidebar kept the last tab lit otherwise (site sweep 2026-10-28). */
-function navHome(){if(route!=='play'){route='play';drawNav();}}
+function navHome(){if(route!=='play'){route='play';drawNav();}tabViewed('play')}
 function goHome(dir){navHome();showScreen('home',dir);jumpToTop()}
 /* The grid is built on open rather than at load: it is the same thirteen cards
    the rail already holds, and building both up front doubles the artwork on a
@@ -5534,7 +5556,7 @@ function flipGame(dir){
   if(!cur||!GAMES.length)return null;
   const i=Math.max(0,GAMES.findIndex(g=>g.id===cur.id));
   const n=GAMES[(i+(dir>0?1:-1)+GAMES.length)%GAMES.length];
-  open_(n.id);
+  open_(n.id,'swipe');
   return n.id;
 }
 /* The backdrop's running world, kept across a swipe that springs back
@@ -5725,7 +5747,7 @@ const V2Side=(()=>{
     const w=e.target.closest('.sb-eye[data-watch]');
     if(w){e.stopPropagation();if(window.V2Play)V2Play.spectate(w.dataset.watch,null,watchRoom(w.dataset.watch));return}
     const g=e.target.closest('.sb-go[data-game]');
-    if(g)open_(g.dataset.game);
+    if(g)open_(g.dataset.game,'sidebar');
   });
   /* The fade over the pinned foot only while something is scrolled under it. */
   const over=()=>nav.classList.toggle('sb-over',nav.scrollHeight>nav.clientHeight+1&&nav.scrollTop+nav.clientHeight<nav.scrollHeight-1);
@@ -5814,6 +5836,15 @@ function showScreen(id,dir){
 const SCREEN_FOR={play:'home',wallet:'wallet-screen',events:'events-screen',
                   social:'social-screen',join:'join-screen',settings:'settings-screen',clips:'clips-screen',updates:'updates-screen'};
 window.V2_SCREEN_FOR=SCREEN_FOR;
+/* Product tracking (shared/trackPlan.js): one lobby_tab_viewed for every real
+   change of tab, the first tab on load included. A re-render, a second tap on
+   the tab you are on, or a swipe that springs back is not one. */
+let _tabSeen='';
+function tabViewed(tab){
+  if(!tab||tab===_tabSeen)return;
+  _tabSeen=tab;
+  if(window.DSTrack)DSTrack.event('lobby_tab_viewed',{tab});
+}
 
 /* Put a tab's real content in place. Shared by the router and by the swipe,
    which has to fill the incoming screen BEFORE dragging it into view or you
@@ -5941,7 +5972,7 @@ function drawAcct(){
   box.innerHTML=(w.authenticated&&w.address&&window.V2Wallet&&V2Wallet.addrRow)
     ? `<div class="slbl">Wallet</div>${V2Wallet.addrRow('set-addr',w.address)}
        <button type="button" class="btn acctbtn out" id="set-signout" onclick="signOut(this)">Sign out</button>`
-    : `<button type="button" class="btn pri acctbtn" onclick="window.duelWalletLogin&&window.duelWalletLogin()">Sign in</button>`;
+    : `<button type="button" class="btn pri acctbtn" onclick="window.duelWalletLogin&&window.duelWalletLogin('settings')">Sign in</button>`;
 }
 /* Everything this browser holds that says who you are or what you paid for.
    The widget already drops the two token copies when Privy reports signed
@@ -6117,7 +6148,7 @@ function unparkScreen(show){
 function commitScreen(tab){
   const id=SCREEN_FOR[tab]; if(!id)return;
   unparkScreen(document.getElementById(id));
-  route=tab; drawNav();
+  route=tab; drawNav(); tabViewed(tab);
   /* Swipes land here rather than in showScreen, so the footer rule has to be
      applied on this path too or it only ever holds for taps. */
   document.body.classList.toggle('no-foot',id==='detail'||id==='settings-screen');
@@ -6166,7 +6197,7 @@ function go(id,dir){
      than on a nav with nothing lit and the last screen still up. */
   if(!SCREEN_FOR[id])id='play';
   if(window.V2Me)V2Me.close();
-  route=id; drawNav();
+  route=id; drawNav(); tabViewed(id);
   const sid=SCREEN_FOR[id];
   fillScreen(id);
   showScreen(sid,dir);
@@ -6212,6 +6243,7 @@ document.getElementById('adveil').addEventListener('click',e=>{
 /* The tournament countdown is gone with the card it counted down. It ticked
    from a hardcoded 38:59 towards an event that was never going to happen. */
 
+tabViewed(route);                         // the tab the visit starts on (a no-op if go() already ran)
 drawNav();V2Wallet.render();drawRail();drawTicker();loadRealWins();V2Board.start();
 </script>
 <!-- The lobby is built: fade the loading screen out. A script of its own so

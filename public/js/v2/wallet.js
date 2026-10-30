@@ -101,7 +101,7 @@
      Convert to SOL (the price sheet, then one tap) and Withdraw USDC. */
   function usdcLine() {
     if (!usdcOn()) return '';
-    return '<span>You have <b class="num">' + money(usdcBal()) + '</b> USDC</span>' +
+    return '<span class="ph-no-capture">You have <b class="num">' + money(usdcBal()) + '</b> USDC</span>' +
       // the server's smallest convert is $0.10 (server/swap.js MIN_USDC_CONVERT)
       (swapOn() && window.duelWalletUsdcToSolQuote && usdcBal() >= 0.10
         ? '<button type="button" class="wcv" onclick="V2Wallet.convertUsdc()">Convert to SOL</button>' : '') +
@@ -132,7 +132,7 @@
     '<path d="M5 15V6.5A2.5 2.5 0 0 1 7.5 4H15"/></svg>';
   function addrRow(id, a) {
     return '<div class="waddr" id="' + id + '">' +
-      '<code title="' + esc(a) + '">' + esc(ownShort(a)) + '</code>' +
+      '<code class="ph-no-capture" title="' + esc(a) + '">' + esc(ownShort(a)) + '</code>' +
       '<button type="button" class="cp" onclick="V2Wallet.copy(\'' + id + '\')" ' +
         'aria-label="Copy wallet address">' + COPY_ICON + '<span>Copy</span></button></div>';
   }
@@ -163,7 +163,7 @@
   /* The header button signs you in when you are signed out, instead of
      opening a Wallet tab whose only content is a second Sign in button. */
   function headerTap() {
-    if (w().ready && !connected()) return login();
+    if (w().ready && !connected()) return login('header');
     if (window.go) window.go('wallet');
   }
 
@@ -181,7 +181,7 @@
     const L = w().linked;
     if (!L || w().external) return '';
     return '<div class="plab wlinklab">Linked wallet</div>' +
-      '<div class="waddr wlink"><code title="' + esc(L.address) + '">' + esc(L.name) + ' ' + esc(ownShort(L.address)) + '</code>' +
+      '<div class="waddr wlink"><code class="ph-no-capture" title="' + esc(L.address) + '">' + esc(L.name) + ' ' + esc(ownShort(L.address)) + '</code>' +
         '<button type="button" class="cp" onclick="V2Wallet.unlink()">Unlink</button></div>';
   }
   function render(light) {
@@ -224,10 +224,10 @@
          2026-10-15): the big number on the Wallet tab is the balance, and the
          address panel right below already says what it is held in. */
       '<div class="wbal">' +
-        '<div class="bnum num" id="w-bal" data-cu>' + bigBal(bal) + '</div>' +
+        '<div class="bnum num ph-no-capture" id="w-bal" data-cu>' + bigBal(bal) + '</div>' +
         /* The SOL under the dollars, small, like the DamnBruh wallet's "$1.03 / 0.0098 SOL"
            (Owen, 2026-10-15), with the one tap that turns it into dollars. */
-        '<div class="wsol" id="w-sol">' + solLine() + '</div>' +
+        '<div class="wsol ph-no-capture" id="w-sol">' + solLine() + '</div>' +
         /* SOL mode only (empty, and not drawn, otherwise): "You have $X USDC" with its two actions. */
         '<div class="wsol wusdc" id="w-usdc">' + usdcLine() + '</div>' +
         /* The form lives in its own sheet now, so this row never swaps out. */
@@ -304,7 +304,7 @@
       : (inb ? 'Add funds' : 'Withdraw');
     /* A real minus sign, the arrow kept from screen readers, and the link
        says where it goes: each row opens the transaction on Solscan. */
-    return '<a class="tx" href="https://solscan.io/tx/' + esc(t.signature) + '" ' +
+    return '<a class="tx ph-no-capture" href="https://solscan.io/tx/' + esc(t.signature) + '" ' +
       'target="_blank" rel="noopener noreferrer" title="View on Solscan">' +
       '<span class="txi ' + (inb ? 'in' : 'out') + '" aria-hidden="true">' + (inb ? '↓' : '↑') + '</span>' +
       '<span class="txw"><span class="txn">' + name + '</span>' +
@@ -433,7 +433,7 @@
     const inb = t.direction === 'in';
     const p = moveParts(t, inb);
     const peer = !p.noPeer && typeof t.peer === 'string' && SOL_ADDR.test(t.peer) ? t.peer : '';
-    return '<div class="tx mv">' +
+    return '<div class="tx mv ph-no-capture">' +
       '<a class="mvl" href="https://solscan.io/tx/' + esc(t.signature) + '" ' +
         'target="_blank" rel="noopener noreferrer" title="View on Solscan">' +
         '<span class="txi ' + (inb ? 'in' : 'out') + '" aria-hidden="true">' + (inb ? '↓' : '↑') + '</span>' +
@@ -533,11 +533,11 @@
       const q = pending.quote;
       return '<div class="cashout">' +
         (q
-          ? '<p class="note">Send <b>' + money(pending.amt) + '</b> as about <b>' + solTxt(q.outAmount) + '</b> to</p>'
-          : '<p class="note">Send <b>' + money(pending.amt) + '</b> as SOL to</p>') +
-        '<code class="cofull">' + esc(pending.to) + '</code>' +
+          ? '<p class="note ph-no-capture">Send <b>' + money(pending.amt) + '</b> as about <b>' + solTxt(q.outAmount) + '</b> to</p>'
+          : '<p class="note ph-no-capture">Send <b>' + money(pending.amt) + '</b> as SOL to</p>') +
+        '<code class="cofull ph-no-capture">' + esc(pending.to) + '</code>' +
         (q
-          ? '<p class="note">At least ' + solFloor(q.minOut) + ' arrives if the price moves. On-chain transfers cannot be reversed.</p>'
+          ? '<p class="note ph-no-capture">At least ' + solFloor(q.minOut) + ' arrives if the price moves. On-chain transfers cannot be reversed.</p>'
           : '<p class="note" aria-live="polite">Getting a price…</p>') +
         '<div class="brow">' +
           '<button class="btn pri" onclick="V2Wallet.confirmCash()"' + (q && !pending.busy ? '' : ' disabled') + '>' +
@@ -551,8 +551,8 @@
         /* The destination in FULL here, the one place it has to be checked:
            a look-alike address can share its first and last characters with
            the real one, which is exactly what a shortened form shows. */
-        '<p class="note">Send <b>' + money(pending.amt) + '</b> to</p>' +
-        '<code class="cofull">' + esc(pending.to) + '</code>' +
+        '<p class="note ph-no-capture">Send <b>' + money(pending.amt) + '</b> to</p>' +
+        '<code class="cofull ph-no-capture">' + esc(pending.to) + '</code>' +
         '<p class="note">On-chain transfers cannot be reversed.</p>' +
         '<div class="brow">' +
           '<button class="btn pri" onclick="V2Wallet.confirmCash()">Send it</button>' +
@@ -578,7 +578,7 @@
        reversed warning once, on the confirm step where it is read before
        sending, rather than on both steps (2026-10-15 audit). */
     return '<div class="cashout">' +
-      '<div class="mfig">' +
+      '<div class="mfig ph-no-capture">' +
         '<div class="v num">' + balMoney(bal) + '</div></div>' +
       asRow +
       linkChip() +
@@ -594,7 +594,7 @@
       '</div>' +
       /* Empty until there is something to say: the available figure is
          already the big number at the top of this sheet. */
-      '<p class="note" id="co-msg"></p>' +
+      '<p class="note ph-no-capture" id="co-msg"></p>' +
       '<div class="brow">' +
         /* Withdraw, like the button and the sheet: "Cash out" is what you do
            to leave a game with your winnings, a different thing. */
@@ -613,8 +613,8 @@
       const what = p.asset === 'usdc' ? '<b>' + money(p.amt) + ' USDC</b>' : '<b>' + solPlain(p.amt) + '</b>' +
         (Number(w().solUsd) > 0 ? ' (about ' + money(p.amt * Number(w().solUsd)) + ')' : '');
       return '<div class="cashout">' +
-        '<p class="note">Send ' + what + ' to</p>' +
-        '<code class="cofull">' + esc(p.to) + '</code>' +
+        '<p class="note ph-no-capture">Send ' + what + ' to</p>' +
+        '<code class="cofull ph-no-capture">' + esc(p.to) + '</code>' +
         '<p class="note">On-chain transfers cannot be reversed.</p>' +
         '<div class="brow">' +
           '<button class="btn pri" onclick="V2Wallet.confirmCash()">Send it</button>' +
@@ -630,12 +630,12 @@
         '</div>'
       : '';
     return '<div class="cashout">' +
-      '<div class="mfig">' +
+      '<div class="mfig ph-no-capture">' +
         (as === 'usdc'
           ? '<div class="v num">' + money(usdcBal()) + '<span class="cvu"> USDC</span></div>'
           : '<div class="v num">' + bigBal(w().balance) + '</div>') +
       '</div>' +
-      (as !== 'sol' ? '' : solKnown() ? '<p class="note">You have ' + solTxt(solLamports()) + '. Keep ' + solTxt(KEEP_LAMPORTS) +
+      (as !== 'sol' ? '' : solKnown() ? '<p class="note ph-no-capture">You have ' + solTxt(solLamports()) + '. Keep ' + solTxt(KEEP_LAMPORTS) +
         ' in your wallet for network fees.</p>'
         : '<p class="note">Could not read your balance just now. You can still withdraw: the network refuses more than your wallet has.</p>') +
       asRow +
@@ -649,14 +649,26 @@
           'oninput="V2Wallet.hint()" onkeydown="if(event.key===\'Enter\')V2Wallet.submitCash()">' +
         '<button type="button" class="maxbtn" onclick="V2Wallet.max()"' + (maxOff(as) ? ' disabled' : '') + '>Max</button>' +
       '</div>' +
-      '<p class="note" id="co-msg"></p>' +
+      '<p class="note ph-no-capture" id="co-msg"></p>' +
       '<div class="brow">' +
         '<button class="btn pri" onclick="V2Wallet.submitCash()">Withdraw</button>' +
         '<button class="btn sec" onclick="V2Wallet.cancelCash()">Cancel</button>' +
       '</div></div>';
   }
 
-  function login() { if (window.duelWalletLogin) window.duelWalletLogin(); }
+  // where: which button asked, for the sign-in funnel (signin_opened); the Wallet tab's own Sign in by default
+  function login(where) { if (window.duelWalletLogin) window.duelWalletLogin(typeof where === 'string' ? where : 'wallet'); }
+
+  /* Product tracking (shared/trackPlan.js, public/js/shared/dsTrack.js): Add funds and Withdraw opening, and a withdraw
+     that did not go through. Never a figure or an address: an error is sent as its words, with every number and
+     anything shaped like an address or a signature taken out. A fault in it never reaches the money code around it. */
+  const errWords = m => String(m || '').replace(/[1-9A-HJ-NP-Za-km-z]{32,}/g, '…').replace(/\$?\d+(?:[.,]\d+)*/g, '#').slice(0, 100);
+  function addFundsOpened(method) {
+    try { if (window.DSTrack) window.DSTrack.event('add_funds_opened', { where: 'wallet', method: method }); } catch (_) {}
+  }
+  function withdrawFailed(e, asset) {
+    try { if (window.DSTrack) window.DSTrack.event('withdraw_failed', { error: errWords(e && e.message ? e.message : e), asset: asset }); } catch (_) {}
+  }
 
   function fund() {
     if (!connected()) return login();
@@ -672,6 +684,7 @@
      the amount is chosen on MoonPay's own screen, in the player's currency.
      method 'card' or 'manual' opens it on that one. */
   function privyFund(method) {
+    addFundsOpened(method === 'card' ? 'card' : method === 'manual' ? 'crypto' : 'any');
     window.duelWalletFund(method).catch(e => {
       const why = e && e.message ? e.message : 'Try again.';
       if (window.DSToast) window.DSToast.show({ kind: 'err', title: 'Add funds did not open', detail: why });
@@ -740,6 +753,7 @@
   const rate = () => (Number(w().solUsd) > 0 ? Number(w().solUsd) : 0);
   function openAdd() {
     adding = { have: null, max: 0, exact: null, rate: rate() };
+    addFundsOpened('linked');
     drawAdd();
     el('adveil').classList.add('on');
     if (window.sheetFocus) window.sheetFocus.open('adveil');
@@ -773,9 +787,9 @@
     const a = adding, r = a.rate;
     const typed = el('ad-amt') ? el('ad-amt').value : '';
     b.innerHTML = '<div class="cashout">' +
-      '<p class="note">From <b>' + esc(L.name) + '</b> <code>' + esc(ownShort(L.address)) + '</code> to your DuelSeries wallet</p>' +
-      '<div class="mfig"><div class="v num" id="ad-fig">…</div></div>' +
-      '<p class="note" id="ad-have"></p>' +
+      '<p class="note">From <b>' + esc(L.name) + '</b> <code class="ph-no-capture">' + esc(ownShort(L.address)) + '</code> to your DuelSeries wallet</p>' +
+      '<div class="mfig ph-no-capture"><div class="v num" id="ad-fig">…</div></div>' +
+      '<p class="note ph-no-capture" id="ad-have"></p>' +
       '<div class="amtrow">' +
         // the unit shows in the field itself: dollars when the sheet opened with a price, else SOL
         '<input class="fld num" id="ad-amt" inputmode="decimal" placeholder="' + (r ? '$0.00' : '0.0000 SOL') + '" autocomplete="off" ' +
@@ -783,7 +797,7 @@
           'onkeydown="if(event.key===\'Enter\')V2Wallet.submitAdd()">' +
         '<button type="button" class="maxbtn" onclick="V2Wallet.addMax()"' + (a.max > 0 ? '' : ' disabled') + '>Max</button>' +
       '</div>' +
-      '<p class="note" id="ad-msg"></p>' +
+      '<p class="note ph-no-capture" id="ad-msg"></p>' +
       '<div class="brow">' +
         '<button class="btn pri" onclick="V2Wallet.submitAdd()"' + (a.busy ? ' disabled' : '') + '>Add funds</button>' +
         '<button class="btn sec" onclick="V2Wallet.cancelAdd()">Cancel</button>' +
@@ -873,7 +887,7 @@
     const W = w();
     if (W.external) return '';
     if (W.linked) return '<button type="button" class="tolink" onclick="V2Wallet.toLinked()">To ' + esc(W.linked.name) +
-      ' <span class="num">' + esc(ownShort(W.linked.address)) + '</span></button>';
+      ' <span class="num ph-no-capture">' + esc(ownShort(W.linked.address)) + '</span></button>';
     const L = W.linkable || [];
     return L.length ? '<button type="button" class="tolink" onclick="V2Wallet.toLinked()">To ' + esc(L[0].label) + '</button>' : '';
   }
@@ -896,7 +910,7 @@
       if (!L) return;
       // the sheet keeps what was typed; only the chip's words change
       const chip = document.querySelector('#wdr-body .tolink');
-      if (chip) chip.innerHTML = 'To ' + esc(L.name) + ' <span class="num">' + esc(ownShort(L.address)) + '</span>';
+      if (chip) chip.innerHTML = 'To ' + esc(L.name) + ' <span class="num ph-no-capture">' + esc(ownShort(L.address)) + '</span>';
     }
     const f = el('co-to');
     if (f) { f.value = L.address; say(''); }
@@ -922,6 +936,7 @@
     cashing = true; pending = null;
     drawCash();
     el('wdrveil').classList.add('on');
+    try { if (window.DSTrack) window.DSTrack.event('withdraw_opened', { where: asset === 'usdc' ? 'usdc_line' : 'wallet' }); } catch (_) {}
     /* No field is focused on open (Owen, 2026-10-15). Focusing the address
        field threw the phone keyboard over the sheet before anybody had read
        it; the keyboard comes up when they tap a field, which is when they want
@@ -1076,6 +1091,7 @@
       }, e => {
         const why = e && e.message ? e.message : 'Try again.';
         tell({ kind: 'err', title: 'Withdraw failed', amount: '', detail: why, code: '' }, 'Send failed: ' + why);
+        withdrawFailed(why, p.asset || 'usdc');
       });
   }
   function confirmSol() {
@@ -1097,6 +1113,7 @@
       if (pending !== p) return;
       pending = null; drawCash();
       say(e && e.message ? e.message : 'The withdrawal did not go through. Check your balance before trying again.');
+      withdrawFailed(e, 'sol');
     });
   }
   /* Keeps what was typed when the form is drawn again for a new choice. */
@@ -1173,9 +1190,9 @@
     if (toSol) {
       // "Convert $12.34 USDC to about 0.0821 SOL?" and the floor it cannot fall under.
       b.innerHTML = '<div class="cashout">' +
-        '<div class="mfig"><div class="k">Convert ' + (q ? usdTxt(q.inAmount) : money(usdcBal())) + ' USDC to about</div>' +
+        '<div class="mfig ph-no-capture"><div class="k">Convert ' + (q ? usdTxt(q.inAmount) : money(usdcBal())) + ' USDC to about</div>' +
           '<div class="v num">' + (q ? (Number(q.outAmount) / 1e9).toFixed(4) : '…') + '<span class="cvu"> SOL?</span></div></div>' +
-        '<ul class="cvfacts">' +
+        '<ul class="cvfacts ph-no-capture">' +
           '<li><span>At least</span><b class="num">' + (q ? solFloor(q.minOut) : '…') + '</b></li>' +
         '</ul>' +
         '<p class="note" aria-live="polite">' + (q
@@ -1191,9 +1208,9 @@
     /* The question itself, filled in (Owen, 2026-10-15): "Convert 0.1573 SOL to about $29.89
        USDC?", so the one tap is all that is left to do. */
     b.innerHTML = '<div class="cashout">' +
-      '<div class="mfig"><div class="k">Convert ' + (q ? solTxt(q.inAmount) : solTxt(convertible())) + ' to about</div>' +
+      '<div class="mfig ph-no-capture"><div class="k">Convert ' + (q ? solTxt(q.inAmount) : solTxt(convertible())) + ' to about</div>' +
         '<div class="v num">' + (q ? usdTxt(q.outAmount) : '…') + '<span class="cvu"> USDC?</span></div></div>' +
-      '<ul class="cvfacts">' +
+      '<ul class="cvfacts ph-no-capture">' +
         '<li><span>At least</span><b class="num">' + (q ? usdFloor(q.minOut) : '…') + '</b></li>' +
         '<li><span>Kept for network fees</span><b class="num">' + solTxt(reserve) + '</b></li>' +
       '</ul>' +

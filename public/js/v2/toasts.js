@@ -80,7 +80,8 @@
         s.textContent = text;
         d.appendChild(s);
       };
-      part('t-amt', o.amount); part('', o.detail); part('t-addr', o.code);
+      // the amount, the detail and the address stay out of session replays and autocapture (posthog-init.js)
+      part('t-amt ph-no-capture', o.amount); part('ph-no-capture', o.detail); part('t-addr ph-no-capture', o.code);
       body.appendChild(d);
     }
     t.appendChild(ic); t.appendChild(body);

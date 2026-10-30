@@ -386,7 +386,7 @@
   let file = null;            // { f, url, secs, w, h, poster } when the dialog sends a file, null for a link
   function needLogin() {
     if (addr() || PREVIEW) return false;
-    if (typeof window.duelWalletLogin === 'function') window.duelWalletLogin();
+    if (typeof window.duelWalletLogin === 'function') window.duelWalletLogin('clips');
     toast({ kind: 'info', title: 'Log in to share a clip', detail: 'Every clip on the wall has a player name on it.' });
     return true;
   }

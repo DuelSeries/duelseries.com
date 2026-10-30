@@ -654,7 +654,7 @@ test('paid cash-out: the receipt from pp:cashedout, then the payout status (sent
   assert.deepStrictEqual(c.ledger, [['Cashed out', '$1.50'], ['House 10%', '−$0.15'], ['You receive', '$1.35']]);
   assert.deepStrictEqual(c.facts, [['Time', '1:01'], ['Top rank', '1st'], ['Best land', '31.00%']]);
   assert.deepStrictEqual(c.status, { text: 'Sending to your wallet', state: 'pending', href: null });
-  assert.deepStrictEqual({ ...t.win.events.find((e) => e[0] === 'cashed_out')[1] }, { game: 'paper', amount: 1.35, stake: 0.5 });
+  assert.strictEqual(t.win.events.find((e) => e[0] === 'cashed_out'), undefined, 'a paid cash-out is sent by the server (server/analytics.js)');
   t.sock.fire('pp:paid', { sig: 'abc' });
   c = t.card();
   assert.strictEqual(c.status.state, 'ok');

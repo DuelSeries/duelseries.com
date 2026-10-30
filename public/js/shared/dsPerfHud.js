@@ -147,6 +147,8 @@
     var sock = src.socket || src;
     if (!sock || typeof sock.emit !== 'function') return null;
     if (typeof sock.on === 'function') {
+      // dropped and restored connections, for every game (public/js/shared/dsTrack.js)
+      if (root.DSTrack && typeof root.DSTrack.watchSocket === 'function') { try { root.DSTrack.watchSocket(sock); } catch (e) { /* none */ } }
       sock.on('connect', function () { if (echo && echo.sock === sock) { forget(); } });
       sock.on('disconnect', function () { if (echo && echo.sock === sock) forget(); });
     }
@@ -192,6 +194,7 @@
         var rtt = now() - at;
         samples.push(rtt);
         if (samples.length > PING_KEEP) samples.shift();
+        report({ ping: rtt });
         showPing(Math.round(median()));
       });
     } catch (e) { sent = false; }
@@ -201,6 +204,12 @@
     } else {
       nextAt = at + PING_FIRST_MS;
     }
+  }
+
+  /* Each reading also goes to the game's FPS and ping summary (dsTrack.js: one game_perf per game, never per frame). */
+  function report(o) {
+    var T = root.DSTrack;
+    if (T && typeof T.sample === 'function') { try { T.sample(o); } catch (e) { /* none */ } }
   }
 
   // ---- FPS
@@ -221,6 +230,7 @@
     var from = prevAt >= 0 ? prevAt : halfAt;
     fps = Math.round((prevFrames + halfFrames) * 1000 / (t - from));
     shownFps = setText(fpsText, shownFps, 'FPS ' + fps);
+    report({ fps: fps });
     prevAt = halfAt; prevFrames = halfFrames;
     halfAt = t; halfFrames = 0;
   }

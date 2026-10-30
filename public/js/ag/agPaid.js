@@ -225,7 +225,7 @@
   //   send(kind, payload) -> true when it went out ('paidJoin', 'ready'), reconnect() (open a server-closed socket),
   //   card() -> the end card (agScreens.createEnd), enterPlay(joinedPayload) (the page's play state, no menu),
   //   freshTarget() (forget the last-sent target), lock(on) (the page's exit lock: agLobby), touch() -> boolean,
-  //   chip (createChip), framed, parent (the lobby window), origin (this page's origin), phEvent(name, props) }
+  //   chip (createChip), framed, parent (the lobby window), origin (this page's origin) }
   function createFlow(o) {
     var h = o.handoff || {};
     var win = o.win || root;
@@ -425,10 +425,8 @@
           st.needReady = p.confirmed !== true;
           if (fieldOk(p.resumeKey)) st.resumeKey = p.resumeKey;   // page memory (see 4 above)
           lock(false);   // the seat is open: agLobby's own exit trap holds the page from here (ag:joined with a stake)
+          // the page's own tracking starts the life there (the paid game_started itself is the server's)
           o.enterPlay(p);
-          if (p.resumed !== true && typeof o.phEvent === 'function') {
-            try { o.phEvent('game_started', { game: game, stake: st.stake }); } catch (e) { /* analytics never breaks the game */ }
-          }
           return;
         case 'ag:refused':
           if (p.why === 'cash-out-to-leave') return;

@@ -33,6 +33,7 @@
     const now = e.now || (() => Date.now());
     const sleep = e.sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
     const emit = e.emit || (() => {});
+    const onBuy = e.onBuy || (() => {});      // (game, skin, priceUsd): Buy pressed, for product tracking only
     const pollMs = e.pollMs != null ? e.pollMs : 3000;
     const pollFor = e.pollFor != null ? e.pollFor : 3 * 60 * 1000;
     let owned = new Set();
@@ -152,6 +153,7 @@
       if (!w) throw new Error('Log in to unlock skins.');
       if (busy) throw new Error('A purchase is already in progress.');
       busy = true;
+      try { onBuy(game, skin, expectUsd); } catch (_) {}   // before any money step, and never in its way
       const say = (s) => { if (onStatus) try { onStatus(s); } catch (_) {} };
       try {
         say('Getting the price…');
@@ -234,6 +236,8 @@
       signSkin: (q) => (typeof root.duelWalletSignSkin === 'function' ? root.duelWalletSignSkin(q) : Promise.reject(new Error('Wallet not ready'))),
       signAction: (a, args) => (typeof root.duelWalletSignAction === 'function' ? root.duelWalletSignAction(a, args) : Promise.resolve(null)),
       emit: () => { try { root.dispatchEvent(new root.CustomEvent('ds:skins')); } catch (_) {} },
+      // Product tracking (shared/trackPlan.js): the skin id and the price the sheet showed, in dollars
+      onBuy: (game, skin, price) => { if (root.DSTrack) root.DSTrack.event('skin_buy_started', { game: game, item: skin, price: price }); },
     });
     root.DSSkins = api;
     const nameOf = (g, s) => {

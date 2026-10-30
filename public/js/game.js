@@ -13,8 +13,7 @@ const renderer = new Renderer(canvas);
 
 // Player info from lobby
 const playerName    = sessionStorage.getItem('playerName')    || localStorage.getItem('duelseries_playername') || 'Player';
-const walletAddress = sessionStorage.getItem('walletAddress') || null;   // display and analytics only: the server trusts a proof (walletProof below)
-if (window.phIdentify && walletAddress) window.phIdentify(walletAddress); // link in-game analytics to this player
+const walletAddress = sessionStorage.getItem('walletAddress') || null;   // display only: the server trusts a proof (walletProof below)
 /* Two ways a room can be named. The old lobby sets lobbyType; the redesigned
    one sets stake, a rung of the ladder. The widget clears whichever it did not
    set, so at most one is present and there is nothing to disambiguate. Both are
@@ -37,6 +36,27 @@ const entrySol      = parseFloat(sessionStorage.getItem('entrySol') || '0');
 const entryToken    = sessionStorage.getItem('entryToken') || null;
 const selectedRegion = sessionStorage.getItem('region') || 'na';
 const spectateOnly  = sessionStorage.getItem('spectateOnly') === 'true';
+
+/* Product tracking (public/js/shared/dsTrack.js, every name and property checked
+   against shared/trackPlan.js). The lobby identifies the player itself, so this
+   page never names a wallet. One session for the page: started when a snake is
+   in the arena, ended once per life (a death, a cash-out, the battle royale's
+   win), never per frame. A paid room's start and end are the server's; there
+   the page's calls only time the life for its FPS and ping summary. */
+const track = (() => {
+  try {
+    if (!window.DSTrack || typeof window.DSTrack.game !== 'function') return null;
+    const paidStake = isPaidRoom && stake > 0 ? stake : undefined;
+    return window.DSTrack.game(isBattleRoyale ? 'br' : 'slither', {
+      paid: isPaidRoom, stake: isPaidRoom ? paidStake : 0, engine: 'old', region: selectedRegion,
+      mode: isBattleRoyale ? 'br' : isPaidRoom ? 'paid' : 'free'
+    });
+  } catch (e) { return null; }
+})();
+function tracked(fn) {
+  if (!track) return;
+  try { fn(track); } catch (e) { /* analytics never breaks the game */ }
+}
 
 let moneyNetwork = 'mainnet-beta';   // which cluster payout links should point at
 fetch('/api/money-config').then(r => r.json()).then(c => {
@@ -410,6 +430,7 @@ socket.on(CONSTANTS.EVENTS.GAME_JOINED, ({ playerId, worldRadius, worldCx, world
     enterSpectate();
   } else {
     playJoinSound();
+    tracked((t) => t.start());   // in the arena: a new life (a reconnect's reattach is the same one)
   }
 });
 
@@ -452,9 +473,21 @@ socket.on(CONSTANTS.EVENTS.SNAPSHOT, (meta, coords) => {
   updateLeaderboard(snap);
 });
 
+/* This snake's place on the last board the page drew (the top ten only), or
+   undefined. Read once, at the end of a life. */
+function lastBoardPlace() {
+  const last = snapBuffer.length ? snapBuffer[snapBuffer.length - 1].state : null;
+  const row = last && Array.isArray(last.leaderboard) ? last.leaderboard.find(p => p && p.id === myId) : null;
+  return row && row.rank > 0 ? row.rank : undefined;
+}
+
 socket.on(CONSTANTS.EVENTS.PLAYER_DIED, ({ score, length }) => {
   isDead = true;
   playDeathSound();
+  /* The battle royale's place is how many were alive when this snake went out
+     (the last count the server sent still holds it); elsewhere the board's. */
+  tracked((t) => t.end({ result: 'died', score: length,
+    place: isBattleRoyale ? (brRunning && _brAlive > 0 ? _brAlive : undefined) : lastBoardPlace() }));
 
   // What the snake was carrying when it died is what the player just lost, so
   // the card says it. The last snapshot is the right source: every snake
@@ -1847,7 +1880,12 @@ function setSettleState(state, text, sig) {
 }
 
 socket.on('cashout:result', ({ newBalance, earnedSol, gross, cut, score, length, toWallet }) => {
-  if (window.phEvent) window.phEvent('cashed_out', { game: 'snake', amount: earnedSol, score: score, length: length });
+  /* The battle royale's winner is cashed out by the server: that is the win.
+     Anything else is a Q cash-out (a paid one's game_ended is the server's). */
+  const brWin = isBattleRoyale && _brWinnerId && _brWinnerId === myId;
+  tracked((t) => t.end(brWin
+    ? { result: 'won', place: 1, amount: Number(earnedSol) || 0, score: length }
+    : { result: 'cashed_out', amount: Number(earnedSol) || 0, score: length, place: lastBoardPlace() }));
   playCashoutSound();
 
   /* A BATTLE ROYALE WIN REPORTS ITSELF ON THE PODIUM.
@@ -2041,6 +2079,7 @@ function stepSpectate(dir) {
 }
 
 function enterSpectate() {
+  tracked((t) => { if (t.stage !== 'spectating') t.spectate(); });
   spectating = true;
   spectateId = null;          // resolved to the first target on the next frame
   _specLast = null; _specMissing = 0;

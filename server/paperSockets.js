@@ -7,6 +7,7 @@
 // (the server has no uncaughtException handler, so a throw would take every live stake down).
 const crypto = require('crypto');
 const { toMicro, HOUSE_CUT_DIV } = require('./paperPayout');
+const agTrack = require('./ag/agTrack');
 const { rungOf } = require('./stakeRules');
 const { MP } = require('./paper/loadPaperLib');
 const { WATCHERS_MAX } = require('./paper/PaperRoom');
@@ -89,7 +90,9 @@ module.exports = function createPaperSockets({
   // the shared in-game chat guard (server/chatGuard.js); a test passes its own
   chatGuard = require('./chatGuard').shared,
   // the clock of pp:need's own limits; a test passes its own
-  now = Date.now
+  now = Date.now,
+  // product analytics (server/analytics.js), optional: a door refund's stake_refunded (server/ag/agTrack.js)
+  analytics = null
 }) {
   function refuse(socket, why, extra) {
     socket.emit('pp:refused', Object.assign({ why, text: TEXT[why] || why, refunded: false }, extra || {}));
@@ -101,10 +104,11 @@ module.exports = function createPaperSockets({
      and is paid back by Paper's own payout, as before. Either way: what landed, capped at the
      rung. */
   function refundEntry(entry, why, name) {
-    if (entry.stakeSig && ledger) {
-      return ledger.refund(entry.stakeSig, 'refund paper ' + why, entry.claimKey);
-    }
-    return payout.refund({ wallet: entry.walletAddress, name, micro: toMicro(entry.worth), paid: entry.paid, why });
+    const p = entry.stakeSig && ledger
+      ? ledger.refund(entry.stakeSig, 'refund paper ' + why, entry.claimKey)
+      : payout.refund({ wallet: entry.walletAddress, name, micro: toMicro(entry.worth), paid: entry.paid, why });
+    agTrack.doorRefunded(analytics, 'paper', entry, why);   // never seated: stake_refunded only; never throws
+    return p;
   }
 
   /* The door's journal record for a durable paid join (the Paper analog of security review item d): written BEFORE

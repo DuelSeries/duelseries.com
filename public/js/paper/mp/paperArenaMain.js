@@ -288,8 +288,36 @@
       bestRank: 0,
       landNow: 0,
       deathLand: 0,
-      roundKills: null      // the own square's kills at the round's end (the mirror counts the server's kills)
+      roundKills: null,     // the own square's kills at the round's end (the mirror counts the server's kills)
+      // the own place and how many squares the last drawn board listed (product tracking reads them at the end)
+      rankNow: 0,
+      boardCount: 0
     };
+
+    // Product tracking (public/js/shared/dsTrack.js, every name and property checked against shared/trackPlan.js):
+    // this page's player, one call per round's start and end and per watch, never per frame. A paid round's start and
+    // end are the server's; there the page's calls only time it for its FPS and ping summary. A page without the
+    // helper (the tests' pages) tracks nothing, and a throw in it never reaches the game.
+    var track = null;
+    try {
+      if (root.DSTrack && typeof root.DSTrack.game === 'function') {
+        var watchPaid = watchMode && watchOf.stake > 0;
+        track = root.DSTrack.game('paper', {
+          paid: paidStake || watchPaid,
+          stake: watchMode ? watchOf.stake : session.stake,
+          mode: paidStake || watchPaid ? 'paid' : 'free',
+          region: session.region || undefined
+        });
+      }
+    } catch (_) {
+      track = null;
+    }
+    function tracked(fn) {
+      if (!track) return;
+      try {
+        fn(track);
+      } catch (_) { /* analytics never breaks the game */ }
+    }
 
     // socket.io keeps an emit made while the link is down and sends it on the next connection
     // BEFORE that connection's 'connect' event (the client's sendBuffer), as it does for an emit
@@ -478,6 +506,10 @@
       board.set(rows, mine);
       if (mine && page.phase === 'live' && !page.watch && (!page.bestRank || mine.rank < page.bestRank)) {
         page.bestRank = mine.rank;
+      }
+      if (page.phase === 'live' && !page.watch) {
+        page.rankNow = mine ? mine.rank : 0;
+        page.boardCount = rows.length;
       }
     }
 
@@ -717,6 +749,7 @@
     }
 
     function showGone(title, text) {
+      tracked(function (t) { t.end({ result: 'ended', reason: 'disconnect' }); });
       endPhase('gone', { opts: { verdict: title, notes: [text] }, again: null });
     }
 
@@ -940,9 +973,15 @@
         page.landNow = 0;
         page.deathLand = 0;
         page.roundKills = null;
+        page.rankNow = 0;
+        page.boardCount = 0;
         game.best = best || undefined;
-        if (root.phEvent) root.phEvent('game_started', { game: 'paper', stake: page.stake });
       }
+      // seated: a round (a resumed seat after a drop is the same one; a paid round's start is the server's)
+      tracked(function (t) {
+        if (page.stake > 0) t.set({ paid: true, stake: page.stake, mode: 'paid' });
+        t.start();
+      });
       if (page.stake > 0 && page.network === 'mainnet-beta' && !page.networkAsked) {
         page.networkAsked = true;
         fetch('/api/money-config').then(function (r) { return r.json(); }).then(function (c) {
@@ -974,6 +1013,12 @@
     net.on('pp:dead', function (p) {
       recordBest();
       endRound();
+      // the server's reasons 8 (away too long) and 9 (left the table) are a leave, the rest a death (REASON_TEXT)
+      var gone = p && (p.reason === 8 || p.reason === 9);
+      tracked(function (t) {
+        t.end({ result: gone ? 'left' : 'died', reason: gone ? (p.reason === 8 ? 'disconnect' : 'leave') : undefined,
+          score: Math.round(page.deathLand * 100) / 100, place: page.rankNow || undefined, players: page.boardCount || undefined });
+      });
       page.phase = 'ending';
       setLive(false);
       cancel('giveUp');
@@ -990,9 +1035,10 @@
       endRound();
       cancel('dead');
       showCashed(p || {});
-      if (root.phEvent) {
-        root.phEvent('cashed_out', { game: 'paper', amount: (Number(p && p.netMicro) || 0) / 1e6, stake: page.stake });
-      }
+      tracked(function (t) {
+        t.end({ result: 'cashed_out', amount: (Number(p && p.netMicro) || 0) / 1e6, score: page.roundBest,
+          place: page.rankNow || undefined, players: page.boardCount || undefined });
+      });
     });
 
     // The payout's own status on the cash-out card (the card that is showing; a later card has none).
@@ -1182,6 +1228,9 @@
         hud.reset();
         page.watchLive = true;
         page.phase = 'watch';
+        tracked(function (t) {
+          if (t.stage !== 'spectating') t.spectate();
+        });
         showOnly(null);
         if (chat) chat.visible(true);
         layoutWatch();

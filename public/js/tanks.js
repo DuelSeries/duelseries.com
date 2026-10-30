@@ -28,6 +28,24 @@
     try { return localStorage.getItem('duelseries_wallet') || null; } catch (_) { return null; }
   })();
 
+  /* Product tracking (public/js/shared/dsTrack.js; every event name is in shared/trackPlan.js): a free table, one
+     session for this page, the wait and each match and its result. Leaving mid-match is the helper's own. Never lets
+     a failure reach the game. */
+  const tracker = (() => {
+    try { return window.DSTrack ? window.DSTrack.game('tanks', { paid: false, stake: 0, mode: 'free' }) : null; }
+    catch (_) { return null; }
+  })();
+  function trackStep(step, arg) {
+    if (!tracker) return;
+    try {
+      if (step === 'queue') {
+        if (tracker.stage === 'queue') return;            // a second queued for the same wait
+        tracker.set({ room: undefined });                 // the last match's, not this queue's
+      }
+      tracker[step](arg);
+    } catch (_) { /* analytics never breaks the game */ }
+  }
+
   /* Everything known about the match. Replaced wholesale by the server. */
   let S = null;
   let myId = null;
@@ -296,6 +314,8 @@
   /* ── the wire ─────────────────────────────────────────────────────────────── */
 
   socket.on('connect', () => {
+    // A reconnect mid-match queues afresh: the match it was in is lost with the old socket.
+    trackStep('end', { result: 'left', reason: 'disconnected' });
     myId = socket.id;
     socket.emit('tanks:queue', { name, wallet });
   });
@@ -304,11 +324,15 @@
     $('wait').hidden = false;
     $('waitMain').textContent = 'Looking for an opponent';
     $('waitSub').textContent = 'Free table. Nothing staked.';
+    trackStep('queue');
   });
 
   socket.on('tanks:start', (state) => {
     myId = socket.id;
     applyState(state);
+    // The lobby's bot sits on a socket id of its own kind (server/TanksLobby.js makeMatch).
+    const foe = state && Array.isArray(state.players) ? state.players.find(p => p && p.id !== myId) : null;
+    trackStep('start', { vs_bot: !!(foe && /^bot_/.test(String(foe.id))), room: state && state.id });
     /* Point the barrel at the other tank to begin with, so the first shot is a
        correction rather than a shot in the dark. */
     const me = myTank();
@@ -331,6 +355,8 @@
     $('overWhy').textContent = m.why === 'opponent left' ? 'They left the match.'
       : !m.winner ? 'Nobody was left standing.' : '';
     $('controls').classList.add('waiting');
+    // The score is the health my tank ended on.
+    trackStep('end', { result: !m.winner ? 'draw' : won ? 'won' : 'lost', score: me ? me.health : undefined, reason: m.why });
   });
 
   socket.on('maintenance', (m) => {

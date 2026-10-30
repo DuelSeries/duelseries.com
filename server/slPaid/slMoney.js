@@ -39,6 +39,8 @@
 //   onAccountClosed(acct, outcome, extra)   the directory forgets the seat
 //   journal                   { open(acct, room), close(acct, outcome, extra, room), floor(rec) }: the shared agJournal
 //                             (floor: the shutdown's abandoned gold, booked by the next boot's replay)
+//   analytics (optional)      server/analytics.js: each exit's game_ended (and stake_refunded for money handed back),
+//                             once per account, after its money moved (_trackEnd, server/ag/agTrack.js)
 
 const crypto = require('crypto');
 const { SlBank, isMicro } = require('./slBank');
@@ -46,6 +48,7 @@ const { planSplit } = require('./slSplit');
 const { checkRoom, checkLaws } = require('./slCheck');
 const { CHECK_EVERY_STEPS } = require('./slPaidConst');
 const { HOUSE_CUT_DIV } = require('../paperPayout');
+const agTrack = require('../ag/agTrack');
 
 const REQUIRED_HOOKS = Object.freeze(['onCashout', 'onOwed', 'onFloor', 'onHouse', 'onBreach', 'onTransfer',
   'onAccountOpen', 'onAccountClosed', 'journal']);
@@ -411,6 +414,9 @@ class SlMoney {
       this._house(acct.wallet, acct.name, r.unplaced, 'unplaced');
       this._alert('unplaced', { micro: r.unplaced, snakeId: d.id });
     }
+    // cause 'kill' is only a dropped player's glide that ran out (slRoom orphans, C_DISCONNECT): the player left
+    if (d.cause === 'kill') this._trackEnd(acct, 'left', 0, 'disconnect');
+    else this._trackEnd(acct, 'died', 0, typeof d.cause === 'string' ? d.cause : undefined);
   }
 
   // A bot's death: its whole balance drops as pellets like a person's (slSplit), each pellet naming the person whose
@@ -603,6 +609,7 @@ class SlMoney {
           this.label + '): ' + (e && e.message));
       });
     }
+    this._trackEnd(acct, 'cashed_out', agTrack.dollars(net), 'hold');
     return { cid: order.cashoutId, gross, cut, net, order };
   }
 
@@ -626,6 +633,7 @@ class SlMoney {
         });
       }
     }
+    this._trackEnd(acct, 'refunded', agTrack.dollars(micro), why);
     return row;
   }
 
@@ -693,6 +701,7 @@ class SlMoney {
         const reason = 'refund slither ' + kind + ' ' + this.label + ' ' + key;
         this._close(acct, 'refunded', { why: kind, key, refundedMicro: micro, reason });
         if (micro > 0) rows.push({ key, wallet: acct.wallet, name: acct.name, micro, reason });
+        this._trackEnd(acct, 'refunded', agTrack.dollars(micro), kind);
       } catch (e) {
         this._leftOpen('SHUTDOWN', acct, e);
       }
@@ -828,6 +837,17 @@ class SlMoney {
       }
     }
     return rows;
+  }
+
+  // Product analytics for a closed account (agTrack): its game_ended, once, from the exit that closed it, after its money
+  // moved, and stake_refunded when money went back. Every account the door seated has started (recordEntry runs the
+  // moment seatPaid returns it); an aborted one never reaches here (the door's refund sends its stake_refunded).
+  // amount: dollars paid to the player by this exit. Never throws.
+  _trackEnd(acct, result, amount, reason) {
+    const an = this.hooks.analytics;
+    if (!an || !acct) return;
+    agTrack.ended(an, { wallet: acct.wallet, game: 'slither', result, stake: this.stake, amount, reason, room: this.label });
+    if (result === 'refunded') agTrack.refunded(an, acct.wallet, { game: 'slither', stake: this.stake, amount, reason });
   }
 
   // The ONE exit: the bank account must already be gone. The record goes, the journal closes the jid (not for

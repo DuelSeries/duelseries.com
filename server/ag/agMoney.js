@@ -18,9 +18,12 @@
 //                manual refund ('frozen-settled')
 // A last-cell eat closes the victim ('eaten'). A room crash (emergency close) or a server restart refunds 100% of every
 // open balance, no rake (Owen Q6, 'refunded'). closeAccount is the ONLY code that deletes an account.
+// Product analytics (optional hooks.analytics, server/ag/agTrack.js): each exit sends its life's game_ended (and
+// stake_refunded for money handed back) once, after its money moved; a seat that never readied never started.
 
 const crypto = require('crypto');
 const { AgBank } = require('./agBank');
+const agTrack = require('./agTrack');
 
 function chosen(value, note) {
   return Object.freeze({ value, status: 'CHOSEN', note });
@@ -498,6 +501,7 @@ class AgMoney {
     if (victim) victim.lostMicro = (victim.lostMicro || 0) + moved;
     if (f.last === true && victim) {
       this._close(victim, 'eaten', { lostMicro: victim.lostMicro, by: eater ? eater.name : '', byPid: f.eater });
+      this._trackEnd(victim, 'died', 0, 'eaten');
     }
   }
 
@@ -539,6 +543,9 @@ class AgMoney {
         }
       }
     }
+    // the dormant auto cash-out ends a life its player dropped out of: 'left', with what it paid
+    this._trackEnd(acct, why === 'settled' ? 'left' : 'cashed_out', order ? agTrack.cashNet(order.grossMicro) : 0,
+      why === 'settled' ? 'dormant' : 'hold');
     return order;
   }
 
@@ -566,6 +573,7 @@ class AgMoney {
       }
       this._extraToHouse(acct, extra, 'release-extra');
     }
+    this._trackEnd(acct, 'refunded', agTrack.dollars(back), why);
     return true;
   }
 
@@ -599,6 +607,7 @@ class AgMoney {
     } finally {
       if (micro > 0) this._toHouse(acct, micro, why);
     }
+    this._trackEnd(acct, 'ended', 0, 'frozen');
     return true;
   }
 
@@ -681,6 +690,7 @@ class AgMoney {
           }
         }
         this._extraToHouse(acct, extra, 'emergency-extra');
+        this._trackEnd(acct, 'refunded', agTrack.dollars(back), 'emergency');
       } catch (e) {
         this.log.error('[AG] EMERGENCY settle of pid ' + acct.pid + ' failed, left open', e && e.message);
       }
@@ -718,12 +728,25 @@ class AgMoney {
         this._close(acct, 'refunded', { why: kind, refundedMicro: back, key, reason });
         if (back > 0) rows.push({ key, wallet: acct.wallet, name: acct.name, micro: back, reason, state });
         this._extraToHouse(acct, extra, kind + '-extra');
+        this._trackEnd(acct, 'refunded', agTrack.dollars(back), kind);
       } catch (e) {
         this.log.error('[AG] SHUTDOWN settle of pid ' + acct.pid + ' failed', e && e.message);
       }
     }
     this._flushBuckets(null, Infinity);
     return rows;
+  }
+
+  // Product analytics for a closed life (agTrack): game_ended once, from the exit that closed it, after its money
+  // moved; stake_refunded too when money went back. A seat that never readied (still 'unconfirmed') never started,
+  // so it sends stake_refunded only. amount: dollars paid to the player by this exit. Never throws.
+  _trackEnd(acct, result, amount, reason) {
+    const an = this.hooks.analytics;
+    if (!an || !acct) return;
+    if (acct.state !== 'unconfirmed') {
+      agTrack.ended(an, { wallet: acct.wallet, game: this.game, result, stake: this.stake, amount, reason, room: this.label });
+    }
+    if (result === 'refunded') agTrack.refunded(an, acct.wallet, { game: this.game, stake: this.stake, amount, reason });
   }
 
   _applyPending() {

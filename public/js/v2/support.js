@@ -82,7 +82,7 @@
   function esc(s) {
     return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; });
   }
-  function track(action) { if (window.phEvent) window.phEvent('support', { action: action }); }
+  function track(action) { try { if (window.DSTrack) window.DSTrack.event('support', { action: action }); } catch (_) {} }
 
   var ov = null, back = null, styled = false;
 

@@ -274,6 +274,13 @@
     zoom: function () { return ZOOM; },
     topSlot: topSlot,
     board: board,
-    rows: function () { return { rows: rows.slice(), me: me }; }
+    rows: function () { return { rows: rows.slice(), me: me }; },
+    // The own length, rank and how many snakes their length box counts, read from its text now (slxTrack reads it once
+    // as a life ends), else null before their first write or with no rank yet.
+    own: function () {
+      var m = lbf ? /(\d+)\D+(\d+)\D+(\d+)\D*$/.exec(String(lbf.textContent || '')) : null;
+      if (!m || !(Number(m[2]) > 0) || Number(m[2]) >= NO_RANK) return null;
+      return { length: Number(m[1]), rank: Number(m[2]), count: Number(m[3]) };
+    }
   };
 })(typeof window !== 'undefined' ? window : globalThis);

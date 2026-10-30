@@ -61,7 +61,7 @@
       }
       if (window.DSToast) DSToast.show({ kind: 'ok', title: 'Invite link copied', detail: 'Send it to a friend to play ' + g.name + ' together' });
     });
-    if (window.phEvent) window.phEvent('invite_copied', { game: id });
+    if (window.DSTrack) window.DSTrack.event('invite_copied', { game: id });
   }
 
   /* ── arriving ── */
@@ -81,11 +81,11 @@
   function arrive(g) {
     if (typeof window.open_ !== 'function' || typeof window.pickStake !== 'function') return;
     if (window.V2_IS_SOON && window.V2_IS_SOON(g.game)) return;
-    try { window.open_(g.game); } catch (_) { return; }
+    try { window.open_(g.game, 'invite'); } catch (_) { return; }
     /* Free, whatever this browser last played: an invite is to the free room. */
     const free = typeof STEPS !== 'undefined' ? STEPS.indexOf(0) : -1;
     if (free >= 0) window.pickStake(free);
-    if (window.phEvent) window.phEvent('invite_opened', { game: g.game });
+    if (window.DSTrack) window.DSTrack.event('invite_opened', { game: g.game });
     let started = false, gaveUp = false;
     const onFree = () => !!(window.V2Detail && V2Detail.game === g.game && V2Detail.stake === 0);
     /* Privy says whether this visitor is signed in (duelWallet.ready); until then a signed-in friend would be
@@ -117,7 +117,8 @@
     copyText(location.origin + '/', () => {
       if (window.DSToast) DSToast.show({ kind: 'ok', title: 'Invite link copied', detail: 'Send it to a friend' });
     });
-    if (window.phEvent) window.phEvent('invite_copied', { game: 'home' });
+    // the lobby's own link names no game: an invite_copied without one is a "Refer a friend"
+    if (window.DSTrack) window.DSTrack.event('invite_copied', {});
   }
 
   window.V2Invite = { copy: copy, link: linkFor, home: home };

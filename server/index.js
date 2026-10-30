@@ -38,7 +38,8 @@ const prices = require('./prices');
 const money = require('./money'); // SOL- or USDC-denominated money backend (picked by MONEY_MODE)
 const Usdc  = require('./Usdc');  // USDC primitives — used directly by the cosmetics shop (always USDC)
 const notify = require('./notify'); // owner phone pushes (ntfy) — e.g. new-player alerts
-const analytics = require('./analytics'); // server-side PostHog capture (money events)
+const analytics = require('./analytics'); // server-side PostHog capture (paid results and money; shared/trackPlan.js)
+const txSummary = require('./txSummary'); // what a relayed withdraw or add moved, for analytics only
 const nameProof = require('./nameProof'); // a wallet signing for its own name change
 const playerName = require('./playerName'); // name cleaning + the reserved staff/brand names (night review 2026-10-29)
 const ownerAuth = require('./ownerAuth'); // the owner wallet signing for an owner action
@@ -816,6 +817,9 @@ function enterPaid(socket, game, entry, seat, refuse) {
     }
     if (seated) { recordEntry(entry, game); return; }
     stakeLedger.refund(entry.stakeSig, `refund ${game} entry not seated`, entry.claimKey);
+    // product analytics (never throws): the buy-in went back, capped at what landed, as the refund pays
+    analytics.track('stake_refunded', entry.walletAddress, { game, stake: entry.worth,
+      amount: Number(entry.paid) > 0 ? Math.min(entry.worth, Number(entry.paid)) : entry.worth, reason: 'not seated' });
     if (socket.disconnected !== true) refuse('refunded');
   }).catch((e) => console.error('[ENTRY] door', game, e && e.stack ? e.stack : e));
 }
@@ -824,7 +828,7 @@ const ENTRY_REFUSED = {
   settled: 'This entry was already refunded.',
   refunded: 'Could not seat you. Your entry was refunded.',
 };
-function recordEntry(r, game) {
+function recordEntry(r, game, room) {
   /* Record the buy-in here rather than at each call site: this is the one
      place every paid entry passes through, so the four join and respawn
      handlers cannot drift apart or forget one. Fire and forget, never awaited
@@ -833,9 +837,14 @@ function recordEntry(r, game) {
   if (r.ok && r.worth > 0 && r.walletAddress) {
     db.recordStake(r.walletAddress, r.worth, game || null)
       .catch(e => console.error('[STAKE]', e.message));
+    /* An arena's buy-in IS its seat (a respawn is a new buy-in, so a new game): the paid game_started for
+       product analytics (server/analytics.js, never throws). A duel's buy-in only queues, so its game starts
+       when the match does (trackDuelLobby). */
+    if (ARENA_ENTRY.has(game)) analytics.gameStarted({ wallet: r.walletAddress, game, stake: r.worth, room });
   }
   return r;
 }
+const ARENA_ENTRY = new Set(['snake', 'paper', 'agar', 'chomp']);
 
 // Phase 4d: the custodial entry-fee is gone — paid play stakes from the self-custody wallet
 // (/api/stake-quote + /api/submit-stake issue the entry token). entryStore/consumePaidEntry
@@ -1074,15 +1083,37 @@ app.get('/api/blockhash', blockhashLimiter, async (req, res) => {
    honest Cash Out and linked-wallet send, which all send a string. */
 const MAX_BROADCAST_B64 = 4096;
 app.post('/api/broadcast', walletWithdrawLimiter, express.json({ limit: '256kb' }), async (req, res) => {
-  const { signedTx } = req.body || {};
+  const { signedTx, kind } = req.body || {};
   if (typeof signedTx !== 'string' || !signedTx || signedTx.length > MAX_BROADCAST_B64) return res.status(400).json({ error: 'Missing signed transaction' });
   try {
     const sig = await Wallet.submitStake(Buffer.from(signedTx, 'base64'));
     res.json({ ok: true, sig });
+    trackBroadcast(kind, signedTx);
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
 });
+/* Product analytics for a relayed transfer that landed (server/analytics.js): the widget names it ('withdraw' or
+   'add', a linked wallet's add), and the amounts are read off the transaction itself (server/txSummary.js), never
+   from the request. A withdraw is the signer's; an add belongs to the game wallet it paid. Never throws. */
+function trackBroadcast(kind, signedTx) {
+  try {
+    if (kind !== 'withdraw' && kind !== 'add') return;
+    const t = txSummary.summarize(Buffer.from(signedTx, 'base64'));
+    if (!t) return;
+    const usdPerSol = Number(money.price ? money.price.peek() : prices.getSolUsdRate());
+    const sol = t.lamports > 0 ? t.lamports / 1e9 : 0;
+    // a token counts as dollars only when it says 6 decimals (USDC's TransferChecked); any other token has no amount
+    const isTok = !!(t.token && t.token.amount > 0);
+    const tok = isTok && t.token.decimals === 6 ? t.token.amount / 1e6 : 0;
+    const usd = isTok ? (tok > 0 ? tok : undefined) : sol > 0 && usdPerSol > 0 ? Math.round(sol * usdPerSol * 100) / 100 : undefined;
+    if (kind === 'withdraw') {
+      analytics.track('withdraw_sent', t.payer, { amount: usd, amount_sol: sol || undefined, asset: isTok ? (tok > 0 ? 'usdc' : 'token') : 'sol' });
+    } else if (t.to && sol > 0) {
+      analytics.track('funded', t.to, { amount: usd, amount_sol: sol, method: 'linked', verified: true });
+    }
+  } catch (_) { /* analytics never breaks a transfer */ }
+}
 
 /* SOL <-> USDC in the player's own wallet (server/swap.js): the one-tap Convert to USDC, and
    Withdraw as SOL. Jupiter builds the transaction, the server checks it (the order, then a
@@ -1095,6 +1126,12 @@ const swap = Swap.createSwap({
   usdcMint: () => money.usdcMint,
   refSolUsd: () => (money.price ? money.price.peek() : prices.getSolUsdRate()),
   log: (m) => console.log('[SWAP] ' + m),
+  /* Product analytics: Withdraw as SOL (USDC paid out as SOL to another wallet) is a withdraw. Never throws. */
+  onDone: ({ dir, wallet, inAmount, outAmount }) => {
+    if (dir !== 'toSol') return;
+    analytics.track('withdraw_sent', wallet, { amount: Number(inAmount) / 1e6,
+      amount_sol: outAmount != null ? Number(outAmount) / 1e9 : undefined, asset: 'usdc_as_sol' });
+  },
 });
 const swapQuoteLimiter = rateLimit({ windowMs: 60 * 1000, max: 12, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Slow down.' } });
 const swapExecLimiter = rateLimit({ windowMs: 60 * 1000, max: 6, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Slow down.' } });
@@ -1316,7 +1353,9 @@ app.post('/api/submit-stake', entryFeeLimiter, express.json({ limit: '256kb' }),
          landed, never more than the rung. */
       const entryToken = entryStore.mint({ stake: rung, worth: rung, paid: worth, walletAddress: payer,
                                            stakeSig: rec.durable ? sig : undefined });
-      return res.json({ ok: true, entryToken, worth: rung, stake: rung, paid: worth });
+      res.json({ ok: true, entryToken, worth: rung, stake: rung, paid: worth });
+      analytics.track('stake_paid', payer, { stake: rung });   // product analytics, after the answer; never throws
+      return;
     } catch (e) {
       // Refused at preflight, never forwarded: this request's row is closed now (night review 2026-10-29, finding 23)
       if (e && e.stakeUnsent && pre.durable && pre.sig) await stakeLedger.unsent(pre.sig);
@@ -3079,6 +3118,19 @@ knockoutLobby.onRefund = ({ wallet, name, amount, why }) => {
   koSend(wallet, amount, name, 'knockout refund');
 };
 
+/* Product analytics for every paid duel (server/duelTrack.js): wrapped around each lobby's own settle and refund
+   above, so the money runs first and recording never throws into it; the lobby calls onMatchStart when a match
+   begins. The winner's amount is the pot less this same cut. */
+const duelTrack = require('./duelTrack').createDuelTrack({ analytics, houseCut: KO_HOUSE_CUT });
+const trackDuelLobby = (lobby, game) => duelTrack.wrap(lobby, game);
+trackDuelLobby(knockoutLobby, 'knockout');
+trackDuelLobby(battleshipLobby, 'battleship');
+trackDuelLobby(swimLobby, 'swim');
+trackDuelLobby(headSoccerLobby, 'headsoccer');
+trackDuelLobby(pool8Lobby, 'pool8');
+trackDuelLobby(airHockeyLobby, 'airhockey');
+trackDuelLobby(rooftopLobby, 'rooftop');
+
 /* One place that actually moves it, so a failed transfer is recorded the same
    way whoever it was going to. A payout that fails is written down rather than
    retried: a re-send is how you pay twice.
@@ -3173,6 +3225,10 @@ if (REGION === 'na' && process.env.ESCROW_PRIVATE_KEY) {
   }
 }
 const botBank = require('./botBank').createBotBank({ file: path.join(path.dirname(agJournal.file), 'bot-bank.json'), chain: botWallet });
+/* Product analytics (server/analytics.js): the owner's wallets are marked is_owner, the bot bank's never sent, and a
+   box minting dev entry tokens (PAPER_DEV_TOKENS, fake money) sends nothing at all. */
+analytics.configure({ isOwner: (w) => OWNER_WALLETS.has(w), isBot: (w) => !!(botWallet && w === botWallet.address), region: REGION,
+  disabled: PAPER_DEV_TOKENS });
 /* One-time move (2026-10-17): the ledger bank already sits in escrow as the float, and the sweep sends it to the
    wallet on its own. Owen's $10.55 deposit to escrow (from his Coinbase, never claimed) is credited into the float
    through the one-time claim (markStakeSig + the bank's own list), so it can never count twice, and is swept too. */
@@ -3240,6 +3296,7 @@ let hsPaidOpen = !hsPaidSwitch.closedAtBoot().closed;
 /* Crossy Road: its lobby, its settling (Knockout's split, through koSend), and its saved paid door. */
 const crossy = crossyWire.create({ io, koSend, trackEarning, sweepRake, houseCut: KO_HOUSE_CUT, region: REGION,
   createPaidSwitchStore, journalDir: path.dirname(agJournal.file) });
+trackDuelLobby(crossy.lobby, 'crossy');
 if (!hsPaidOpen) console.warn("[HS] paid door CLOSED at boot: the owner's hs:paid:off outlived the restart");
 /* Paid 8 Ball Pool: P8_PAID_ON is the build switch (paid rungs exist at all), p8:paid:off the owner's door on top
    of it, saved like the other two. */
@@ -3302,6 +3359,10 @@ console.log(`[PAPER] paid rungs ${PAPER_PAID ? 'on' : 'OFF'}`);
    must never become a failed_payouts row that a real drainer later pays out
    of the real escrow, nor a revenue row or a PostHog event on the owner's
    real books. */
+/* Product analytics for the paid arenas' results (Paper, agar, Chomp, paid snake: their money controllers and doors,
+   server/ag/agTrack.js): each life's game_ended and every stake_refunded, from the server's own decision. None with
+   dev tokens, for the same reason as the fake money below. */
+const arenaAnalytics = PAPER_DEV_TOKENS ? null : analytics;
 const paperDevMoney = {
   unit: money.unit,
   fiatValue: (amt) => money.fiatValue(amt),
@@ -3365,13 +3426,15 @@ const paperArenas = new PaperArenas({
       .then(() => kickDrain()),
     onSweep: paperPayout.sweepFloor,
     onBreach: paperOwnerAlert,
+    /* Each paid seat's game_ended (PaperRoom _trackEnd), after its money moved. */
+    analytics: arenaAnalytics,
     /* The buy-in row, written when a paid seat is first steered rather than
        when its token is spent: a seat refunded before its first input
        (join-lost, join-timeout, seat-failed, an emergency close, a cooldown)
        must not show on the player's profile as a stake they lost (review
        finding). Through recordEntry, still the one place a buy-in is written. */
-    onStake: ({ wallet, worth, name, stake }) => {
-      recordEntry({ ok: true, worth, walletAddress: wallet }, 'paper');
+    onStake: ({ wallet, worth, name, stake, label }) => {
+      recordEntry({ ok: true, worth, walletAddress: wallet }, 'paper', label);
       joinAlerts.joined({ game: 'paper', stake, name, wallet });   // the paid phone push, once the player steers
     },
   },
@@ -3395,6 +3458,8 @@ const paper = require('./paperSockets')({
   ledger: stakeLedger,
   paidEnabled: PAPER_PAID,
   onFreeJoin: ({ name }) => joinAlerts.joined({ game: 'paper', stake: 0, name }),
+  /* A door refund's stake_refunded. */
+  analytics: arenaAnalytics,
 });
 /* The owner's paper:paid:off outlives a restart (security review item b): a close
    saved before this boot opens the paid rungs with their door shut until
@@ -3529,12 +3594,14 @@ const agMoneyHooks = {
   onFeed: () => {},
   onBreach: agOwnerAlert,
   /* The buy-in row, written on ag:ready (a seat refunded before it readied leaves no stake on the profile). */
-  onStake: ({ wallet, worth, name, stake }) => {
-    recordEntry({ ok: true, worth, walletAddress: wallet }, 'agar');
+  onStake: ({ wallet, worth, name, stake, label }) => {
+    recordEntry({ ok: true, worth, walletAddress: wallet }, 'agar', label);
     joinAlerts.joined({ game: 'agar', stake, name, wallet });   // the paid phone push, once the seat readied
   },
   onHouse: agPayout.houseIncident,
   journal: agJournal,
+  /* Each paid life's game_ended (agMoney _trackEnd), after its money moved. */
+  analytics: arenaAnalytics,
 };
 const agPaidDoorDeps = {
   /* The 'agar' door: a token scoped to another game (a Paper dev token) does not open it. */
@@ -3542,6 +3609,7 @@ const agPaidDoorDeps = {
   ledger: stakeLedger,
   refund: agPayout.refund,
   track: agInflight.track,
+  analytics: arenaAnalytics,   // a door refund's stake_refunded
 };
 const agBoot = require('./ag/agBoot').openAg({
   env: process.env,
@@ -3633,6 +3701,8 @@ const slMoneyHooks = {
   /* One record per (source wallet, eater wallet) pair per minute, in dollars. */
   onTransfer: (t) => collusion.record(t.srcWallet, t.dstWallet, t.micro / 1e6, { lobbyType: t.lobbyType || t.label }),
   journal: agJournal,
+  /* Each paid snake's game_ended (slMoney _trackEnd), after its money moved. */
+  analytics: arenaAnalytics,
 };
 /* The owner's sl:paid:off outlives a restart (review OPS-1): a close is a file
    beside the money journal (server/data/, gitignored, kept by the deploy's
@@ -3665,11 +3735,12 @@ const slPaidOpened = slPaidBoot.openSlPaid({
     journal: agJournal,
     ops,
     /* The buy-in row, written once the seat holds the money (the old snake's label). */
-    recordEntry: (entry, label) => recordEntry(entry, label),
+    recordEntry: (entry, label, room) => recordEntry(entry, label, room),
     /* The paid phone push, once the seat holds the money (server/joinAlerts.js). */
     onSeated: ({ name, stake, wallet }) => joinAlerts.joined({ game: 'sl', stake, name, wallet }),
     alert: agOwnerAlert,
     track: agInflight.track,
+    analytics: arenaAnalytics,   // a door refund's stake_refunded
   },
 });
 /* The paid directory, or null when /sl is not open (no sl rows on /api/live, the
@@ -3934,8 +4005,8 @@ const chompMoneyHooks = {
   onTransfer: (t) => collusion.record(t.srcWallet, t.dstWallet, t.micro / 1e6, { lobbyType: t.lobbyType || t.label }),
   onBreach: agOwnerAlert,
   /* The buy-in row, written on c:ready (a seat refunded before it readied leaves no stake on the profile). */
-  onStake: ({ wallet, worth, name, stake }) => {
-    recordEntry({ ok: true, worth, walletAddress: wallet }, 'chomp');
+  onStake: ({ wallet, worth, name, stake, label }) => {
+    recordEntry({ ok: true, worth, walletAddress: wallet }, 'chomp', label);
     joinAlerts.joined({ game: 'chomp', stake, name, wallet });
   },
   onHouse: chompPayout.houseIncident,
@@ -3943,6 +4014,8 @@ const chompMoneyHooks = {
      the house), on the rake's own path as chomp_floor income. */
   onSweep: chompPayout.sweepFloor,
   journal: agJournal,
+  /* Each paid life's game_ended (agMoney _trackEnd, which Chomp's money extends), after its money moved. */
+  analytics: arenaAnalytics,
 };
 const chompGame = require('./chomp/chompBoot').openChomp({
   io,
@@ -3956,6 +4029,7 @@ const chompGame = require('./chomp/chompBoot').openChomp({
       ledger: stakeLedger,
       refund: chompPayout.refund,
       track: agInflight.track,
+      analytics: arenaAnalytics,   // a door refund's stake_refunded
     },
   },
   paidSwitch: chompPaidSwitch,
@@ -5466,6 +5540,33 @@ function freeMoveOk(socket, lobby) {
   };
 }
 
+/* Product analytics for a paid snake on the old engine (server/analytics.js): game_ended once per paid life, at the
+   server's own decision and after its money moved; its game_started is recordEntry's (the PLAY or RESPAWN buy-in).
+   A death goes through GameRoom.killSnake's one seam, noteFallen (put on a room the first time a paid snake is seated
+   in it; the battle royale keeps its own), a cash-out through doCashout, a leave through the disconnect handler. Free
+   snakes, bots and the battle royale send nothing. Money in dollars (the snake's worth). Never throws. */
+function oldSnakeEnded(room, wallet, snake, result, amount, reason) {
+  try {
+    if (!room || room.isBattleRoyale || !wallet) return;
+    const score = snake && Number.isFinite(snake.score) ? Math.floor(snake.score) : undefined;
+    analytics.gameEnded({ wallet, game: 'slither', result, amount, score, reason, room: room.lobbyType });
+  } catch (_) { /* analytics never breaks a game */ }
+}
+function trackOldSnakeDeaths(room) {
+  if (!room || room.isBattleRoyale || room._trackedFallen || typeof room.noteFallen === 'function') return;
+  room._trackedFallen = true;
+  room.noteFallen = (snake) => {
+    try {
+      // called before die(): a paid human's worth is still on it, and all of it drops as cash (nothing is paid to the
+      // player). Sent once killSnake has dropped it (a microtask), never inside the tick's own work.
+      if (!snake || !(snake.worth > 0)) return;
+      const p = room.players.get(snake.id);
+      const wallet = p && p.socket ? p.socket._walletAddress : null;
+      if (wallet) queueMicrotask(() => oldSnakeEnded(room, wallet, snake, 'died', 0, 'killed'));
+    } catch (_) { /* analytics never breaks a death */ }
+  };
+}
+
 io.on('connection', (socket) => {
   /* Counted here, after the handshake check above (a socket that never connects is never counted). Two that
      passed together past the limit: the late one is let go at once, before it has a handler. */
@@ -5602,6 +5703,7 @@ io.on('connection', (socket) => {
          verified payer, else the wallet this socket proved, else none. Never the client's
          walletAddress (finder-4: the free BR prize went to whatever wallet the client named). */
       room.addPlayer(socket, playerName, entry.walletAddress || socketIdentity.proven(socket) || null, color || null, entry.worth);
+      if (entry.worth > 0) trackOldSnakeDeaths(room);   // product analytics: this room's paid deaths (game_ended)
       joinAlerts.joined({ game: room.isBattleRoyale ? 'br' : 'snake', stake: entry.worth > 0 ? (socket._stake || entry.worth) : 0,
         name: playerName, wallet: entry.walletAddress, region: rgn });
       lobbyConnections.delete(socket);
@@ -5734,6 +5836,8 @@ io.on('connection', (socket) => {
             console.error(`[CASHOUT] CRITICAL: self-custody payout failed for ${wallet} — owed ${playerShare.toFixed(6)} ${money.unit}: ${r.error && r.error.message}`);
             socket.emit('cashout:error', { message: 'Payout delayed — your winnings are recorded and will be sent. Contact support if they don\'t arrive.' });
           }));
+        // product analytics, once the payout is on its way (the battle royale's prize sends nothing)
+        oldSnakeEnded(room, wallet, snake, 'cashed_out', playerShare, 'hold');
       }
       return;
     }
@@ -5886,6 +5990,7 @@ io.on('connection', (socket) => {
         socketIdentity.fromEntry(socket, entry); // the verified payer (security review item e)
       }
       room.respawnPlayer(socket.id, entry.worth);
+      if (entry.worth > 0) trackOldSnakeDeaths(room);   // product analytics: this room's paid deaths (game_ended)
       const _rs = room.snakes.get(socket.id);
       /* A paid play again is a real stake, so it stays the loud push it was. A free one goes through joinAlerts like
          every free join (the muted free topic, capped, once per name per 10 min): it used to be a direct push to the
@@ -7226,7 +7331,9 @@ io.on('connection', (socket) => {
           const duration = joinTime ? Math.round((Date.now() - joinTime) / 1000) : 0;
           db.recordGameResult(gid, s.score, duration).catch(() => {});
         }
+        const paidLeft = s && s.alive && s.worth > 0 ? s : null;   // its cash drops in removePlayer
         room.removePlayer(socket.id);
+        if (paidLeft) oldSnakeEnded(room, socket._walletAddress, paidLeft, 'left', 0, 'disconnect');
         broadcastLobbyState();
       };
       if (snake && snake.alive && socket._reconnectKey) {
@@ -7239,7 +7346,9 @@ io.on('connection', (socket) => {
           const duration = socket._joinTime ? Math.round((Date.now() - socket._joinTime) / 1000) : 0;
           await db.recordGameResult(socket._googleId, snake.score, duration).catch(() => {});
         }
+        const paidLeft = snake && snake.alive && snake.worth > 0 ? snake : null;   // its cash drops in removePlayer
         room.removePlayer(socket.id);
+        if (paidLeft) oldSnakeEnded(room, socket._walletAddress, paidLeft, 'left', 0, 'disconnect');
       }
     }
     socketIdentity.forget(socket);   // only this socket's own owner-alert registration, if it had one

@@ -243,6 +243,7 @@ class ChompMoney extends AgMoney {
     acct.lostMicro = micro;
     this._close(acct, 'eaten', { lostMicro: micro, by: typeof f.byName === 'string' ? f.byName : '', byPid: f.by || 0,
       ghost: f.ghost === true });
+    this._trackEnd(acct, 'died', 0, f.ghost === true ? 'ghost' : 'caught');
   }
 
   // A chomper on tile k takes every coin there: a live (or grace) paid account, or a bounty bot. An unconfirmed,

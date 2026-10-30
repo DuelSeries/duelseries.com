@@ -52,6 +52,32 @@ const WATCH_STAKE = (() => {
   try { const s = Number(sessionStorage.getItem('dsWatchStake')); sessionStorage.removeItem('dsWatchStake'); return Number.isFinite(s) && s > 0 ? s : 0; }
   catch (_) { return 0; }
 })();
+/* Product tracking (public/js/shared/dsTrack.js; every event name is in shared/trackPlan.js), as knockout.js does
+   it: one session for this page, the wait, each race and its result, or Spectate. A paid race's start and end are
+   the server's to send; leaving mid-race is the helper's own. Never lets a failure reach the game. */
+const TRACKER = (() => {
+  try {
+    if (!window.DSTrack) return null;
+    const stake = WATCH ? WATCH_STAKE : myStake;
+    const t = window.DSTrack.game('swim', { paid: stake > 0, stake, mode: stake > 0 ? 'paid' : 'free' });
+    if (WATCH) t.spectate();
+    return t;
+  } catch (_) { return null; }
+})();
+function trackStep(step, arg) {
+  if (!TRACKER) return;
+  try {
+    if (step === 'queue') {
+      if (TRACKER.stage === 'queue') return;              // a reconnect's resumed seat is the same wait
+      TRACKER.set({ vs_bot: undefined, room: undefined });   // the last race's, not this queue's
+    }
+    TRACKER[step](arg);
+  } catch (_) { /* analytics never breaks the game */ }
+}
+// won, lost or draw; lost because this car's own connection stayed down is 'left' (see knockout.js).
+function trackResult(won, why) {
+  return won === true ? 'won' : won === false ? (why === 'opponent left' ? 'left' : 'lost') : 'draw';
+}
 const TOUCH = (() => { try { return matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window; } catch (_) { return false; } })();
 if (TOUCH) document.body.classList.add('touch');
 document.title = NAME + ' · DuelSeries';
@@ -514,6 +540,7 @@ socket.on('connect', () => {
 });
 function connectionLost(restart) {
   if (!race) return;
+  trackStep('end', restart ? { result: 'ended', reason: 'server restarted' } : { result: 'left', reason: 'disconnected' });
   if (restart) {
     /* The server restarted for an update mid-race: a paid race is refunded in full (duelQueue.shutdownRows). */
     race.state = 'over'; seatKey = null; hideNote();
@@ -570,6 +597,7 @@ socket.on('sw:queued', (q = {}) => {
   if (typeof q.resumeKey === 'string') resumeKey = q.resumeKey;
   const total = Number(q.waitMs) > 0 ? Number(q.waitMs) : WAIT_MS;
   startWait(total - (Number(q.waitingMs) || 0));
+  trackStep('queue');
 });
 function queue(token, resume) {
   overShown = false; lastOver = null;
@@ -624,6 +652,7 @@ socket.on('sw:start', (m) => {
   SOUND.play('g.join');
   pingBurst();
   showRaceUi(race);
+  trackStep('start', { vs_bot: !!m.vsBot, room: m.id });
 });
 socket.on('sw:go', () => { /* the clock already knows; the server says it for watchers that arrive late */ });
 socket.on('sw:s', (m) => {
@@ -666,6 +695,9 @@ function showOver(m) {
   const won = m.winnerSide === race.side;
   if (m.winnerSide === null || m.winnerSide === undefined) SOUND.play('g.lose');
   else SOUND.play(won ? 'g.win' : 'g.lose');
+  // The score is the metres driven.
+  trackStep('end', { result: trackResult(m.winnerSide === null || m.winnerSide === undefined ? null : won, m.why),
+    score: Math.max(0, Math.round(lastOver.metres || 0)), reason: m.why });
   if (!won && m.why === 'crashed' && !race.crashed) crashed(race);
   restake = null; restakeLine = '';
   $('warn').hidden = true; $('pads').hidden = true;
@@ -765,6 +797,7 @@ socket.on('sw:unqueued', ({ refunded, why } = {}) => {
   if (WATCH || (race && race.state !== 'over')) return;
   if (!refunded) {
     if (why !== 'the match could not start') return;
+    trackStep('unqueue', why);
     stopWait(); resumeKey = null;
     $('wait').hidden = false; waitSpin(false);
     $('waitMain').textContent = 'Could not start the race';
@@ -772,6 +805,7 @@ socket.on('sw:unqueued', ({ refunded, why } = {}) => {
     $('waitCancel').textContent = 'Back to the lobby';
     return;
   }
+  trackStep('unqueue', why || 'refunded');
   stopWait(); resumeKey = null; waitPaid = false;
   $('wait').hidden = false; waitSpin(false);
   $('waitMain').textContent = 'Buy-in refunded';
@@ -786,6 +820,7 @@ socket.on('sw:unqueued', ({ refunded, why } = {}) => {
 socket.on('sw:refused', ({ why } = {}) => {
   if (WATCH || (race && race.state !== 'over')) return;
   const lost = waiting && waitPaid && resumeKey;
+  trackStep('unqueue', 'refused');
   stopWait(); resumeKey = null; waitPaid = false;
   $('wait').hidden = false; waitSpin(false);
   $('waitMain').textContent = 'Not seated';
@@ -795,6 +830,7 @@ socket.on('sw:refused', ({ why } = {}) => {
 });
 socket.on('maintenance', () => {
   if (race && race.state !== 'over') return;
+  trackStep('unqueue', 'maintenance');
   stopWait();
   $('wait').hidden = false; waitSpin(false);
   $('waitMain').textContent = 'Back in a minute';

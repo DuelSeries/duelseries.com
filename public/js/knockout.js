@@ -146,6 +146,36 @@ const WATCH_STAKE = (() => {
     return Number.isFinite(s) && s > 0 ? s : 0;
   } catch (_) { return 0; }
 })();
+
+/* PRODUCT TRACKING (public/js/shared/dsTrack.js; every event name is in shared/trackPlan.js). One session for this
+   page: the wait, each match and its result, or Spectate. A paid match's start and end are the server's to send, so
+   there the page's start and end only time the match and close its FPS and ping summary. Leaving mid-match is the
+   helper's own (game_quit). Never lets a failure reach the game. */
+const TRACKER = (() => {
+  try {
+    if (!window.DSTrack) return null;
+    const stake = WATCH ? WATCH_STAKE : myStake;
+    const t = window.DSTrack.game('knockout', { paid: stake > 0, stake, mode: stake > 0 ? 'paid' : 'free' });
+    if (WATCH) t.spectate();
+    return t;
+  } catch (_) { return null; }
+})();
+function trackStep(step, arg) {
+  if (!TRACKER) return;
+  try {
+    if (step === 'queue') {
+      if (TRACKER.stage === 'queue') return;              // a reconnect's resumed seat is the same wait
+      TRACKER.set({ vs_bot: undefined, room: undefined });   // the last match's, not this queue's
+    }
+    TRACKER[step](arg);
+  } catch (_) { /* analytics never breaks the game */ }
+}
+/* won, lost or draw; lost because this seat's own connection stayed down is 'left' (the server calls that the
+   opponent leaving, as the other seat sees it). */
+function trackResult(won, why) {
+  return won === true ? 'won' : won === false ? (why === 'opponent left' ? 'left' : 'lost') : 'draw';
+}
+
 const WATCH_NEXT_MS = 3000;   // between asks while no match is running
 const WATCH_OVER_MS = 1800;   // how long a finished match's result stays up before the next one
 const WATCH_SWAP_MS = 1500;   // how long the arrows rest for an answer that never comes
@@ -646,6 +676,8 @@ function apply(state) {
    a reconnect asks again rather than assuming it is still on the list. */
 socket.on('connect', () => {
   if (WATCH) { me = seatId(0); swapping = false; watch(null); return; }
+  /* A reconnect mid-match queues afresh below: the match it was in is lost with the old socket. */
+  if (st && !overShown) trackStep('end', { result: 'left', reason: 'disconnected' });
   me = socket.id;
   /* A reconnect while waiting takes the same seat back (the key the server sent with ko:queued): the
      same place, the same minute, and for a paid seat the same buy-in, with no new token. */
@@ -697,6 +729,7 @@ socket.on('ko:queued', (q = {}) => {
   if (typeof q.resumeKey === 'string') resumeKey = q.resumeKey;
   const total = Number(q.waitMs) > 0 ? Number(q.waitMs) : WAIT_MS;
   startWait(total - (Number(q.waitingMs) || 0));
+  trackStep('queue');
 });
 
 /* `token`: a paid Play again's fresh entry, from the lobby's wallet. Without
@@ -741,6 +774,7 @@ socket.on('ko:start', (raw) => {
   reveal = null; ringFall.clear(); drawR = 0;
   apply(state);
   runCountdown(state.phaseMs || 3000);
+  if (!WATCH && raw) trackStep('start', { vs_bot: !!raw.vsBot, room: raw.id });
 });
 
 socket.on('ko:turn', (raw) => {
@@ -800,6 +834,10 @@ socket.on('ko:over', (m) => {
   paintOver();
   $('bar').hidden = true;
   chatShow(false);
+  // The score is my pieces still on the disc.
+  const mine = ((st && st.players) || []).find(p => p && p.id === me);
+  trackStep('end', { result: trackResult(lastOver.winnerId ? lastOver.winnerId === me : null, lastOver.why),
+    score: mine ? mine.left : undefined, reason: lastOver.why });
 });
 
 /* ── the result card ───────────────────────────────────────────────────────
@@ -967,6 +1005,7 @@ socket.on('ko:unqueued', ({ refunded, why } = {}) => {
   /* A free seat whose match could not start: said, with the way back, rather than a clock that runs out. */
   if (!refunded) {
     if (why !== 'the match could not start') return;
+    trackStep('unqueue', why);
     stopWait(); resumeKey = null;
     $('wait').hidden = false;
     waitSpin(false);
@@ -975,6 +1014,7 @@ socket.on('ko:unqueued', ({ refunded, why } = {}) => {
     $('waitCancel').textContent = 'Back to the lobby';
     return;
   }
+  trackStep('unqueue', why || 'refunded');
   stopWait(); resumeKey = null; waitPaid = false;
   $('wait').hidden = false;
   waitSpin(false);                      // no longer looking
@@ -997,6 +1037,7 @@ socket.on('ko:refused', ({ why } = {}) => {
     /* A paid reconnect whose seat could not be taken back (the server restarted, say): never "unpaid",
        because it was paid; a seat the server lost is refunded by the server. */
     const lost = waiting && waitPaid && resumeKey;
+    trackStep('unqueue', 'refused');
     stopWait(); resumeKey = null; waitPaid = false;
     $('wait').hidden = false;
     waitSpin(false);

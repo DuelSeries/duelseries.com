@@ -461,7 +461,7 @@ async function sendSol(toAddress, amountSol, wallet, signTransaction) {
   const serialized = tx.serialize({ requireAllSignatures: false, verifySignatures: false });
   const { signedTransaction } = await signTransaction({ transaction: serialized, wallet });
   const signedTx = Buffer.from(signedTransaction).toString('base64');
-  const r = await (await fetch('/api/broadcast', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ signedTx }) })).json();
+  const r = await (await fetch('/api/broadcast', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ signedTx, kind: 'withdraw' }) })).json();
   if (!r.ok) throw new Error(r.error || 'Send failed');
   return r.sig;
 }
@@ -485,7 +485,7 @@ async function sendUsdc(toAddress, amountUsdc, mint, decimals, wallet, signTrans
   const serialized = tx.serialize({ requireAllSignatures: false, verifySignatures: false });
   const { signedTransaction } = await signTransaction({ transaction: serialized, wallet });
   const signedTx = Buffer.from(signedTransaction).toString('base64');
-  const r = await (await fetch('/api/broadcast', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ signedTx }) })).json();
+  const r = await (await fetch('/api/broadcast', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ signedTx, kind: 'withdraw' }) })).json();
   if (!r.ok) throw new Error(r.error || 'Send failed');
   return r.sig;
 }
@@ -499,16 +499,51 @@ if (typeof window !== 'undefined') {
   });
 }
 
+/* Product tracking: the sign-in funnel (shared/trackPlan.js), sent through the lobby's helper
+   (public/js/shared/dsTrack.js, window.DSTrack), which identifies the player by wallet on its own once the wallet is
+   published. Never a wallet, an email or a token: an error is Privy's code, or its words with anything shaped like an
+   address or an email taken out (a status code stays: no money figure is ever in these). Nothing here can stand in the
+   way of signing in. */
+const SIGNIN_METHOD = { siws: 'wallet', siwe: 'wallet', sms: 'phone' };
+const errWords = (m) => String(m || '').replace(/[1-9A-HJ-NP-Za-km-z]{32,}/g, '…').replace(/\S+@\S+/g, '…').slice(0, 100);
+function signinOpened(where) {
+  try { if (window.DSTrack) window.DSTrack.event('signin_opened', { where: typeof where === 'string' ? where : undefined }); } catch (_) {}
+}
+/* One signed_in per sign-in, from Privy's onComplete (a wallet sign-in included: it used to be a second event of its
+   own, sent later from the device key step). */
+function signedInEvent(loginMethod, isNewUser, account) {
+  try {
+    if (!window.DSTrack) return;
+    const m = String(loginMethod || '');
+    const c = (m === 'siws' || m === 'siwe') && account ? String(account.walletClientType || '') : '';
+    const k = c ? WALLETS.find((x) => x.client === c) : null;
+    window.DSTrack.event('signed_in', { method: SIGNIN_METHOD[m] || m || undefined,
+      new_user: typeof isNewUser === 'boolean' ? isNewUser : undefined, wallet_app: k ? k.label : c || undefined });
+  } catch (_) {}
+}
+/* Privy's useLogin onError: the window closed without signing in is a give-up, anything else went wrong. */
+function signinErrorEvent(code) {
+  try {
+    if (!window.DSTrack) return;
+    const c = String(code || 'unknown_auth_error');
+    if (c === 'exited_auth_flow') window.DSTrack.event('signin_abandoned', { step: 'privy' });
+    else if (c === 'oauth_user_denied') window.DSTrack.event('signin_abandoned', { step: 'oauth' });
+    else window.DSTrack.event('signin_failed', { step: 'privy', error: errWords(c) });
+  } catch (_) {}
+}
+
 function WalletPanel() {
   const { ready, authenticated, user, logout, getAccessToken, unlinkWallet } = usePrivy();
   /* A browser wallet signed in through Privy's modal: noted here, finished below (the device key). */
   /* State, not a ref: Privy can call onComplete after the signed-in render, and the effect must run again then. */
   const [walletSignedIn, setWalletSignedIn] = useState(null);
   const { login } = useLogin({
-    onComplete: ({ loginMethod, loginAccount, wasAlreadyAuthenticated }) => {
+    onComplete: ({ isNewUser, loginMethod, loginAccount, wasAlreadyAuthenticated }) => {
+      if (!wasAlreadyAuthenticated) signedInEvent(loginMethod, isNewUser, loginAccount);
       if (wasAlreadyAuthenticated || loginMethod !== 'siws' || !loginAccount) return;
       setWalletSignedIn({ address: loginAccount.address, at: Date.now() });
     },
+    onError: (code) => signinErrorEvent(code),
   });
   // Carries the linked accounts with it, so the server can resolve the wallet in one
   // call that Privy does not rate limit. Null unless identity tokens are switched on
@@ -517,7 +552,17 @@ function WalletPanel() {
   const { wallets: solWallets } = useSolanaWallets();
   const { signTransaction } = useSignTransaction();
   const { signMessage } = useSignMessage();
-  const { fundWallet } = useFundWallet();
+  /* Which way the player paid in Privy's Add funds sheet, for the lobby's funding count (dsTrack.js): MoonPay or
+     Coinbase is a card, Transfer from wallet or Receive funds is crypto. Analytics only, never money. */
+  const { fundWallet } = useFundWallet({
+    onUserExited: ({ fundingMethod }) => {
+      try {
+        const m = fundingMethod === 'moonpay' || fundingMethod === 'coinbase-onramp' ? 'card'
+          : fundingMethod === 'external' || fundingMethod === 'manual' ? 'crypto' : null;
+        if (m && window.DSTrack && window.DSTrack.fundMethod) window.DSTrack.fundMethod(m);
+      } catch (_) {}
+    },
+  });
   useSolanaFundingPlugin();   // Privy's Transfer from wallet builds its Solana send with this
   const { createWallet } = useCreateSolanaWallet();
   const { refreshUser } = useUser();
@@ -630,14 +675,17 @@ function WalletPanel() {
         const r = await setupRef.current.ensure();
         if (r.ok) { if (D) D.close(); return true; }
         console.warn('[wallet-widget] wallet setup failed:', (r.error && r.error.message) || r.error);
-        try { window.phEvent && window.phEvent('wallet_setup_failed', { error: String((r.error && r.error.message) || r.error).slice(0, 200) }); } catch (_) {}
+        try { if (window.DSTrack) window.DSTrack.event('wallet_setup_failed', { error: errWords((r.error && r.error.message) || r.error) }); } catch (_) {}
         if (!D) return false;
         const again = await D.confirm(privyFrameReady
           ? { title: "Your wallet didn't load", line: 'Check your connection and try again. Your account is safe.', ok: 'Try again', cancel: 'Not now' }
           : { title: 'Your browser is blocking your wallet', line: /Edg\//.test(navigator.userAgent)
               ? 'Click the lock icon in the address bar, set Tracking prevention to Off for this site, then try again. Your account is safe.'
               : 'Turn off tracking protection or ad blockers for this site, then try again. Your account is safe.', ok: 'Try again', cancel: 'Not now' });
-        if (!again) return false;
+        if (!again) {
+          try { if (window.DSTrack) window.DSTrack.event('signin_abandoned', { step: 'wallet_setup' }); } catch (_) {}
+          return false;
+        }
       }
     };
     const p = run().finally(() => { setupUi.current = null; });
@@ -650,8 +698,9 @@ function WalletPanel() {
   }, [ready, authenticated, user && user.id, hasSolWallet]);
 
   /* Sign in always does something: signed in without a wallet makes the wallet; Privy still
-     starting is waited for (up to 10 s) with the card up, then login, or a plain message. */
-  const signIn = async () => {
+     starting is waited for (up to 10 s) with the card up, then login, or a plain message.
+     where: which button asked (the lobby passes 'header', 'play', 'skin_buy', ...), for the sign-in funnel only. */
+  const signIn = async (where) => {
     let p = privyRef.current;
     if (!p.ready) {
       const D = window.DSDialog;
@@ -661,10 +710,13 @@ function WalletPanel() {
       p = privyRef.current;
       if (D) D.close();
       if (!p.ready) {
+        signinOpened(where);
+        try { if (window.DSTrack) window.DSTrack.event('signin_failed', { step: 'loading', error: 'privy_not_ready' }); } catch (_) {}
         if (D) D.alert({ title: "Sign in didn't load", line: 'Check your connection, or turn off blockers for this site, then try again.' });
         return;
       }
     }
+    if (!p.authenticated) signinOpened(where);
     if (p.authenticated) { if (!solanaAddress(p.user)) setUpWallet(); return; }
     p.login();
   };
@@ -707,7 +759,6 @@ function WalletPanel() {
     setWalletSignedIn(null);
     const D = window.DSDialog;
     const name = extStd.name;
-    try { window.phEvent && window.phEvent('wallet_signin', { wallet: name }); } catch (_) {}
     signingIn.current = true;
     const asked = !loadDeviceKey(localStorage, address);   // a key already here: no card was opened, none to close
     deviceKeyFor(extStd, address, D).finally(() => {
@@ -740,7 +791,7 @@ function WalletPanel() {
     let want = false;
     try { const u = new URL(window.location.href); want = u.searchParams.get('signin') === 'wallet';
       if (want) { u.searchParams.delete('signin'); window.history.replaceState(null, '', u.toString()); } } catch (_) {}
-    if (want && !authenticated) signIn();
+    if (want && !authenticated) signIn('wallet_app');
   }, [ready]);
 
   const applyBalances = (b) => { setBalance(b.balance); setSol(b.sol); setUsdc(b.usdc); setSolUsd(b.solUsd); setStale(b.stale === true); };
@@ -1086,7 +1137,7 @@ function WalletPanel() {
       if (!std) throw new Error((k ? k.label : 'That wallet') + ' is not installed in this browser.');
       const addr = await inTime(linkWith(std, { generateSiwsMessage: (a) => linkRef.current.generateSiwsMessage(a),
         linkWithSiws: (a) => linkRef.current.linkWithSiws(a), gameAddress: address }), 120000, std.name + ' did not answer. Open it and try again.');
-      try { window.phEvent && window.phEvent('wallet_linked', { wallet: k.label }); } catch (_) {}
+      try { if (window.DSTrack) window.DSTrack.event('wallet_linked', { wallet_app: k.label }); } catch (_) {}
       return { address: addr, name: k.label };
     };
     // Forget the linked wallet on the account. Its money stays where it is; nothing moves.
@@ -1122,7 +1173,7 @@ function WalletPanel() {
       const { signedTransaction } = await signTransactionWith(linkedStd, linked.address, bytes);
       try { if (opts && typeof opts.onSigned === 'function') opts.onSigned(); } catch (_) {}
       const r = await (await fetch('/api/broadcast', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ signedTx: Buffer.from(signedTransaction).toString('base64') }) })).json();
+        body: JSON.stringify({ signedTx: Buffer.from(signedTransaction).toString('base64'), kind: 'add' }) })).json();
       if (!r.ok) throw new Error(r.error || 'The transfer did not go through. Check both balances before trying again.');
       fetchBalances(address, { fresh: true }).then(applyBalances).catch(() => {});
       return { sig: r.sig, lamports: n };

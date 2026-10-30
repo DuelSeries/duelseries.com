@@ -45,6 +45,14 @@
   var isTouch = false;
   try { isTouch = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches); } catch (e) { isTouch = false; }
   var flow = null, pcard = null, lock = null, hold = null, paidChip = null;
+  // Product tracking (public/js/shared/dsTrack.js, every name checked against shared/trackPlan.js): this page's player,
+  // made at boot below once the page knows its rung, never on an attract page. One call per seat, end and Spectate,
+  // never per frame; a paid seat's start and end are the server's, the page's calls then only time it.
+  var track = null;
+  function tracked(fn) {
+    if (!track) return;
+    try { fn(track); } catch (e) { /* analytics never breaks the game */ }
+  }
   // a hold pressed while the spawn blink still protects you counts only once it ends (the server's rule): say so
   function holdPressed() {
     if (!hold) return;
@@ -131,7 +139,10 @@
       chat.add({ name: m.name, text: m.text, me: !!m.me, color: m.me ? '#ffff00' : (draw ? draw.L.players[(m.c % others) + 1] : '#dedeff') });
     });
     socket.on('c:chatnote', function (m) { if (chat && m && m.text) chat.add({ kind: 'sys', text: m.text }); });
-    socket.on('c:you', function (m) { unveil(); closeWatch(); myId = m.id; (m.metas || []).forEach(setMeta); predicting = false; phase = 'play'; titleEl.hidden = true; readyUntil = performance.now() + 1500; cueSpawn(); Snd.play('ch.ready'); });
+    socket.on('c:you', function (m) {
+      unveil(); closeWatch(); myId = m.id; (m.metas || []).forEach(setMeta); predicting = false; phase = 'play'; titleEl.hidden = true; readyUntil = performance.now() + 1500; cueSpawn(); Snd.play('ch.ready');
+      tracked(function (t) { t.start(); });   // seated: a new game (Play again after a game over is another)
+    });
     socket.on('c:s', onSnap);
     socket.on('c:dots', onDots);
     socket.on('c:ev', onEvents);
@@ -151,6 +162,8 @@
     socket.on('c:dead', onPaidDead);
     socket.on('c:cashedout', function (p) {
       var life = { secs: Math.round((performance.now() - (lifeT0 || performance.now())) / 1000), score: myScore };
+      // a resumed receipt repeats a cash-out already counted (the paid game_ended is the server's)
+      if (!(p && p.resumed)) tracked(function (t) { t.end({ result: 'cashed_out', amount: (Number(p && p.netMicro) || 0) / 1e6, score: life.score }); });
       seatEnded();
       if (pcard) pcard.showCashed(p, p && p.resumed ? null : life);
       if (flow) flow.onEvent('ag:cashedout', p);
@@ -158,7 +171,10 @@
     });
     socket.on('c:paid', function (p) { if (pcard && p) pcard.paid(p.sig, null); });
     socket.on('c:payerror', function (p) { if (pcard) pcard.payError(p && p.message); });
-    socket.on('c:closed', function (p) { seatEnded(); if (pcard) pcard.showClosed(p); if (flow) flow.onEvent('ag:closed', p); });
+    socket.on('c:closed', function (p) {
+      tracked(function (t) { t.end({ result: Number(p && p.refundedMicro) > 0 ? 'refunded' : 'ended', reason: 'closed' }); });
+      seatEnded(); if (pcard) pcard.showClosed(p); if (flow) flow.onEvent('ag:closed', p);
+    });
     socket.on('c:refunded', function (p) { if (flow) flow.onEvent('ag:refunded', p); });
     socket.on('c:replaced', function (p) { seatEnded(); if (flow) flow.onEvent('ag:replaced', p); });
     socket.on('connect', function () { if (flow) flow.onConnect(); });
@@ -166,7 +182,11 @@
       predicting = false;
       if (hold) hold.reset();
       if (flow) { if (lock) lock.drop(); flow.onDisconnect(); return; }
-      if (phase === 'play') { phase = 'title'; titleEl.hidden = false; }
+      if (phase === 'play') {
+        // a free chomper goes with its socket: that game is over
+        tracked(function (t) { t.end({ result: 'ended', reason: 'disconnect', score: myScore }); });
+        phase = 'title'; titleEl.hidden = false;
+      }
     });
   }
 
@@ -184,6 +204,7 @@
   function onPaidDead(p) {
     var mine = myId, wait = p && p.resumed ? 0 : Math.round(R.DEATH_S * 1000) + 200;
     if (mine && !(p && p.resumed)) Snd.play('ch.death');
+    tracked(function (t) { t.end({ result: 'died', score: myScore, place: myRank || undefined, players: roomN || undefined }); });
     seatEnded();
     if (mine) dying.set(mine, performance.now());
     clearTimeout(deadTimer);
@@ -214,6 +235,7 @@
     if (lock) lock.setMoney(true);
     readyUntil = performance.now() + 1500; cueSpawn(); Snd.play('ch.ready');
     syncCashBtn();
+    tracked(function (t) { t.set({ paid: true, stake: Number(p.stake) > 0 ? Number(p.stake) : hand.stake, mode: 'paid' }); t.start(); });
   }
   function usd(micro) { return window.DSEnd ? window.DSEnd.usd(micro) : '$' + (micro / 1e6).toFixed(2); }
 
@@ -379,6 +401,8 @@
   // Play again.
   function onOver(m) {
     phase = 'over'; predicting = false; myId = 0;
+    // every life gone: the game's end, with the score, rank and room size the card shows
+    tracked(function (t) { t.end({ result: 'died', score: m && m.score, place: m && m.rank, players: m && m.of }); });
     if (!window.DSEnd) { titleEl.hidden = false; phase = 'title'; return; }
     var secs = m.secs || 0;
     window.DSEnd.show({
@@ -433,6 +457,7 @@
   function startWatch() {
     unveil();
     phase = 'watch'; titleEl.hidden = true; predicting = false;
+    tracked(function (t) { if (t.stage !== 'spectating') t.spectate(); });
     if (window.DSWatchBar) window.DSWatchBar.open({
       game: 'chomp', stake: 0,
       onPrev: function () { stepWatch(-1); },
@@ -884,6 +909,13 @@
       setTimeout(startWatch, 600);
     }
   } catch (e) { /* storage blocked: the title card shows */ }
+  // the page's player for product tracking (track above): a paid seat, a paid rung watched, or the free room
+  if (!attract && window.DSTrack && typeof window.DSTrack.game === 'function') {
+    try {
+      track = window.DSTrack.game('chomp', paidMode ? { paid: true, stake: hand.stake, mode: 'paid' }
+        : watchStake > 0 ? { paid: true, stake: watchStake, mode: 'paid' } : { paid: false, stake: 0, mode: 'free' });
+    } catch (e) { track = null; }
+  }
   if (paidMode) {
     titleEl.hidden = true;
     unveil();

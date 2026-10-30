@@ -329,7 +329,21 @@ class BattleshipLobby {
     /* The lobby's clock, as in KnockoutLobby.makeMatch: a bot match made on tick(t) is stamped t, so a
        test driving a timeline (or a stall between two clock reads) cannot age its minute to place. */
     room.start(typeof now === 'number' ? now : Date.now());
+    this.matchStarted(room);
     return room;
+  }
+
+  /* Product analytics: the match began, once per room, after its seats exist (KnockoutLobby.matchStarted). */
+  matchStarted(room) {
+    if (typeof this.onMatchStart === 'function') {
+      try {
+        if (!room || room.state === 'waiting' || !room.players) return;
+        const seats = [...room.players.entries()].map(([id, p]) => ({
+          id, wallet: (p && p.wallet) || null, worth: (room.worth && room.worth.get(id)) || 0,
+        }));
+        this.onMatchStart({ roomId: room.id, seats, vsBot: !!room.bot });
+      } catch (e) { /* analytics never breaks a match */ }
+    }
   }
 
   roomOf(socketId) {

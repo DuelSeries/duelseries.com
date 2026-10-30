@@ -285,6 +285,12 @@
     return;
   }
 
+  // Product tracking's base for this page (slxTrack): a paid seat at its rung, or a page held by its reload mark (it
+  // never plays free). The rung is the server's once {t: 'room'} came. Never the token.
+  slx.trackBase = function () {
+    return paid ? { paid: true, stake: st.stake, mode: 'paid' } : { paid: true, mode: 'paid' };
+  };
+
   // ---- the card hooks (slxCard reads them at the moment it needs them)
   function againFor() {
     if (st.restaking) return st.restakeSlow ? { text: TEXT.againSlow, disabled: true } : { text: TEXT.againAsk, disabled: true };

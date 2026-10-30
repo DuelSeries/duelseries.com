@@ -9,6 +9,7 @@ const { makeArena, REASON, P, MP } = require('./ArenaGame');
 const PaperBank = require('./PaperBank');
 const { ArenaWire } = require('./arenaWire');
 const arenaTrim = require('./arenaTrim');
+const agTrack = require('../ag/agTrack');
 
 // The territory trim is on: the T14 soak (test/paperSoak.test.js) passed three runs in a row
 // (design 9.6). A room built with trim: null still runs without it.
@@ -49,6 +50,10 @@ const BANK_SPENT = '#botbank:spent';
 // A person's death that is its own doing, with no killer: pp:leave, the grace running out, its own trail (night review
 // 2026-10-29). A bot room's hour sweep takes the house cut from such a coin (sweepPickups).
 const SELF_EXIT = new Set([REASON.LEAVE, REASON.DISCONNECT, REASON.SELF_CROSS, REASON.WALL]);
+// How a paid square went, in the words its game_ended carries (product analytics, _trackEnd).
+const REASON_WORD = { [REASON.SELF_CROSS]: 'self_cross', [REASON.WALL]: 'wall', [REASON.TRACK_CUT]: 'track_cut',
+  [REASON.EXIT_POINT_CAPTURED]: 'exit_captured', [REASON.ENCIRCLED]: 'encircled', [REASON.DISCONNECT]: 'disconnect',
+  [REASON.LEAVE]: 'leave' };
 
 class PaperRoom {
   // now: the wall clock of every deadline (grace, stale hold, coin age). clock: the monotonic
@@ -701,6 +706,7 @@ class PaperRoom {
         } catch (e) {
           console.error('[PAPER] RELEASE CRITICAL refund hook threw, owed ' + w.micro + ' micro to ' + w.wallet + ': ' + (e && e.message));
         }
+        this._trackEnd(seat, 'refunded', agTrack.dollars(w.micro), why);   // never steered: stake_refunded only
       }
       if (socketId) {
         try {
@@ -762,6 +768,19 @@ class PaperRoom {
   // pp:need. socketId: the asker's; a paid arena answers trails only for the squares that page is sent.
   geo(id, socketId) {
     return this.wire.cull ? this.wire.geo(id, this.wire.seenBy(this._focusOf(socketId))) : this.wire.geo(id);
+  }
+
+  // Product analytics for a paid seat's end (server/ag/agTrack.js): its game_ended once, from the exit that ended it,
+  // after its money moved, and stake_refunded when money went back. A seat that never steered never started (its
+  // buy-in counts at _confirm), so it sends stake_refunded only. amount: dollars paid to the player by this exit. A
+  // free arena, or one built without hooks.analytics, sends nothing. Never throws.
+  _trackEnd(seat, result, amount, reason) {
+    const an = this.hooks && this.hooks.analytics;
+    if (!an || !this.paid || !seat || !seat.wallet) return;
+    if (seat.confirmed) {
+      agTrack.ended(an, { wallet: seat.wallet, game: 'paper', result, stake: this.stake, amount, reason, room: this.lobbyType });
+    }
+    if (result === 'refunded') agTrack.refunded(an, seat.wallet, { game: 'paper', stake: this.stake, amount, reason });
   }
 
   _forgetSeat(seat) {
@@ -837,6 +856,8 @@ class PaperRoom {
         });
       }
       this._forgetSeat(seat);
+      // its whole value is a coin on the floor now: nothing paid to it. A leave or a grace that ran out is 'left'.
+      this._trackEnd(seat, reason === REASON.LEAVE || reason === REASON.DISCONNECT ? 'left' : 'died', 0, REASON_WORD[reason]);
     }
   }
 
@@ -1063,6 +1084,7 @@ class PaperRoom {
       if (w && w.micro > 0) this.hooks.onCashout(order);
       else if (socketId && this.io) this.io.to(socketId).emit('pp:cashedout', { grossMicro: 0, cutMicro: 0, netMicro: 0 });
     }
+    this._trackEnd(seat, 'cashed_out', order ? agTrack.cashNet(order.grossMicro) : 0, 'hold');
   }
 
   _collectPickups() {
@@ -1354,6 +1376,9 @@ class PaperRoom {
           console.error('[PAPER] EMERGENCY cashout hook', e && e.message);
         }
       }
+      // a seat that never steered: its buy-in back (stake_refunded only); a playing one: cashed out 90/10 by the close
+      if (refunded) this._trackEnd(seat, 'refunded', agTrack.dollars(back.micro), 'emergency');
+      if (seat.confirmed) this._trackEnd(seat, 'ended', cashoutId ? agTrack.cashNet(w.micro) : 0, 'emergency');
     }
     for (const p of this.bank.pickups()) {
       const s = this.bank.sweepPickup(p.pid);
@@ -1460,6 +1485,7 @@ class PaperRoom {
     if (this.seats.get(id) === seat) this.seats.delete(id);
     if (socketId && this.bySocket.get(socketId) === seat) this.bySocket.delete(socketId);
     if (this.directory) this.directory._seatFreed(seat); // the journal close carrying the owed row
+    this._trackEnd(seat, 'refunded', agTrack.dollars(micro), kind);
     if (gross > micro) {
       console.error('[PAPER] SHUTDOWN ' + this.lobbyType + ' ' + (gross - micro) + ' micro of an unconfirmed buy-in ' +
         'never landed on-chain: not owed, not booked (' + key + ')');

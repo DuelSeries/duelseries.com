@@ -299,7 +299,7 @@ function checkPrice(dir, inAmount, outAmount, ref) {
    jupiter: { order(params) -> order JSON, execute({ signedTransaction, requestId }) -> result JSON,
               wouldWait() -> ms an order would queue }
    usdcMint: () -> the USDC mint (base58). refSolUsd: () -> dollars per SOL, or null. */
-function createSwap({ chain, jupiter, usdcMint, refSolUsd = () => null, now = Date.now, rules = RULES, log = () => {} }) {
+function createSwap({ chain, jupiter, usdcMint, refSolUsd = () => null, now = Date.now, rules = RULES, log = () => {}, onDone = () => {} }) {
   const R = rules;
   const pending = new Map();
   function prune() {
@@ -449,9 +449,12 @@ function createSwap({ chain, jupiter, usdcMint, refSolUsd = () => null, now = Da
     if (r && r.status === 'Success') {
       log(entry.dir + ' ' + entry.wallet.slice(0, 6) + ' in=' + (r.totalInputAmount || entry.inAmount) +
           ' out=' + (r.totalOutputAmount || '?') + (entry.receiver ? ' to=' + entry.receiver.slice(0, 6) : '') + ' sig=' + sig);
-      return { ok: true, signature: sig, dir: entry.dir,
+      const done = { ok: true, signature: sig, dir: entry.dir,
                inAmount: big(r.totalInputAmount) !== null ? r.totalInputAmount : String(entry.inAmount),
                outAmount: big(r.totalOutputAmount) !== null ? r.totalOutputAmount : null };
+      // analytics (index.js: Withdraw as SOL is a withdraw); told after the send, never able to change the answer
+      try { onDone({ dir: entry.dir, wallet: entry.wallet, inAmount: done.inAmount, outAmount: done.outAmount }); } catch (_) { /* none */ }
+      return done;
     }
     const code = r && r.code != null ? String(r.code) : '';
     log('failed ' + entry.dir + ' ' + entry.wallet.slice(0, 6) + ' code=' + code + ' sig=' + sig);

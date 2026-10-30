@@ -57,6 +57,7 @@ const crypto = require('crypto');
 const { rungOf, STAKE_TIERS } = require('../stakeRules');
 const { toMicro } = require('../paperPayout');
 const { AG_ALERT_WINDOW_MS } = require('../ag/agAlert');
+const agTrack = require('../ag/agTrack');
 const { isPlainObject, field } = require('../sl/slSockets');
 const { DOOR_RATE_MS, DOOR_RECHECK_MS, FIELD_MAX } = require('./slPaidConst');
 
@@ -90,10 +91,11 @@ function usable(entry) {
 // { maintenance } }. recordEntry(entry, label): the profile's buy-in row. onSeated({ name, stake, wallet }): the owner's
 // phone push once the seat holds the money. onSeatedSocket(socket, stake): the socket layer's paidSeated (night review
 // 2026-10-29: the address's watchers of that rung end), after the seat holds the money. alert(info): the owner alert. track(p): the shutdown's in-flight set. timers: { setTimeout } for the refund re-ask (tests: fake timers). log: needs error.
+// analytics (optional, server/analytics.js): a refund's stake_refunded, once the refund went out (server/ag/agTrack.js).
 function createSlPaidDoor({ arenas, consumeAtStake, ledger = null, slPayout, journal, ops = null, recordEntry = null,
   onSeated = null, onSeatedSocket = null,
   alert = null, uuid = () => crypto.randomUUID(), now = Date.now, log = console, track = (p) => p,
-  timers = { setTimeout } } = {}) {
+  timers = { setTimeout }, analytics = null } = {}) {
   if (!arenas) throw new Error('slPaidDoor: arenas is required');
   if (typeof consumeAtStake !== 'function') throw new Error('slPaidDoor: consumeAtStake must be a function');
   if (!slPayout || typeof slPayout.refund !== 'function') throw new Error('slPaidDoor: slPayout.refund must be a function');
@@ -163,6 +165,7 @@ function createSlPaidDoor({ arenas, consumeAtStake, ledger = null, slPayout, jou
     }
     stats.refunds++;
     stats.refundMicro += micro;
+    agTrack.doorRefunded(analytics, 'slither', entry, why);   // never seated: stake_refunded only; never throws
     const open = !!(ctx && ctx.opened);
     const done = Promise.resolve(p).then((r) => {
       if (durable && r === 'settled' && ctx && ctx.claimed) {
@@ -428,7 +431,7 @@ function createSlPaidDoor({ arenas, consumeAtStake, ledger = null, slPayout, jou
     stats.seated++;
     if (typeof recordEntry === 'function') {
       try {
-        recordEntry(entry, 'snake');
+        recordEntry(entry, 'snake', ctx.label);
       } catch (e) {
         say('[SLP] DOOR recordEntry: ' + (e && e.message));
       }

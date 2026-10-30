@@ -274,7 +274,31 @@
     if (!prev) { prev = s; prevAt = nextAt; }
     paintHud(s);
     playFor(s);
+    trackLife(s);
   });
+
+  /* Product tracking (public/js/shared/dsTrack.js; every event name is in shared/trackPlan.js): a free arena, one
+     session for this page and one game per life, from the spawn to a death or a cash-out. Only a change of life
+     reaches the tracker, never a snapshot; leaving mid-life is the helper's own. Never lets a failure reach the game. */
+  var tracker = (function () {
+    try { return window.DSTrack ? window.DSTrack.game('shooter', { paid: false, stake: 0, mode: 'free' }) : null; }
+    catch (_) { return null; }
+  })();
+  var trackAlive = false;
+  function trackLife(s) {
+    if (!tracker || !s || !s.you) return;
+    var alive = !s.you.dead && !s.you.cashed;
+    if (alive === trackAlive) return;
+    trackAlive = alive;
+    try {
+      if (alive) { tracker.start(); return; }
+      // The score is the coins banked; the place is mine on the board, when it is in the top six.
+      var place;
+      var rows = s.board || [];
+      for (var i = 0; i < rows.length; i++) if (rows[i] && rows[i].me) { place = i + 1; break; }
+      tracker.end({ result: s.you.cashed ? 'cashed_out' : 'died', score: s.you.banked, place: place });
+    } catch (_) { /* analytics never breaks the game */ }
+  }
 
   /* Everything audible, derived from what changed since the last snapshot. */
   function playFor(s) {

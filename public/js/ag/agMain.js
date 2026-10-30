@@ -184,6 +184,13 @@
     // use below is behind it, so the free page draws and sends exactly what it did.
     var flow = null;
     var handoff = null;
+    // This page's product-tracking session (DSTrack.game, made once the page knows its rung: see "Product tracking"
+    // below), else null. tracked(fn) runs fn on it and swallows any throw: analytics never breaks the game.
+    var track = null;
+    function tracked(fn) {
+      if (!track) return;
+      try { fn(track); } catch (e) { /* analytics never breaks the game */ }
+    }
     if (cfg.handoff === true && A.agPaid) {
       var paidStore = null, localStore = null;
       try { paidStore = cfg.tabStorage !== undefined ? cfg.tabStorage : (win.sessionStorage || null); } catch (e) { paidStore = null; }
@@ -491,16 +498,16 @@
             end.showCashed(p, lifeNow());
             var net = Number(p.netMicro);
             if (!isFinite(net)) net = (Number(p.grossMicro) || 0) - (Number(p.cutMicro) || 0);
-            // a resumed receipt (agPaidDoor answerOutcome) repeats a cash-out already counted: never twice
-            if (p.resumed !== true && typeof win.phEvent === 'function') {
-              try { win.phEvent('cashed_out', { game: 'agar', amount: net / 1e6, stake: paid.stake }); } catch (e) { /* analytics never breaks the game */ }
-            }
+            // a resumed receipt (agPaidDoor answerOutcome) repeats a cash-out already counted: never twice (the server
+            // sends the paid game_ended; this only closes the page's own timing)
+            if (p.resumed !== true) tracked(function (t) { t.end({ result: 'cashed_out', amount: net / 1e6 }); });
           }
           break;
         case 'ag:joined':
           if (Number(p.stake) > 0) {
             paid.on = true;
             paid.stake = Number(p.stake);
+            tracked(function (t) { t.set({ paid: true, stake: paid.stake, mode: 'paid' }); });
             lastLife = null;
             // A new paid seat (Play again) clears the last run's end card: its Lobby button must never sit on top
             // of a run with money in it (lobby-rungs review fix; agLobby's exit trap gates that button too).
@@ -528,10 +535,12 @@
         case 'ag:dead':
           endHold();
           end.showDead(p, lifeNow());
+          tracked(function (t) { t.end({ result: 'died' }); });
           break;
         case 'ag:closed':
           endHold();
           end.showClosed(p);
+          tracked(function (t) { t.end({ result: Number(p.refundedMicro) > 0 ? 'refunded' : 'ended', reason: 'closed' }); });
           break;
         case 'ag:paid':
           if (end.paidKind()) end.paid(p.sig, paid.network);
@@ -752,6 +761,7 @@
     }
     function spectate() {
       if (world.state().ready) sendSpectate(); else pending.spectate = true;
+      tracked(function (t) { if (t.stage !== 'spectating') t.spectate(); });
       fadeout = false;
       input.setInGame(true);
       input.enableKeys();
@@ -887,6 +897,8 @@
       lastLife = null;
       hud.onSpawn();
       syncPad();
+      // in the arena: a new life (a respawn on this page is a new game; a paid seat's start is the server's)
+      tracked(function (t) { t.start(); });
     });
     world.on('eat', function (p) {
       var e = {
@@ -923,6 +935,15 @@
       cashedOutFree = false;
       var by = lastEater;
       lastEater = '';
+      // The free life's end, once (a paid one ends on ag:dead, ag:cashedout or ag:closed): the best mass and the place
+      // on the last board, as the card shows them.
+      if (!paid.on) {
+        var at = agScreens.boardPlace(lastRows).position;
+        tracked(function (t) {
+          t.end({ result: cashed ? 'cashed_out' : 'died', amount: cashed ? 0 : undefined, score: Math.floor(snap.highestMass),
+            place: at > 0 ? at : undefined });
+        });
+      }
       if (menuState === 'HOME') return;
       if (paid.on) {
         if (screens) screens.hide();
@@ -1105,8 +1126,7 @@
         chip: A.agPaid.createChip(doc, cfg.screensRoot || doc.body),
         framed: !!parentWin && parentWin !== win,
         parent: parentWin,
-        origin: (win.location && win.location.origin) || '',
-        phEvent: function (name, props) { if (typeof win.phEvent === 'function') win.phEvent(name, props); }
+        origin: (win.location && win.location.origin) || ''
       });
       end.onAgain = function () { flow.restake(); };
       if (typeof win.addEventListener === 'function') {
@@ -1150,6 +1170,16 @@
       var ws = ss && ss.getItem('spectateOnly') === 'true' ? Number(ss.getItem('dsWatchStake')) : 0;
       if (!flow && isFinite(ws) && ws > 0) auth.watchStake = watchAsk = ws;
     } catch (e) { /* storage blocked: the free room */ }
+    // Product tracking (public/js/shared/dsTrack.js, every name and property checked against shared/trackPlan.js): this
+    // page's player, one call per spawn, end and Spectate, never per frame. A paid seat's start and end are the
+    // server's; there the page's calls only time the life for its FPS and ping summary. A page without the helper (the
+    // parity harness, the tests' pages) tracks nothing.
+    try {
+      if (win.DSTrack && typeof win.DSTrack.game === 'function') {
+        track = win.DSTrack.game('agar', handoff ? { paid: true, stake: handoff.stake, mode: 'paid' }
+          : watchAsk > 0 ? { paid: true, stake: watchAsk, mode: 'paid' } : { paid: false, stake: 0, mode: 'free' });
+      }
+    } catch (e) { track = null; }
     // A page of its own (no lobby frame, so no agLobby start) reopened by the paid card's Spectate (watchPaidRung)
     // watches at once instead of waiting on its menu. The lobby frame's page is started by agLobby.
     var watchFromBoot = !!auth.watchStake && !lobbyMode && !!screens && cfg.net !== false;
@@ -1168,6 +1198,9 @@
             if (flow) flow.onConnect();
           },
           onDisconnect: function (reason) {
+            // A free cell goes with its socket (the lobby frame's page rejoins as a new life); a paid seat waits for
+            // its resume, and its end is the server's.
+            if (!flow) tracked(function (t) { t.end({ result: 'ended', reason: 'disconnect' }); });
             resetConnection();
             input.setInGame(false);
             sound.setInGame(false);

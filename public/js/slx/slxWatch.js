@@ -137,6 +137,9 @@
 
   // ---- 1. the handshake
 
+  // Product tracking's base for a paid rung's Spectate (slxTrack); the free room's needs none.
+  if (watchStake > 0) slx.trackBase = function () { return { paid: true, stake: watchStake, mode: 'paid' }; };
+
   slx.watchAuth = function () {
     var a = { watch: 1 };
     if (watchStake > 0) a.watchStake = watchStake;

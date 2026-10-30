@@ -424,7 +424,8 @@ test('paid end card: the receipt with the server\'s numbers, the explorer link, 
   assert.deepStrictEqual(card.status, { text: 'Sending to your wallet', state: 'pending' });
   // Lobby and Spectate; Play again is the paid hand-off's (it buys through the lobby's wallet), and this page has none
   assert.deepStrictEqual(card.buttons.map((b) => [b.id, b.text, b.disabled]), [['lobby', 'Lobby', false], ['watch', 'Spectate', false]]);
-  assert.deepStrictEqual(events, [['cashed_out', { game: 'agar', amount: 1.26, stake: 1 }]], "Paper's properties");
+  // a paid cash-out's game_ended comes from the server (server/analytics.js); the page sends nothing for it
+  assert.deepStrictEqual(events, [], 'no page-side cash-out event');
   assert.strictEqual(p.session.state().board.visible, true, 'the board stays until the frame sees the card');
   await p.frames(1);
   assert.strictEqual(p.session.state().board.visible, false, 'then it steps aside');
@@ -503,12 +504,12 @@ test('paid end card: a resumed receipt is not counted again in analytics and doe
   p.session.sideEvent('ag:joined', { stake: 0.1, micro: 100000 });
   p.session.sideEvent('ag:cashedout', { grossMicro: 300000, cutMicro: 30000, netMicro: 270000, cashoutId: 'c9',
     resumed: true, auto: true });
-  assert.deepStrictEqual(events, [], 'agPaidDoor answerOutcome repeats a cash-out already counted');
+  assert.deepStrictEqual(events, [], 'nothing from the page for a resumed receipt');
   let card = readCard(p.doc);
   assert.deepStrictEqual([card.verdict, card.hero, card.status.text, card.facts],
     ['Cashed out automatically', '$0.27', LIB.agScreens.END_TEXT.recorded, []], 'a reload: no life seen, no facts');
   p.session.sideEvent('ag:cashedout', { grossMicro: 300000, cutMicro: 30000, netMicro: 270000, cashoutId: 'c10' });
-  assert.deepStrictEqual(events, [['cashed_out', { game: 'agar', amount: 0.27, stake: 0.1 }]]);
+  assert.deepStrictEqual(events, [], 'nor for a live one: the server sends paid results');
   card = readCard(p.doc);
   assert.deepStrictEqual([card.verdict, card.status.text], ['Cashed out', LIB.agScreens.END_TEXT.sending]);
 });

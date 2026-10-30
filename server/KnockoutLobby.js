@@ -506,7 +506,25 @@ class KnockoutLobby {
     if (this.graceMs > 0 && room.state !== 'waiting' && typeof room.issueSeatKey === 'function') {
       for (const id of room.players.keys()) room.issueSeatKey(id);
     }
+    this.matchStarted(room);
     return room;
+  }
+
+  /* PRODUCT ANALYTICS: the match began. Whoever set onMatchStart (index.js trackDuelLobby) records each paid seat's
+     game start from it; a free seat's worth is 0 and is skipped there. Once per room, after its seats exist and its
+     clock has started, so never in the gap between an entry token being spent and the seat that holds it. Each seat's
+     wallet is the one finish() settles to (a bot's is null). Every lobby built on this one (Head Soccer, 8 Ball Pool,
+     Air Hockey, Rooftop, Crossy) gets it from makeMatch above. */
+  matchStarted(room) {
+    if (typeof this.onMatchStart === 'function') {
+      try {
+        if (!room || room.state === 'waiting' || !room.players) return;
+        const seats = [...room.players.entries()].map(([id, p]) => ({
+          id, wallet: (p && p.wallet) || null, worth: (room.worth && room.worth.get(id)) || 0,
+        }));
+        this.onMatchStart({ roomId: room.id, seats, vsBot: !!room.bot });
+      } catch (e) { /* analytics never breaks a match */ }
+    }
   }
 
   /* Handing a stake back, once. Whoever set onRefund owns actually moving it;

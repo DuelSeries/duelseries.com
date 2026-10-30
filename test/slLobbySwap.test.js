@@ -29,6 +29,7 @@ function page(lobbies) {
     V2Board: lobbies === null ? undefined : { lobbies, load() {} },
     V2_HAS_LADDER: () => true,
     phEvent: (name, d) => sent.ph.push([name, d]),
+    DSTrack: { event: (name, d) => sent.ph.push([name, d]) },
     dispatchEvent: (e) => { sent.events.push(e.type); sent.details.push(e.detail); },
     addEventListener() {},
     location: { origin: 'http://localhost' },
@@ -64,7 +65,8 @@ test('Free snake with the sl: row on the board opens /sl, never the wallet widge
   assert.strictEqual(p.frame.src, '/sl');
   assert.strictEqual(p.frame.style.display, 'block');
   assert.deepStrictEqual(p.sent.events, [], 'no duel:play, so no money code is reached');
-  assert.strictEqual(JSON.stringify(p.sent.ph), JSON.stringify([['game_started', { game: 'snake', lobbyType: 'free' }]]), 'PostHog snake numbers stay one game');
+  // Play pressed (shared/trackPlan.js); the page sends game_started once it is really in a game
+  assert.strictEqual(JSON.stringify(p.sent.ph), JSON.stringify([['play_clicked', { game: 'snake', paid: false, stake: 0, mode: 'free', guest: false, engine: 'sl' }]]), 'PostHog snake numbers stay one game');
 });
 
 test('Free snake hands the keyboard to the game: the frame takes the focus once it loads, and again a moment later', async () => {
