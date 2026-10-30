@@ -139,7 +139,8 @@ function freeProxy(view, local) {
       return s.free.humans;
     },
     // The owner's sl:door:off/on: remembered here (sent again in every init, so a restarted slither process keeps
-    // it) and sent now. Returns what was asked, as the room's door does.
+    // it, and at ready when it changed while the process was starting) and sent now. Returns what was asked, as the
+    // room's door does.
     door(open) {
       if (open !== true && open !== false) return open;
       view.setDoorWanted(open);
@@ -270,6 +271,7 @@ function brProxy(view) {
       return isObj(s.br) ? s.br.humans : 0;
     },
     // Before the slither process exists this asks nothing: its init carries brOnNew, which starts the room there.
+    // While it starts (refused "restarting") the link sends it at ready.
     startRoom() {
       Promise.resolve(view.call('br:startRoom', {})).catch(() => { /* logged by the link */ });
       return true;

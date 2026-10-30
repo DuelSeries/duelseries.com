@@ -536,6 +536,91 @@ test('a decision whose prizeHeld is not a boolean is held for Owen, never sent',
   assert.ok(p.ctx._brPaid.has('br_odd'));
 });
 
+test('a decision still in the pipe when the close wait runs out (main stalled past it) is paid, never voided', async () => {
+  const p = prizeRig();
+  const r = rig({ start: false });
+  r.link.start(Object.assign({}, r.hooks, hooksOver(p, r.link)));
+  const c = r.kid();
+  r.greet();
+  c.say({ t: 'br.live', rec: LIVE });
+  // the child decides and is killed; this process sees the exit, then stalls past the wait before it reads the pipe
+  c.signalCode = 'SIGKILL';
+  c.emit('exit', null, 'SIGKILL');
+  assert.strictEqual(r.link.fresh(), false, 'stale at once');
+  r.clock.advance(L.CLOSE_WAIT_MS);
+  assert.strictEqual(p.journal.live().matchId, 'br_live1', 'channel still open: not voided yet');
+  assert.strictEqual(r.ff.kids.length, 1, 'and no refork yet');
+  const d = { matchId: 'br_live1', winner: { id: 7, name: 'Ann', wallet: 'WA', bot: false }, soloRun: false,
+    prizeHeld: false, startedPeople: 2, startedWith: 3, seats: [{ wallet: 'WA', net: '1.1.1.1' }, { wallet: 'WB', net: '2.2.2.2' }] };
+  c.say({ t: 'br.decided', d });
+  c.say({ t: 'br.live', rec: null });
+  c.connected = false;
+  c.emit('close', null, 'SIGKILL');
+  await p.settle();
+  assert.deepStrictEqual(p.sends, [{ wallet: 'WA', amount: 20 }], 'paid once');
+  assert.ok(!p.pushes.some((x) => /cut off/.test(x.msg)), 'a decided match is not voided');
+  assert.strictEqual(r.link.brProxy().match.matchId, 'br_live1');
+  r.clock.advance(1000);
+  assert.strictEqual(r.ff.kids.length, 2, 'forked again after its close');
+  // a channel that never closes: the supervisor still runs, CLOSE_WAIT_MAX_MS after the exit, and voids a live match
+  const c2 = r.kid();
+  r.greet(c2);
+  c2.say({ t: 'br.live', rec: Object.assign({}, LIVE, { matchId: 'br_live2' }) });
+  c2.signalCode = 'SIGKILL';
+  c2.emit('exit', null, 'SIGKILL');
+  r.clock.advance(L.CLOSE_WAIT_MAX_MS - 1);
+  assert.strictEqual(p.journal.live().matchId, 'br_live2');
+  r.clock.advance(L.CLOSE_WAIT_MS);
+  assert.strictEqual(p.journal.live(), null, 'voided');
+  assert.strictEqual(p.pushes.filter((x) => /^Battle royale br_live2 was cut off/.test(x.msg)).length, 1);
+  r.clock.advance(2000);
+  assert.strictEqual(r.ff.kids.length, 3, 'forked again (second exit: 2 s)');
+  // its channel's close at last changes nothing
+  c2.connected = false;
+  c2.emit('close', null, 'SIGKILL');
+  assert.strictEqual(r.ff.kids.length, 3);
+  assert.strictEqual(p.pushes.filter((x) => /cut off/.test(x.msg)).length, 1);
+});
+
+test('an owner door or engine switch made while the child starts (init sent, not ready) is sent once it is ready', () => {
+  let onSl = false;
+  const r = rig({ hooks: { brOnSl: () => onSl, init: () => ({ region: 'na', owners: ['OWNER'],
+    ops: { maintenance: false, message: '' }, smooth: true, door: true, brOnNew: onSl, podiumFile: '/tmp/p.json',
+    botsPauseMs: 900000, load: null }) } });
+  const free = r.link.freeProxy({ laws: {}, shippableOnly: true, governor: r.link.mirrorGovernor() });
+  const br = r.link.brProxy();
+  const c = r.kid();
+  c.say({ t: 'hello', boot: 'B1', pid: c.pid, node: 'v20' });
+  assert.deepStrictEqual([c.of('init')[0].door, c.of('init')[0].brOnNew], [true, false]);
+  // index.js's sl:door:off and br:engine:sl in the window: the link refuses both, so the child never has them
+  assert.strictEqual(free.door(false), false);
+  onSl = true;
+  assert.strictEqual(br.startRoom(), true);
+  assert.deepStrictEqual(c.of('cmd'), [], 'nothing sent while it starts');
+  c.say({ t: 'ready', boot: 'B1', port: 3001, dev: false });
+  assert.deepStrictEqual(c.of('cmd').map((m) => [m.op, m.args]), [['door', { open: false }], ['br:startRoom', {}]],
+    'both sent at ready, once');
+  c.say({ t: 'ready', boot: 'B1', port: 3001, dev: false });
+  assert.strictEqual(c.of('cmd').length, 2, 'a second ready sends nothing more');
+  // the next child gets both in its init and nothing at ready
+  c.die(1, null);
+  r.clock.advance(1000);
+  const c2 = r.kid();
+  r.greet(c2);
+  assert.deepStrictEqual([c2.of('init')[0].door, c2.of('init')[0].brOnNew], [false, true]);
+  assert.deepStrictEqual(c2.of('cmd'), []);
+  // switched and switched back in the window, or back to the old engine: nothing to send
+  c2.die(1, null);
+  r.clock.advance(2000);
+  const c3 = r.kid();
+  c3.say({ t: 'hello', boot: 'B9', pid: c3.pid, node: 'v20' });
+  free.door(true);
+  free.door(false);
+  onSl = false;
+  c3.say({ t: 'ready', boot: 'B9', port: 3001, dev: false });
+  assert.deepStrictEqual(c3.of('cmd'), []);
+});
+
 // A real owner session cookie for host, through the sign-in's own two steps.
 function ownerCookie(sessions, host, key, wallet) {
   const headers = { host, origin: 'http://' + host, 'x-ds-owner': '1', 'content-type': 'application/json' };

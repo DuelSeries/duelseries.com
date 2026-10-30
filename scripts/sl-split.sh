@@ -11,7 +11,8 @@
 # slither path locally and through nginx (x-ds-proc: main or sl). Each prints OK <mode> or FAILED <step>.
 #
 # A restart settles seated paid money to owed rows, as every deploy does, but do it when nobody has money on the table:
-# this refuses while /api/live shows a paid seat (pass --force to go anyway). nginx is never edited here: its
+# this refuses while /api/live shows a paid seat, or cannot tell (it did not answer, or it could not read a game that
+# holds money); pass --force to go anyway. nginx is never edited here: its
 # location /sl-io/ (deploy/nginx-sl-io.conf) sends the path to SL_CHILD_PORT first and to PORT as the backup, and
 # with the split off the main server answers both ports itself.
 #
@@ -98,12 +99,18 @@ wait_live() {
   return 1
 }
 
-# Paid seats /api/live shows (any row with a stake and someone or some parked money in it).
+# Paid seats /api/live shows (any row with a stake and someone or some parked money in it). "unknown" when it did not
+# answer (a curl failure must reach that line, not end the script under set -e). "unread <games>" when its unknown
+# list names a game it could not read: it lists no row for it, and cannot tell is never nobody (deploy rule 4b). sl
+# and br are not counted there: they hold no money, and a slither process that is not reporting says them, which must
+# not block the rollback.
 paid_seated() {
-  curl -s -m 5 "http://127.0.0.1:$PORT/api/live" 2>/dev/null | node -e '
+  { curl -s -m 5 "http://127.0.0.1:$PORT/api/live" 2>/dev/null || true; } | node -e '
     let s = ""; process.stdin.on("data", (d) => { s += d; }).on("end", () => {
       let j = null; try { j = JSON.parse(s); } catch (_) { j = null; }
       if (!j || !Array.isArray(j.lobbies)) { process.stdout.write("unknown"); return; }
+      const unread = [].concat(j.unknown === undefined ? [] : j.unknown).map(String).filter((u) => u !== "sl" && u !== "br");
+      if (unread.length) { process.stdout.write("unread " + unread.join(",")); return; }
       let n = 0;
       for (const l of j.lobbies) if (l && Number(l.stake) > 0) n += (Number(l.players) || 0) + (Number(l.parked) || 0);
       process.stdout.write(String(n));
@@ -113,9 +120,12 @@ paid_seated() {
 check_quiet() {
   [ "$FORCE" = "--force" ] && return 0
   local n
-  n=$(paid_seated)
+  n=$(paid_seated) || n=unknown
   [ "$n" = "0" ] && return 0
   if [ "$n" = "unknown" ]; then fail "drain: /api/live did not answer on 127.0.0.1:$PORT (pass --force to go anyway)"; fi
+  case "$n" in
+    unread*) fail "drain: /api/live could not read ${n#unread }, so it cannot tell whether paid seats are in play (pass --force to go anyway)" ;;
+  esac
   fail "drain: $n paid seat(s) in play; wait for them or pass --force"
 }
 

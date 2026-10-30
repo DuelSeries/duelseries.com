@@ -25,6 +25,10 @@
 // 30 s (back to 1 s once a child lived 120 s). More than 10 exits in 10 minutes: no more forks, logged, Owen pushed
 // once. A ready child that sends nothing for hangMs is killed (SIGKILL) and handled as an exit; so is one that never
 // gets ready. A graceful exit (the child said bye) is reforked without counting.
+//
+// A child that is starting (init sent, not ready) refuses commands with "restarting". The owner's free door and a
+// switch of the battle royale to the sl engine are kept here and in index.js all the same, so one made in that window
+// is sent when the child says ready (the init it got had the old value, and the refused command never reached it).
 
 const path = require('path');
 const env = require('./ipcEnvelope');
@@ -38,8 +42,12 @@ const CALL_TIMEOUT_MS = 5000;
 const LOAD_EVERY_MS = 1000;
 const WATCH_EVERY_MS = 5000;
 const STOP_KILL_MS = 300;
-// The child's exit was seen and its channel's close was not: the supervisor runs anyway after this long.
+// The child's exit was seen and its channel's close was not: the supervisor runs anyway after this long, unless the
+// channel is still connected (this process has not read the child's pipe to its end: a loop that stalled past the
+// wait runs its timers before it reads, and a decision the child sent before it died may be waiting there). Then it
+// waits again, up to CLOSE_WAIT_MAX_MS in all.
 const CLOSE_WAIT_MS = 2000;
+const CLOSE_WAIT_MAX_MS = 30000;
 
 const WHY_TIMEOUT = 'The slither process did not answer in time; it may still have done it, check the console';
 const WHY_RESTARTING = 'The slither process is restarting; try again';
@@ -101,6 +109,7 @@ function create(opts) {
   let exited = false;        // that child's exit was seen (stale at once)
   let closeWait = null;
   let boot = null;           // its hello's boot id
+  let sentInit = null;       // { door, brOnNew } its init carried, until it is ready
   let pid = null;
   let ready = false;
   let readyAt = 0;
@@ -263,6 +272,24 @@ function create(opts) {
     lastDecidedId = d.matchId;
   }
 
+  // At ready: the owner's free door, or a switch of the battle royale to the sl engine, made after this child's init
+  // went (its call was refused "restarting", so the child never had it). Sent once each; a switch back to the old
+  // engine needs nothing (as in one process, the sl room stays open and starts no match).
+  function catchUp() {
+    const was = sentInit;
+    sentInit = null;
+    if (!was) return;
+    const tell = (op, args, what) => {
+      log.warn('[SPLIT] ' + what + ' while the slither process was starting: sending it now');
+      call(op, args).then((r) => {
+        if (!r.ok) log.warn('[SPLIT] ' + what + ' did not reach the slither process: ' + r.why);
+      });
+    };
+    if (was.door !== doorOpen) tell('door', { open: doorOpen }, 'the free door was ' + (doorOpen ? 'opened' : 'closed'));
+    const onSl = !!(hooks && typeof hooks.brOnSl === 'function' && safe(() => hooks.brOnSl(), 'brOnSl'));
+    if (onSl && !was.brOnNew) tell('br:startRoom', {}, 'the battle royale moved to the sl engine');
+  }
+
   function onMessage(c, m) {
     if (c !== child) return;
     const chk = env.check('toMain', m);
@@ -284,7 +311,7 @@ function create(opts) {
           log.error('[SPLIT] the init message is not valid (' + ok.why + '): the slither process will not start');
           return undefined;
         }
-        sendRaw(c, init);
+        if (sendRaw(c, init)) sentInit = { door: init.door, brOnNew: init.brOnNew === true };
         return undefined;
       }
       case 'ready':
@@ -293,6 +320,7 @@ function create(opts) {
         readyAt = now();
         log.log('[SPLIT] the slither process (pid ' + pid + ') serves /sl-io/ on 127.0.0.1:' + m.port +
           (m.dev ? ' (DEV law table)' : ''));
+        catchUp();
         return undefined;
       case 'snap':
         acceptSnap(m);
@@ -335,7 +363,17 @@ function create(opts) {
     answerPending(WHY_RESTARTING);
     log.warn('[SPLIT] the slither process (pid ' + pid + ') exited (' + (signal || 'code ' + code) + ')' +
       (stopping ? '' : byeSeen ? ', it said goodbye' : ''));
-    closeWait = T.setTimeout(() => onClose(c, code, signal), CLOSE_WAIT_MS);
+    const exitAt = now();
+    const wait = () => {
+      closeWait = T.setTimeout(() => {
+        closeWait = null;
+        if (c !== child) return;
+        // not read to its end yet: what it sent (a decision) is still to come, then its close
+        if (c.connected && now() - exitAt < CLOSE_WAIT_MAX_MS) return wait();
+        onClose(c, code, signal);
+      }, CLOSE_WAIT_MS);
+    };
+    wait();
   }
 
   function onClose(c, code, signal) {
@@ -345,6 +383,7 @@ function create(opts) {
     closeWait = null;
     child = null;
     boot = null;
+    sentInit = null;
     ready = false;
     answerPending(WHY_RESTARTING);
     if (stopping) return;
@@ -391,6 +430,7 @@ function create(opts) {
     child = c;
     exited = false;
     boot = null;
+    sentInit = null;
     pid = c.pid;
     ready = false;
     readyAt = 0;
@@ -505,4 +545,4 @@ function create(opts) {
 }
 
 module.exports = { create, BACKOFF_MS, BACKOFF_RESET_MS, GIVE_UP_EXITS, GIVE_UP_WINDOW_MS, CALL_TIMEOUT_MS,
-  LOAD_EVERY_MS, WATCH_EVERY_MS, CLOSE_WAIT_MS, WHY_TIMEOUT, WHY_RESTARTING, GAVE_UP_TEXT };
+  LOAD_EVERY_MS, WATCH_EVERY_MS, CLOSE_WAIT_MS, CLOSE_WAIT_MAX_MS, WHY_TIMEOUT, WHY_RESTARTING, GAVE_UP_TEXT };
