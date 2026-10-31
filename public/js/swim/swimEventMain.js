@@ -701,13 +701,18 @@ function ownerWalletCheck() {
   const w = lobbyWallet();
   if (OWNER.via || !w || w === OWNER.asked) return;
   OWNER.asked = w;
+  /* Only a real answer is kept: a refusal (a 429 from the limiter) or no answer leaves the wallet to be asked again. */
   fetch('/api/br/owner', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ wallet: w }) })
-    .then(r => r.json()).then(k => { if (k && k.isOwner && !OWNER.via && lobbyWallet() === w) { OWNER.via = 'wallet'; paintOwner(); } })
-    .catch(() => { OWNER.asked = ''; });
+    .then(r => { if (!r.ok) throw new Error('owner check ' + r.status); return r.json(); })
+    .then(k => { if (k && k.isOwner && !OWNER.via && lobbyWallet() === w) { OWNER.via = 'wallet'; paintOwner(); } })
+    .catch(() => { if (OWNER.asked === w) OWNER.asked = ''; });
 }
 function ownerOnWallet() {
-  /* Signed out in the lobby: the wallet path's bar goes (a session's stays, it is the device's). */
-  if (OWNER.via === 'wallet' && !lobbyWallet()) { OWNER.via = null; OWNER.asked = ''; paintOwner(); }
+  /* Signed out, or another wallet signed in, in the lobby: the wallet path's bar goes (a session's stays, it is the
+     device's), and a wallet asked about while signed in is asked again when it comes back. */
+  const w = lobbyWallet();
+  if (OWNER.via === 'wallet' && w !== OWNER.asked) { OWNER.via = null; paintOwner(); }
+  if (w !== OWNER.asked) OWNER.asked = '';
   ownerWalletCheck();
 }
 function ownerCheck() {

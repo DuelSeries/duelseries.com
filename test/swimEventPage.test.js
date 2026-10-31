@@ -172,3 +172,62 @@ test('Swim Race page: the owner bar follows the lobby wallet, shown only when th
   listeners['duelwallet:change']();
   assert.strictEqual(p.els('ownerBar').hidden, true, 'and loses it on signing out');
 });
+
+/* The edge cases of the review (2026-10-31): a sign-out while the check is out, a refused check (429), and a
+   straight switch from the owner's wallet to another one. */
+test('Swim Race page: the owner bar survives a sign-out mid-check and a 429, and goes on a wallet switch', async () => {
+  const OWNER = 'Own3r111111111111111111111111111111111111111';
+  const OTHER = 'Someone1111111111111111111111111111111111111';
+  const pending = [];
+  const fetch = (url, o) => {
+    if (url !== '/api/br/owner') return Promise.resolve({ ok: true, json: () => Promise.resolve({ signedIn: false }) });
+    const w = JSON.parse(o.body).wallet;
+    return new Promise(resolve => pending.push({ w, answer: (status) => resolve({ ok: status === 200, status,
+      json: () => Promise.resolve(status === 200 ? { isOwner: w === OWNER } : { error: 'Too many requests' }) }) }));
+  };
+  const listeners = {};
+  const parent = { duelWallet: { ready: true, authenticated: false, address: '' },
+    addEventListener(t, fn) { listeners[t] = fn; }, removeEventListener() {} };
+  const flush = async () => { for (let i = 0; i < 4; i++) await new Promise(r => setImmediate(r)); };
+  const signIn = (address) => { parent.duelWallet = address ? { ready: true, authenticated: true, address } : { ready: true, authenticated: false, address: '' }; listeners['duelwallet:change'](); };
+  const p = boot({}, { parent, fetch });
+  const bar = () => p.els('ownerBar').hidden;
+  p.els('ownerBar').hidden = true;
+  await flush();
+
+  /* 1. Signed out while the check is out, then back in with the same wallet: asked again, and the bar shows. */
+  signIn(OWNER);
+  assert.strictEqual(pending.length, 1);
+  signIn('');
+  pending.shift().answer(200);
+  await flush();
+  assert.strictEqual(bar(), true, 'the answer for a wallet that signed out shows nothing');
+  signIn(OWNER);
+  assert.strictEqual(pending.length, 1, 'signing back in asks again');
+  pending.shift().answer(200);
+  await flush();
+  assert.strictEqual(bar(), false, 'and the owner gets the bar');
+
+  /* 3. Straight from the owner's wallet to another one: the bar goes. */
+  signIn(OTHER);
+  assert.strictEqual(bar(), true, 'another wallet signed in: no bar');
+  pending.shift().answer(200);
+  await flush();
+  assert.strictEqual(bar(), true, 'and the server says it is not an owner');
+
+  /* 2. A refused check (429) is not kept as "not an owner": the next change asks again. */
+  signIn(OWNER);
+  pending.shift().answer(429);
+  await flush();
+  assert.strictEqual(bar(), true);
+  listeners['duelwallet:change']();
+  assert.strictEqual(pending.length, 1, 'after a 429 the same wallet is asked again');
+  pending.shift().answer(200);
+  await flush();
+  assert.strictEqual(bar(), false, 'and the owner gets the bar');
+
+  /* A change that is not a new wallet (a balance) does not ask again. */
+  listeners['duelwallet:change']();
+  assert.strictEqual(pending.length, 0);
+  assert.strictEqual(bar(), false);
+});
