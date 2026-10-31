@@ -3,11 +3,12 @@
 // same movement code (shared/chompMove.js); every eat, death and score is decided here.
 //
 // Rules in short (numbers and their sources in shared/chompRules.js):
-//   - chompers move by the arcade's rules (tile corridors, buffered turns, cornering, a pause per dot)
+//   - chompers move by the arcade's rules (tile corridors, buffered turns, cornering); a dot gives a tiny speed bump
 //   - dots 10, energizers 50; an energizer turns every ghost blue FOR ITS EATER (blueFor) AND lets them eat other players
-//     for the fright; a fruit gives a FRUIT_BOOST_S burst of speed
-//     time, on the arcade's 200/400/800/1600 chain
-//   - a ghost (or a powered player) on your tile takes a life; you come back blinking (safe) where no ghost is near
+//     for the fright time, on the arcade's 200/400/800/1600 chain, moving faster while it lasts; a fruit (cherry) gives
+//     a big FRUIT_BOOST_S burst of speed (Owen 2026-10-30)
+//   - a ghost (or a powered player) on your tile, or swapping tiles with you in one tick (passing through each other at
+//     speed), takes a life; you come back blinking (safe) where no ghost is near
 //   - one life (Owen 2026-10-25); out of lives is game over (Play again from the page)
 //   - eaten dots come back after a while, so the arena stays full; fruit appears per module after 70 and 170 dots
 //
@@ -153,7 +154,8 @@ class ChompRoom {
       id, sid: socketId, bot, name: String(name || 'Player').slice(0, NAME_MAX), color: this.colorNext++ % COLORS,
       x: 0, y: 0, dir: -1, want: -1, face: 1, pause: 0, moving: false,
       // a paid room is always one life (a catch closes the account), whatever the free room's rule
-      score: 0, lives: this.money ? 1 : R.LIVES, bonus: false, power: 0, powerAt: -1, boost: 0, chain: 0, safe: 0, dying: 0,
+      score: 0, lives: this.money ? 1 : R.LIVES, bonus: false, power: 0, powerAt: -1, boost: 0, bump: 0, chain: 0, safe: 0, dying: 0,
+      pk: -1,
       over: false,
       seq: 0, seqTick: 0, hist: [], pend: null, joinedTick: this.tick, brain: bot ? Bots.brain(this.rng) : null,
       skin: typeof skin === 'string' && /^[fp]:[a-z][a-z0-9]{0,23}$/.test(skin) ? skin : '',
@@ -224,8 +226,10 @@ class ChompRoom {
     const t = { x: h[j].x, y: h[j].y, dir: d, moving: p.moving };
     const path = [];
     for (let k = j + 1; k < h.length; k++) {
-      if (!h[k].paused) Move.advance(t, this.A, speed * DT);
-      path.push({ x: t.x, y: t.y, dir: t.dir, paused: h[k].paused });
+      // each tick at the speed it ran at (a dot's bump, a cherry or a power pellet can start or end on the way)
+      const spd = h[k].spd || speed;
+      if (!h[k].paused) Move.advance(t, this.A, spd * DT);
+      path.push({ x: t.x, y: t.y, dir: t.dir, paused: h[k].paused, spd });
     }
     if (this.money) {
       if (this._lateTurnThreat(p, path)) return;
@@ -286,7 +290,7 @@ class ChompRoom {
     p.x = c + 0.5; p.y = r + 0.5;
     p.dir = -1; p.want = -1; p.face = 1; p.pause = 0; p.moving = false;
     p.safe = Math.round(R.SPAWN_SAFE_S * R.TICK_HZ);
-    p.hist = []; p.pend = null;
+    p.hist = []; p.pend = null; p.pk = -1;
   }
 
   dangerDist(x, y, self) {
@@ -326,7 +330,10 @@ class ChompRoom {
       this.stepPlayer(p);
     }
     this.scareGhosts();
-    for (const g of this.ghosts) Ghosts.step(g, this.A, this, DT);
+    for (const g of this.ghosts) {
+      g.pk = Math.floor(g.y) * this.A.W + Math.floor(g.x);   // the tile it left from (collide: swaps)
+      Ghosts.step(g, this.A, this, DT);
+    }
     this.collide();
     if (this.tick % 30 === 0) { this.respawnPellets(); this.stepFruit(); }
     if (this.tick % 15 === 0) this.fillBots(1);
@@ -377,11 +384,13 @@ class ChompRoom {
     }
     if (p.power > 0 && --p.power === 0) p.chain = 0;
     if (p.boost > 0) p.boost--;
+    if (p.bump > 0) p.bump--;
     if (p.safe > 0) p.safe--;
+    p.pk = Math.floor(p.y) * this.A.W + Math.floor(p.x);     // the tile it left from (collide: swaps)
     if (this.still.has(p.id)) {
       // a paid seat waiting for its page, a dropped one gone dormant, or a frozen one: it does not move
       p.moving = false;
-      p.hist.push({ x: p.x, y: p.y, dir: p.dir, paused: true });
+      p.hist.push({ x: p.x, y: p.y, dir: p.dir, paused: true, spd: 0 });
       if (p.hist.length > R.LATE_TURN_TICKS) p.hist.shift();
       return;
     }
@@ -392,7 +401,7 @@ class ChompRoom {
     const paused = p.pause > 0;
     Move.tick(p, this.A, speed, DT, this.dots, (k, kind) => this.eatDot(p, k, kind));
     if (p.dir >= 0) p.face = p.dir;
-    p.hist.push({ x: p.x, y: p.y, dir: p.dir, paused });
+    p.hist.push({ x: p.x, y: p.y, dir: p.dir, paused, spd: speed });
     if (p.hist.length > R.LATE_TURN_TICKS) p.hist.shift();
     this.checkFruit(p);
     if (this.money && !this.shielded.has(p.id)) {
@@ -404,6 +413,7 @@ class ChompRoom {
   eatDot(p, k, kind) {
     this.dots[k] = 0;
     this.dotsGone.push(k);
+    p.bump = R.DOT_BUMP_TICKS;          // the tiny push forward, from the next tick (the page's prediction does the same)
     this.addScore(p, kind === Maze.ENERGIZER ? R.ENERGIZER_POINTS : R.DOT_POINTS);
     const delay = kind === Maze.ENERGIZER ? R.ENERGIZER_RESPAWN_S : R.DOT_RESPAWN_S;
     this.respawnQ[kind].push({ k, at: this.tick + delay * R.TICK_HZ });
@@ -440,7 +450,7 @@ class ChompRoom {
   }
 
   speedOf(p) {
-    return R.speed((p.power > 0 ? R.PAC_FRIGHT_SPEED : R.PAC_SPEED) * (p.boost > 0 ? R.FRUIT_BOOST : 1));
+    return R.pace(p.power > 0, p.boost > 0, p.bump > 0);
   }
 
   // One ghost has one body, so how it MOVES is shared: blue for somebody within FLEE_RADIUS, it takes the arcade's
@@ -490,38 +500,57 @@ class ChompRoom {
     }
   }
 
+  // Two things meet when they stand on one tile, or when they swapped tiles this tick: heading at each other they can
+  // pass through one another between two ticks (more often at a cherry's or a power pellet's speed, up to a quarter
+  // tile a tick), which must still be a meeting. `swap` files each chomper that changed tile by from * N + to.
   collide() {
-    const W = this.A.W, at = new Map();
+    const W = this.A.W, N = W * this.A.H, at = new Map(), swap = new Map();
     for (const p of this.players.values()) {
       if (p.dying || p.over || this.shielded.has(p.id)) continue;
       const k = Math.floor(p.y) * W + Math.floor(p.x);
+      p.tk = k;
       const list = at.get(k);
       if (list) list.push(p); else at.set(k, [p]);
+      if (p.pk >= 0 && p.pk !== k) {
+        const sk = p.pk * N + k, sl = swap.get(sk);
+        if (sl) sl.push(p); else swap.set(sk, [p]);
+      }
     }
     if (!at.size) return;
     for (const g of this.ghosts) {
       if (g.state !== 'active') continue;
-      const list = at.get(Math.floor(g.y) * W + Math.floor(g.x));
+      const gk = Math.floor(g.y) * W + Math.floor(g.x);
+      let list = at.get(gk);
+      const crossed = g.pk >= 0 && g.pk !== gk ? swap.get(gk * N + g.pk) : null;
+      if (crossed) list = list ? list.concat(crossed) : crossed;
       if (!list) continue;
-      // each player's own fright decides: blue for anyone on the tile, it is eaten (and its eyes go home for
-      // everyone); else it catches everyone there not blinking safe
+      // each player's own fright decides: blue for anyone met, it is eaten (and its eyes go home for everyone); else
+      // it catches everyone it met not blinking safe
       const eater = list.find((p) => !p.dying && this.blueFor(p, g));
       if (eater) { this.eatGhost(eater, g); continue; }
       for (const p of list) if (!p.dying && p.safe <= 0) this.kill(p, null, g);
     }
     for (const list of at.values()) {
       if (list.length < 2) continue;
-      for (const a of list) {
-        if (a.power <= 0 || a.dying) continue;
-        for (const b of list) {
-          if (b === a || b.power > 0 || b.safe > 0 || b.dying) continue;
-          const pts = R.PLAYER_POINTS[Math.min(a.chain, R.PLAYER_POINTS.length - 1)];
-          a.chain++;
-          this.addScore(a, pts);
-          this.events.push({ k: 'eatp', id: a.id, v: b.id, x: b.x, y: b.y, pts });
-          this.kill(b, a);
-        }
-      }
+      for (const a of list) this.eatPlayers(a, list);
+    }
+    for (const a of this.players.values()) {
+      if (a.power <= 0 || a.dying || a.over || a.pk < 0 || a.pk === a.tk || this.shielded.has(a.id)) continue;
+      const crossed = swap.get(a.tk * N + a.pk);
+      if (crossed) this.eatPlayers(a, crossed);
+    }
+  }
+
+  // A powered chomper a eats every chomper in list it met that is not powered, blinking safe or already caught.
+  eatPlayers(a, list) {
+    if (a.power <= 0 || a.dying) return;
+    for (const b of list) {
+      if (b === a || b.power > 0 || b.safe > 0 || b.dying) continue;
+      const pts = R.PLAYER_POINTS[Math.min(a.chain, R.PLAYER_POINTS.length - 1)];
+      a.chain++;
+      this.addScore(a, pts);
+      this.events.push({ k: 'eatp', id: a.id, v: b.id, x: b.x, y: b.y, pts });
+      this.kill(b, a);
     }
   }
 
@@ -538,7 +567,7 @@ class ChompRoom {
     p.killedBy = by ? by.name : '';
     p.killedByGhost = !by && !!ghost;
     p.lives--;
-    p.power = 0; p.boost = 0; p.chain = 0; p.want = -1; p.moving = false;
+    p.power = 0; p.boost = 0; p.bump = 0; p.chain = 0; p.want = -1; p.moving = false;
     this.events.push({ k: 'die', id: p.id, by: by ? by.id : 0 });
     // paid: everything this chomper holds drops as coins around it (chompMoney _drop, after the step)
     if (this.money) {
@@ -715,7 +744,8 @@ class ChompRoom {
       ps.push({
         id: p.id, x: p.x, y: p.y, dir: p.dir < 0 ? -1 : p.dir, seq: p.seq, since: this.tick - p.seqTick,
         power: p.power,
-        flags: (p.moving ? F.MOVING : 0) | (p.power > 0 ? F.POWER : 0) | (p.safe > 0 || this.shielded.has(p.id) ? F.SAFE : 0) | (p.dying ? F.DYING : 0),
+        flags: (p.moving ? F.MOVING : 0) | (p.power > 0 ? F.POWER : 0) | (p.safe > 0 || this.shielded.has(p.id) ? F.SAFE : 0) | (p.dying ? F.DYING : 0) |
+          (p.boost > 0 ? F.BOOST : 0) | (p.bump > 0 ? F.BUMP : 0),
       });
     }
     const gs = this.ghosts.map(g => ({ x: g.x, y: g.y, dir: g.dir, look: g.plan >= 0 ? g.plan : g.dir, kind: g.ki, state: Ghosts.STATE[g.state] }));

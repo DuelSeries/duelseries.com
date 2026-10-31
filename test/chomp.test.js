@@ -100,7 +100,11 @@ test('ghost targets follow the dossier, the up-direction bug included', () => {
   room.mode = 'chase';
   const p = room.addPlayer({ name: 'p' });
   p.x = 14.5; p.y = 23.5; p.face = 0; p.safe = 0;
-  const [blinky, pinky, inky, clyde] = room.A.modules[0].quartet;
+  // two ghosts a module (R.MODULE_GHOSTS, Owen 2026-10-30): module 0 has Blinky and Inky; Pinky and Clyde are the
+  // same ghosts wearing the other two names, so every rule is still checked here
+  const [blinky, inky] = room.A.modules[0].quartet;
+  assert.deepStrictEqual([blinky.kind, inky.kind], ['blinky', 'inky']);
+  const pinky = Object.assign({}, inky, { kind: 'pinky', ki: 1 }), clyde = Object.assign({}, inky, { kind: 'clyde', ki: 3 });
   assert.deepStrictEqual(Ghosts.targetFor(blinky, room, 'chase'), [14, 23]);
   assert.deepStrictEqual(Ghosts.targetFor(pinky, room, 'chase'), [10, 19], 'four up and four left');
   p.face = 3;
@@ -209,12 +213,12 @@ test('walls are drawn by the arcade rules measured from the 1x captures (docs/ch
   for (let y = 0; y < w.PH - 1; y++) for (let x = 0; x < w.PW - 1; x++) {
     assert.ok(!(at(x, y) === 1 && at(x + 1, y) === 1 && at(x, y + 1) === 1 && at(x + 1, y + 1) === 1), `2x2 wall at ${x},${y}`);
   }
-  // a block (rows 2-3, cols 2-4): top/left edges 4 px into the tile, bottom/right 3 px, corners cut by one diagonal pixel
-  assert.deepStrictEqual(rows(19, 19, 18, 10), [
-    '..................', '...BBBBBBBBBBBB...', '..B............B..', '.B..............B.', '.B..............B.',
-    '.B..............B.', '.B..............B.', '..B............B..', '...BBBBBBBBBBBB...', '..................']);
-  // the double line runs straight past the 2-tile stub under the top border (as the arcade's does over its own)
-  for (let x = 96; x < 128; x++) assert.strictEqual(at(x, 0), 1, `outer line over the stub at x ${x}`);
+  // a block (rows 2-5, cols 2-4): top/left edges 4 px into the tile, bottom/right 3 px, corners cut by one diagonal pixel
+  assert.deepStrictEqual(rows(19, 19, 18, 26), [
+    '..................', '...BBBBBBBBBBBB...', '..B............B..'].concat(new Array(20).fill('.B..............B.'),
+    ['..B............B..', '...BBBBBBBBBBBB...', '..................']));
+  // the double line runs straight along the top border over the middle (the outer line on the frame's first row)
+  for (let x = 96; x < 128; x++) assert.strictEqual(at(x, 0), 1, `outer line along the top at x ${x}`);
   // the house: double box with square corners and a 16 x 2 door (pixel counts as measured: rows 124/127/152/155 of the
   // arcade screen are the house's rows 100/103/128/131 here, 24 px of score rows above the maze)
   const count = (y) => { let n = 0; for (let x = 80; x < 144; x++) if (at(x, y) === 1) n++; return n; };

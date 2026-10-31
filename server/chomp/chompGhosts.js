@@ -30,13 +30,17 @@ function makeGhosts(A) {
   return ghosts;
 }
 
-// One module's quartet at its start spots (a fresh arena, or a module the arena grew by, chompRoom resize).
+// One module's ghosts at their start spots (a fresh arena, or a module the arena grew by, chompRoom resize): the pair
+// R.MODULE_GHOSTS gives its square of the checkerboard (Owen 2026-10-30: two a module, was the arcade's four). The
+// list is still called the quartet; it stays in KINDS order (Blinky first: Inky's target reads it).
 function makeModuleGhosts(m, first) {
   m.quartet = [];
+  const pair = R.MODULE_GHOSTS[((m.i || 0) + (m.j || 0)) % R.MODULE_GHOSTS.length];
   KINDS.forEach((kind, ki) => {
+    if (!pair.includes(kind)) return;
     const s = Maze.GHOST_START[kind];
     m.quartet.push({
-      index: first + ki, kind, ki, home: m,
+      index: first + m.quartet.length, kind, ki, home: m,
       x: m.ox + s.x, y: m.oy + s.y,
       dir: 1,                              // DOSSIER: ghosts move left once outside
       state: kind === 'blinky' ? 'active' : 'house',
@@ -72,8 +76,8 @@ function targetFor(g, room, mode) {
   if (g.kind === 'pinky') return aheadTile(p, R.PINKY_AHEAD);
   if (g.kind === 'inky') {
     const piv = aheadTile(p, R.INKY_AHEAD);
-    const b = g.home.quartet[0];
-    // the vector from Blinky to the pivot, doubled (the short way across a torus seam)
+    const b = g.home.quartet.find((q) => q.kind === 'blinky') || g;
+    // the vector from his module's Blinky to the pivot, doubled (the short way across a torus seam)
     const A = room.A;
     return [piv[0] + A.dx(Math.floor(b.x), piv[0]), piv[1] + A.dy(Math.floor(b.y), piv[1])];
   }

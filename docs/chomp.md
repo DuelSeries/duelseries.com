@@ -22,7 +22,7 @@ routes, keys, the owner console and shared links (`shared/shareGames.js`) stay C
 |---|---|
 | `shared/chompRules.js` | every number, tagged DOSSIER (sourced), ARENA (a dossier rule scaled to the arena) or CHOSEN (ours) |
 | `shared/chompMaze.js` | the 28 x 31 module and the arena builder (3 x 3 modules, sealed outer edge) |
-| `shared/chompMove.js` | chomper movement (buffered turns, cornering, dot pause), run by server AND page |
+| `shared/chompMove.js` | chomper movement (buffered turns, cornering, energizer pause), run by server AND page |
 | `shared/chompWire.js` | the binary snapshot (14 B a player, 8 B a ghost) |
 | `server/chomp/chompRoom.js` | the sim: eating, power, collisions, fruit, pellet respawn, bots fill, late turns |
 | `server/chomp/chompGhosts.js` | the four personalities, scatter/chase, fright, house, eyes |
@@ -46,15 +46,16 @@ right and below (the last ones too) and runs the tunnels on across the seam, so 
 opposite one. Every distance (ghost targets, prey, danger, fright radius, bots, coin drops) is the short way across
 the seam (`A.dx`, `A.dy`), positions wrap after each move (`A.wx`, `A.wy`), and the walls are traced on a copy padded
 with the map's far side (`chompWalls.js`). The page keeps the camera on you from the first frame (no edge to stop at),
-draws everything the short way from the camera, and shows a "you are here" pulse for 2 s at every spawn (with the 3 s
-spawn blink). The arena starts at 2 x 2 modules (Owen) and grows with the crowd.
+draws everything the short way from the camera. (2026-10-26 to 10-30 a "you are here" pulse ringed every spawn; Owen
+2026-10-30 had it removed with the outline round your own Pac-Man: the 2 s spawn flicker is the only cue.) The arena
+starts at 2 x 2 modules (Owen) and grows with the crowd.
 
 **Growing and shrinking** (`server/chomp/chompResize.js`, Owen's pick "add blocks where nobody is"): the crowd asks
 for one module per `PLAYERS_PER_MODULE` chompers (at least 2 x 2, at most `MODULES_MAX`); every `RESIZE_EVERY_S` (and
 at most once per `RESIZE_GAP_S`) the room adds or removes one module column or row at the seam with no person within
 `SEAM_CLEAR` tiles (bots do not count; a bot in a removed column is placed elsewhere). The torus is first turned so
 that seam is its edge (every position and tile shifted alike: nothing moves on screen), then the column goes in or
-out at the edge. Dots, the pellet queue, fruit, ghosts (a new module brings its quartet; a removed one's go with it,
+out at the edge. Dots, the pellet queue, fruit, ghosts (a new module brings its pair; a removed one's go with it,
 never where a person can see) carry over, and in a paid room every coin in a removed column moves to the nearest path
 tile outside it: no balance changes. The pages get `c:arena { axis, shift, mx, my, dots, coins, fruit, gmap }` before
 the next snapshot and turn everything they hold the same way.
@@ -68,10 +69,34 @@ catches everyone there not blinking safe). A ghost that went home as eyes since 
 you (`g.backAt`), as in the arcade. One ghost has one body, so its walk is shared: blue for any eater within
 `FLEE_RADIUS` it takes the frightened walk (random turns, half speed). The ghost's fright left the wire: each page draws
 blue from its own timer with the same rule (`chompMain.js` `ghostHome`: ghosts in eyes when your energizer lands, and
-every one eaten since). A fruit also gives its eater `FRUIT_BOOST` (10%) speed for `FRUIT_BOOST_S` (3 s), predicted on
-the page. Customize: free colours in `shared/chompSkins.js` (`duel.chomp.skin`) and the Shop's skins in
+every one eaten since). A fruit (cherry) gives its eater a speed boost, predicted on the page (numbers in the next
+section). Customize: free colours in `shared/chompSkins.js` (`duel.chomp.skin`) and the Shop's skins in
 `shared/shopSkins.js` `SKINS.chomp` (pixel patterns, `chompPx`), sent in the socket handshake and checked once by
 `chompBoot.skinOf` (a bought one only with a genuine skin pass), then carried to every page in the chomper's meta `s`.
+
+## Simpler and faster (Owen 2026-10-30)
+
+His Short of it took off and he said "there's just too much going on". All in `shared/chompRules.js`:
+- **No rings.** The spawn pulse and the outline round your own Pac-Man are gone, and the powered halo too. Spawn safety
+  is `SPAWN_SAFE_S` 2 s (was 3) shown only by the flicker. Yours is the one the camera stays on.
+- **Open maze.** A new module (still 28 x 31, tunnels, house, fruit and spawn spots where they were): 12 plain blocks
+  instead of about 26 small ones. Two ghosts a module (`MODULE_GHOSTS`: Blinky with Inky, Pinky with Clyde, the modules
+  taking turns like a checkerboard), `PLAYERS_PER_MODULE` 1.25 (was 3), free-room bots 4 to 8 (was 5 to 12,
+  `server/botPopulation.js`), dots back after 8 s and energizers after 25 s (were 30 and 40: the bots kept the maze bare).
+- **Speed.** `R.pace(powered, boosted, bumped)` is the one speed rule the server and the page both use. Powered 105%
+  (was the arcade's 90%), a cherry x1.45 for 4 s (was x1.1 for 3 s), each dot x1.08 for 20 ticks (the arcade's
+  one-frame dot stop is gone). Fastest (powered and cherry) is 0.24 tile a tick, under half a tile, so no tile centre
+  is ever skipped. The wire's flags carry BOOST (16) and BUMP (32).
+- **Every boost shows** (`chompMain` speedLook, drawn by `chompPixel`): a cherry turns the Pac-Man orange with three
+  after-images, speed lines and a glow, SPEED! rises where it was taken and a whoosh plays (`ch.whoosh`, softer for
+  someone else's on your screen); powered gets two after-images and a glow; a dot's bump two faint speed lines.
+- **Meetings between ticks.** `collide` also counts two things that swapped tiles in one tick (heading at each other
+  they can pass through one another at speed): ghost and chomper, and a powered chomper and its prey.
+- **Netcode at speed.** Each predicted tick keeps the speed it ran at, so a replay after a correction runs every tick
+  at its own speed; a cherry that turns out to be somebody else's takes its boost back out of those ticks; the power
+  count is compared at the same tick; the jitter allowance scales with speed. A press the server never got (two quick
+  presses arriving together were dropped by the old 12 ms gap rule, now a token bucket of 4 in `chompBoot`) is
+  pressed again after 30 ticks with no echo, so the page and the server can no longer go separate ways for seconds.
 
 ## Netcode in one paragraph
 

@@ -35,7 +35,7 @@ test('growing by a column: nobody moves, the view round everybody is the same, a
   const msg = Resize.apply(room, { axis: 'x', op: 1, seam: 1 });
   assert.ok(msg && msg.mx === 3 && msg.my === 2);
   assert.strictEqual(room.A.W, W0 + Resize.SPAN_X);
-  assert.strictEqual(room.ghosts.length, ghosts0 + 8, 'two new modules, four ghosts each');
+  assert.strictEqual(room.ghosts.length, ghosts0 + 2 * R.MODULE_GHOSTS[0].length, 'two new modules, two ghosts each');
   assert.ok(room.ghosts.every((g, i) => g.index === i));
   assert.strictEqual(msg.dots.length, room.A.W * room.A.H);
   // pairs whose short way does not cross the new column keep their distance exactly
@@ -124,7 +124,7 @@ test('the plan: grows with the crowd, never where a person is near, and shrinks 
   assert.strictEqual(Resize.plan(small).op, -1);
   const tiny = new ChompRoom({ seed: 2, botFill: 0, grow: false, log: quiet });
   assert.strictEqual(Resize.plan(tiny), null);
-  assert.strictEqual(Resize.wantModules(100), R.MODULES_MAX > 34 ? 34 : R.MODULES_MAX);
+  assert.strictEqual(Resize.wantModules(100), Math.min(R.MODULES_MAX, Math.ceil(100 / R.PLAYERS_PER_MODULE)));
 });
 
 test('a crowd with people on every column seam: the grid stays near square and inside the wire\'s 511 tiles', () => {

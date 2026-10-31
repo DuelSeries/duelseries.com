@@ -2,6 +2,17 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-10-30-pac-man-simpler-faster",
+      "date": "2026-10-30",
+      "tag": "new",
+      "title": "Pac-Man: a more open maze and real speed boosts",
+      "body": "The Pac-Man maze is more open now, with fewer walls and fewer ghosts in each part of it, so there is room to run.\n\nEvery dot gives you a tiny push forward, and a cherry gives you a big speed boost for four seconds: your Pac-Man turns orange, leaves a trail and shouts SPEED. A power pellet now makes you much faster too, so you can actually run other players down.\n\nThe rings around your own Pac-Man are gone. You are the one in the middle of the screen, and you flicker for a moment when you come in.",
+      "image": {
+        "src": "/updates/pac-man-speed.webp",
+        "alt": "An orange Pac-Man with a speed trail and SPEED! above it, racing through the open maze past ghosts and other players"
+      }
+    },
+    {
       "id": "2026-10-30-clips-smooth-sharp",
       "date": "2026-10-30",
       "tag": "fix",

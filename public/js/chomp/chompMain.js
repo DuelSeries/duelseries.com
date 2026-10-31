@@ -68,7 +68,7 @@
   var snaps = [], offset = null;
   var me = null, L = 0, hist = new Map(), inputs = [], seq = 0, predicting = false;
   var smooth = { x: 0, y: 0 }, cam = { x: 0, y: 0 }, camSet = false;
-  var myPower = 0, myBoost = 0, fruitTaken = -1, mySafe = 0, myScore = 0, myLives = R.LIVES, myRank = 0, roomN = 0;
+  var myPower = 0, myBoost = 0, myBump = 0, boostL = 0, fruitTaken = -1, mySafe = 0, myScore = 0, myLives = R.LIVES, myRank = 0, roomN = 0;
   var phase = attract ? 'watch' : 'title';
   var pops = [], dying = new Map(), mouthPhase = new Map(), lastPos = new Map();
   var lbRows = [], board = null, scaredUntil = 0, readyUntil = 0;
@@ -140,7 +140,7 @@
     });
     socket.on('c:chatnote', function (m) { if (chat && m && m.text) chat.add({ kind: 'sys', text: m.text }); });
     socket.on('c:you', function (m) {
-      unveil(); closeWatch(); myId = m.id; (m.metas || []).forEach(setMeta); predicting = false; phase = 'play'; titleEl.hidden = true; readyUntil = performance.now() + 1500; cueSpawn(); Snd.play('ch.ready');
+      unveil(); closeWatch(); myId = m.id; (m.metas || []).forEach(setMeta); predicting = false; phase = 'play'; titleEl.hidden = true; readyUntil = performance.now() + 1500; Snd.play('ch.ready');
       tracked(function (t) { t.start(); });   // seated: a new game (Play again after a game over is another)
     });
     socket.on('c:s', onSnap);
@@ -233,7 +233,7 @@
     myMoney = Number(p.micro) || 0;
     lifeT0 = performance.now();
     if (lock) lock.setMoney(true);
-    readyUntil = performance.now() + 1500; cueSpawn(); Snd.play('ch.ready');
+    readyUntil = performance.now() + 1500; Snd.play('ch.ready');
     syncCashBtn();
     tracked(function (t) { t.set({ paid: true, stake: Number(p.stake) > 0 ? Number(p.stake) : hand.stake, mode: 'paid' }); t.start(); });
   }
@@ -359,7 +359,7 @@
     var now = performance.now();
     list.forEach(function (e) {
       if (e.k === 'meta') setMeta(e);
-      else if (e.k === 'gone') { metas.delete(e.id); dying.delete(e.id); }
+      else if (e.k === 'gone') { metas.delete(e.id); dying.delete(e.id); trails.delete(e.id); }
       else if (e.k === 'eatg') {
         ghostHome.add(e.g);
         pop(e.x, e.y, String(e.pts), '#00ffff');
@@ -369,25 +369,26 @@
         if (e.id === myId) Snd.play('ch.player');
       } else if (e.k === 'die') {
         dying.set(e.id, now);
-        if (e.id === myId) { Snd.play('ch.death'); predicting = false; myPower = 0; myBoost = 0; }
+        if (e.id === myId) { Snd.play('ch.death'); predicting = false; myPower = 0; myBoost = 0; myBump = 0; }
       } else if (e.k === 'spawn') {
         dying.delete(e.id);
-        if (e.id === myId) { readyUntil = now + 1500; cueSpawn(); Snd.play('ch.ready'); }
+        if (e.id === myId) { readyUntil = now + 1500; Snd.play('ch.ready'); }
       } else if (e.k === 'power') {
         if (e.id === myId) { scaredUntil = now + R.FRIGHT_S * 1000; ghostHome = new Set(e.home || []); }
       } else if (e.k === 'fruit') {
         if (e.on) fruitOn.add(e.m); else fruitOn.delete(e.m);
-        // a fruit's speed burst: ours if the server says we took it (we may have seen it first, stepLocal); one
-        // somebody else beat us to is not
+        // a fruit's speed boost: ours if the server says we took it (we may have seen it first, stepLocal, and shown
+        // it then); one somebody else beat us to is not, and the ticks we ran boosted are put back to our own speed
+        var m = A.modules[e.m], mine = false;
         if (!e.on && e.pts) {
-          if (e.id === myId && fruitTaken !== e.m) myBoost = R.FRUIT_BOOST_S * R.TICK_HZ;
-          else if (e.id !== myId && fruitTaken === e.m) myBoost = 0;
-        } else if (!e.on && fruitTaken === e.m) myBoost = 0;
+          if (e.id === myId && fruitTaken !== e.m) { myBoost = R.FRUIT_BOOST_S * R.TICK_HZ; boostL = L; mine = true; }
+          else if (e.id !== myId && fruitTaken === e.m) unBoost();
+        } else if (!e.on && fruitTaken === e.m) unBoost();
         if (fruitTaken === e.m) fruitTaken = -1;
-        if (!e.on && e.pts) {
-          var m = A.modules[e.m];
-          pop(m.ox + Maze.FRUIT.x, m.oy + Maze.FRUIT.y, String(e.pts), '#ffb8ff', 80 * STEP_MS);
-          if (e.id === myId) Snd.play('ch.fruit');
+        // Owen 2026-10-30: every cherry shouts SPEED where it was taken; ours (or one on our screen) whooshes
+        if (!e.on && e.pts && (mine || e.id !== myId)) {
+          var fx = m.ox + Maze.FRUIT.x, fy = m.oy + Maze.FRUIT.y;
+          boostCue(fx, fy, mine ? 1 : nearCam(fx, fy) ? 0.45 : 0);
         }
       } else if (e.k === 'life') {
         if (e.id === myId) Snd.play('ch.life');
@@ -395,7 +396,24 @@
     });
   }
 
-  function pop(x, y, text, color, ms) { pops.push({ x: x, y: y, text: text, color: color, at: performance.now(), ms: ms || 1000 }); }
+  // word: drawn in letters and rising (SPEED!), else the arcade's small point digits
+  function pop(x, y, text, color, ms, word) { pops.push({ x: x, y: y, text: text, color: color, at: performance.now(), ms: ms || 1000, word: !!word }); }
+
+  // Owen 2026-10-30: a cherry's boost is loud on purpose: SPEED! rises where it was taken and a whoosh plays (ours at
+  // full volume, somebody else's on our screen softer)
+  var BOOST_ORANGE = '#ffb851';
+  function boostCue(x, y, vol) {
+    pop(x, y - 1, 'SPEED!', BOOST_ORANGE, 1100, true);
+    if (vol > 0) Snd.play('ch.whoosh', { vol: vol });
+  }
+  function nearCam(x, y) { return !!A && Math.abs(A.dx(cam.x, x)) < 22 && Math.abs(A.dy(cam.y, y)) < 40; }
+  // Our predicted cherry boost was not ours after all: off, and the ticks we already ran boosted go back to our own
+  // speed (reconcile replays each tick at the speed it ran at)
+  function unBoost() {
+    if (myBoost <= 0) return;
+    myBoost = 0;
+    for (var j = boostL + 1; j <= L; j++) { var h = hist.get(j); if (h && h.spd) h.spd /= R.FRUIT_BOOST; }
+  }
 
   // The shared end card (dsEnd.js), the buttons in the other games' order: Lobby (Menu on a direct visit), Spectate,
   // Play again.
@@ -478,11 +496,11 @@
   }
 
   // ---- input
-  function want(d) {
+  function want(d, again) {
     // nothing while caught or before we are placed: the server would drop it, and replaying it later would not match
     if (phase !== 'play' || !myId || !socket || !predicting || !me) return;
     if (flow && !flow.canSteer()) return;
-    if (me.want === d && me.dir === d) return;
+    if (me.want === d && me.dir === d && !again) return;
     seq = seq >= 65535 ? 1 : seq + 1;
     me.want = d;
     inputs.push({ seq: seq, d: d, L: L });
@@ -541,17 +559,22 @@
   playEl.addEventListener('click', join);
 
   // ---- prediction
-  function mySpeed() { return R.speed((myPower > 0 ? R.PAC_FRIGHT_SPEED : R.PAC_SPEED) * (myBoost > 0 ? R.FRUIT_BOOST : 1)); }
+  // the server's own rule (shared/chompRules.js pace, chompRoom speedOf): powered, a cherry's boost, a dot's bump
+  function mySpeed() { return R.pace(myPower > 0, myBoost > 0, myBump > 0); }
 
+  // Each tick in hist keeps the speed it ran at (spd): a replay after a correction runs every tick at its own speed, so
+  // a boost that started or ended inside the replayed stretch lands where it did (no pull back at a cherry's speed).
   function stepLocal() {
     if (myPower > 0) myPower--;
     if (myBoost > 0) myBoost--;
+    if (myBump > 0) myBump--;
     L++;                                  // counts even while not predicting: it is the clock the server's echo maps onto
     if (!predicting || !me) return;
-    var paused = me.pause > 0;
-    Move.tick(me, A, mySpeed(), DT, dotsView, function (k, kind) {
+    var paused = me.pause > 0, spd = mySpeed();
+    Move.tick(me, A, spd, DT, dotsView, function (k, kind) {
       dotsView[k] = 0;
       pending.set(k, performance.now() + 1500);
+      myBump = R.DOT_BUMP_TICKS;          // chompRoom eatDot: the bump runs from the next tick
       if (kind === Maze.ENERGIZER) { myPower = R.FRIGHT_S * R.TICK_HZ; freshPower(); Snd.play('ch.power'); } else Snd.eat();
     });
     // the fruit, as the server takes it (chompRoom checkFruit): its speed burst starts now, not a round trip later
@@ -560,12 +583,15 @@
         (Math.floor(me.x) === fm.ox + Maze.FRUIT.x - 1 || Math.floor(me.x) === fm.ox + Maze.FRUIT.x)) {
       fruitTaken = fm.index;
       myBoost = R.FRUIT_BOOST_S * R.TICK_HZ;
+      boostL = L;
+      boostCue(fm.ox + Maze.FRUIT.x, fm.oy + Maze.FRUIT.y, 1);
     }
     if (me.dir >= 0) me.face = me.dir;
-    hist.set(L, { x: me.x, y: me.y, dir: me.dir, paused: paused });
+    hist.set(L, { x: me.x, y: me.y, dir: me.dir, paused: paused, spd: spd, pw: myPower });
     hist.delete(L - 300);
   }
 
+  var lifeL = 0, AGAIN_TICKS = 30;
   function wantAt(tick) {
     var w = -1;
     for (var i = 0; i < inputs.length; i++) if (inputs[i].L < tick) w = inputs[i].d;
@@ -578,17 +604,26 @@
     if (!predicting || !me) {
       me = { x: rec.x, y: rec.y, dir: rec.dir, want: rec.dir, pause: 0, moving: false, face: rec.dir >= 0 ? rec.dir : 1 };
       myPower = rec.power;
-      predicting = true; hist.clear(); smooth.x = smooth.y = 0;
+      predicting = true; hist.clear(); smooth.x = smooth.y = 0; lifeL = L;
       if (!camSet) { cam.x = me.x; cam.y = me.y; camSet = true; }
       if (flow) flow.onSpawn();
       return;
     }
-    // the server's power count wins when they disagree by more than a snapshot's worth (it ate the energizer, or did not)
-    if (Math.abs(rec.power - myPower) > 12) myPower = rec.power;
+    // A press the server never took (a packet lost on the way): after AGAIN_TICKS with no echo it is pressed again, as
+    // a new press from where we are now, so the two chompers cannot go separate ways until the next key (2026-10-30)
+    var newest = inputs[inputs.length - 1];
+    if (newest && newest.seq !== rec.seq && newest.L >= lifeL && !newest.again && L - newest.L > AGAIN_TICKS) {
+      newest.again = true;
+      want(newest.d, true);
+    }
     var inp = null;
     for (var i = inputs.length - 1; i >= 0; i--) if (inputs[i].seq === rec.seq) { inp = inputs[i]; break; }
     if (!inp) {
-      // nothing of ours applied yet this life: just follow the server
+      // nothing of ours applied yet this life: just follow the server (its power count too, when far off). Unless we
+      // already pressed: then our own run stands until the server echoes the press (2026-10-30: snapping back to the
+      // spot the server still had us on pulled the chomper back to its start for a round trip at every spawn)
+      if (newest && newest.L >= lifeL) return;
+      if (Math.abs(rec.power - myPower) > 12) myPower = rec.power;
       if (Math.abs(me.x - rec.x) > 0.001 || Math.abs(me.y - rec.y) > 0.001 || me.dir !== rec.dir) {
         smooth.x += A.dx(rec.x, me.x); smooth.y += A.dy(rec.y, me.y);
         me.x = rec.x; me.y = rec.y; me.dir = rec.dir;
@@ -598,19 +633,26 @@
     var Lk = Math.min(L, inp.L + rec.since);
     var h = hist.get(Lk);
     stats.checks++;
-    // CHOSEN: within a sixth of a tile on the same heading is jitter (we run a tick or two off the server), not an error
-    if (h && Math.abs(A.dx(rec.x, h.x)) < 0.17 && Math.abs(A.dy(rec.y, h.y)) < 0.17 && h.dir === rec.dir) return;
+    // the server's power count wins when it disagrees with ours AT THE SAME TICK by more than its 2-tick rounding (it
+    // ate the energizer, or did not): powered runs 31% faster, so its end must land where the server's does
+    if (h && h.pw != null && Math.abs(rec.power - h.pw) > 4) myPower = Math.max(0, rec.power - (L - Lk));
+    // CHOSEN: within a sixth of a tile (or a tick and a third of movement, at a boost's speed) on the same heading is
+    // jitter (we run a tick or two off the server), not an error
+    var tol = Math.max(0.17, 1.35 * (h && h.spd ? h.spd : mySpeed()) * DT);
+    if (h && Math.abs(A.dx(rec.x, h.x)) < tol && Math.abs(A.dy(rec.y, h.y)) < tol && h.dir === rec.dir) return;
     var ox = me.x, oy = me.y;
     stats.fixes++;
     stats.fixDist += Math.abs(h ? h.x - rec.x : 0) + Math.abs(h ? h.y - rec.y : 0);
-    stats.last = (stats.last || []).slice(-7).concat([h ? [+(h.x - rec.x).toFixed(2), +(h.y - rec.y).toFixed(2), h.dir, rec.dir, rec.since] : 'nohist']);
+    // [x and y off, our heading, the server's, ticks since our input, our speed then / a plain runner's, the server's flags]
+    stats.last = (stats.last || []).slice(-7).concat([h ? [+(h.x - rec.x).toFixed(2), +(h.y - rec.y).toFixed(2), h.dir, rec.dir, rec.since,
+      h.spd ? +(h.spd / R.pace(false, false, false)).toFixed(3) : 0, rec.flags] : 'nohist']);
     var st = { x: rec.x, y: rec.y, dir: rec.dir, want: wantAt(Lk + 1), pause: 0, moving: false };
     var speed = mySpeed();
     for (var j = Lk + 1; j <= L; j++) {
       for (var q = 0; q < inputs.length; q++) if (inputs[q].L === j - 1) st.want = inputs[q].d;
-      var hj = hist.get(j);
-      if (!(hj && hj.paused)) { Move.tryTurn(st, A); Move.advance(st, A, speed * DT); }
-      hist.set(j, { x: st.x, y: st.y, dir: st.dir, paused: !!(hj && hj.paused) });
+      var hj = hist.get(j), spd = hj && hj.spd ? hj.spd : speed;
+      if (!(hj && hj.paused)) { Move.tryTurn(st, A); Move.advance(st, A, spd * DT); }
+      hist.set(j, { x: st.x, y: st.y, dir: st.dir, paused: !!(hj && hj.paused), spd: spd, pw: hj ? hj.pw : null });
     }
     me.x = st.x; me.y = st.y; me.dir = st.dir; me.want = st.want;
     if (me.dir >= 0) me.face = me.dir;
@@ -669,6 +711,38 @@
     if (e < TK.deathFreeze) return -1;
     return Math.min(TK.deathFrames, Math.floor((e - TK.deathFreeze) / TK.deathFrame));
   }
+  // Owen 2026-10-30: every speed boost shows, on yours and on everybody else's, at phone size:
+  //   3 a cherry's boost   the body turns orange, three orange after-images stream behind it, speed lines, a glow
+  //   2 a power pellet     two after-images in its own colour and a soft glow (it is faster and it eats players)
+  //   1 a dot's bump       two short speed lines only (a run of dots keeps it, so it stays quiet)
+  // After-images are where the chomper was 45, 90 and 135 ms ago as drawn (trails keeps the last 200 ms of each), as
+  // offsets from where it is now so the camera's torus seam never splits them.
+  var trails = new Map();
+  var TRAIL = { 3: [[45, 0.55], [90, 0.35], [135, 0.18]], 2: [[50, 0.4], [100, 0.2]] };
+  function speedLook(o, id, lvl, now) {
+    var tr = trails.get(id);
+    if (!tr) { tr = { pts: [], seen: now }; trails.set(id, tr); }
+    tr.seen = now;
+    var pts = tr.pts;
+    if (pts.length && Math.abs(A.dx(pts[pts.length - 1].x, o.x)) + Math.abs(A.dy(pts[pts.length - 1].y, o.y)) > 3) pts.length = 0;
+    pts.push({ x: o.x, y: o.y, t: now });
+    while (pts.length > 2 && now - pts[1].t > 200) pts.shift();
+    if (!lvl || o.dying != null) return;
+    o.speed = lvl;
+    if (lvl === 3 && !o.scared) o.color = BOOST_ORANGE;
+    if (lvl >= 2) o.glow = lvl === 3 ? BOOST_ORANGE : '#ffffb8';
+    var want = TRAIL[lvl];
+    if (!want) return;
+    o.trail = [];
+    for (var i = 0; i < want.length; i++) {
+      var at = now - want[i][0], q = null;
+      for (var j = pts.length - 1; j >= 0; j--) if (pts[j].t <= at) { q = pts[j]; break; }
+      if (!q) break;
+      var dx = A.dx(o.x, q.x), dy = A.dy(o.y, q.y);
+      if (Math.abs(dx) + Math.abs(dy) < 0.15) continue;      // standing still: nothing streams
+      o.trail.push({ dx: dx, dy: dy, a: want[i][1] });
+    }
+  }
   var lastRender = 0, renderErr = false;
   function render(now) {
     if (!draw || !A) return;
@@ -698,8 +772,8 @@
         var meta = metas.get(pb.id) || { n: '', c: 0 };
         var o = {
           x: pos.x, y: pos.y, dir: pb.dir >= 0 ? pb.dir : 1, name: meta.n, me: pb.id === myId,
-          // Owen 2026-10-27: every Pac-Man is the classic yellow (a bought Shop skin still shows); yours wears a thin
-          // outline and everyone else a name tag (chompPixel)
+          // Owen 2026-10-27: every Pac-Man is the classic yellow (a bought Shop skin still shows); everyone else wears a
+          // name tag (chompPixel). Yours is the one the camera stays on (2026-10-30: no outline or ring round it)
           color: meta.look ? meta.look.col : draw.L.me,
           skin: meta.look && meta.look.k.art ? meta.look.k : null,
           mouth: mouthFor(pb.id, pos.x, pos.y, pb.flags & Wire.F.MOVING),
@@ -712,11 +786,11 @@
           if (pb.id === myId && me) { o.x = me.x; o.y = me.y; }
         } else {
           if (pb.flags & Wire.F.SAFE) { if (pixel) o.hidden = Math.floor(tick / 8) % 2 === 1; else o.alpha = Math.floor(now / 120) % 2 ? 0.35 : 1; }
-          if (pb.flags & Wire.F.POWER) o.halo = true;
           if (myPower > 0 && !(pb.flags & (Wire.F.POWER | Wire.F.SAFE))) {
             o.scared = true;
             o.scaredFlash = pixel ? flashing(myPower) : myPower < FLASH_WINDOW && flashOn;
           }
+          speedLook(o, pb.id, pb.flags & Wire.F.BOOST ? 3 : pb.flags & Wire.F.POWER ? 2 : pb.flags & Wire.F.BUMP ? 1 : 0, now);
         }
         players.push(o);
       });
@@ -724,13 +798,17 @@
     if (predicting && me) {
       smooth.x *= 0.82; smooth.y *= 0.82;
       var mx = me.x + smooth.x, my = me.y + smooth.y, myMeta = metas.get(myId), myLook = myMeta && myMeta.look;
-      players.push({
+      var mine = {
         x: mx, y: my, dir: me.face, me: true, color: myLook ? myLook.col : draw.L.me, skin: myLook && myLook.k.art ? myLook.k : null,
         mouth: mouthFor(myId, mx, my, me.moving),
         frame: chewFrame(myId, me.moving, dtTicks),
-        alpha: !pixel && mySafe ? (Math.floor(now / 120) % 2 ? 0.35 : 1) : 1, hidden: pixel && mySafe && Math.floor(tick / 8) % 2 === 1, halo: myPower > 0
-      });
+        // the spawn's safe time shows only as a quick flicker (Owen 2026-10-30: no rings)
+        alpha: !pixel && mySafe ? (Math.floor(now / 120) % 2 ? 0.35 : 1) : 1, hidden: pixel && mySafe && Math.floor(tick / 8) % 2 === 1
+      };
+      speedLook(mine, myId, myBoost > 0 ? 3 : myPower > 0 ? 2 : myBump > 0 ? 1 : 0, now);
+      players.push(mine);
     }
+    if (tick % 120 === 0) trails.forEach(function (tr, id) { if (now - tr.seen > 1000) trails.delete(id); });
     fruitOn.forEach(function (mi) { var m = A.modules[mi]; if (m) fruit.push({ x: m.ox + Maze.FRUIT.x, y: m.oy + Maze.FRUIT.y }); });
     // camera
     var target = null;
@@ -765,7 +843,7 @@
     // points that pop: a ghost's for 60 ticks (the arcade's freeze while it shows), fruit's for 80 (jspacman)
     var ps = [];
     pops = pops.filter(function (q) { return now - q.at < q.ms; });
-    pops.forEach(function (q) { ps.push({ x: cx + A.dx(cx, q.x), y: cy + A.dy(cy, q.y), text: q.text, color: q.color, a: 1 }); });
+    pops.forEach(function (q) { ps.push({ x: cx + A.dx(cx, q.x), y: cy + A.dy(cy, q.y), text: q.text, color: q.color, a: 1, word: q.word, age: (now - q.at) / q.ms }); });
     pending.forEach(function (exp, k) { if (now > exp) { pending.delete(k); dotsView[k] = dotsServer[k]; } });
     var coinsNear = A.wrap ? coinList.map(function (co) {
       return { c: Math.floor(cx + A.dx(cx, co.c + 0.5)), r: Math.floor(cy + A.dy(cy, co.r + 0.5)) };
@@ -797,32 +875,9 @@
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         window.DSEnd.ring(ctx, rx, ry, 12 * v.k, hp, now, { lw: 2.2 * v.k, mobile: isTouch });
       }
-      spawnCue(now, meX, meY);
     }
     syncCashBtn();
     if (myPower > 0 && Math.floor(now / 400) !== hud.lastBeat) { hud.lastBeat = Math.floor(now / 400); Snd.play('ch.scared'); }
-  }
-
-  // Owen 2026-10-26: "if I die before I even find my character": for SPAWN_CUE_MS after you come on the maze, two
-  // rings in your colour close in on your chomper (drawn over the scene, at screen sharpness), while the spawn blink
-  // keeps every ghost off you.
-  var SPAWN_CUE_MS = 2000, spawnAt = 0;
-  function cueSpawn() { spawnAt = performance.now(); }
-  function spawnCue(now, x, y) {
-    var t = now - spawnAt;
-    if (!spawnAt || t < 0 || t > SPAWN_CUE_MS || !draw || !draw.view) return;
-    var v = draw.view, sx = (v.ox + x * v.T) * v.k, sy = (v.oy + y * v.T) * v.k;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.lineWidth = Math.max(2, v.k * 1.5);
-    for (var i = 0; i < 2; i++) {
-      var u = ((t / 700) + i * 0.5) % 1;                 // each ring closes from 40 px to 12 px (arcade px) in 0.7 s
-      ctx.globalAlpha = (1 - u) * (1 - t / SPAWN_CUE_MS * 0.5);
-      ctx.strokeStyle = draw.L.me;
-      ctx.beginPath();
-      ctx.arc(sx, sy, (12 + 28 * (1 - u)) * v.k, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-    ctx.globalAlpha = 1;
   }
 
   function fmt(n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
@@ -966,11 +1021,12 @@
       paid: paidMode, stake: stakeNow, money: myMoney, coins: coins.size, locked: !!(lock && lock.locked()), hold: hold ? hold.progress() : 0,
       flow: flow ? flow.state() : null, card: pcard ? pcard.kind : '' }; },
     dims: function () { return A ? A.mx + 'x' + A.my : null; },
-    // read only, for the headless checks: the maze, the dots as drawn, your own fright and boost, how many ghosts are
-    // blue for you in the newest snapshot, and your Customize look
+    // read only, for the headless checks: the maze, the dots as drawn, your own fright, boost and bump, the fruit up,
+    // the other chompers in the newest snapshot, how many ghosts are blue for you in it, and your Customize look
     view: function () {
       var s = snaps[snaps.length - 1], mm = metas.get(myId);
-      return { A: A, dots: dotsView, power: myPower, boost: myBoost,
+      return { A: A, dots: dotsView, power: myPower, boost: myBoost, bump: myBump, fruit: Array.from(fruitOn),
+        others: s ? s.players.filter(function (q) { return q.id !== myId; }).map(function (q) { return { id: q.id, x: q.x, y: q.y, flags: q.flags }; }) : [],
         blue: s ? s.ghosts.filter(function (g, i) { return blueForMe(i, g); }).length : 0,
         ghosts: s ? s.ghosts.length : 0, gt: s ? s.ghosts.map(function (g) { return [Math.floor(g.x), Math.floor(g.y), g.state]; }) : [],
         eyes: s ? s.ghosts.filter(function (g) { return g.state === 3 || g.state === 4; }).length : 0,

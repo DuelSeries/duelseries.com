@@ -11,7 +11,7 @@
 (function (root) {
   'use strict';
   var VERSION = 1, SUB = 64, HEAD = 10, PL = 14, GH = 8;
-  var F = { MOVING: 1, POWER: 2, SAFE: 4, DYING: 8 };
+  var F = { MOVING: 1, POWER: 2, SAFE: 4, DYING: 8, BOOST: 16, BUMP: 32 };   // BOOST a cherry's, BUMP a dot's (2026-10-30)
   var GSTATE = ['active', 'house', 'leaving', 'eyes', 'entering', 'away'];
   var AWAY = 5;
   var GKIND = ['blinky', 'pinky', 'inky', 'clyde'];

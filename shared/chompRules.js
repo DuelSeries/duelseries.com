@@ -26,15 +26,20 @@
 
     // ---- speeds, level 1 row of Table A.1 (fractions of FULL_SPEED)
     PAC_SPEED: 0.80,             // DOSSIER "Pac-Man Speed" 80%
-    PAC_FRIGHT_SPEED: 0.90,      // DOSSIER "Fright. Pac-Man Speed" 90% (while your power pellet lasts)
+    // Owen 2026-10-30: powered, your Pac-Man moves clearly faster, so it can catch a player running from it (the
+    // arcade's "Fright. Pac-Man Speed" is 90%, too close to 80% to catch anybody in an arena of chompers)
+    PAC_FRIGHT_SPEED: 1.05,      // CHOSEN: 31% faster than 80% while your power pellet lasts
     GHOST_SPEED: 0.75,           // DOSSIER "Ghost Speed" 75%
     GHOST_TUNNEL_SPEED: 0.40,    // DOSSIER "Ghost Tunnel Speed" 40%
     GHOST_FRIGHT_SPEED: 0.50,    // DOSSIER "Fright. Ghost Speed" 50%
     GHOST_EYES_SPEED: 1.50,      // CHOSEN: eyes rushing home (the dossier gives no number)
     GHOST_HOUSE_SPEED: 0.40,     // CHOSEN: bobbing and leaving the house (not stated)
-    // The "Pac-Man Dots Speed" ~71% column is not a separate number: it is what the dot pause below does to 80%.
-    DOT_PAUSE_TICKS: 1,          // DOSSIER: "stops moving for one frame" per dot
+    // Owen 2026-10-30: a dot is a tiny push forward, not the arcade's one-frame stop (DOSSIER "stops moving for one
+    // frame" per dot, its ~71% "Pac-Man Dots Speed"): each dot gives DOT_BUMP for DOT_BUMP_TICKS, renewed by the next.
+    DOT_PAUSE_TICKS: 0,          // CHOSEN (the arcade's is 1)
     ENERGIZER_PAUSE_TICKS: 3,    // DOSSIER: "three frames" per energizer
+    DOT_BUMP: 1.08,              // CHOSEN: 8% faster for a moment
+    DOT_BUMP_TICKS: 20,          // CHOSEN: a third of a second (a run of dots keeps it, an empty corridor drops it)
 
     // ---- cornering (DOSSIER Chapter 3): pre-turn and post-turn windows of 3 to 4 px on an 8 px tile, i.e. a turn
     // pressed anywhere in the tile that has the opening is taken, and Pac-Man cuts the corner diagonally.
@@ -66,6 +71,9 @@
     // ---- the ghost house (DOSSIER Chapter 4): Pinky's dot limit 0, Inky 30, Clyde 60 on level 1, and a ghost leaves
     // anyway after 4 s with no dot eaten. ARENA: counted per maze module (each module has its own house and quartet).
     HOUSE_DOT_LIMIT: { pinky: 0, inky: 30, clyde: 60 },
+    // ARENA (Owen 2026-10-30 "too much going on"): two ghosts a module, not the arcade's four. The modules take turns,
+    // like a checkerboard, so all four still roam the arena: Blinky with Inky (who aims off Blinky), Pinky with Clyde.
+    MODULE_GHOSTS: [['blinky', 'inky'], ['pinky', 'clyde']],
     HOUSE_TIMER_S: 4,
 
     // ---- ghost targeting (DOSSIER Chapter 4)
@@ -77,23 +85,26 @@
     // ---- fruit (DOSSIER Chapter 1): after 70 and 170 dots, on screen 9 to 10 s. ARENA: per module, the count loops.
     FRUIT_AT: [70, 170],
     FRUIT_S: [9, 10],
-    // Owen 2026-10-26: a fruit also gives its eater a short burst of speed, small enough not to be a big edge
-    FRUIT_BOOST: 1.1,            // CHOSEN: 10% faster (80% -> 88% of full speed; 90% -> 99% while powered)
-    FRUIT_BOOST_S: 3,
+    // Owen 2026-10-30: a cherry is a BIG speed boost for a few seconds (2026-10-26 to 10-30 a small 10% for 3 s)
+    FRUIT_BOOST: 1.45,           // CHOSEN: 45% faster (80% -> 116% of full speed; powered 105% -> 152%, 0.24 tile a tick)
+    FRUIT_BOOST_S: 4,
 
     // ---- the arena (all ARENA / CHOSEN)
     MODULES_X: 2,                // Owen 2026-10-26: the arena starts at 2 x 2 modules (each 28 x 31 tiles with its own
     MODULES_Y: 2,                //   four ghosts), a torus, and grows a module row or column at a time with the crowd
-    PLAYERS_PER_MODULE: 3,       // CHOSEN: chompers (people and bots) a module holds before the arena grows
-    MODULES_MAX: 36,             // CHOSEN: at most 6 x 6 modules (174 x 192 tiles, inside the wire's 511): 100 seats / 3
+    PLAYERS_PER_MODULE: 1.25,    // CHOSEN: chompers (people and bots) a module holds before the arena grows (Owen
+                                 //   2026-10-30 "too much going on": was 3; 6 or 7 chompers now play on 3 x 2)
+    MODULES_MAX: 50,             // CHOSEN: at most 7 x 7 modules (203 x 224 tiles, inside the wire's 511): 100 seats, 2 a module
     RESIZE_EVERY_S: 2,           // CHOSEN: how often the arena checks whether to grow or shrink
     RESIZE_GAP_S: 30,            // CHOSEN: at least this long between two resizes (no flapping as people come and go)
     SEAM_CLEAR: 10,              // CHOSEN: tiles every person must be from where a module row or column goes in or out
-    DOT_RESPAWN_S: 30,           // CHOSEN: an eaten dot comes back after this long
-    ENERGIZER_RESPAWN_S: 40,     // CHOSEN
+    // Owen 2026-10-30 "too much going on": at 30 s the bots kept the maze nearly empty, so a dot comes back sooner (it
+    // is a speed bump now too), and so does a power pellet (more chases)
+    DOT_RESPAWN_S: 8,            // CHOSEN: an eaten dot comes back after this long (was 30)
+    ENERGIZER_RESPAWN_S: 25,     // CHOSEN (was 40)
     RESPAWN_CLEAR: 4,            // CHOSEN: a pellet only reappears with no player within this many tiles
     DEATH_S: (30 + 14 * 8) / 60, // jspacman: frozen 30 ticks, then 14 death frames of 8 ticks
-    SPAWN_SAFE_S: 3,             // CHOSEN: invulnerable (blinking) after coming back
+    SPAWN_SAFE_S: 2,             // CHOSEN: invulnerable after coming on, shown by a quick flicker only (Owen 2026-10-30, was 3)
     SPAWN_GHOST_CLEAR: 8,        // CHOSEN: spawn at least this many tiles from any dangerous ghost
     MAX_PLAYERS: 100,            // CHOSEN: seats per room (the arena grows with them, up to MODULES_MAX)
     BOT_FILL: 8,                 // CHOSEN: bots top the room up to this many chompers
@@ -116,6 +127,11 @@
   };
 
   R.speed = function (frac) { return frac * FULL_SPEED; };
+  // A chomper's speed in tiles per second: powered (its energizer's fright), boosted (a cherry), bumped (a dot just
+  // eaten). The server (chompRoom speedOf) and the page's prediction (chompMain) both ask this, so they never differ.
+  R.pace = function (powered, boosted, bumped) {
+    return FULL_SPEED * (powered ? R.PAC_FRIGHT_SPEED : R.PAC_SPEED) * (boosted ? R.FRUIT_BOOST : 1) * (bumped ? R.DOT_BUMP : 1);
+  };
 
   if (typeof module === 'object' && module.exports) module.exports = R;
   else root.ChompRules = R;

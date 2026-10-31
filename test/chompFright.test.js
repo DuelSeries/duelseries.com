@@ -91,7 +91,7 @@ test('a ghost blue for a nearby eater takes the frightened walk for everyone; fa
   assert.strictEqual(near.fright, 0, 'no power, no fright');
 });
 
-test('a fruit gives its eater a 3 s burst of speed, 10% faster, gone on a death', () => {
+test('a fruit gives its eater a big burst of speed for a few seconds, gone on a death (Owen 2026-10-30)', () => {
   const room = new ChompRoom({ seed: 3, botFill: 0, grow: false, log: quiet });
   const p = room.addPlayer({ name: 'p' });
   const base = room.speedOf(p);
@@ -102,7 +102,8 @@ test('a fruit gives its eater a 3 s burst of speed, 10% faster, gone on a death'
   assert.strictEqual(m.fruitUntil, 0, 'eaten');
   assert.strictEqual(p.boost, R.FRUIT_BOOST_S * R.TICK_HZ);
   assert.ok(Math.abs(room.speedOf(p) / base - R.FRUIT_BOOST) < 1e-9);
-  assert.ok(R.FRUIT_BOOST <= 1.15, 'small: not a big edge');
+  assert.ok(R.FRUIT_BOOST >= 1.3 && R.FRUIT_BOOST_S >= 3 && R.FRUIT_BOOST_S <= 6, 'big, for a few seconds');
+  assert.ok(room.speedOf(p) * (1 / R.TICK_HZ) < 0.5, 'never half a tile a tick: no tile centre is skipped');
   p.safe = 0;
   room.kill(p, null, room.ghosts[0]);
   assert.strictEqual(p.boost, 0);

@@ -33,6 +33,7 @@
   // ---- sprites: 16 x 16, origin at (floor(8 p) - 8), the way the arcade's hardware sprites sit on an actor at p
   var cache = new Map();
   function hexRGB(h) { return [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)]; }
+  function hexA(h, a) { var c = hexRGB(h); return 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + a + ')'; }
   function sprite(key, w, h, fn) {
     var s = cache.get(key);
     if (s) return s;
@@ -183,10 +184,6 @@
     });
   }
 
-  function halo(color) {
-    return sprite('h' + color, 22, 22, function (i, j) { var x = i - 10.5, y = j - 10.5, d = Math.sqrt(x * x + y * y); return d >= 8.6 && d < 9.6 ? color : null; });
-  }
-
   // Text on the 8 px grid in an 8 x 8 arcade-style face (Press Start 2P, SIL OFL), every pixel on or off.
   var fontReady = false;
   function text(str, color) {
@@ -315,12 +312,46 @@
     }
     var self = this;
     function at(spr, x, y, dx, dy) { g.drawImage(spr, ox + Math.floor(x * T) - 8 + (dx || 0), oy + Math.floor(y * T) - 8 + (dy || 0)); }
+    // Speed lines behind a moving chomper, one arcade pixel thick, streaming back a pixel a tick: two short ones for a
+    // dot's bump, three long ones for a cherry or a power pellet, white (orange for a cherry)
+    function streaks(p, tick) {
+      var v = [[0, -1], [-1, 0], [0, 1], [1, 0]][p.dir >= 0 ? p.dir : 1], n = p.speed >= 2 ? 3 : 2;
+      var len = p.speed === 3 ? 7 : p.speed === 2 ? 5 : 3, back = 7 + (p.speed >= 2 ? 3 : 0);
+      var cx = ox + Math.floor(p.x * T) - 0.5, cy = oy + Math.floor(p.y * T) - 0.5;
+      g.fillStyle = p.speed === 3 ? '#ffb851' : C.white;
+      g.globalAlpha = p.speed === 1 ? 0.45 : 0.8;
+      for (var i = 0; i < n; i++) {
+        var side = n === 3 ? (i - 1) * 4 : (i ? 3 : -3);
+        var shift = (tick + i * 3) % 4, l = len - (n === 3 && i !== 1 ? 2 : 0);
+        var x0 = cx - v[0] * (back + shift), y0 = cy - v[1] * (back + shift);
+        if (v[0]) g.fillRect(v[0] > 0 ? x0 - l : x0, cy + side, l, 1);
+        else g.fillRect(cx + side, v[1] > 0 ? y0 - l : y0, 1, l);
+      }
+      g.globalAlpha = 1;
+    }
     (s.fruit || []).forEach(function (f) { at(cherry(), f.x, f.y); });
+    // Owen 2026-10-30: a boost shows on the chomper itself (chompMain speedLook): a soft glow under it, after-images
+    // streaming behind it, speed lines; no ring round anybody
+    s.players.forEach(function (p) {
+      if (p.hidden || p.dying != null || !p.glow) return;
+      var gx = ox + Math.floor(p.x * T) - 0.5, gy = oy + Math.floor(p.y * T) - 0.5;
+      var gr = g.createRadialGradient(gx, gy, 3, gx, gy, 13);
+      gr.addColorStop(0, hexA(p.glow, 0.5)); gr.addColorStop(1, hexA(p.glow, 0));
+      g.fillStyle = gr;
+      g.fillRect(gx - 13, gy - 13, 26, 26);
+    });
     // jspacman GameScene draw order: Pac-Man first, then the ghosts with Blinky last, so ghosts cover chompers
     s.players.forEach(function (p) {
       if (p.hidden) return;
       var color = p.scared ? (p.scaredFlash ? C.white : C.blue) : (p.skin && window.DS_SHOP_SKINS ? p.skin : p.color);
-      if (p.halo && p.dying == null && Math.floor(s.tick / 8) % 2 === 0) at(halo(p.color), p.x, p.y, -3, -3);
+      if (p.speed && p.dying == null) {
+        streaks(p, s.tick);
+        (p.trail || []).forEach(function (q) {
+          g.globalAlpha = q.a;
+          at(chomper(color, p.dir, p.frame), p.x + q.dx, p.y + q.dy);
+        });
+        g.globalAlpha = 1;
+      }
       if (p.dying != null) {
         var f = p.dying;                       // death frame 0..13, or -1 frozen before it starts
         if (f < 0) at(chomper(color, 0, 2), p.x, p.y);
@@ -333,6 +364,14 @@
     });
     // points where something was eaten, on the grid like the arcade's own
     (s.pops || []).forEach(function (q) {
+      if (q.word) {
+        // a word (SPEED!) in the arcade's letters, rising 10 px and fading out in its last third
+        var wt = text(q.text, q.color), age = q.age || 0;
+        g.globalAlpha = age > 0.66 ? Math.max(0, (1 - age) * 3) : 1;
+        g.drawImage(wt, ox + Math.floor(q.x * T) - (wt.width >> 1), oy + Math.floor(q.y * T) - 4 - Math.round(age * 10));
+        g.globalAlpha = 1;
+        return;
+      }
       var t = points(q.text, q.color);
       g.drawImage(t, ox + Math.floor(q.x * T) - (t.width >> 1), oy + Math.floor(q.y * T) - 3);
     });
@@ -359,18 +398,8 @@
       m.fillStyle = p.color;
       m.fillText(p.name, (ox + Math.floor(p.x * T)) * k, y);
     });
-    // Owen 2026-10-27: every Pac-Man is the classic yellow, so yours wears a thin, faint white outline (2 px clear of
-    // the 13 px disc, whose centre is sprite pixel 7: half a pixel left of and above floor(p * T)); the rest wear names
-    s.players.forEach(function (p) {
-      if (!p.me || p.hidden || p.dying != null) return;
-      m.globalAlpha = 0.55;
-      m.strokeStyle = '#ffffff';
-      m.lineWidth = Math.max(1, k * 0.75);
-      m.beginPath();
-      m.arc((ox + Math.floor(p.x * T) - 0.5) * k, (oy + Math.floor(p.y * T) - 0.5) * k, 8.5 * k, 0, Math.PI * 2);
-      m.stroke();
-    });
-    m.globalAlpha = 1;
+    // Owen 2026-10-27: every Pac-Man is the classic yellow; the others wear names. 2026-10-30: yours wears nothing
+    // round it any more (the outline ring went): it is the one the camera stays on.
   };
 
   // The arcade's score rows (measured from the 1x captures): "1UP" at column 3 and "HIGH SCORE" at column 9 on row 0;

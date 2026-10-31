@@ -41,6 +41,20 @@ const { socketClientIp } = require('../clientAddr');
 const PER_IP = 10;                 // CHOSEN: sockets one address may hold on /chomp
 const RATE = { join: 500, dir: 12, leave: 500, chat: 300, ready: 250, hold: 50, watch: 100 };   // CHOSEN: flood stops (ms)
 const PAID_DEFAULT = true;
+// Direction presses go through a token bucket, not a gap rule (2026-10-30). A phone's radio or TCP can hand two quick
+// presses over in one burst, and the gap rule dropped the second: the page's chomper went one way and ours the other
+// until the next press (seen headless with jitter, also on the code before). DIR_BURST presses may come at once; on
+// average no more than one every RATE.dir ms, the same flood cap as before.
+const DIR_BURST = 4;
+function dirOk(socket) {
+  const now = Date.now();
+  const b = socket._chDir || (socket._chDir = { tokens: DIR_BURST, at: now });
+  b.tokens = Math.min(DIR_BURST, b.tokens + (now - b.at) / RATE.dir);
+  b.at = now;
+  if (b.tokens < 1) return false;
+  b.tokens -= 1;
+  return true;
+}
 
 const chompSkins = require('../../shared/chompSkins');
 const { sharedPass: sharedSkinPass } = require('../skinPass');
@@ -212,7 +226,7 @@ function openChomp({ io, env = process.env, helpers = {}, money = null, paidSwit
       }
     });
     on('c:dir', (msg) => {
-      if (!rl(socket, 'c:dir', RATE.dir)) return;
+      if (!dirOk(socket)) return;
       const r = roomOf(socket);
       const p = r.bySocket.get(socket.id);
       if (!p || !isInt(msg.d, 0, 3) || !isInt(msg.s, 0, 65535)) return;

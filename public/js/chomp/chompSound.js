@@ -4,6 +4,7 @@
 //   ch.power   an energizer          ch.scared  the short warble repeated while you are powered
 //   ch.ghost   a ghost eaten         ch.player  a player eaten       ch.fruit   fruit
 //   ch.death   your chomper caught   ch.life    a bonus life        ch.ready   coming in / back
+//   ch.whoosh  a cherry's speed boost (Owen 2026-10-30): a rising band of noise with a quick square glide on top
 (function (root) {
   'use strict';
   var S = root.DSSfx;
@@ -20,7 +21,9 @@
     'ch.fruit': arp([79, 86, 91], 0.05, { o: 'q', du: 0.25, d: 0.12, v: 0.06, e: 0.08 }),
     'ch.death': [sq([780, 120], 1.1, 0.08, { g: 1.0, vib: [11, 0.12], du: 0.4 }), sq([90, 60], 0.18, 0.07, { at: 1.1 }), sq([90, 60], 0.18, 0.07, { at: 1.3 })],
     'ch.life': arp([84, 88, 91, 96, 91, 96], 0.07, { o: 'q', du: 0.25, d: 0.1, v: 0.06, e: 0.06 }),
-    'ch.ready': arp([72, 79, 76, 84, 79, 88], 0.09, { o: 'q', du: 0.25, d: 0.14, v: 0.06, e: 0.1 })
+    'ch.ready': arp([72, 79, 76, 84, 79, 88], 0.09, { o: 'q', du: 0.25, d: 0.14, v: 0.06, e: 0.1 }),
+    'ch.whoosh': [{ o: 'n', bp: [[500, 3200], 1.4], g: 0.32, d: 0.4, v: 0.16, a: 0.03, e: 0.2 },
+      sq([260, 1040], 0.22, 0.035, { g: 0.22, du: 0.25 })]
   });
   var flip = false;
   root.ChompSound = {

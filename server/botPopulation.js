@@ -129,13 +129,15 @@ function botTarget(at) {
             all day before; the room still caps there with people in it.
      paper   6 to 15 bots. 15 is the most the stock bot type rows hold
             (FREE_BOTS_IDLE), what it held all day before.
-     chomp   5 to 12 bots (2026-10-26): about one chomper per maze module of
-            the 3 x 3 arena at the peak, as the arcade has one Pac-Man a maze.
+     chomp   4 to 8 bots (2026-10-30, was 5 to 12): Owen "too much going
+            on". The arena holds 1.25 chompers a module (chompRules
+            PLAYERS_PER_MODULE): 6 chompers play on 3 x 2 modules, the
+            peak's 8 bots and a person on 3 x 3.
    Knockout and Battleship are 1v1 duels with one bot at a table: no curve. */
 const GAME_CURVES = Object.freeze({
   agar: Object.freeze({ lo: 20, hi: 54, phase: 5.3 }),
   paper: Object.freeze({ lo: 6, hi: 15, phase: 11.7 }),
-  chomp: Object.freeze({ lo: 5, hi: 12, phase: 8.5 }),
+  chomp: Object.freeze({ lo: 4, hi: 8, phase: 8.5 }),
 });
 
 /* The rooms read this every tick; the answer changes at most once a second, so
