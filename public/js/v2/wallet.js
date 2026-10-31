@@ -142,11 +142,11 @@
     const mv = el('w-moves'); if (mv) mv.innerHTML = '';
   }
 
-  /* The header readout. Signed out shows a dash, never $0.00. */
+  /* The header readout. Not connected shows "…" (the box is hidden once signed out is known), never $0.00. */
   function renderHeader() {
     const v = el('hdr-balance');
     if (!v) return;
-    v.textContent = connected() ? bigBal(w().balance) : '—';
+    v.textContent = connected() ? bigBal(w().balance) : '…';
     /* Target the label span, not lastChild: the button's last node is the
        whitespace after the span, so writing to it appends a second label. */
     const label = document.querySelector('#wbtn span');
