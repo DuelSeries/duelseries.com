@@ -623,24 +623,29 @@
       friction(w, A, B, e.cpA.slice(), e.cpB.slice(), cw(e.n));
       return 1;
     }
-    function projectOnto(v, pos, axis) {
-      var mn = null, mx = null;
-      for (var i = 0; i < v.length; i++) { var h = dot(v[i], axis); if (mx === null || h > mx) mx = h; if (mn === null || mn > h) mn = h; }
-      var o = dot(pos, axis);
-      return [mn + o, mx + o];
-    }
+    /* Each edge's normal, unit(cw(sub(next, this))), and both shapes' projections onto it ([min, max] of the corners'
+       dots plus the position's) worked out in plain numbers: the same operations in the same order, so every result is
+       the same to the last bit. It runs for every edge of every convex pair, every step, and its small arrays were a
+       third of Head Soccer's garbage on a phone (phone speed pass 2026-10-31). */
     function separatingAxis(a, pa, b, pb) {
-      var best = null, bestAxis = null, over = false;
+      var best = null, bx = 0, by = 0, over = false;
       for (var u = 0; u !== 2; u++) {
         var s = u === 0 ? a : b;
         for (var x = 0; x !== s.v.length; x++) {
-          var r = unit(cw(sub(s.v[(x + 1) % s.v.length], s.v[x]))), p = projectOnto(a.v, pa, r), q = projectOnto(b.v, pb, r), lo = p, hi = q;
-          if (p[0] > q[0]) { hi = p; lo = q; }
-          var gap = hi[0] - lo[1];
-          if (best === null || gap > best) { bestAxis = r; best = gap; over = gap <= 0; }
+          var v1 = s.v[(x + 1) % s.v.length], v0 = s.v[x];
+          var ex = v1[0] - v0[0], ey = v1[1] - v0[1], cx = ey, cy = -ex;
+          var l = Math.hypot(cx, cy), rx = 0, ry = 0;
+          if (l > 0) { rx = cx / l; ry = cy / l; }
+          var pmn = null, pmx = null, qmn = null, qmx = null, i, h;
+          for (i = 0; i < a.v.length; i++) { h = a.v[i][0] * rx + a.v[i][1] * ry; if (pmx === null || h > pmx) pmx = h; if (pmn === null || pmn > h) pmn = h; }
+          var po = pa[0] * rx + pa[1] * ry, p0 = pmn + po, p1 = pmx + po;
+          for (i = 0; i < b.v.length; i++) { h = b.v[i][0] * rx + b.v[i][1] * ry; if (qmx === null || h > qmx) qmx = h; if (qmn === null || qmn > h) qmn = h; }
+          var qo = pb[0] * rx + pb[1] * ry, q0 = qmn + qo, q1 = qmx + qo;
+          var gap = p0 > q0 ? p0 - q1 : q0 - p1;
+          if (best === null || gap > best) { bx = rx; by = ry; best = gap; over = gap <= 0; }
         }
       }
-      return over ? bestAxis : null;
+      return over ? [bx, by] : null;
     }
     function closestEdge(sh, axis, flip) {
       var e = flip ? [-axis[0], -axis[1]] : axis, k = -1, m = -1, l = sh.v.length;
