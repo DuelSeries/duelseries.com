@@ -2,6 +2,13 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-10-31-back-button-and-reconnects",
+      "date": "2026-10-31",
+      "tag": "fix",
+      "title": "Fixes for the Back button and dropped connections",
+      "body": "Your phone's Back button during a game no longer leaves you on a black screen.\n\nAfter a dropped connection, Pac-Man shows a result card with Lobby and Play again, Knockout keeps your result on screen, and a Swim Race car that went out while you were offline shows its result instead of sitting frozen.\n\nAlso fixed: Knockout shows the ring taking the last piece before the result, the 8 Ball Pool shot clock no longer restarts after a slow shot, and Spectate in Slither.io and the Battle Royale names the snake you are watching."
+    },
+    {
       "id": "2026-10-30-pac-man-simpler-faster",
       "date": "2026-10-30",
       "tag": "new",
