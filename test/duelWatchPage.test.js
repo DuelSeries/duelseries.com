@@ -907,10 +907,14 @@ for (const [file, q, queued, unqueue, unqueued] of [
   test(file + ': a paid wait never promises a bot, and Cancel refunds before it leaves', () => {
     const page = boot(file, { playerName: 'Owen', stake: '1', entryToken: 'tok-1' });
     page.deliver('connect');
-    assert.match(page.$('waitSub').textContent, /Real players only, never a bot/);
+    assert.strictEqual(page.$('waitMain').textContent, 'Looking for a player… 0:00', 'a paid clock counts up from the stake');
+    assert.match(page.$('waitSub').textContent, /^\$1\.00 table\. Real players only, never a bot/);
     assert.strictEqual(page.$('waitCancel').textContent, 'Cancel and refund');
     page.deliver(queued, { waitMs: 20000, waitingMs: 20000, resumeKey: 'cd'.repeat(16), stake: 1 });
-    assert.strictEqual(page.$('waitMain').textContent, 'Still looking for a player');
+    // One card from stake to match (Owen 2026-10-30): past the free table's 0:00 only the clock moves.
+    assert.strictEqual(page.$('waitMain').textContent, 'Looking for a player… 0:20');
+    assert.strictEqual(page.$('waitSub').textContent, '$1.00 table. Real players only, never a bot. Cancel any time for a full refund.');
+    assert.strictEqual(page.$('waitCancel').textContent, 'Cancel and refund');
     page.$('waitCancel').click();
     assert.strictEqual(page.sent(unqueue).length, 1, 'refund asked for');
     assert.strictEqual(page.posted.length, 0, 'still on the page to be told');

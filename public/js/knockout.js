@@ -691,7 +691,7 @@ socket.on('connect', () => {
    gives the buy-in back at once. The server sends the real numbers in
    ko:queued; the minute starts here so the clock is up before the answer. */
 const WAIT_MS = window.DS_DUEL_WAIT_MS;   // shared/duelWait.js, the server's number too
-let waiting = false, waitPaid = false, waitEndsAt = 0, waitTimer = 0, resumeKey = null;
+let waiting = false, waitPaid = false, waitEndsAt = 0, waitFrom = 0, waitTimer = 0, resumeKey = null;
 function clockText(ms) {
   const s = Math.max(0, Math.ceil(ms / 1000));
   return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
@@ -700,22 +700,22 @@ function paintWait() {
   if (!waiting) return;
   const left = waitEndsAt - Date.now();
   const table = '$' + myStake.toFixed(2) + ' table. ';
-  if (left > 0) {
+  if (waitPaid) {
+    // A paid table is one card from stake to match (Owen 2026-10-30): the clock counts up, nothing changes at 0:00.
+    $('waitMain').textContent = 'Looking for a player… ' + clockText(Math.floor((Date.now() - waitFrom) / 1000) * 1000);
+    $('waitSub').textContent = table + 'Real players only, never a bot. Cancel any time for a full refund.';
+  } else if (left > 0) {
     $('waitMain').textContent = 'Looking for a player… ' + clockText(left);
-    $('waitSub').textContent = waitPaid
-      ? table + 'Real players only, never a bot. Cancel any time for a full refund.'
-      : 'Free table. If nobody joins, you\'ll play a bot.';
-  } else if (waitPaid) {
-    $('waitMain').textContent = 'Still looking for a player';
-    $('waitSub').textContent = table + 'Nobody yet. Cancel any time for a full refund.';
+    $('waitSub').textContent = 'Free table. If nobody joins, you\'ll play a bot.';
   } else {
     $('waitMain').textContent = 'Nobody joined. Playing a bot…';
     $('waitSub').textContent = 'Free table. Starting against a bot now.';
   }
 }
-function startWait(ms) {
+function startWait(ms, total = WAIT_MS) {
   waiting = true;
   waitEndsAt = Date.now() + Math.max(0, ms);
+  waitFrom = Date.now() + ms - total;
   clearInterval(waitTimer);
   waitTimer = setInterval(paintWait, 250);
   paintWait();
@@ -728,7 +728,7 @@ socket.on('ko:queued', (q = {}) => {
   if (WATCH || st) return;                 // matched already: the wait card is not coming back
   if (typeof q.resumeKey === 'string') resumeKey = q.resumeKey;
   const total = Number(q.waitMs) > 0 ? Number(q.waitMs) : WAIT_MS;
-  startWait(total - (Number(q.waitingMs) || 0));
+  startWait(total - (Number(q.waitingMs) || 0), total);
   trackStep('queue');
 });
 

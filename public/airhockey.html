@@ -32,6 +32,15 @@
     <button type="button" id="waitCancel">Back to the lobby</button>
   </div>
 </div>
+<script>/* A paid table shows its own card from the first paint (Owen 2026-10-30), never the free one above while the
+   page loads; the game's script keeps it up and only the clock moves. A watcher has no stake and keeps the default. */
+(function () { try {
+  var s = Number(sessionStorage.getItem('stake')) || 0;
+  if (!(s > 0) || sessionStorage.getItem('dsWatch') !== null) return;
+  document.getElementById('waitMain').textContent = 'Looking for a player… 0:00';
+  document.getElementById('waitSub').textContent = '$' + s.toFixed(2) + ' table. Real players only, never a bot. Cancel any time for a full refund.';
+  document.getElementById('waitCancel').textContent = 'Cancel and refund';
+} catch (_) {} })();</script>
 
 <!-- Said when the opponent is the bot a free table gets when nobody joins. -->
 <div id="botNote" role="status" hidden>Playing a bot</div>
