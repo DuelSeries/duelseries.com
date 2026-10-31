@@ -191,7 +191,9 @@
     if (s) return s;
     s = document.createElement('canvas');
     s.width = Math.max(1, str.length * 8); s.height = 8;
-    var g = s.getContext('2d');
+    // willReadFrequently keeps this tiny canvas in memory, so the read below is a copy and not a GPU readback that
+    // stalls the frame (every new score is a new string; phone speed pass 2026-10-31). Same pixels either way.
+    var g = s.getContext('2d', { willReadFrequently: true });
     g.font = '8px "Press Start 2P"';
     g.textBaseline = 'top';
     g.fillStyle = color;
@@ -201,15 +203,21 @@
       if (d[o + 3] >= 128) { d[o] = rgb[0]; d[o + 1] = rgb[1]; d[o + 2] = rgb[2]; d[o + 3] = 255; } else d[o + 3] = 0;
     }
     g.putImageData(img, 0, 0);
-    if (fontReady) cache.set(key, s);
+    if (fontReady) {
+      // every score shown is its own string: without a cap a long game keeps hundreds of these canvases
+      if (++textKept > 256) { cache.forEach(function (_v, k) { if (k[0] === 't') cache.delete(k); }); textKept = 1; }
+      cache.set(key, s);
+    }
     return s;
   }
+  var textKept = 0;
   function checkFont() {
     if (fontReady) return;
     try {
       if (document.fonts && document.fonts.check('8px "Press Start 2P"')) {
         fontReady = true;
         cache.forEach(function (_v, k) { if (k[0] === 't') cache.delete(k); });
+        textKept = 0;
       }
     } catch (e) { fontReady = true; }
   }

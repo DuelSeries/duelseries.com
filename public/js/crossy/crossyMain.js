@@ -968,17 +968,21 @@ function frame(now) {
 const tagV = { x: 0, y: 0, z: 0 };
 function placeTag(ft) {
   const t = $('tag');
-  if (mySeat < 0 || !match || !seen[1 - mySeat]) { t.hidden = true; rivalNdc = null; return; }
+  // every frame: only what changed is written (the same attribute or text again still costs a style pass)
+  if (mySeat < 0 || !match || !seen[1 - mySeat]) { if (!t.hidden) t.hidden = true; rivalNdc = null; return; }
   const h = shown[1 - mySeat];
   const b = Sim.bodyAt(world, h, ft);
   tagV.x = b.x; tagV.y = b.y + 1.15; tagV.z = b.z;
   const v = new (view.camera.position.constructor)(tagV.x, tagV.y, tagV.z).project(view.camera);
   rivalNdc = { x: v.x, y: v.y };
-  if (v.x < -1.2 || v.x > 1.2 || v.y < -1.2 || v.y > 1.2) { t.hidden = true; return; }
-  t.hidden = false;
-  t.textContent = match.names[1 - mySeat] || 'Rival';
-  t.style.transform = 'translate(' + Math.round((v.x + 1) / 2 * W) + 'px,' + Math.round((1 - v.y) / 2 * H) + 'px) translate(-50%,-100%)';
+  if (v.x < -1.2 || v.x > 1.2 || v.y < -1.2 || v.y > 1.2) { if (!t.hidden) t.hidden = true; return; }
+  if (t.hidden) t.hidden = false;
+  const name = match.names[1 - mySeat] || 'Rival';
+  if (t.textContent !== name) t.textContent = name;
+  const tf = 'translate(' + Math.round((v.x + 1) / 2 * W) + 'px,' + Math.round((1 - v.y) / 2 * H) + 'px) translate(-50%,-100%)';
+  if (tf !== tagTf) { tagTf = tf; t.style.transform = tf; }
 }
+let tagTf = '';
 
 /* What the match looks like right now, for a headless check. Read only. */
 window.__crView = view;      // read only, for the headless frame checks (game-refs/crossy/harness/redo/blink.js)

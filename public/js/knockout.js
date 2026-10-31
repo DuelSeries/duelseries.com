@@ -467,28 +467,35 @@ function frame() {
 }
 requestAnimationFrame(frame);
 
+/* Runs every frame, so text is only written when it changes: writing the same
+   text still replaces the node and costs a style and layout pass every frame
+   (phone speed pass 2026-10-31). */
+function setText(el, text) {
+  if (el.textContent !== text) el.textContent = text;
+}
+
 function paintClock() {
   const num = $('clockNum'), lbl = $('clockLbl'), box = num && num.parentElement;
   if (!num || !st) return;
   if (reveal) {
-    num.textContent = '—'; lbl.textContent = 'Go';
+    setText(num, '—'); setText(lbl, 'Go');
     box.classList.remove('urgent', 'locked');
     return;
   }
   if (st.state === 'settling') {
-    num.textContent = '—'; lbl.textContent = '';
+    setText(num, '—'); setText(lbl, '');
     box.classList.remove('urgent', 'locked');
     return;
   }
   if (tape || st.state === 'resolving') {
-    num.textContent = '—'; lbl.textContent = 'Resolving';
+    setText(num, '—'); setText(lbl, 'Resolving');
     box.classList.remove('urgent', 'locked');
     return;
   }
-  if (st.state !== 'aiming') { num.textContent = '—'; lbl.textContent = ''; return; }
+  if (st.state !== 'aiming') { setText(num, '—'); setText(lbl, ''); return; }
   const left = Math.max(0, Math.ceil((phaseEndsAt - Date.now()) / 1000));
-  num.textContent = String(left);
-  lbl.textContent = WATCH ? 'Aiming' : locked ? 'Locked' : 'Aim';
+  setText(num, String(left));
+  setText(lbl, WATCH ? 'Aiming' : locked ? 'Locked' : 'Aim');
   box.classList.toggle('urgent', left <= 5 && !locked);
   box.classList.toggle('locked', locked);
 }

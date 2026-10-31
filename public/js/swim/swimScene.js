@@ -649,7 +649,12 @@ export function createScene(canvasEl, opts = {}) {
     if (!DYN) flat(sandGeo([[-700, -10], [10, 700]]), sandMat, ground);
     else { flat(sandGeo([[-700, -10]]), sandMat, ground); flat(sandGeo([[10, 700]]), sandMat, rightSide); }
   }
-  const propMat = keep(litMaterial({}));
+  /* One material per way it is drawn: the same material on a plain mesh, on instanced meshes with their own
+     colours and on instanced meshes without them makes three.js rebuild its program choice at every switch, many
+     times a frame (phone speed pass 2026-10-31). The three are the same material, so the picture is the same. */
+  const propMat = keep(litMaterial({}));          // the scattered scenery (instanced, own colours)
+  const propMatPlain = keep(litMaterial({}));     // barriers and light poles (one plain mesh)
+  const propMatDet = keep(litMaterial({}));       // the traffic's details (instanced, no colours of their own)
   {
     // barriers (posts every 4 m, reflectors every 12 m) and light poles (every 24 m, alternate sides)
     /* On the event's road the right side is its own mesh in rightSide (moved over with the edge); the duel's is one. */
@@ -669,11 +674,11 @@ export function createScene(canvasEl, opts = {}) {
       M(s).box(s * 6.75, 9.64, z, 1.0, 0.16, 0.44, C.housing);
       M(s).box(s * 6.75, 9.53, z, 0.86, 0.06, 0.34, C.lampOn, 1);
     }
-    const props = new THREE.Mesh(keep(mL.build()), propMat);
+    const props = new THREE.Mesh(keep(mL.build()), propMatPlain);
     props.frustumCulled = false;
     ground.add(props);
     if (DYN) {
-      const propsR = new THREE.Mesh(keep(mR.build()), propMat);
+      const propsR = new THREE.Mesh(keep(mR.build()), propMatPlain);
       propsR.frustumCulled = false;
       rightSide.add(propsR);
     }
@@ -813,7 +818,7 @@ export function createScene(canvasEl, opts = {}) {
   const tmesh = S.TYPES.map((T) => {
     const g = buildTrafficModel(T);
     const paint = new THREE.InstancedMesh(keep(g.paint), trafficPaintMat, T_CAP);
-    const det = new THREE.InstancedMesh(keep(g.det), propMat, T_CAP);
+    const det = new THREE.InstancedMesh(keep(g.det), propMatDet, T_CAP);
     paint.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     det.instanceMatrix = paint.instanceMatrix;
     paint.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(T_CAP * 3), 3);
@@ -865,8 +870,11 @@ export function createScene(canvasEl, opts = {}) {
      brake lamps cover the tail lights and the light bar, a hotter red than
      the tail lights' own. */
   const lampGlow = keep(blobTexture([[0, 'rgba(255,255,255,1)'], [0.25, 'rgba(255,255,255,0.8)'], [0.55, 'rgba(255,255,255,0.3)'], [1, 'rgba(255,255,255,0)']]));
+  /* forceSinglePass on the additive glows (here, the flames and the traffic halos): three.js otherwise draws a
+     transparent double-sided material twice, back faces then front, and flags it for a program check before each
+     pass. Added light with no depth write is the same in any order and in one pass (phone speed pass 2026-10-31). */
   const haloMat = (hex, a) => keep(new THREE.MeshBasicMaterial({ color: hex, map: lampGlow, transparent: true, opacity: a, depthWrite: false,
-    blending: THREE.AdditiveBlending, toneMapped: false, side: THREE.DoubleSide }));
+    blending: THREE.AdditiveBlending, toneMapped: false, side: THREE.DoubleSide, forceSinglePass: true }));
   const amberLamp = keep(new THREE.MeshBasicMaterial({ color: 0xffa31a, toneMapped: false }));
   const brakeLamp = keep(new THREE.MeshBasicMaterial({ color: 0xff7a5e, toneMapped: false }));
   const amberHalo = haloMat(0xff9a1c, 0.9), brakeHalo = haloMat(0xff2a14, 1);
@@ -934,7 +942,7 @@ export function createScene(canvasEl, opts = {}) {
     const brake = lampSet(brakeGeo, brakeLamp, brakeHalo);
     group.add(ind[0], ind[1], brake);
     const flameMat = keep(new THREE.MeshBasicMaterial({ color: 0xff8a2a, map: lampGlow, transparent: true, opacity: 1, depthWrite: false,
-      blending: THREE.AdditiveBlending, toneMapped: false, side: THREE.DoubleSide }));
+      blending: THREE.AdditiveBlending, toneMapped: false, side: THREE.DoubleSide, forceSinglePass: true }));
     const flame = new THREE.Mesh(flameGeo, flameMat);
     flame.frustumCulled = false; flame.renderOrder = 5; flame.visible = false;
     group.add(flame);
@@ -955,7 +963,7 @@ export function createScene(canvasEl, opts = {}) {
   const lampYOf = S.TYPES.map((T) => LAMP_Y[T.id] || 0.7);
   const tLamps = new THREE.InstancedMesh(keep(new THREE.BoxGeometry(1, 1, 1)), keep(new THREE.MeshBasicMaterial({ toneMapped: false })), TLAMP_CAP);
   const tHalos = new THREE.InstancedMesh(keep(new THREE.PlaneGeometry(1, 1)), keep(new THREE.MeshBasicMaterial({ map: lampGlow, transparent: true,
-    depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false, side: THREE.DoubleSide })), TLAMP_CAP);
+    depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false, side: THREE.DoubleSide, forceSinglePass: true })), TLAMP_CAP);
   for (const im of [tLamps, tHalos]) {
     im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(TLAMP_CAP * 3), 3);

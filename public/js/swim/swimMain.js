@@ -433,16 +433,24 @@ function remote(r, side, at, dt) {
 }
 
 /* ── the HUD ───────────────────────────────────────────────────────────── */
+/* The HUD runs every frame, so text and sizes are only written when they change: the same text written again
+   still costs a style and layout pass every frame (phone speed pass 2026-10-31). */
+function put(el, text) {
+  if (el.textContent !== text) el.textContent = text;
+}
+function putStyle(el, k, v) {
+  if (el.style[k] !== v) el.style[k] = v;
+}
 function hud(r, f, o) {
   const kmh = Math.round(f.v * 3.6);
-  $('spdNum').textContent = String(kmh);
-  $('distText').textContent = f.z >= 1000 ? (f.z / 1000).toFixed(2) + ' km' : Math.max(0, Math.round(f.z)) + ' m';
+  put($('spdNum'), String(kmh));
+  put($('distText'), f.z >= 1000 ? (f.z / 1000).toFixed(2) + ' km' : Math.max(0, Math.round(f.z)) + ' m');
   if (!o) return;
   const gap = f.z - o.z;
   const a = Math.min(1, Math.abs(gap) / S.BEHIND_LOSE);
   const fill = $('ropeFill'), rope = $('rope');
-  fill.style.width = (a * 50) + '%';
-  fill.style.left = gap >= 0 ? '50%' : (50 - a * 50) + '%';
+  putStyle(fill, 'width', (a * 50) + '%');
+  putStyle(fill, 'left', gap >= 0 ? '50%' : (50 - a * 50) + '%');
   rope.classList.toggle('behind', gap < 0);
   const mine = r.side !== null;
   const danger = mine && gap < -S.BEHIND_LOSE * 0.7;
@@ -451,12 +459,12 @@ function hud(r, f, o) {
   let text;
   if (!mine) text = m < 3 ? 'Level' : r.names[gap > 0 ? r.follow : 1 - r.follow] + ' leads by ' + m + ' m';
   else text = m < 3 ? 'Level' : gap > 0 ? m + ' m ahead' : m + ' m behind';
-  $('gapText').textContent = text;
+  put($('gapText'), text);
   const warn = $('warn');
   if (danger && r.state === 'racing') {
-    warn.textContent = 'Catch up: ' + Math.max(0, S.BEHIND_LOSE - m) + ' m left';
+    put(warn, 'Catch up: ' + Math.max(0, S.BEHIND_LOSE - m) + ' m left');
     if (warn.hidden) { warn.hidden = false; SOUND.play('g.warn'); }
-  } else warn.hidden = true;
+  } else if (!warn.hidden) warn.hidden = true;
 }
 
 function countdown(r, tickF) {
