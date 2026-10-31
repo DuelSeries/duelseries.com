@@ -146,7 +146,7 @@ function controls() {
 /* ── the race ─────────────────────────────────────────────────────────── */
 let race = null;
 let lobby = { n: 0, max: 50, min: 8, open: false, names: [] };
-let joined = false, seatKey = null, live = null;
+let joined = false, seatKey = null, live = null, wantJoin = WANT_JOIN;
 /* race = { id, lanes, goAt, state, traffic, seats: Map seat -> { seat, name, car, look, out },
             me (my seat or null), car (my predicted car), inputs, hist, sentTo, rows: Map seat -> row,
             disp: Map seat -> { z, x }, out (my place once out), follow (seat watched), ... } */
@@ -341,7 +341,11 @@ function frame(now) {
       steer = r.steer || 0;
     } else {
       /* Watching (or out): the chosen car, else whoever leads. */
-      if (r.follow === null || !r.seats.has(r.follow) || (r.seats.get(r.follow).out && r.state === 'racing' && !followPinned)) r.follow = leaderSeat(r);
+      if (r.follow === null || !r.seats.has(r.follow) || (r.seats.get(r.follow).out && r.state === 'racing' && !followPinned)) {
+        const was = r.follow;
+        r.follow = leaderSeat(r);
+        if (r.follow !== was) watchName();   // the watch bar names the car the camera moved to, not ours
+      }
       if (r.follow !== null) {
         const f = remote(r, r.follow, at, dt);
         if (f) { follow = f; if (scene && scene.followLook && f.look) scene.followLook(f.look); }
@@ -728,7 +732,8 @@ socket.on('connect', () => {
   pingBurst();
   if (race && race.state !== 'over' && seatKey) { socket.emit('se:rejoin', { key: seatKey, v: S.VERSION }); return; }
   socket.emit('se:watch');
-  if (WANT_JOIN || joined) { joined = false; join(); }
+  /* The Events tab's Join is for the first connect only: a reconnect after Leave, or after a race, must not join again. */
+  if (wantJoin || joined) { wantJoin = false; joined = false; join(); }
 });
 socket.on('disconnect', () => { if (race && race.car && !race.out && race.state !== 'over') note('Reconnecting...', 6000); });
 socket.on('se:lobby', (m) => { if (!m) return; lobby = Object.assign(lobby, m); lobbyRecv = performance.now(); paintLobby(); });
@@ -760,6 +765,10 @@ socket.on('se:state', (m) => {
     seatMe(race, mySeat);
     if (was) { race.closes = was.closes; race.topV = was.topV; race.startedAt = was.startedAt; race.out = was.out; }
     hideNote();
+    /* Put out while the link was down (its 5 s ran out): that se:ko never reached this screen, so say it now,
+       or the car sits frozen with the pads up until the race ends. */
+    const ko = race.out ? null : (m.ko || []).find(k => k && k.seat === mySeat);
+    if (ko) knockedOut(ko);
   } else enterWatch();
   showRaceUi();
 });
@@ -816,7 +825,7 @@ socket.on('se:ko', (k) => {
   if (s) s.out = Number(k.place) || 0;
   feed(k);
   if (k.seat === race.me && !race.out) knockedOut(k);
-  else if (k.seat === race.follow && race.me === null) setTimeout(() => { if (race) { race.follow = leaderSeat(race); watchName(); } }, 1500);
+  else if (k.seat === race.follow && (race.me === null || race.out)) setTimeout(() => { if (race) { race.follow = leaderSeat(race); watchName(); } }, 1500);
   else if (k.seat !== race.me) SOUND.play('g.tick', { vol: 0.5 });
 });
 socket.on('se:over', (m) => {
