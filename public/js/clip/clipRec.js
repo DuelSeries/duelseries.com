@@ -202,13 +202,17 @@
     try { mctx.drawImage(c, r.left * kx, r.top * ky, r.width * kx, r.height * ky); } catch (_) {}
   }
   /* DuelSeries.com, bottom left (Owen: free advertising on every post), on a soft dark pill so it reads on
-     slither's dark floor and on Paper.io's white one alike. */
+     slither's dark floor and on Paper.io's white one alike. Over a game it steps up above any of the game's own
+     words in that corner (Paper's chat hint), now that those are in the video too (liftFor, below). */
+  let markBox = null;
   function mark() {
     const px = Math.max(14, Math.round(H * 0.022));
     mctx.font = '700 ' + px + 'px Archivo, "Segoe UI", system-ui, sans-serif';
     mctx.textBaseline = 'middle';
     const a = mctx.measureText('Duel').width, b = mctx.measureText('Series').width, c = mctx.measureText('.com').width;
-    const padX = px * 0.6, h = px * 1.7, x = Math.round(px), y = H - Math.round(px) - h;
+    const lift = ovs.length && ovs[0].ready ? Math.round(ovs[0].lift * (H / innerHeight)) : 0;
+    const padX = px * 0.6, h = px * 1.7, x = Math.round(px), y = H - Math.round(px) - h - lift;
+    markBox = { x, w: a + b + c + padX * 2, h, m: Math.round(px) };
     mctx.fillStyle = 'rgba(16,14,11,.42)';
     mctx.beginPath();
     if (mctx.roundRect) mctx.roundRect(x, y, a + b + c + padX * 2, h, h / 2); else mctx.rect(x, y, a + b + c + padX * 2, h);
@@ -269,7 +273,7 @@
 
   function overlay(doc, frame) {
     const o = { doc, win: doc.defaultView, frame, c: document.createElement('canvas'), x: null, ready: false, dirty: true, busy: false,
-      next: 0, cost: 0, pace: 0, n: 0, same: 0, fails: 0, off: false, safe: false, held: false, zTop: Infinity, roots: new Set(), last: '',
+      next: 0, cost: 0, pace: 0, n: 0, same: 0, fails: 0, off: false, safe: false, held: false, lift: 0, zTop: Infinity, roots: new Set(), last: '',
       sheetKey: null, rules: [], faces: [], fontKey: null, fontCss: '' };
     o.x = o.c.getContext('2d');
     const kick = () => { o.dirty = true; };
@@ -501,13 +505,39 @@
     if (tag === 'TEXTAREA') { c.textContent = n.value; return c; }
     // A box scrolled down (a chat list) shows the same lines it shows on screen.
     const sx = above ? n.scrollLeft : 0, sy = above ? n.scrollTop : 0;
+    let words = false;
     for (let ch = n.firstChild; ch; ch = ch.nextSibling) {
       const k = copy(ch, st, above);
       if (!k) continue;
+      if (k.nodeType === 3 && /\S/.test(k.nodeValue)) words = true;
       if ((sx || sy) && k.nodeType === 1) k.style.setProperty('translate', -sx + 'px ' + -sy + 'px', 'important');
       c.appendChild(k);
     }
+    if (words && above) st.words.push(n);
     return c;
+  }
+  /* How far the mark steps up (CSS px) so none of the game's words on screen sit under it: just above the highest
+     line it would cover. More than a third of the screen and it stays in its corner. Read in idle time, with the
+     picture, never per frame. */
+  function liftFor(els) {
+    if (!markBox || !H) return 0;
+    const k = innerHeight / H, x0 = markBox.x * k, x1 = (markBox.x + markBox.w) * k, hgt = markBox.h * k, gap = 6;
+    const bottom = innerHeight - markBox.m * k;
+    const rs = [];
+    for (const el of els) {
+      const r = el.getBoundingClientRect();
+      if (r.width && r.right > x0 && r.left < x1 && r.bottom > innerHeight * 0.6
+        && (!el.checkVisibility || el.checkVisibility({ opacityProperty: true, visibilityProperty: true }))) rs.push(r);
+    }
+    let lift = 0;
+    for (let again = true; again;) {
+      again = false;
+      for (const r of rs) {
+        if (r.top < bottom - lift + gap && r.bottom > bottom - lift - hgt - gap) { lift = bottom - r.top + gap; again = true; }
+      }
+      if (lift > innerHeight / 3) return 0;
+    }
+    return lift;
   }
   function note(n, st) {
     if (n.id) st.toks.add('#' + n.id);
@@ -539,7 +569,7 @@
     const t0 = performance.now();
     const doc = o.doc;
     const st = { win: o.win, frame: o.frame, base: null, z: 0, zTop: Infinity, toks: new Set(), anims: new Map(), moving: new Set(),
-      stillMoving: false, settle: 0, css: '', pid: 0, kick: o.kick, focus: doc.activeElement };
+      stillMoving: false, settle: 0, css: '', pid: 0, kick: o.kick, focus: doc.activeElement, words: [] };
     let vw = innerWidth, vh = innerHeight, box = [0, 0, innerWidth, innerHeight];
     let roots = null;
     if (o.frame) {
@@ -600,6 +630,7 @@
       + new XMLSerializer().serializeToString(html) + '</foreignObject></svg>';
     if (st.stillMoving) o.dirty = true;
     o.zTop = roots ? Infinity : st.zTop;
+    if (!roots) o.lift = liftFor(st.words);
     const made = performance.now() - t0 - prep;
     // The same as the picture on hand (a leaderboard written again with the same rows): nothing to draw.
     if (svg === o.last && o.ready) { o.same++; o.busy = false; o.next = performance.now() + Math.max(OV_GAP, made / OV_SHARE); return; }
