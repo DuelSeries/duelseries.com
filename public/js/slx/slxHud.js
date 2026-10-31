@@ -34,10 +34,15 @@
   if (!D || !D.slx || !D.slx.active) return;
   var slx = D.slx;
   // Spectating, the length box describes the followed snake, so the own row carries its name, not the watcher's
-  // (site sweep 2026-10-28: "you" sat on someone else's rank and length).
+  // (site sweep 2026-10-28: "you" sat on someone else's rank and length). The battle royale watches its own way (slxBr,
+  // the lobby's Watch or the card's Spectate once out): the same rule while it watches.
   function watchedName() {
     var w = slx.watch && typeof slx.watch.state === 'function' ? slx.watch.state() : null;
-    return w && w.on && w.name ? String(w.name) : '';
+    if (w && w.on && w.name) return String(w.name);
+    var b = slx.br;
+    var bw = b && typeof b.mode === 'function' && b.mode() === 'watch' && typeof b.watching === 'function'
+      ? b.watching() : null;
+    return bw && bw.name ? String(bw.name) : '';
   }
   var doc = root.document;
   var S = D.S;

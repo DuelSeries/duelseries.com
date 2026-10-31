@@ -835,6 +835,33 @@ test('slxHud: own row pinned when outside the top; top 5 on a phone, 10 on a com
   assert.strictEqual(M.slx.errors, 0);
 });
 
+test('slxHud: spectating (the free room or the battle royale), the pinned own row is the watched snake, never the watcher', () => {
+  // the server sends a watcher myPos 0 (server/sl/slView.js), so the row is pinned from their length box: the
+  // followed snake's length and rank, under that snake's name (bug sweep 2026-10-31: the event's Spectate showed the
+  // watcher's own lobby name there, or nothing for a guest)
+  const rows = TEN.filter((r) => r[0] !== 'Owen').concat([['Ivy', 900]]);
+  const free = hudPage({ innerWidth: 1280, innerHeight: 720 }, { playing: true });
+  free.slx.watch = { state: () => ({ on: true, id: 7, name: 'Kes' }) };
+  theirLengthBox(free, 321, 25, 60);
+  theirBoard(free, rows, 0);
+  free.raf(1);
+  assert.deepStrictEqual(ourRows(free).slice(-1), ['25|Kes|321 *'], 'the free room Spectate');
+  const br = hudPage({ innerWidth: 1280, innerHeight: 720 }, { playing: true });
+  let mode = 'watch';
+  br.slx.br = { mode: () => mode, watching: () => ({ id: 9, name: 'toxic' }) };
+  theirLengthBox(br, 396, 13, 14);
+  theirBoard(br, rows, 0);
+  br.raf(1);
+  assert.deepStrictEqual(ourRows(br).slice(-1), ['13|toxic|396 *'], 'the battle royale Spectate');
+  assert.deepStrictEqual(plain(br.slx.hud.rows().me), { rank: 13, name: 'toxic', value: '396' });
+  // playing the event: the own name, as in the free room
+  mode = 'play';
+  theirBoard(br, rows, 0);
+  br.raf(1);
+  assert.deepStrictEqual(ourRows(br).slice(-1), ['13|Owen|396 *'], 'a player of the event');
+  assert.strictEqual(br.slx.errors, 0);
+});
+
 test('slxBr: every event line in one block at the top centre, in the slot slxHud keeps clear', () => {
   const store = { slBr: 'play' };
   const P = makePage({ win: { setInterval: () => 0, sessionStorage: { getItem: (k) => store[k] || null, removeItem: (k) => { delete store[k]; } } } });
