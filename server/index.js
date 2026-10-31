@@ -7437,8 +7437,10 @@ io.on('connection', (socket) => {
     if (!socketRL(socket, 'sejoin', 1500)) return;
     if (v !== SWIM_VERSION) { socket.emit('se:refused', { why: 'the game was updated, reload the page' }); return; }
     if (ops.get().maintenance) { socket.emit('se:refused', { why: 'the game is updating, back in a minute' }); return; }
-    if (!swimEvent.entrants.has(socket.id)) {
-      const key = mainGate.keyOf(socket);
+    /* An address the gate never counts (key null: loopback, private, unreadable) is not capped here either: null
+       would match every other uncounted socket and every bot (no socket), and refuse the 4th car in the lobby. */
+    const key = mainGate.keyOf(socket);
+    if (key !== null && !swimEvent.entrants.has(socket.id)) {
       let held = 0;
       for (const e of swimEvent.entrants.values()) if (mainGate.keyOf(e.socket) === key) held++;
       if (held >= SWIM_EVENT_PER_IP) {
