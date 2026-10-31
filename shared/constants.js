@@ -295,6 +295,12 @@ const CONSTANTS = {
   BR_AUTOSTART_MIN: 0,
   BR_EVERY_HOURS: 6,
   BR_JOIN_WINDOW_MS: 30 * 1000,
+  /* THE SWIM RACE EVENT (server/swim/SwimEvent.js), the one place its clock is
+     set, Eastern wall clock. Every `every` hours from hour:minute (Owen
+     2026-10-30: a timer like the battle royale's, never on top of it): 5 AM,
+     11 AM, 5 PM and 11 PM, three hours off the battle royale's 2, 8, 2 and 8.
+     Joining opens `openMs` before each start and stays open to zero. */
+  SWIM_EVENT: Object.freeze({ hour: 5, minute: 0, every: 6, openMs: 15 * 60 * 1000 }),
 
   BOT_MIN: 22,
   /* BACK TO THE HUNDRED ORIGINALLY ASKED FOR, because the thing that made it

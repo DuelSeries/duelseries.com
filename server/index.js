@@ -2144,6 +2144,22 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
     }
     /* The emergency exit (Owen's own, so no push): the match is voided, nobody
        is paid, and the arena goes straight back to waiting. */
+    /* The Swim Race (server/swim/SwimEvent.js), for trying it: se:open opens the door now for 15 minutes,
+       se:start runs the race with whoever joined (bots fill to 8), se:stop calls it off with no result. */
+    case 'se:open': {
+      if (swimEvent.state !== 'waiting') return refuse('A Swim Race is on now');
+      seOwnerOpenUntil = Date.now() + SWIM_EVENT.openMs;
+      swimEvent.doorOpen = true;
+      return done('Swim Race open to join for 15 minutes');
+    }
+    case 'se:start': {
+      const why = swimEvent.start('owner');
+      if (why) return refuse(why === 'nobody joined' ? 'Nobody has joined the Swim Race' : 'A Swim Race is already on');
+      return done('Swim Race started, ' + swimEvent.lanes + ' lanes');
+    }
+    case 'se:stop': {
+      return swimEvent.abort('owner') ? done('Swim Race stopped, no result') : refuse('No Swim Race is running');
+    }
     case 'br:stop': {
       if (!br || (br.state !== 'running' && br.state !== 'countdown')) {
         return refuse('No match is running');
@@ -2788,6 +2804,8 @@ app.get('/battleship', (_req, res) => (soonPageFor('battleship', res)
   || res.sendFile(path.join(__dirname, '../public/battleship.html'))));
 // Swim, the traffic race. Reachable by this URL while its lobby card stays shut (SWIM_IN_LOBBY).
 app.get('/swim', (_req, res) => res.sendFile(path.join(__dirname, '../public/swim.html')));
+// The Swim Race event's page (server/swim/SwimEvent.js): join, race and watch.
+app.get('/swimrace', (_req, res) => res.sendFile(path.join(__dirname, '../public/swimrace.html')));
 app.get('/headsoccer', (_req, res) => res.sendFile(path.join(__dirname, '../public/headsoccer.html')));
 app.get('/pool8', (_req, res) => res.sendFile(path.join(__dirname, '../public/pool8.html')));
 app.get('/airhockey', (_req, res) => res.sendFile(path.join(__dirname, '../public/airhockey.html')));
@@ -3910,6 +3928,96 @@ const { createLastPodiumStore } = require('./slBr/brLastPodium');
 const brLastPodium = createLastPodiumStore({
   file: process.env.BR_PODIUM_PATH || path.join(path.dirname(agJournal.file), 'br-last-podium.json'),
 });
+/* ── The Swim Race event (server/swim/SwimEvent.js) ─────────────────────────────
+   A race on the wall clock (shared/constants.js SWIM_EVENT, every 6 hours, three off the battle royale's):
+   one lane per person who joined, bots fill to 8, one touch and you are out, last car or 500 m clear wins.
+   Free: nothing here moves money. Its podium and the slot it last went off for outlive a restart
+   (server/swim/swimEventStore.js; SWIM_EVENT_PATH moves the file). */
+const { SwimEvent } = require('./swim/SwimEvent');
+const { createSwimEventStore } = require('./swim/swimEventStore');
+const seClock = require('./slBr/brAutoStart');
+const SWIM_EVENT = C.SWIM_EVENT;
+const swimEventStore = createSwimEventStore({
+  file: process.env.SWIM_EVENT_PATH || path.join(path.dirname(agJournal.file), 'swim-event.json'),
+});
+const swimEvent = new SwimEvent(io);
+swimEvent.last = swimEventStore.load().last;
+swimEvent.onFinish = ({ id, why, winner, last }) => {
+  swimEventStore.save({ last });
+  console.log('[SE] race ' + id + ' over (' + why + '): ' + (winner ? winner.name + (winner.bot ? ' (bot)' : '') : 'nobody') +
+    ', ' + (last ? last.people : 0) + ' people on ' + (last ? last.lanes : 0) + ' lanes');
+};
+/* People from one address in one race: a family on one connection, never a road of one person's tabs. */
+const SWIM_EVENT_PER_IP = /^\d{1,2}$/.test(process.env.SWIM_EVENT_PER_IP || '') ? Number(process.env.SWIM_EVENT_PER_IP) : 3;
+/* Local testing only (refused in production): a slot every n seconds from boot, the door always open. */
+const SE_DEV_EVERY = process.env.NODE_ENV !== 'production' && /^\d{1,5}$/.test(process.env.SWIM_EVENT_EVERY_SEC || '')
+  ? Number(process.env.SWIM_EVENT_EVERY_SEC) : 0;
+const SE_BOOT = Date.now();
+/* Local testing only: bots fill a scheduled race to this many cars (a capacity run), and a tick-cost line every 5 s. */
+const SE_DEV_FILL = SE_DEV_EVERY > 0 && /^\d{1,2}$/.test(process.env.SWIM_EVENT_TEST_FILL || '') ? Number(process.env.SWIM_EVENT_TEST_FILL) : 0;
+if (SE_DEV_EVERY > 0 && process.env.SWIM_EVENT_PERF_LOG === '1') {
+  /* Garbage collection in the same 5 s (the whole process's, every game's), to tell a race tick's own cost from a
+     collection that happened to land in it. */
+  const gcWin = { n: 0, ms: 0, worst: 0 };
+  try {
+    new (require('perf_hooks').PerformanceObserver)((list) => {
+      for (const e of list.getEntries()) { gcWin.n++; gcWin.ms += e.duration; if (e.duration > gcWin.worst) gcWin.worst = e.duration; }
+    }).observe({ entryTypes: ['gc'] });
+  } catch (_) { /* no gc entries on this Node */ }
+  setInterval(() => {
+    if (swimEvent.state === 'racing') {
+      const m = process.memoryUsage();
+      console.log('[SE perf] ' + JSON.stringify(Object.assign(swimEvent.perf(), { heapMB: Math.round(m.heapUsed / 1048576), rssMB: Math.round(m.rss / 1048576),
+        gcN: gcWin.n, gcMs: Math.round(gcWin.ms), gcWorstMs: Math.round(gcWin.worst * 10) / 10 })));
+    }
+    gcWin.n = 0; gcWin.ms = 0; gcWin.worst = 0;
+  }, 5000);
+}
+let seOwnerOpenUntil = 0;   // the owner's se:open: the door open now, for a race he starts himself
+/* The next start: { due: the key of a slot due now (else null), secs to the next start, its Eastern hour and minute }. */
+function swimEventClock() {
+  if (SE_DEV_EVERY > 0) {
+    const up = Math.floor((Date.now() - SE_BOOT) / 1000);
+    const k = Math.floor(up / SE_DEV_EVERY);
+    return { due: k > 0 ? 'dev' + k : null, secs: SE_DEV_EVERY - up % SE_DEV_EVERY, hour: null, minute: null };
+  }
+  const et = easternNow();
+  const o = { startHour: SWIM_EVENT.hour, startMin: SWIM_EVENT.minute, every: SWIM_EVENT.every };
+  const next = seClock.nextSlot(et, o);
+  const key = seClock.slotKey(et, o);
+  return { due: key && et.minute >= SWIM_EVENT.minute ? key : null, secs: next.secs, hour: next.hour, minute: next.minute };
+}
+/* Every second: open the door SWIM_EVENT.openMs before a start, and start the race on the second the clock shows
+   zero, once per slot (the slot is saved before the start, so a crash in it never runs the slot twice). */
+setInterval(() => {
+  try {
+    const c = swimEventClock();
+    const maint = !!ops.get().maintenance;
+    swimEvent.doorOpen = !maint && swimEvent.state === 'waiting'
+      && (SE_DEV_EVERY > 0 || c.secs * 1000 <= SWIM_EVENT.openMs || Date.now() < seOwnerOpenUntil);
+    if (!c.due || swimEventStore.get().slot === c.due) return;
+    swimEventStore.save({ slot: c.due });
+    if (maint) { console.log('[SE] slot ' + c.due + ' skipped: maintenance is on'); return; }
+    const why = swimEvent.start('slot ' + c.due, SE_DEV_FILL);
+    console.log('[SE] slot ' + c.due + ': ' + (why || 'started, ' + swimEvent.lanes + ' lanes'));
+  } catch (e) { console.error('[SE] clock:', e && e.message); }
+}, 1000);
+swimEvent.ensureTimer();
+/* What the Events tab and the race page are told (/api/live swimEvent). Names are player input: pages set them
+   as text. */
+function liveSwimEvent() {
+  try {
+    const c = swimEventClock();
+    return Object.assign(swimEvent.liveState(), {
+      joinOpen: swimEvent.doorOpen && swimEvent.state === 'waiting',
+      nextInSec: c.secs, startHour: c.hour, startMin: c.minute, every: SWIM_EVENT.every,
+      openSec: Math.round(SWIM_EVENT.openMs / 1000),
+    });
+  } catch (e) {
+    console.error('[SE] live:', e && e.message);
+    return null;
+  }
+}
 /* What a restart must not forget (Owen 2026-10-16): the match in flight (a boot
    that finds one voids it and pushes Owen), the slot the 6 hour timer last went
    off, and each prize's send ('paying' written before the money moves). See
@@ -4631,7 +4739,7 @@ function liveSnapshot() {
     /* Card counts: every human of the game plus the bots in its rows, from these
        same rows, so a card never reads 0 above a row saying 20 playing. */
     const out = { lobbies, stakes: ALL_STAKES, extras,
-                  br: liveBattleRoyale(), counts: withBoardBots(liveGameCounts(), lobbies.concat(extras)),
+                  br: liveBattleRoyale(), swimEvent: liveSwimEvent(), counts: withBoardBots(liveGameCounts(), lobbies.concat(extras)),
                   paidDoors: duelPaidDoors(), soon: comingSoon.list() };
     if (unknown.length) out.unknown = unknown;
     /* The lobby's update banner and its Play gate (public/js/v2/maint.js). Only
@@ -5418,6 +5526,8 @@ app.get('/api/debug/tick', sigLimiter, async (req, res) => {
     }),
     /* The server split's slither process (slLink debug): absent while the split is off. */
     sl: slLink.debug(),
+    /* The Swim Race (server/swim/SwimEvent.js): its tick cost over the last 30 s of racing. */
+    swimEvent: swimEvent.perf(),
   };
   res.json(out);
 });
@@ -7314,6 +7424,56 @@ io.on('connection', (socket) => {
      several ticks a packet so a dropped one costs nothing); the server runs both cars against the
      traffic and decides everything (SwimRoom). Queueing, paying and refunding are bs:queue's line for
      line, with Swim's own door (consumePaidEntryAtStake(..., 'swim')) and off switch (sw:paid:off). */
+  /* ── the Swim Race event (server/swim/SwimEvent.js) ─────────────────────────
+     Free, so no entry token: a name, a car look and the step's version. The server runs every car and decides
+     every knockout and the winner; a page only ever sets its own car's wheel and pedal (SwimEvent.input). */
+  on('se:join', ({ name, wallet, car, v } = {}) => {
+    if (!socketRL(socket, 'sejoin', 1500)) return;
+    if (v !== SWIM_VERSION) { socket.emit('se:refused', { why: 'the game was updated, reload the page' }); return; }
+    if (ops.get().maintenance) { socket.emit('se:refused', { why: 'the game is updating, back in a minute' }); return; }
+    if (!swimEvent.entrants.has(socket.id)) {
+      const key = mainGate.keyOf(socket);
+      let held = 0;
+      for (const e of swimEvent.entrants.values()) if (mainGate.keyOf(e.socket) === key) held++;
+      if (held >= SWIM_EVENT_PER_IP) {
+        logLimit('swim race seat', key, held + ' held');
+        socket.emit('se:refused', { why: 'too many racers from your connection already' });
+        return;
+      }
+    }
+    const w = typeof wallet === 'string' && wallet.length >= 32 && wallet.length <= 64 ? wallet : null;
+    const look = { car: typeof car === 'string' ? car.slice(0, 24) : null };
+    const r = swimEvent.join(socket, sanitizeName(name), w, look);
+    if (!r.ok) { socket.emit('se:refused', { why: r.why, full: !!r.full, started: !!r.started, closed: !!r.closed }); return; }
+    socket.emit('se:joined', swimEvent.publicState(true));
+  });
+  on('se:leave', () => swimEvent.leave(socket.id));
+  on('se:in', (msg) => {
+    /* sw:in's bucket: a page sends 30 a second; 60 allowed with a burst of 12. */
+    const nowMs = Date.now();
+    const b = socket._seIn || (socket._seIn = { tokens: 12, at: nowMs });
+    b.tokens = Math.min(12, b.tokens + (nowMs - b.at) * 0.06); b.at = nowMs;
+    if (b.tokens < 1) return;
+    b.tokens -= 1;
+    swimEvent.input(socket.id, msg);
+  });
+  on('se:ping', (msg) => {
+    if (!socketRL(socket, 'seping', 100)) return;
+    const c = msg && typeof msg.c === 'number' && Number.isFinite(msg.c) ? msg.c : 0;
+    socket.emit('se:pong', { c, s: Date.now() });
+  });
+  on('se:watch', () => {
+    if (!socketRL(socket, 'sewatch', 3000)) return;   // it answers with the whole road (up to ~50 kB): never a pump
+    try { swimEvent.watch(socket); } catch (e) { console.error('[SE] watch failed:', e.message); }
+  });
+  on('se:unwatch', () => { try { swimEvent.unwatch(socket); } catch (_) {} });
+  on('se:rejoin', ({ key, v } = {}) => {
+    if (!socketRL(socket, 'serejoin', 1000)) return;
+    const r = v === SWIM_VERSION ? swimEvent.rejoin(socket, key) : null;
+    if (!r) { socket.emit('se:rejoinfail', { state: swimEvent.state }); return; }
+    socket.emit('se:state', swimEvent.publicState(true));
+  });
+
   on('sw:queue', ({ name, wallet, stake, entryToken, resume, v, car } = {}) => {
     if (!socketRL(socket, 'swq', 1000)) return;
     if (ops.get().maintenance) { socket.emit('maintenance', ops.get()); return; }
@@ -7519,6 +7679,7 @@ io.on('connection', (socket) => {
     knockoutLobby.unwatch(socket.id);            // a watcher holds no seat, only a place on the list
     battleshipLobby.unwatch(socket.id);
     swimLobby.drop(socket.id);                   // a Swim seat mid-race is held 5 s for its reconnect
+    swimEvent.drop(socket.id);                   // the Swim Race: a racer's car is held 5 s, a waiting entrant leaves
     swimLobby.unwatch(socket.id);
     headSoccerLobby.unwatch(socket.id);
     pool8Lobby.unwatch(socket.id);

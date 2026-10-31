@@ -28,7 +28,17 @@
    target lane has room for it, ROOM metres clear end to end of every car in
    that lane from the indicator until ROOM_AFTER ticks after the front car
    meets it, each at its own speed; and every new car gets the same room in
-   its own lane from cars changing into it. */
+   its own lane from cars changing into it.
+
+   A WIDER ROAD (the Swim Race event, server/swim/SwimEvent.js; opts.lanes).
+   The same rules lane by lane, with three changes that keep a road of 4 lanes
+   exactly as it was. "Never a wall" looks REACH lanes either side of the new
+   car (3: the whole road when there are 4), since a wall across a far part of
+   a wide road blocks nobody near it. A lane change stays inside its own
+   carriageway of four (shared/swimSim.js laneV), so lanes 4k to 4k + 3 are a
+   duel's road exactly, which is what lets the duel's bot drive any four of
+   them. And opts.behind replaces BEHIND_LOSE as how far behind the leader a
+   car may still be coming when the room for a lane change has to last. */
 
 const S = require('../../shared/swimSim');
 
@@ -66,26 +76,38 @@ function laneGap(tick) {
 }
 const r2 = (v) => Math.round(v * 100) / 100;
 
+const REACH = 3;              // lanes either side of a new car checked for a wall across the road
+
+/* Whether a car in `lane`, changing to `to` at ct (to -1: never), is in lane l on tick (occMask for any road). */
+function inLane(lane, to, ct, tick, l) {
+  if (l === lane) return !(to >= 0 && tick >= ct + S.MOVE);
+  return l === to && tick >= ct - S.SIGNAL;
+}
+
 class Spawner {
-  constructor(seed) {
+  /* opts: { lanes (4), behind (S.BEHIND_LOSE) } */
+  constructor(seed, opts) {
+    const o = opts || {};
+    this.n = Number.isInteger(o.lanes) && o.lanes > 0 && o.lanes <= S.MAX_LANES ? o.lanes : S.LANES;
+    this.behind = o.behind > 0 ? o.behind : S.BEHIND_LOSE;
     this.rand = S.rng(seed);
     this.nextId = 1;
-    this.last = new Array(S.LANES).fill(null);
+    this.last = new Array(this.n).fill(null);
     // The first car in each lane lands somewhere in its first gap past the start.
     this.need = [];
-    for (let l = 0; l < S.LANES; l++) this.need.push(this.rand() * G0);
+    for (let l = 0; l < this.n; l++) this.need.push(this.rand() * G0);
     /* The type of each lane's next car, picked once and kept until it is placed. Picking afresh on
        every try let the shortest car that fitted under the horizon win each time, so trucks and buses
        almost never came (2026-10-28: 1 truck in 240 s of a test road for 198 sedans and 226 hatchbacks). */
-    this.nextType = new Array(S.LANES).fill(-1);
-    this.nextTo = new Array(S.LANES).fill(-1);       // and the lane it means to change to (-1: none)
-    this.nextF = new Array(S.LANES).fill(0);         // and when, as a share of the way to meeting the front car
+    this.nextType = new Array(this.n).fill(-1);
+    this.nextTo = new Array(this.n).fill(-1);        // and the lane it means to change to (-1: none)
+    this.nextF = new Array(this.n).fill(0);          // and when, as a share of the way to meeting the front car
   }
 
   /* Trucks and buses mostly keep right, but any lane can have one (Owen
      2026-10-28: the line between the two left lanes is no safe corridor). */
   pickType(lane, tick) {
-    const big = S.LANES - lane <= 2;                       // the two right lanes
+    const big = (lane & 3) >= 2;                           // the two right lanes (of its four)
     const later = (tick * S.DT) / (tick * S.DT + 120);     // 0 at the start, towards 1
     let total = 0;
     const w = S.TYPES.map((t) => {
@@ -98,20 +120,25 @@ class Spawner {
     return 0;
   }
 
-  /* Would a car of `type` with its centre at z shut all four lanes on
-     `tick`? `occ` is the lanes it is in itself then (occMask). Every other
-     lane is blocked when a car in it then (one changing into or out of it
-     included) overlaps this one lengthways with less than WIN to spare. */
-  shuts(traffic, occ, z, type, tick) {
-    const hl = S.TYPES[type].L / 2;
-    for (let l = 0; l < S.LANES; l++) {
-      if (occ & (1 << l)) continue;
+  /* Would a car of `type` in `lane` (changing to `to` at ct, -1: never) with
+     its centre at z shut every lane within REACH of it on `tick` (all four of
+     a duel's road)? Every other lane is blocked when a car in it then (one
+     changing into or out of it included) overlaps this one lengthways with
+     less than WIN to spare. */
+  shuts(traffic, lane, to, ct, z, type, tick) {
+    const hl = S.TYPES[type].L / 2, big = S.TYPES.reduce((m, t) => (t.L / 2 > m ? t.L / 2 : m), 0);
+    const lo = Math.max(0, lane - REACH), hi = Math.min(this.n - 1, lane + REACH);
+    for (let l = lo; l <= hi; l++) {
+      if (inLane(lane, to, ct, tick, l)) continue;
       let blocked = false;
       for (let k = l - 1; k <= l + 1 && !blocked; k++) {
-        if (k < 0 || k >= S.LANES) continue;
-        for (const r of traffic.lanes[k]) {
+        if (k < 0 || k >= this.n) continue;
+        const list = traffic.lanes[k];
+        for (let i = S.firstFrom(list, z - hl - WIN - big - 1, tick); i < list.length; i++) {
+          const r = list[i], c = S.zAt(r, tick);
+          if (c - big >= z + hl + WIN) break;              // sorted: every one after is further ahead still
           if (!S.occupies(r, l, tick)) continue;
-          const c = S.zAt(r, tick), h = S.TYPES[r[2]].L / 2;
+          const h = S.TYPES[r[2]].L / 2;
           if (c - h < z + hl + WIN && c + h > z - hl - WIN) { blocked = true; break; }
         }
       }
@@ -127,7 +154,7 @@ class Spawner {
      time, so it is enough that it is clear, on the same side, at both ends. */
   roomIn(traffic, lane, z, v, hl, tick, from, until) {
     for (let k = lane - 1; k <= lane + 1; k++) {
-      if (k < 0 || k >= S.LANES) continue;
+      if (k < 0 || k >= this.n) continue;
       for (const r of traffic.lanes[k]) {
         const a = Math.max(from, S.occFrom(r, lane)), b = Math.min(until, S.occTo(r, lane));
         if (a > b) continue;
@@ -144,7 +171,7 @@ class Spawner {
      `out` as well as into `traffic`. */
   run(traffic, tick, leadZ, leadV, out) {
     const horizon = leadZ + H_AHEAD;
-    for (let l = 0; l < S.LANES; l++) {
+    for (let l = 0; l < this.n; l++) {
       for (let guard = 0; guard < 12; guard++) {
         const last = this.last[l];
         const back = last ? S.zAt(last, tick) + S.TYPES[last[2]].L / 2 : START_CLEAR;
@@ -152,12 +179,14 @@ class Spawner {
           this.nextType[l] = this.pickType(l, tick);
           this.nextTo[l] = -1;
           if (this.rand() < changeChance(tick)) {
-            this.nextTo[l] = l === 0 ? 1 : l === S.LANES - 1 ? l - 1 : l + (this.rand() < 0.5 ? -1 : 1);
+            /* Inside its own four (a carriageway); a lane alone on the road's edge never changes. */
+            const g0 = l & ~3, g1 = Math.min(g0 + 3, this.n - 1);
+            this.nextTo[l] = g0 === g1 ? -1 : l === g0 ? l + 1 : l === g1 ? l - 1 : l + (this.rand() < 0.5 ? -1 : 1);
             this.nextF[l] = 0.3 + this.rand() * 0.45;
           }
         }
         const type = this.nextType[l];
-        const v = S.LANE_V[l], hl = S.TYPES[type].L / 2;
+        const v = S.laneV(l), hl = S.TYPES[type].L / 2;
         const z = back + this.need[l] + hl;
         if (z > horizon) break;
         /* When the front car gets to this one, if both keep going as they are. */
@@ -166,7 +195,7 @@ class Spawner {
         /* The room must last until the rear car can arrive too: it may be up to BEHIND_LOSE behind the
            front one at the same closing speed (Fable review 2026-10-28; a fixed 6 s left a slow rear car
            meeting a changed car that had driven into the one ahead of it). */
-        const after = Math.max(ROOM_AFTER, Math.round((S.BEHIND_LOSE / close) * S.HZ) + 60);
+        const after = Math.max(ROOM_AFTER, Math.round((this.behind / close) * S.HZ) + 60);
         /* Its lane change, if it means to make one and the next lane has room for it all the way. */
         let to = this.nextTo[l], ct = -1;
         if (to >= 0) {
@@ -174,8 +203,8 @@ class Spawner {
           if (!this.roomIn(traffic, to, z, v, hl, tick, ct - S.SIGNAL, Math.max(meet, ct + S.MOVE) + after)) { to = -1; ct = -1; }
         }
         if (!this.roomIn(traffic, l, z, v, hl, tick, tick, to >= 0 ? ct + S.MOVE : meet + after)
-            || this.shuts(traffic, occMask(l, to, ct, tick), z, type, tick)
-            || this.shuts(traffic, occMask(l, to, ct, meet), z + v * (meet - tick) * S.DT, type, meet)) {
+            || this.shuts(traffic, l, to, ct, z, type, tick)
+            || this.shuts(traffic, l, to, ct, z + v * (meet - tick) * S.DT, type, meet)) {
           this.need[l] += 5 + this.rand() * 9;   // wait a few metres and try again
           continue;
         }
@@ -191,4 +220,4 @@ class Spawner {
   }
 }
 
-module.exports = { Spawner, H_AHEAD, START_CLEAR, laneGap, COLOURS, ROOM, ROOM_AFTER, changeChance, occMask };
+module.exports = { Spawner, H_AHEAD, START_CLEAR, laneGap, COLOURS, ROOM, ROOM_AFTER, REACH, changeChance, occMask, inLane };

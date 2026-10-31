@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>Swim Race · DuelSeries</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/swim.css">
+<link rel="stylesheet" href="css/swimrace.css">
+<script type="importmap">{ "imports": { "three": "/vendor/three/three.module.min.js" } }</script>
+</head>
+<body>
+
+<!-- The road: one lane per racer (js/swim/swimScene.js, opts.lanes). -->
+<canvas id="road"></canvas>
+
+<!-- Where you stand (Owen's pick "Ribbon", 2026-10-30): your place, the gap, and every car on the last 500 m. -->
+<section id="board" hidden aria-live="off">
+  <div class="place"><b id="placeNum">1st</b><span id="placeOf">of 8</span></div>
+  <div class="gapLine" id="gapLine">Level</div>
+  <!-- the ribbon: the last 500 m of road behind the leader, every car on it, the win line at the far end -->
+  <div class="ribbon" id="ribbon" aria-hidden="true"><i class="win"></i><div id="ribbonDots"></div></div>
+</section>
+
+<!-- Knockouts, newest on top. -->
+<ol id="feed" aria-live="polite"></ol>
+
+<!-- Speed and distance, as in the duel. -->
+<div id="dash" hidden>
+  <div class="spd"><b id="spdNum">0</b><span>km/h</span><i id="gearNum" class="gear" hidden></i></div>
+  <div class="tach" id="tach" aria-hidden="true"><i id="tachFill"></i></div>
+  <div class="dist" id="distText">0 m</div>
+</div>
+
+<div id="close" hidden><b>Close</b><span id="closeCount"></span></div>
+<!-- Nearly too far behind the leader to stay in (1 km). -->
+<div id="warn" hidden>Catch up</div>
+<div id="keys" hidden></div>
+<div id="pads" hidden>
+  <div id="steerZone" aria-label="Steer: drag left or right"><i id="steerKnob"></i></div>
+  <button type="button" id="brake" aria-label="Brake">Brake</button>
+  <button type="button" id="gas" aria-label="Gas">Gas</button>
+</div>
+<div id="flash" aria-hidden="true"></div>
+
+<!-- Before the start: the race, the clock, who is in, and the one button. -->
+<div id="wait">
+  <div class="waitCard seCard">
+    <b class="seName">Swim Race</b>
+    <span class="seRule">One lane per racer. Touch a car, or fall 1 km behind the leader, and you are out. First to lead by 500 m, or the last car left, wins.</span>
+    <div class="seClock" id="seClock" role="timer" aria-live="off">--:--</div>
+    <span class="seWhen" id="seWhen"></span>
+    <div class="seCount"><b id="seCount">0</b><span id="seCountOf">racers in</span></div>
+    <ul class="seNames" id="seNames"></ul>
+    <span class="seNote" id="seNote"></span>
+    <button type="button" class="seGo" id="seJoin" hidden>Join the race</button>
+    <button type="button" id="seBack">Back to the lobby</button>
+  </div>
+</div>
+
+<!-- The 10 seconds on the start line. -->
+<div id="count" hidden><span id="countNum">10</span></div>
+<div id="botNote" role="status" hidden></div>
+
+<div id="nogl" hidden>
+  <div class="waitCard">
+    <b>This device cannot draw the road</b>
+    <span>Swim needs WebGL. Try another browser, or turn hardware acceleration on.</span>
+    <button type="button" id="noglBack">Back to the lobby</button>
+  </div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="/shared/trackPlan.js"></script>
+<script src="/js/shared/dsTrack.js"></script>
+<script src="/js/shared/dsPerfHud.js"></script>
+<script src="/shared/swimSim.js"></script>
+<script src="js/shared/dsEnd.js"></script>
+<script src="/shared/swimLooks.js"></script>
+<script src="/js/dsSfx.js"></script><script src="/js/dsSfxGame.js"></script><script src="/js/swim/swimEngines.js"></script><script src="/js/swim/swimSound.js"></script>
+<script src="/js/shared/dsWatchBar.js"></script>
+<script type="module" src="js/swim/swimEventMain.js"></script>
+</body>
+</html>

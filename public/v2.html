@@ -1262,6 +1262,45 @@ body.ingame .win-live i,body.ingame .win-live i::before{animation-play-state:pau
   .p2 .pblock{height:96px}
   .p3 .pblock{height:72px}
 }
+/* ── The Swim Race block (under the battle royale, outside its grid so the
+   battle royale's pinned Join bar scrolls away before this comes up). Owen's
+   pick "Stage" (2026-10-30, from three): the last race's top 3 on plinths
+   like the battle royale's, the clock big under them, Join and Spectate. ── */
+.swev{margin-top:18px;border-radius:var(--r3);padding:20px 16px 14px;display:flex;flex-direction:column;
+  background:radial-gradient(120% 70% at 50% 0%,rgba(79,195,217,.11),transparent 62%),var(--s1)}
+.swev[hidden]{display:none}
+.swhead{display:flex;flex-wrap:wrap;align-items:center;gap:12px;min-width:0}
+.swart{width:44px;height:44px;border-radius:11px;object-fit:cover;flex:none}
+.swtitle{min-width:0;flex:1}
+.swtitle .evname{font-size:20px}
+.swtitle .evwhen{margin-top:2px;font-size:12.5px}
+.swclock{order:3;flex-basis:100%;margin-top:4px;text-align:center;font-family:var(--fm);font-variant-numeric:tabular-nums;
+  font-size:46px;font-weight:600;color:var(--tx)}
+.swclock.live{color:var(--live)}
+.swline{margin-top:12px;text-align:center;font-size:13px;font-weight:600;color:var(--tx3)}
+.swline:empty{display:none}
+/* The plinths: first in the middle and tallest, gold; a name cut short keeps its whole self in its title. */
+.swpod{list-style:none;padding:0;display:grid;grid-template-columns:1fr 1.12fr 1fr;align-items:end;gap:0 8px;
+  margin:18px 0 6px;border-bottom:2px solid var(--s3)}
+.swpod:empty{display:none}
+.swpod li{display:flex;flex-direction:column;align-items:center;gap:6px;min-width:0;padding:12px 6px 0;
+  border-radius:12px 12px 0 0;background:linear-gradient(var(--s2),var(--s1));text-align:center;
+  font-size:13px;font-weight:600;color:var(--tx2)}
+.swpod li i{font-style:normal;flex:none;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;
+  font-family:var(--fm);font-size:11.5px;background:var(--s3);color:var(--tx2)}
+.swpod li span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.swpod li:nth-child(1){order:2;height:112px;color:var(--tx);
+  background:linear-gradient(rgba(240,168,48,.24),rgba(240,168,48,.05));box-shadow:inset 0 0 0 1px rgba(240,168,48,.36)}
+.swpod li:nth-child(1) i{width:34px;height:34px;font-size:16px;background:var(--money);color:var(--ink)}
+.swpod li:nth-child(2){order:1;height:84px}
+.swpod li:nth-child(3){order:3;height:66px}
+.swbar{display:grid;grid-template-columns:1fr auto;gap:8px;margin-top:16px}
+.swbar .evgo{padding-left:16px}
+.swev .evhow{margin-top:6px}
+@media(min-width:761px){
+  .swev{max-width:760px;width:100%;margin:6px auto 30px;padding:22px 26px 16px}
+}
+
 .note b{color:var(--tx2);font-weight:600}
 .lnk{color:var(--tx2);text-decoration:underline;text-underline-offset:2px}
 .lnk:hover{color:var(--tx)}
@@ -2660,6 +2699,7 @@ body.scr-anim { overflow-x:hidden }
     fetch('/api/live').then(function(r){ return r.json() }).then(function(j){
       BR=j&&j.br?j.br:null; BRAT=Date.now(); tick(true);
       if(window.V2BrCall) V2BrCall.feed(BR);
+      if(window.V2SwimEvent) V2SwimEvent.feed(j&&j.swimEvent?j.swimEvent:null);
     }).catch(function(){}).then(function(){ pulling=false });
   }
 
@@ -2906,6 +2946,73 @@ body.scr-anim { overflow-x:hidden }
   setInterval(function(){ pull(false) }, 3000);
   setInterval(function(){ tick(false) }, 1000);
 })();
+</script>
+
+
+<script>
+/* THE SWIM RACE ON THE EVENTS TAB (server/swim/SwimEvent.js; /api/live
+   swimEvent, fed by the Events tab's own poll above). The clock counts to the
+   next start (every 6 hours, three off the battle royale); Join opens its page
+   and joins (V2Play.swimRace), open from 15 minutes before until zero; the
+   last race's top 3 stay up until the next one. Names by textContent. */
+function v2SwimEventInit(){
+  var box=document.getElementById('swev'); if(!box) return;
+  var SE=null, SEAT=0;
+  var pad=function(n){ return n<10?'0'+n:''+n };
+  function setText(id,t){ var e=document.getElementById(id); if(e&&e.textContent!==t) e.textContent=t; }
+  function left(){ return SE&&Number.isFinite(SE.nextInSec)?Math.max(0,SE.nextInSec-Math.floor((Date.now()-SEAT)/1000)):null; }
+  function clock(s){ if(s===null) return '--:--'; var h=Math.floor(s/3600), m=Math.floor(s%3600/60), x=s%60; return (h?h+':'+pad(m):String(m))+':'+pad(x); }
+  var podWas='';
+  function pod(names){
+    var ol=document.getElementById('sw-pod'); if(!ol) return;
+    var list=Array.isArray(names)?names.slice(0,3).map(String):[];
+    var key=list.join('\u0001'); if(key===podWas) return; podWas=key;
+    ol.textContent='';
+    list.forEach(function(nm,i){
+      var li=document.createElement('li'), m=document.createElement('i'), s=document.createElement('span');
+      m.textContent=String(i+1); s.textContent=nm; s.title=nm;
+      li.appendChild(m); li.appendChild(s); ol.appendChild(li);
+    });
+  }
+  function paint(){
+    if(!SE){ box.hidden=true; return; }
+    box.hidden=false;
+    var st=SE.state, on=st==='countdown'||st==='racing';
+    if(Number.isInteger(SE.startHour)){
+      var h12=((SE.startHour+11)%12)+1, ap=SE.startHour<12?'AM':'PM';
+      setText('sw-when','Every '+(SE.every||6)+' hours, next at '+h12+':'+pad(SE.startMin||0)+' '+ap+' ET');
+    }
+    var c=document.getElementById('sw-clock');
+    if(c) c.classList.toggle('live',on);
+    setText('sw-clock', on?(st==='countdown'?'Starting':'Live'):clock(left()));
+    var n=SE.entrants||0, min=SE.min||8, max=SE.max||50, line;
+    if(on) line=(SE.left||0)+' of '+(SE.lanes||0)+' cars still racing';
+    else if(st==='over') line='Race over. The next one opens 15 minutes before it starts.';
+    else if(SE.joinOpen) line=(n===1?'1 racer in':n+' racers in')+', so '+Math.max(min,n)+' lanes'+(n<min?' (bots fill the rest)':'');
+    else line='Joining opens '+Math.round((SE.openSec||900)/60)+' minutes before the start. One lane per racer.';
+    setText('sw-line',line);
+    pod(SE.podium||(SE.last&&SE.last.podium)||null);
+    var full=!on&&n>=max, open=!on&&!!SE.joinOpen&&!full;
+    var join=document.getElementById('sw-join');
+    if(join){ if(join.disabled===open) join.disabled=!open; join.classList.toggle('hot',open&&left()!==null&&left()<=600); }
+    setText('sw-join-t', on?'Race on':full?'Event full':'Join');
+    setText('sw-join-s', on?'Watch it live':full?'Watch it when it starts':open?'Free entry':'Opens 15 min before');
+    setText('sw-watch-t', on?'Watch live':'Spectate');
+    setText('sw-watch-s', on?(SE.left||0)+' still racing':'');
+  }
+  window.V2SwimEvent={ feed:function(s){ SE=s||null; SEAT=Date.now(); paint(); }, get state(){ return SE } };
+  setInterval(function(){ if(SE) paint(); },1000);
+}
+/* The block is further down the page than this script: start once it is there. */
+if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',v2SwimEventInit); else v2SwimEventInit();
+function openSwimHow(){
+  openHow('Swim Race',[
+    ['Join before it starts','Free, nothing staked. Joining opens 15 minutes before the start and stays open until zero.'],
+    ['One lane per racer','The road gets a lane for everyone who joined, up to 50. Fewer than 8 and bots fill the road to 8.'],
+    ['Touch a car and you are out','Weave through the traffic at full speed. One touch, or falling 1 km behind the leader, and your race is over: you watch the rest.'],
+    ['Win it','Get 500 m clear of every other car, or be the last car left. The top 3 stay on this tab until the next race.'],
+  ]);
+}
 </script>
 
 <!-- ══ MONEY SHEETS ══ -->
@@ -3155,6 +3262,39 @@ body.scr-anim { overflow-x:hidden }
     </div>
   </div>
   </div>
+
+  <!-- The Swim Race (server/swim/SwimEvent.js, every 6 hours, three off the
+       battle royale): its own block under the battle royale, never beside it.
+       Owen's pick "Stage" (2026-10-30). Names go in by textContent: they are
+       player input. -->
+  <section class="swev" id="swev" aria-label="Swim Race" hidden>
+    <div class="swhead">
+      <img class="swart" src="/img/games/swim-card.webp?v=1" alt="" draggable="false">
+      <div class="swtitle">
+        <h3 class="evname">Swim Race</h3>
+        <p class="evwhen" id="sw-when">Every 6 hours</p>
+      </div>
+      <div class="swclock" id="sw-clock" role="timer" aria-live="off">--:--</div>
+    </div>
+    <p class="swline" id="sw-line"></p>
+    <ol class="swpod" id="sw-pod" aria-label="Last race's top 3"></ol>
+    <div class="swbar">
+      <button type="button" class="evbtn evgo" id="sw-join" onclick="V2Play.swimRace(true)">
+        <span class="evt"><b id="sw-join-t">Join</b><small id="sw-join-s">Free entry</small></span>
+      </button>
+      <button type="button" class="evbtn evwatch" id="sw-watch" onclick="V2Play.swimRace(false)">
+        <span class="evico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+          stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></span>
+        <span class="evt"><b id="sw-watch-t">Spectate</b><small id="sw-watch-s"></small></span>
+      </button>
+    </div>
+    <button type="button" class="evhow" onclick="openSwimHow()">
+      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor"
+           stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="9"/><path d="M9.6 9.2a2.5 2.5 0 1 1 3.2 2.4c-.5.2-.8.7-.8 1.2v.6"/>
+        <path d="M12 17h.01"/></svg>
+      How it works</button>
+  </section>
 </main>
 
 <!-- ══ SOCIAL ══ -->

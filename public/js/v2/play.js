@@ -847,6 +847,24 @@
     show('/sl', 'snake');
   }
 
+  /* The Swim Race event (public/swimrace.html, server/swim/SwimEvent.js): Join opens its page and joins the next
+     race (seJoin), Spectate opens it to watch. Free, so a guest races too under the guest name, as on every free
+     page; nothing about money is carried in, and any paid hand-off left in this tab is cleared first. */
+  function swimRace(join) {
+    if (inGame()) return;
+    if (join && window.V2Maint && window.V2Maint.on()) { say(window.V2Maint.message()); return; }
+    try {
+      for (const k of ['entryToken', 'entrySol', 'stake', 'slPaidLaunch', 'slxPaidCut', 'spectateOnly', 'dsWatch', 'dsWatchStake', 'seJoin']) sessionStorage.removeItem(k);
+    } catch (_) {}
+    if (join) {
+      const name = connected() ? requireName() : guestName();
+      if (!name) return;
+      say('');
+      try { sessionStorage.setItem('playerName', name); sessionStorage.setItem('seJoin', '1'); } catch (_) {}
+    }
+    show('/swimrace', 'swim');
+  }
+
   /* The frame is chosen by the game, not by looking for "agar" in the address:
      agar.io's page is /ag now, which that test no longer matched. */
   function show(src, game) {
@@ -987,7 +1005,7 @@
   });
 
   window.V2Play = { enter: enter, playChosen: playChosen, spectate: spectate,
-                    spectateEvent: spectateEvent,
+                    spectateEvent: spectateEvent, swimRace: swimRace,
                     launch: launch, savedName: savedName, cleanName: cleanName, typedName: typedName,
                     nameAction: nameAction, nameEdit: nameEdit, pullName: pullName,
                     toast: toast, toastOk: toastOk,

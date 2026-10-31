@@ -56,6 +56,15 @@
   const ROAD_HALF = LANES * LANE_W / 2;                  // 7.2
   const laneX = (l) => (l - (LANES - 1) / 2) * LANE_W;   // -5.4, -1.8, 1.8, 5.4
   const LANE_V = [27, 24, 21, 18];                       // m/s, left to right
+  /* A WIDER ROAD (the Swim Race event, server/swim/SwimEvent.js): any number of
+     lanes, lane 0 still at -5.4 and each next one 3.6 m further right, so the
+     duel's road is lanes 0 to 3 of it. It is four-lane carriageways side by
+     side: lane l goes at LANE_V[l & 3] (fast on the left of each four), and
+     the traffic never changes lane across a carriageway line
+     (server/swim/swimTraffic.js), so any four lanes from a multiple of four
+     are the duel's road exactly. A Traffic knows how many lanes it has, and
+     where its barriers are. */
+  const laneV = (l) => LANE_V[l & 3];
 
   /* The players' car. Its hitbox is a touch smaller than the body drawn, so a
      pass that LOOKS clean is clean. Traffic hitboxes are 1 cm inside the body
@@ -179,6 +188,15 @@
     return { tick: 0, z: 0, x: side === 1 ? laneX(2) : laneX(1), v: V0, vx: 0,
              alive: true, crashTick: -1, hit: -1, wall: 0, cool: 0, close: -1 };
   }
+  /* THE EVENT'S CARS ARE KEPT ON A GRID (server/swim/SwimEvent.js, public/js/swim/swimEventMain.js): after every
+     step, z and v to 0.1 mm, x and vx to 0.01 mm. Both ends do it the same way after the same step, so they still
+     agree to the last bit, and a car's row is exact in a few digits: a screen that predicted right sees exactly
+     its own row, and one that was corrected is exactly back on the server's car (the duel never calls it). */
+  function quantize(c) {
+    c.z = Math.round(c.z * 1e4) / 1e4; c.v = Math.round(c.v * 1e4) / 1e4;
+    c.x = Math.round(c.x * 1e5) / 1e5; c.vx = Math.round(c.vx * 1e5) / 1e5;
+    return c;
+  }
   function copyCar(c, out) {
     const o = out || {};
     o.tick = c.tick; o.z = c.z; o.x = c.x; o.v = c.v; o.vx = c.vx;
@@ -220,9 +238,12 @@
     let x = car.x + vx * DT;
     let wall = 0;
     /* The barrier stops you and scrubs a little speed while you lean on it.
-       It never ends the match: the rule is about traffic. */
-    if (x > WALL) { x = WALL; if (vx > 0) vx = 0; wall = 1; }
-    else if (x < -WALL) { x = -WALL; if (vx < 0) vx = 0; wall = -1; }
+       It never ends the match: the rule is about traffic. A wider road's
+       barriers come with its traffic (Traffic wallL, wallR). */
+    const wr = traffic && traffic.wallR !== undefined ? traffic.wallR : WALL;
+    const wl = traffic && traffic.wallL !== undefined ? traffic.wallL : -WALL;
+    if (x > wr) { x = wr; if (vx > 0) vx = 0; wall = 1; }
+    else if (x < wl) { x = wl; if (vx < 0) vx = 0; wall = -1; }
     if (wall !== 0 && steer * wall > 0) { v -= SCRAPE * DT; if (v < 0) v = 0; }
 
     const z0 = car.z;
@@ -261,7 +282,7 @@
      (occupies) for the bot, the spawner and anything that asks what is in a
      lane; the hit test only ever uses where it really is (xAt). */
   const SIGNAL = 150, MOVE = 90;
-  function zAt(rec, tick) { return rec[3] + LANE_V[rec[1]] * ((tick - rec[4]) * DT); }
+  function zAt(rec, tick) { return rec[3] + LANE_V[rec[1] & 3] * ((tick - rec[4]) * DT); }
   const changes = (rec) => rec.length >= 8;
   /* Where a traffic car is across the road on a tick. */
   function xAt(rec, tick) {
@@ -292,23 +313,46 @@
   /* Traffic never slows, so its brake lamps never light (Owen: lit when a car slows down; Fable review
      2026-10-28: a lamp on a car that keeps its speed misleads a player timing a pass). */
   function brakingAt() { return false; }
-  function validRecord(r) {
+  function validRecord(r, lanes) {
+    const n = lanes > 0 ? lanes : LANES;
     return Array.isArray(r) && (r.length === 6 || r.length === 8) && Number.isInteger(r[0]) && r[0] >= 0
-      && Number.isInteger(r[1]) && r[1] >= 0 && r[1] < LANES
+      && Number.isInteger(r[1]) && r[1] >= 0 && r[1] < n
       && Number.isInteger(r[2]) && r[2] >= 0 && r[2] < TYPES.length
       && Number.isFinite(r[3]) && Number.isInteger(r[4]) && Number.isInteger(r[5])
       && (r.length === 6 || (Number.isInteger(r[6]) && r[6] >= r[4]
-        && Number.isInteger(r[7]) && r[7] >= 0 && r[7] < LANES && (r[7] - r[1] === 1 || r[1] - r[7] === 1)));
+        && Number.isInteger(r[7]) && r[7] >= 0 && r[7] < n && (r[7] - r[1] === 1 || r[1] - r[7] === 1)));
+  }
+  /* The most lanes a road may have (the event's cap is under it). */
+  const MAX_LANES = 64;
+  /* Where the right barrier stops a car's centre on a road of n lanes. */
+  const wallRightOf = (n) => (n === LANES ? WALL : WALL + (n - LANES) * LANE_W);
+  /* The lane nearest x on any road (it may be off the road: callers clamp). */
+  const laneOfX = (x) => Math.round(x / LANE_W + (LANES - 1) / 2);
+  /* The first index in a lane's list whose car is at or past z on this tick:
+     every car in one list goes the same speed, so a list sorted by z stays
+     sorted on every tick. */
+  function firstFrom(list, z, tick) {
+    let lo = 0, hi = list.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (zAt(list[mid], tick) < z) lo = mid + 1; else hi = mid;
+    }
+    return lo;
   }
 
   class Traffic {
-    constructor() {
+    /* lanes: how many (the duel's 4 when left out). */
+    constructor(lanes) {
+      const n = Number.isInteger(lanes) && lanes > 0 && lanes <= MAX_LANES ? lanes : LANES;
+      this.n = n;
+      this.wallL = -WALL;
+      this.wallR = wallRightOf(n);
       this.byId = new Map();
       this.lanes = [];
-      for (let l = 0; l < LANES; l++) this.lanes.push([]);
+      for (let l = 0; l < n; l++) this.lanes.push([]);
     }
     add(rec) {
-      if (!validRecord(rec) || this.byId.has(rec[0])) return false;
+      if (!validRecord(rec, this.n) || this.byId.has(rec[0])) return false;
       this.byId.set(rec[0], rec);
       const list = this.lanes[rec[1]];
       /* Normally the newest is the front-most and goes on the end; a record
@@ -330,10 +374,16 @@
       }
     }
     /* The id of the traffic car a player's car at (x, z) touches on this tick, or -1. */
+    /* Only the lists a car near x can be in matter: a car moves one lane at
+       most, so two lanes either side of the nearest is every car that can
+       reach x (3.6 m a lane, under 2.7 m to touch or pass close). Each list is
+       searched from just behind z: the answer is what scanning every lane
+       from its back would give, on any road. */
     hitAt(x, z, tick) {
-      for (let l = 0; l < LANES; l++) {
+      const lc = laneOfX(x), l0 = lc - 2 < 0 ? 0 : lc - 2, l1 = lc + 2 >= this.n ? this.n - 1 : lc + 2;
+      for (let l = l0; l <= l1; l++) {
         const list = this.lanes[l];
-        for (let i = 0; i < list.length; i++) {
+        for (let i = firstFrom(list, z - (CAR.HL + MAX_HL) - 1, tick); i < list.length; i++) {
           const r = list[i], t = TYPES[r[2]];
           const dz = zAt(r, tick) - z;
           if (dz > CAR.HL + MAX_HL) break;            // sorted: everything after is further ahead
@@ -351,9 +401,10 @@
     closeAt(x, z0, z1, n) {
       const rear0 = z0 - CAR.HL, rear1 = z1 - CAR.HL;
       let best = -1;
-      for (let l = 0; l < LANES; l++) {
+      const lc = laneOfX(x), l0 = lc - 2 < 0 ? 0 : lc - 2, l1 = lc + 2 >= this.n ? this.n - 1 : lc + 2;
+      for (let l = l0; l <= l1; l++) {
         const list = this.lanes[l];
-        for (let i = 0; i < list.length; i++) {
+        for (let i = firstFrom(list, rear0 - MAX_HL - 1, n + 1); i < list.length; i++) {
           const r = list[i];
           const c1 = zAt(r, n + 1);
           if (c1 >= rear1) break;                     // sorted: neither this nor any after is behind us yet
@@ -370,9 +421,9 @@
     aheadIn(lane, z, tick) {
       let best = null, bestBack = Infinity;
       for (let k = lane - 1; k <= lane + 1; k++) {
-        if (k < 0 || k >= LANES) continue;
+        if (k < 0 || k >= this.n) continue;
         const list = this.lanes[k];
-        for (let i = 0; i < list.length; i++) {
+        for (let i = firstFrom(list, z - CAR.HL - MAX_HL * 2 - 1, tick); i < list.length; i++) {
           const r = list[i];
           if (!occupies(r, lane, tick)) continue;
           const back = zAt(r, tick) - TYPES[r[2]].hl;
@@ -403,10 +454,10 @@
 
   return {
     NAME, VERSION, HZ, DT, TICK_MS, COUNTDOWN_MS, BEHIND_LOSE,
-    LANES, LANE_W, ROAD_HALF, LANE_V, laneX, CAR, WALL, TYPES, MAX_HL,
+    LANES, LANE_W, ROAD_HALF, LANE_V, laneX, laneV, laneOfX, MAX_LANES, wallRightOf, firstFrom, CAR, WALL, TYPES, MAX_HL,
     V0, V1, T_HALF, TOP_K, TOP, GAS, BRAKE, COAST, DRAG, VX_LO, VX_HI, VX_SLIP, CLOSE_M, BOOST_MAX, OVER_EASE, BOOST_COOL,
     cruise, topSpeed, coastDecel, vxMax, vxAcc, SIGNAL, MOVE,
     STEER_Q, INPUT_MAX, packInput, steerOf, pedalOf, NEUTRAL, validInput,
-    newCar, copyCar, step, zAt, xAt, changes, occFrom, occTo, occupies, signalAt, brakingAt, validRecord, Traffic, rng, kmh,
+    newCar, copyCar, quantize, step, zAt, xAt, changes, occFrom, occTo, occupies, signalAt, brakingAt, validRecord, Traffic, rng, kmh,
   };
 });

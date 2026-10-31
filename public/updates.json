@@ -2,6 +2,17 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-10-30-swim-race",
+      "date": "2026-10-30",
+      "tag": "event",
+      "title": "Swim Race: a lane for every racer",
+      "body": "A new event on the Events tab: the Swim Race, every 6 hours, at 5 and 11 (AM and PM, Eastern time).\n\nJoin in the 15 minutes before it starts. The road gets one lane for every racer, so 20 racers means 20 lanes, up to 50. At zero there is a 10 second countdown, then everyone takes off through the traffic.\n\nTouch a car, or fall 1 km behind the leader, and you are out and can watch the rest. Get 500 m clear of everyone, or be the last car left, to win. The top 3 stay on the Events tab until the next race. Free to enter.",
+      "image": {
+        "src": "/updates/swim-race.webp",
+        "alt": "A Swim Race on a wide highway: your place and the field across the top, traffic in every lane"
+      }
+    },
+    {
       "id": "2026-10-30-agar-battleship-break",
       "date": "2026-10-30",
       "tag": "heads-up",
@@ -57,7 +68,10 @@
       "tag": "new",
       "title": "Pick your car in Swim",
       "body": "Pick one of three cars for Swim in Customize, each with its own colour and engine, and your opponent sees the car you picked. Hold gas on the start line to rev it, feel every gear shift, and lift off at high revs to hear it backfire. The car now only speeds up while you hold gas and coasts down when you let go.",
-      "image": { "src": "/updates/swim-cars.webp", "alt": "A blue muscle car and a yellow hot hatch side by side on the Swim start line at dusk" }
+      "image": {
+        "src": "/updates/swim-cars.webp",
+        "alt": "A blue muscle car and a yellow hot hatch side by side on the Swim start line at dusk"
+      }
     },
     {
       "id": "2026-10-28-sound-switch-games",

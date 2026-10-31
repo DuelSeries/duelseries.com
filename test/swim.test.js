@@ -4,7 +4,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const S = require('../shared/swimSim');
-const { Spawner, occMask, ROOM } = require('../server/swim/swimTraffic');
+const { Spawner, occMask, inLane, ROOM } = require('../server/swim/swimTraffic');
 const { SwimRoom, LAG_MAX } = require('../server/swim/SwimRoom');
 const { SwimLobby, PAID_GIVE_UP_MS, FREE_WAIT_MS } = require('../server/swim/SwimLobby');
 
@@ -318,8 +318,9 @@ test('the spawner fills to the horizon and never shuts all four lanes where it p
     for (const rec of out) {
       // The car just placed: at least one other lane is open beside it.
       tr.lanes[rec[1]].splice(tr.lanes[rec[1]].indexOf(rec), 1);
-      const occ = rec.length === 8 ? occMask(rec[1], rec[7], rec[6], t) : occMask(rec[1], -1, -1, t);
-      assert.strictEqual(sp.shuts(tr, occ, rec[3], rec[2], t), false, 'record ' + rec[0]);
+      const to = rec.length === 8 ? rec[7] : -1, ct = rec.length === 8 ? rec[6] : -1;
+      assert.strictEqual(sp.shuts(tr, rec[1], to, ct, rec[3], rec[2], t), false, 'record ' + rec[0]);
+      for (let l = 0; l < 4; l++) assert.strictEqual(inLane(rec[1], to, ct, t, l), !!(occMask(rec[1], to, ct, t) & (1 << l)));
       tr.lanes[rec[1]].push(rec);
       assert.ok(S.validRecord(rec));
       if (S.TYPES[rec[2]].right) { if (rec[1] >= 2) bigRight++; else bigLeft++; }
