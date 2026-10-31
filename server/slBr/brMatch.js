@@ -211,7 +211,8 @@ function createBrMatch(opts) {
     lastRing = zone.ring();
     if (journal) {
       journal.setLive({ matchId: m.matchId, startedAt: new Date(wallNow()).toISOString(), seats: m.startedWith,
-        wallets: m.startedPeople, people: humans.map((h) => (who.get(h.id) || {}).nick || h.name || '') });
+        // the people a restart's "voided" push names: never a capacity-test seat (it is not a person, countIn)
+        wallets: m.startedPeople, people: humans.filter((h) => !h.lt).map((h) => (who.get(h.id) || {}).nick || h.name || '') });
     }
     log.log('[BR] ' + label + ' match ' + m.matchId + ' is live with ' + m.startedCount + ' snakes, ' + m.startedWith +
       ' people, arena ' + room.sim.flux());

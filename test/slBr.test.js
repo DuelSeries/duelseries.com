@@ -476,6 +476,33 @@ test('a person who outlasts the test seats wins as usual (solo run: the hook hea
   assert.deepStrictEqual(match.podium.map((p) => p.name), ['Owen', 'b1']);
 });
 
+test('two people among test seats: the prize counts only them, the journal names only them, test seats never place', () => {
+  const journal = journalFake();
+  const { ft, room, match, decided } = makeBr({ journal });
+  const a = human(room, 'Ann', 'WA');
+  const b = human(room, 'Ben', 'WB');
+  const t1 = human(room, 'Load1', null, '198.18.0.1');
+  const t2 = human(room, 'Load2', null, '198.18.0.2');
+  match.startMatch('test');
+  run(ft, room, BRM.COUNTDOWN_MS + 200);
+  assert.strictEqual(match.publicState().startedWith, 2);
+  assert.strictEqual(match.startedPeople, 2);
+  assert.strictEqual(match.soloRun, false);
+  assert.strictEqual(match.prizeHeld, false, 'exactly as without the test seats');
+  const live = journal.rows.find((r) => r && r.matchId);
+  assert.strictEqual(live.seats, 2);
+  assert.deepStrictEqual(live.people, ['Ann', 'Ben'], 'a restart push never names a test seat');
+  room.sim.kill(t1.id);
+  room.sim.kill(t2.id);
+  run(ft, room, 200);
+  room.sim.kill(a.id);
+  run(ft, room, 200);
+  assert.strictEqual(match.state, 'over');
+  assert.deepStrictEqual(decided[0], { id: b.id, name: 'Ben', wallet: 'WB', bot: false });
+  assert.deepStrictEqual(match.podium.map((p) => p.name), ['Ben', 'Ann']);
+  assert.strictEqual(match.publicState().prize, 20);
+});
+
 test('abandon in the countdown or the match releases the circle and the border and opens the door', () => {
   const { ft, room, match } = makeBr();
   human(room, 'Owen', 'W1');
