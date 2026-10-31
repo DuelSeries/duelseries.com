@@ -277,7 +277,7 @@
        number of chevrons rather than a figure to interpret mid-aim. */
     const w = S.wind || 0;
     const strength = Math.min(3, Math.ceil(Math.abs(w) / 20));
-    $('windArrow').textContent = w === 0 ? '—'
+    $('windArrow').textContent = w === 0 ? '0'
       : (w < 0 ? '◀'.repeat(strength) : '▶'.repeat(strength));
 
     const mine = isMyTurn();
