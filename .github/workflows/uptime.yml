@@ -1,0 +1,58 @@
+name: Uptime check
+
+# Backend pass 2026-10-30: nothing told Owen when the site was down. pm2 restarts a crashed server, but a box that
+# stops answering, nginx down or a boot that crash-loops sent no push at all. This checks the live site from outside
+# every 10 minutes (GitHub runs scheduled jobs late at busy times, so think "within about 15 minutes") and pushes to
+# the same ntfy topic as the deploy push when it fails. Free: Actions minutes cost nothing on a public repo.
+#
+# A check only fails after 5 tries 15 s apart, so the few seconds of a deploy restart never page anyone.
+# Nothing from the site is printed (public repo, public logs): only which check failed.
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: uptime
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check the live site
+        id: check
+        run: |
+          failed=""
+          probe() {
+            # $1 = label, $2 = URL
+            if ! curl -fsS -o /dev/null --max-time 10 --retry 4 --retry-delay 15 --retry-all-errors "$2"; then
+              failed="$failed $1"
+            fi
+          }
+          probe "lobby" "https://duelseries.com/"
+          probe "healthz" "https://duelseries.com/healthz"
+          probe "live" "https://duelseries.com/api/live"
+          probe "slither-socket" "https://duelseries.com/sl-io/?EIO=4&transport=polling"
+          probe "game-socket" "https://duelseries.com/socket.io/?EIO=4&transport=polling"
+          if [ -n "$failed" ]; then
+            echo "failed:$failed"
+            echo "failed=$failed" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          echo "all checks passed"
+
+      - name: Push to Owen's phone (ntfy)
+        if: failure()
+        env:
+          NTFY_URL: ${{ secrets.NTFY_DEPLOY_URL || 'https://ntfy.sh/duelseries-deploy-8382' }}
+          FAILED: ${{ steps.check.outputs.failed }}
+        run: |
+          curl -s --max-time 15 --retry 4 --retry-delay 5 --retry-all-errors \
+            -H "Title: DuelSeries looks DOWN" \
+            -H "Priority: high" \
+            -H "Tags: rotating_light" \
+            -d "These checks failed from outside for over a minute:${FAILED:- (the check itself)}. Open duelseries.com to see." \
+            "$NTFY_URL"

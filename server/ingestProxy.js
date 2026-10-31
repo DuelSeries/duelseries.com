@@ -39,15 +39,21 @@ const POSTHOG_TOKEN = 'phc_rGiSHXN4HzBvzZaZhuFCwbmHFihkemTVcxK7MCPdDqgw';
 /* The SDK files posthog-js loads from static/ (night review 2026-10-29): the snippet's array.js and the extension
    bundles it lazy-loads by name (static/<kind>.js: session recording, surveys, the toolbar, web vitals, dead
    clicks, exception capture and the rest). Nothing else on the asset host: 'static/' plus anything let a caller
-   pick a 3 MB source map (array.full.js.map) and the bundle that is not used (array.full.js, 680 KB). */
+   pick a 3 MB source map (array.full.js.map) and the bundle that is not used (array.full.js, 680 KB).
+   Backend pass 2026-10-30: posthog-js 1.444 asks for static/<version>/<kind>.js first and only then the old
+   static/<kind>.js?v=<version>, and its web vitals bundle is web-vitals-with-attribution. Both were 404s, so every
+   page load spent five failed calls before the fallback and web vitals never loaded. The version segment is digits
+   and dots only (STATIC_VERSION), so it cannot name anything but the same SDK files. */
 const STATIC_FILES = ['array', 'recorder', 'posthog-recorder', 'lazy-recorder', 'surveys', 'toolbar', 'tracing-headers',
-  'web-vitals', 'dead-clicks-autocapture', 'exception-autocapture', 'product-tours', 'conversations', 'logs'];
+  'web-vitals', 'web-vitals-with-attribution', 'dead-clicks-autocapture', 'exception-autocapture', 'product-tours',
+  'conversations', 'logs'];
+const STATIC_VERSION = '(?:\\d{1,3}\\.\\d{1,4}\\.\\d{1,4}/)?';
 /* What posthog-js calls under its api_host: the SDK files above (static/), remote config (array/<token>/), capture
    (e/, i/v0/e/, batch/, capture/, track/, engage/), session recording (s/), flags (flags/, decide/) and the
    surveys / early-access / web-experiment reads (api/surveys, api/early_access_features, api/web_experiments).
    Matched on the path after /ingest. Only those three under api/ (night review 2026-10-29): the rest of PostHog's
    /api is its app's API, and an answer from it would come back under our origin with PostHog's Content-Type. */
-const PATH_OK = new RegExp('^/(?:static/(?:' + STATIC_FILES.join('|') + ')\\.js$|array/' + POSTHOG_TOKEN + '/'
+const PATH_OK = new RegExp('^/(?:static/' + STATIC_VERSION + '(?:' + STATIC_FILES.join('|') + ')\\.js$|array/' + POSTHOG_TOKEN + '/'
   + '|(?:e|i|s|batch|capture|track|engage|decide|flags)(?:/|$)'
   + '|api/(?:surveys|early_access_features|web_experiments)(?:/|$))');
 /* Never relayed: a dot-dot segment, an encoded dot or slash, a backslash or an empty segment. posthog-js sends

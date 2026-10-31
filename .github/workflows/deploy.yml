@@ -33,6 +33,21 @@ jobs:
             git reset --hard origin/main
             npm install --production
             pm2 restart duelseries
+            # Backend pass 2026-10-30: pm2 restart returns 0 even when the new build never comes up, so the deploy
+            # push said "deployed" either way. The job now fails (and the push says FAILED) unless the server answers
+            # /healthz within 30 s and still answers 10 s later (a boot that crashes after listening). Nothing from
+            # the box is printed: this repo is public and so are its Actions logs.
+            up=0
+            for i in $(seq 1 30); do
+              if curl -fsS --max-time 2 -o /dev/null http://127.0.0.1:3000/healthz; then up=1; break; fi
+              sleep 1
+            done
+            if [ "$up" != 1 ]; then echo "the server did not answer /healthz within 30 s of the restart"; exit 1; fi
+            sleep 10
+            if ! curl -fsS --max-time 3 -o /dev/null http://127.0.0.1:3000/healthz; then
+              echo "the server answered after the restart, then stopped answering"; exit 1
+            fi
+            echo "server up after the restart"
 
   # === EU deploy DISABLED while the EU server (duelseries-eu) is stopped to save cost. ===
   # To re-enable at launch:
@@ -76,7 +91,9 @@ jobs:
           else
             STATUS="FAILED ❌ (na:$NA_RESULT)"
           fi
-          curl -s \
+          # Backend pass 2026-10-30: one run (2026-10-31 00:46 UTC) went red because ntfy.sh did not answer for two
+          # minutes, though the deploy itself had succeeded. Retried, and capped, so a slow ntfy cannot hang the job.
+          curl -s --max-time 15 --retry 4 --retry-delay 5 --retry-all-errors \
             -H "Title: DuelSeries $STATUS" \
             -H "Tags: rocket" \
             -d "$(printf '%s\n' "$COMMIT_MSG" | head -n 1)" \

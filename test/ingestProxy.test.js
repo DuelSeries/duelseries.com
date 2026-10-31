@@ -144,6 +144,20 @@ test('only the paths posthog-js calls are relayed; anything else is a 404 that n
     '/ingest/static/array', '/ingest/array/' + POSTHOG_TOKEN + '/config.js.map', '/ingest/e/x.map']) {
     assert.strictEqual(upstreamFor(p), null, p + ' is refused');
   }
+  /* Backend pass 2026-10-30: posthog-js 1.444 asks for static/<version>/<kind>.js first (five 404s on every page load
+     before its fallback), and web vitals is web-vitals-with-attribution. The version segment is digits and dots. */
+  for (const p of ['/ingest/static/1.444.0/surveys.js', '/ingest/static/1.444.0/posthog-recorder.js',
+    '/ingest/static/1.444.0/web-vitals-with-attribution.js', '/ingest/static/web-vitals-with-attribution.js',
+    '/ingest/static/1.444.0/exception-autocapture.js', '/ingest/static/1.444.0/dead-clicks-autocapture.js']) {
+    assert.ok(upstreamFor(p), p + ' is relayed');
+    assert.strictEqual(upstreamFor(p).host, ASSET_HOST, p + ' goes to the asset host');
+    assert.strictEqual(upstreamFor(p).path, p.replace(/^\/ingest/, ''), p + ' keeps its path');
+  }
+  for (const p of ['/ingest/static/1.444.0/array.js.map', '/ingest/static/1.444.0/array.full.js', '/ingest/static/1.444/array.js',
+    '/ingest/static/1.444.0.1/array.js', '/ingest/static/v1.444.0/array.js', '/ingest/static/1.444.0/1.444.0/array.js',
+    '/ingest/static/1.444.0/', '/ingest/static/1.444.0/x.js', '/ingest/static/1.444.0/../array.js', '/ingest/static/1.444.0//array.js']) {
+    assert.strictEqual(upstreamFor(p), null, p + ' is refused');
+  }
   assert.strictEqual(upstreamFor('/ingest/array/' + POSTHOG_TOKEN + '/config').host, CAPTURE_HOST, 'routing unchanged');
   assert.strictEqual(upstreamFor('/ingest/flags/').host, CAPTURE_HOST);
   for (const p of ['/ingest/', '/ingest', '/ingest/login', '/ingest/admin/', '/ingest/array/phc_someoneElse/config.js',
