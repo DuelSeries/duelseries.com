@@ -46,7 +46,16 @@ test('P saves; never while typing in a field on screen; P never uploads, only a 
   const start = js.indexOf('/* ── sharing to DuelSeries');
   const end = js.indexOf('DSClip.share = () => share(last);');
   assert.ok(start > 0 && end > start);
-  const outside = js.slice(0, start) + js.slice(end);
+  /* The picture of what is over the game (2026-10-30) only reads: the page's own pictures, fonts and its font sheet
+     from Google, each once, with nothing sent. */
+  const ovAt = js.indexOf('/* ── what is over the game');
+  const ovEnd = js.indexOf('/* ── encoders');
+  assert.ok(ovAt > 0 && ovEnd > ovAt && (ovEnd < start || ovAt > end));
+  const ov = js.slice(ovAt, ovEnd);
+  assert.deepStrictEqual(ov.match(/fetch\([^)]*\)/g), ["fetch(u, { credentials: 'same-origin' })", 'fetch(s.href)']);
+  assert.ok(!/method:|body:|XMLHttpRequest|sendBeacon|postMessage\(/.test(ov), 'reads only');
+  const outside = js.slice(0, Math.min(start, ovAt)) + js.slice(Math.min(end, ovEnd), Math.max(start, ovAt))
+    + js.slice(Math.max(end, ovEnd));
   assert.ok(!/fetch\(|XMLHttpRequest|sendBeacon|postMessage\(/.test(outside), 'nothing outside the sharing section sends anything');
   const calls = outside.match(/\bshare\([a-z]+\)/g) || [];
   assert.deepStrictEqual(calls, ['share(last)', 'share(clip)'], 'share runs from the console hook and the button, nothing else');
@@ -188,4 +197,41 @@ test('whole screen: off by default, PC only, asks at a click or P, this tab only
   const pump = js.slice(js.indexOf('async function pumpTab'), js.indexOf('function cursor()'));
   assert.match(pump, /if \(asleep \|\| sizing \|\| now < lateUntil \|\| now - lastCap < 1000 \/ FPS - 3\) \{ f\.close\(\); continue; \}/, 'the game first, 30 a second at most');
   assert.match(pump, /cursor\(\);\n\s*mark\(\);\n\s*encodeMirror\(\);/, 'the mouse and the mark are drawn into the video');
+});
+
+/* Owen 2026-10-30: a P clip shows everything a player sees in a game, without tab capture and its Chrome sharing bar.
+   The page's HTML over the game is copied, with its styles and fonts, into an SVG image the browser lays out as on
+   screen, and drawn between the game's canvases and any canvas boxed inside it; the lobby's own boxes over the frame
+   (its toasts) go on top. Checked headless against the live site with this file swapped in, slither.io, agar.io and
+   Paper.io: saved clips held the end card (coin, amount, buttons, focus ring), the chat, the leaderboard, the HUD
+   and the minimap, and a lobby toast with a shortened address in it showed without the address; the ping and FPS
+   readout and the recorder's own notes were left out. */
+test('what is over the game is in the clip, drawn again only when it changes', () => {
+  const js = rec();
+  assert.match(js, /const OV_HIDE = '\.dsp-hud,\.dsclip-t,\.dsclip-dot,\[data-clip-hide\]';/, 'no ping and FPS readout, none of the recorder\'s own notes');
+  assert.match(js, /return n\.ownerDocument\.createTextNode\(t\.search\(OV_ADDR\) >= 0 \? t\.replace\(OV_ADDR, ''\) : t\);/, 'no wallet address, whole or shortened');
+  const addr = new Function(js.match(/const B58 = .*;/)[0] + js.match(/const OV_ADDR = .*;/)[0] + 'return OV_ADDR;')();
+  assert.ok('sent to 7xKp…m3fA'.search(addr) > 0 && '4Nd1mBQtrMJVYVfKf2PJy9NZUZdTAsp7D4xWLs4gDB4T'.search(addr) === 0, 'the lobby\'s short form and a whole one');
+  assert.equal('Killed by Brody99 at 1,284 length'.search(addr), -1);
+  assert.match(js, /attributeOldValue: true, characterDataOldValue: true/, 'a style set again to the same value is no change');
+  assert.match(js, /if \(svg === o\.last && o\.ready\) \{ o\.same\+\+;/, 'the same picture is not drawn again');
+  assert.match(js, /const OV_GAP = 100, OV_SHARE = 0\.02;/, 'at most 10 a second and 2% of the page\'s time');
+  assert.match(js, /requestIdleCallback\(fn, \{ timeout: 250 \}\)/, 'in idle time');
+  assert.match(js, /const url = 'data:image\/svg\+xml;charset=utf-8,' \+ encodeURIComponent\(svg\);/,
+    'a data: URL: Chrome marks a blob: SVG holding HTML as another site\'s, which a VideoFrame refuses');
+  assert.match(js, /if \(!o\.safe\) \{ o\.x\.getImageData\(0, 0, 1, 1\); o\.safe = true; \}/, 'never draws a picture it may not read back');
+  const comp = js.slice(js.indexOf('function composite()'), js.indexOf('function mark()'));
+  assert.match(comp, /if \(own && own\.ready\) mctx\.drawImage\(own\.c, 0, 0, W, H\);[\s\S]*if \(top && top\.ready\) mctx\.drawImage\(top\.c, 0, 0, W, H\);/);
+  assert.equal((comp.match(/mctx\.globalAlpha = 1;/g) || []).length, 3, 'each picture at full strength, whatever the canvas before it');
+  const tick = js.slice(js.indexOf('function tick(now)'), js.indexOf('function encodeMirror()'));
+  assert.match(tick, /ovTick\(now\);\n\s*composite\(\);/, 'only while frames are kept: not asleep, not late, not standing down for the whole tab');
+  const start = js.slice(js.indexOf('async function start()'));
+  assert.match(start, /ovStart\(\);/);
+  assert.ok(js.indexOf('if (TOP) return;\n  if (document.readyState') > js.indexOf('async function start()'), 'the lobby\'s whole-tab copy never starts it');
+});
+
+test('Settings says what each kind of clip holds', () => {
+  const html = read('public/v2.html');
+  assert.match(html, /<b id="set-clips-l">Save clips with P<\/b><span>[^<]*end card, chat and HUD[^<]*<\/span>/);
+  assert.match(html, /<b id="set-tab-l">Record the whole screen<\/b><span>Adds the lobby, its tabs and your mouse\./);
 });

@@ -2,6 +2,17 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-10-30-clips-show-everything",
+      "date": "2026-10-30",
+      "tag": "new",
+      "title": "Clips now show everything on your screen",
+      "body": "Clips you save with P in slither.io, agar.io, Paper.io and the battle royale now show what you saw: the end card with your result, the chat, the leaderboard, your score and the timers, and the notes that pop up over the game. Before, a clip held only the game itself.\n\nThe ping and FPS counter is left out. Want the lobby and your mouse in your clips too? Turn on Record the whole screen in Settings, under Clips.",
+      "image": {
+        "src": "/updates/clips-show-everything.webp",
+        "alt": "A frame from a saved slither.io clip: the end card and the leaderboard are in the video"
+      }
+    },
+    {
       "id": "2026-10-30-swim-full-speed",
       "date": "2026-10-30",
       "tag": "fix",

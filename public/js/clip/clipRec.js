@@ -11,7 +11,8 @@
    How:
      picture  every visible canvas on the page, drawn in stacking order onto one
               hidden canvas of at most 1280x720, 30 times a second (/sl draws the world, its minimap
-              and its overlays on separate canvases), plus the mark
+              and its overlays on separate canvases), the page's HTML over the game (end card, chat,
+              HUD, the lobby's toasts: "what is over the game" below), plus the mark
      encode   the browser's own H.264 and AAC encoders (WebCodecs), one key
               frame a second, kept in memory as encoded chunks; anything older
               than 30 seconds (from a key frame) is dropped
@@ -135,9 +136,9 @@
     return [w, h];
   }
   // A canvas's place in the stacking order: its own z-index, or the nearest positioned ancestor's.
-  function zOf(el) {
-    for (let n = el; n && n !== document.documentElement; n = n.parentElement) {
-      const z = parseInt(getComputedStyle(n).zIndex, 10);
+  function zOf(el, win) {
+    for (let n = el; n && n !== n.ownerDocument.documentElement; n = n.parentElement) {
+      const z = parseInt((win || window).getComputedStyle(n).zIndex, 10);
       if (!Number.isNaN(z)) return z;
     }
     return 0;
@@ -153,15 +154,24 @@
     const r = el.getBoundingClientRect();
     return r.width > 1 && r.height > 1 && r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight;
   }
+  // A canvas inside a positioned box (slither's minimap in its round frame) is drawn over that box's picture.
+  function boxed(c) {
+    for (let n = c.parentElement; n && n !== document.body; n = n.parentElement) if (getComputedStyle(n).position !== 'static') return true;
+    return false;
+  }
   function findLayers() {
     layers = Array.from(document.querySelectorAll('canvas'))
       .filter(c => c !== mirror && visible(c))
       .map((c, i) => ({ c, z: zOf(c), i }))
       .sort((a, b) => a.z - b.z || a.i - b.i)
-      .map(x => { const o = Number(getComputedStyle(x.c).opacity); return { c: x.c, o: Number.isFinite(o) ? o : 1, r: x.c.getBoundingClientRect() }; });
+      .map(x => { const o = Number(getComputedStyle(x.c).opacity); return { c: x.c, z: x.z, o: Number.isFinite(o) ? o : 1, r: x.c.getBoundingClientRect(),
+        boxed: boxed(x.c), w: x.c.width, h: x.c.height }; });
+    // The game itself: the biggest canvas not in a box. What is over it is drawn as the page's picture (overlays below).
+    base = null;
+    for (const L of layers) if (!L.boxed && (!base || L.r.width * L.r.height > base.r.width * base.r.height)) base = L;
     layersAt = performance.now();
   }
-  let bg = '#000';
+  let bg = '#000', base = null;
   function composite() {
     if (performance.now() - layersAt > 1000) {
       findLayers();
@@ -173,13 +183,23 @@
     mctx.fillStyle = bg;
     mctx.fillRect(0, 0, W, H);
     // Where each canvas sits is read once a second (findLayers), not per frame: a read here would force a layout of
-    // the game's HUD 30 times a second.
-    for (const { c, o, r } of layers) {
-      mctx.globalAlpha = o;
-      try { mctx.drawImage(c, r.left * kx, r.top * ky, r.width * kx, r.height * ky); } catch (_) {}
-    }
+    // the game's HUD 30 times a second. A canvas that changed size (slither's ring grows when a hold starts) is
+    // found again at the next frame.
+    const own = ovs[0], top = ovs[1];
+    const over = own && own.ready ? own.zTop : Infinity;
+    for (const L of layers) if (!L.boxed && L.z <= over) draw(L, kx, ky);
     mctx.globalAlpha = 1;
+    if (own && own.ready) mctx.drawImage(own.c, 0, 0, W, H);
+    for (const L of layers) if (L.boxed || L.z > over) draw(L, kx, ky);
+    mctx.globalAlpha = 1;
+    if (top && top.ready) mctx.drawImage(top.c, 0, 0, W, H);
     mark();
+  }
+  function draw(L, kx, ky) {
+    const { c, o, r } = L;
+    if (c.width !== L.w || c.height !== L.h) layersAt = 0;
+    mctx.globalAlpha = o;
+    try { mctx.drawImage(c, r.left * kx, r.top * ky, r.width * kx, r.height * ky); } catch (_) {}
   }
   /* DuelSeries.com, bottom left (Owen: free advertising on every post), on a soft dark pill so it reads on
      slither's dark floor and on Paper.io's white one alike. */
@@ -200,6 +220,407 @@
     mctx.fillText('Series', tx + a, ty);
     mctx.fillStyle = 'rgba(245,241,232,.8)';
     mctx.fillText('.com', tx + a + b, ty);
+  }
+
+  /* ── what is over the game (Owen 2026-10-30) ─────────────────────────────
+     "Everything a player sees in a game": the end card with its coin and amount, the chat, the leaderboard and HUD,
+     scores, timers, the kill feed, the Spectate bar, and the lobby's toasts over the game's frame. Tab capture shows
+     all that but makes Chrome put up its "sharing this tab" bar, so a clip draws it instead: a copy of the page's
+     HTML over the game, with the page's own styles and fonts, inside an SVG image, which the browser lays out exactly
+     as on screen. That picture goes between the game's canvases and any canvas boxed inside it (slither's minimap).
+     It is made again only when something in it changes (a MutationObserver, and while its CSS motion plays, each
+     picture holding the motion where it was), at most 10 times a second and 2% of the page's time, in the browser's
+     idle time; every frame in between reuses the last one. Left out: the ping and FPS readout, this recorder's own
+     notes, and any wallet address.
+     The lobby's copy (the whole tab) has none of this: the tab capture holds it already. */
+  const OV_HIDE = '.dsp-hud,.dsclip-t,.dsclip-dot,[data-clip-hide]';
+  const B58 = '[1-9A-HJ-NP-Za-km-z]';
+  // A Solana address, whole or as the lobby shortens it (7xKp…3fA2), wherever it shows (a chat line, a toast).
+  const OV_ADDR = new RegExp(B58 + '{32,44}|' + B58 + '{4,8}\u2026' + B58 + '{4,8}', 'g');
+  const OV_SKIP = /^(SCRIPT|STYLE|LINK|META|NOSCRIPT|TEMPLATE|IFRAME|FRAME|VIDEO|AUDIO|OBJECT|EMBED)$/;
+  const OV_GAP = 100, OV_SHARE = 0.02;
+  // In the copy: no motion of its own (see freeze below), no page colour over the game, no text cursor.
+  const OV_CSS = '*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important}'
+    + 'html,body{background:transparent!important}';
+  // A box the game is drawn over: only what is above the game shows, its own paint is under it.
+  const FLAT = 'background:none!important;border-color:transparent!important;box-shadow:none!important;outline:none!important;';
+  const XHTML = 'http://www.w3.org/1999/xhtml';
+  const kebab = (p) => (p.startsWith('--') ? p : p.replace(/[A-Z]/g, (m) => '-' + m.toLowerCase()));
+  const unq = (s) => String(s || '').trim().replace(/^["']|["']$/g, '');
+  const idle = (fn) => (window.requestIdleCallback ? requestIdleCallback(fn, { timeout: 250 }) : setTimeout(fn, 0));
+  const ovs = [];
+  /* Pictures and font files the copy uses, as data: URLs (an SVG image loads nothing from outside itself). Read once
+     each from where the page itself got them; a picture that cannot be read is left out. */
+  const files = new Map();      // address -> data: URL, '' while it loads, null when it cannot be read
+  function dataOf(u, then) {
+    if (!u || u.startsWith('data:')) return u || null;
+    const d = files.get(u);
+    if (d !== undefined) return d;
+    files.set(u, '');
+    fetch(u, { credentials: 'same-origin' })
+      .then((r) => (r.ok ? r.blob() : null))
+      .then((b) => b && new Promise((res) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = () => res(null); fr.readAsDataURL(b); }))
+      .catch(() => null)
+      .then((x) => { files.set(u, x || null); if (then) then(); });
+    return '';
+  }
+  // Every url(...) in a computed value, swapped for its data: URL (none while it loads).
+  const urlsIn = (v, then) => v.replace(/url\("?([^")]*)"?\)/g, (m, u) => { const d = dataOf(u, then); return d ? 'url("' + d + '")' : 'none'; });
+
+  function overlay(doc, frame) {
+    const o = { doc, win: doc.defaultView, frame, c: document.createElement('canvas'), x: null, ready: false, dirty: true, busy: false,
+      next: 0, cost: 0, pace: 0, n: 0, same: 0, fails: 0, off: false, safe: false, zTop: Infinity, roots: new Set(), last: '',
+      sheetKey: null, rules: [], faces: [], fontKey: null, fontCss: '' };
+    o.x = o.c.getContext('2d');
+    const kick = () => { o.dirty = true; };
+    o.kick = kick;
+    const body = doc.body;
+    const mo = new MutationObserver((list) => {
+      if (o.dirty) return;
+      for (const r of list) {
+        let t = r.target;
+        // slither sets the same styles again every frame: only a real change counts
+        if (r.type === 'attributes' ? r.oldValue === t.getAttribute(r.attributeName) : r.type === 'characterData' && r.oldValue === t.nodeValue) continue;
+        if (t.nodeType !== 1) t = t.parentElement;
+        if (!t) continue;
+        if (frame) {      // the lobby: only a change in what sits over the frame (or in the page's own boxes)
+          if (t === body || (t.parentElement === body && r.type === 'attributes')) { kick(); return; }
+          let n = t;
+          while (n && n.parentElement !== body) n = n.parentElement;
+          if (n && o.roots.has(n)) { kick(); return; }
+          continue;
+        }
+        if (r.type === 'attributes' && t.tagName === 'CANVAS') continue;      // drawn from the canvas itself
+        if (t.closest && t.closest(OV_HIDE)) continue;
+        kick();
+        return;
+      }
+    });
+    mo.observe(frame ? body : doc.documentElement, { subtree: true, childList: true, attributes: true, characterData: true,
+      attributeOldValue: true, characterDataOldValue: true });
+    const fontsIn = () => { o.fontKey = null; kick(); };
+    try { doc.fonts.addEventListener('loadingdone', fontsIn); } catch (_) {}
+    // The game's frame closes while the lobby stays open: let go of the lobby, or each game played would stay in memory.
+    if (frame) addEventListener('pagehide', () => { mo.disconnect(); try { doc.fonts.removeEventListener('loadingdone', fontsIn); } catch (_) {} });
+    return o;
+  }
+  function ovStart() {
+    if (ovs.length) return;
+    ovs.push(overlay(document, null));
+    // The lobby around this game's frame: its toasts and anything else it puts over the game.
+    try { const fe = window.frameElement; if (fe && fe.ownerDocument && fe.ownerDocument.body) ovs.push(overlay(fe.ownerDocument, fe)); } catch (_) {}
+    addEventListener('resize', () => ovs.forEach((o) => o.kick()));
+  }
+  // Called in the frame loop, only while frames are being kept: a picture that is due is made in idle time.
+  function ovTick(now) {
+    for (const o of ovs) {
+      if (o.off || !o.dirty || o.busy || now < o.next) continue;
+      o.busy = true;
+      o.dirty = false;
+      idle(() => { try { snap(o); } catch (e) { done(o, false, e); } });
+    }
+  }
+
+  /* The page's styles, kept as text and read again only when its sheets change. A rule is copied only when the
+     copy holds one of its classes or ids (or it names none, like * or :root), so the picture stays small. A sheet
+     from another site (Google's fonts) is fetched once for its @font-face rules. */
+  const remote = new Map();      // a sheet's address -> its @font-face rules
+  function sheets(o) {
+    const list = o.doc.styleSheets;
+    let key = '';
+    for (const s of list) { let n = 'x'; try { n = s.cssRules.length; } catch (_) {} key += n + (s.disabled ? 'd' : '') + ','; }
+    if (key === o.sheetKey) return;
+    o.sheetKey = key;
+    const rules = [], faces = [];
+    const walk = (rs, at) => {
+      for (const r of rs) {
+        if (r.type === 1) {
+          rules.push({ t: r.cssText, k: toks(r.selectorText) });
+          // The focused button's ring (the end card's Play again): the copy has no focus, so a mark stands in for it.
+          if (r.selectorText.includes(':focus')) {
+            const t = r.cssText.replace(/:focus-visible/g, '[data-dsclip-fv]').replace(/:focus(?![-\w])/g, '[data-dsclip-focus]');
+            if (t !== r.cssText) rules.push({ t, k: toks(r.selectorText) });
+          }
+        }
+        else if (r.type === 5) faces.push(face((p) => r.style.getPropertyValue(p), at));
+        else if (r.type === 3) { try { if (r.styleSheet) walk(r.styleSheet.cssRules, r.styleSheet.href || at); } catch (_) {} }
+        else if (r.type === 7) continue;      // @keyframes: the copy plays no motion
+        else if (r.cssRules) {      // @media, @supports, @layer: kept whole when any rule inside may match
+          let k = [];
+          for (const x of r.cssRules) { const t = x.type === 1 ? toks(x.selectorText) : null; if (!t) { k = null; break; } k = k.concat(t); }
+          rules.push({ t: r.cssText, k });
+        } else rules.push({ t: r.cssText, k: null });
+      }
+    };
+    for (const s of list) {
+      if (s.disabled) continue;
+      let rs = null;
+      try { rs = s.cssRules; } catch (_) { rs = null; }
+      if (rs) { walk(rs, s.href || o.doc.baseURI); continue; }
+      if (!s.href) continue;
+      const got = remote.get(s.href);
+      if (got) { faces.push(...got); continue; }
+      if (got === undefined) {
+        remote.set(s.href, null);
+        fetch(s.href).then((r) => (r.ok ? r.text() : '')).catch(() => '').then((css) => {
+          const fs = [];
+          for (const m of css.matchAll(/@font-face\s*\{([^}]*)\}/g)) {
+            const d = m[1];
+            fs.push(face((p) => { const x = new RegExp('(?:^|;)\\s*' + p + '\\s*:\\s*([^;]*)').exec(d); return x ? x[1].trim() : ''; }, s.href));
+          }
+          remote.set(s.href, fs);
+          ovs.forEach((x) => { x.sheetKey = null; x.fontKey = null; x.kick(); });
+        });
+      }
+    }
+    o.rules = rules;
+    o.faces = faces;
+    o.fontKey = null;
+  }
+  // The classes and ids a selector needs (any one of them present keeps the rule), or null when it may match anything.
+  function toks(sel) {
+    const out = [];
+    for (const part of String(sel || '').split(',')) {
+      if (part.includes('\\')) return null;
+      const m = part.replace(/:(?:not|where|is|has)\([^()]*\)/g, '').match(/[.#]-?[_a-zA-Z -￿][\w -￿-]*/g);
+      if (!m) return null;
+      out.push(...m);
+    }
+    return out;
+  }
+  function face(get, at) {
+    const src = get('src');
+    const urls = [...src.matchAll(/url\(\s*["']?([^"')]+)["']?\s*\)\s*(?:format\(\s*["']?([\w-]+)["']?\s*\))?/g)];
+    const best = urls.find((u) => u[2] === 'woff2') || urls[0];
+    let url = null;
+    try { url = best ? new URL(best[1], at).href : null; } catch (_) {}
+    return { family: unq(get('font-family')), style: get('font-style') || 'normal', weight: get('font-weight') || 'normal',
+      range: get('unicode-range') || '', stretch: get('font-stretch') || '', url, fmt: best && best[2] };
+  }
+  // The faces the page has loaded, each as an @font-face with its file inside; others are never used on screen.
+  function fonts(o) {
+    const loaded = new Set();
+    o.doc.fonts.forEach((f) => { if (f.status === 'loaded') loaded.add(unq(f.family) + '|' + f.style + '|' + f.weight + '|' + f.unicodeRange); });
+    const key = [...loaded].sort().join(';') + '#' + o.faces.length;
+    if (key === o.fontKey) return;
+    let css = '', waiting = false;
+    for (const f of o.faces) {
+      if (!f.url) continue;
+      let k;
+      try {
+        const ff = new FontFace(f.family, 'local("x")', { style: f.style, weight: f.weight, unicodeRange: f.range || 'U+0-10FFFF' });
+        k = unq(ff.family) + '|' + ff.style + '|' + ff.weight + '|' + ff.unicodeRange;
+      } catch (_) { continue; }
+      if (!loaded.has(k)) continue;
+      const d = dataOf(f.url, () => { o.fontKey = null; o.kick(); });
+      if (d === '') { waiting = true; continue; }
+      if (!d) continue;
+      css += '@font-face{font-family:"' + f.family + '";font-style:' + f.style + ';font-weight:' + f.weight
+        + (f.stretch ? ';font-stretch:' + f.stretch : '') + (f.range ? ';unicode-range:' + f.range : '')
+        + ';src:url(' + d + ')' + (f.fmt ? ' format("' + f.fmt + '")' : '') + '}';
+    }
+    o.fontCss = css;
+    o.fontKey = waiting ? null : key;
+  }
+
+  /* The copy. Kept: what is drawn over the game, in the page's own stacking order (a box with a z-index under the
+     game's canvas is under the game on screen too). A box that holds the game, or sits in the page under it, keeps
+     only its shape, so what is over the game still lays out in the same place. Motion is frozen where it is: each
+     moving part gets the values it shows right now, and while it moves the picture is made again (motion that
+     never ends, like a pending dot, is held still). */
+  function copy(n, st, above) {
+    if (n.nodeType === 3) {
+      if (!above) return null;
+      const t = n.nodeValue;
+      return n.ownerDocument.createTextNode(t.search(OV_ADDR) >= 0 ? t.replace(OV_ADDR, '') : t);
+    }
+    if (n.nodeType !== 1) return null;
+    const tag = n.tagName;
+    if (OV_SKIP.test(tag) || n === mirror || n === st.frame || n.matches(OV_HIDE)) return null;
+    const cs = st.win.getComputedStyle(n);
+    if (cs.display === 'none') return null;
+    let flat = false;
+    if (!above) {
+      if (st.base && n.contains(st.base)) flat = true;
+      else if (cs.position !== 'static') {
+        const z = parseInt(cs.zIndex, 10), zz = Number.isNaN(z) ? 0 : z;
+        if (zz > st.z || (zz === st.z && (!st.base || st.base.compareDocumentPosition(n) & Node.DOCUMENT_POSITION_FOLLOWING))) {
+          above = true;
+          if (zz > st.zTop || st.zTop === Infinity) st.zTop = zz;
+        } else if (!Number.isNaN(z)) return null;
+        else flat = true;
+      } else flat = true;
+    }
+    if (st.moving.has(n)) st.stillMoving = true;
+    if (n.namespaceURI !== XHTML) {      // an inline SVG icon: copied whole
+      if (!above) return null;
+      const c = n.cloneNode(true);
+      for (const x of [n, ...n.querySelectorAll('[class],[id]')]) note(x, st);
+      return c;
+    }
+    if (flat && (tag === 'IMG' || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'BUTTON' || tag === 'SELECT')) return null;
+    const c = n.cloneNode(false);
+    note(n, st);
+    let add = flat ? FLAT : '';
+    if (above) {
+      const bi = cs.backgroundImage;
+      if (bi && bi.includes('url(')) add += 'background-image:' + urlsIn(bi, st.kick) + '!important;';
+      const mi = cs.webkitMaskImage || cs.maskImage;
+      if (mi && mi.includes('url(')) add += '-webkit-mask-image:' + urlsIn(mi, st.kick) + '!important;mask-image:' + urlsIn(mi, st.kick) + '!important;';
+    }
+    const moved = st.anims.get(n);
+    if (moved) {
+      const pe = {};
+      for (const p of moved) {
+        const i = p.indexOf('|');
+        if (i < 0) add += p + ':' + cs.getPropertyValue(p) + '!important;';
+        else (pe[p.slice(0, i)] = pe[p.slice(0, i)] || []).push(p.slice(i + 1));
+      }
+      for (const k in pe) {
+        const id = 'm' + (st.pid++), ps = st.win.getComputedStyle(n, k);
+        c.setAttribute('data-dsclip', id);
+        st.css += '[data-dsclip="' + id + '"]' + k + '{' + pe[k].map((p) => p + ':' + ps.getPropertyValue(p) + '!important').join(';') + '}';
+      }
+    }
+    if (n === st.focus) {
+      c.setAttribute('data-dsclip-focus', '');
+      try { if (n.matches(':focus-visible')) c.setAttribute('data-dsclip-fv', ''); } catch (_) {}
+    }
+    if (tag === 'IMG') {
+      const d = dataOf(n.currentSrc || n.src, st.kick);
+      c.removeAttribute('srcset');
+      if (d) c.setAttribute('src', d); else c.removeAttribute('src');
+      add += 'width:' + n.width + 'px!important;height:' + n.height + 'px!important;';
+    } else if (tag === 'INPUT') {
+      if (n.type === 'password') c.removeAttribute('value'); else c.setAttribute('value', n.value);
+      if (n.checked) c.setAttribute('checked', ''); else c.removeAttribute('checked');
+    } else if (tag === 'CANVAS') {
+      add += 'width:' + n.clientWidth + 'px!important;height:' + n.clientHeight + 'px!important;';
+    }
+    if (add) c.setAttribute('style', (c.getAttribute('style') || '') + ';' + add);
+    if (tag === 'TEXTAREA') { c.textContent = n.value; return c; }
+    // A box scrolled down (a chat list) shows the same lines it shows on screen.
+    const sx = above ? n.scrollLeft : 0, sy = above ? n.scrollTop : 0;
+    for (let ch = n.firstChild; ch; ch = ch.nextSibling) {
+      const k = copy(ch, st, above);
+      if (!k) continue;
+      if ((sx || sy) && k.nodeType === 1) k.style.setProperty('translate', -sx + 'px ' + -sy + 'px', 'important');
+      c.appendChild(k);
+    }
+    return c;
+  }
+  function note(n, st) {
+    if (n.id) st.toks.add('#' + n.id);
+    if (n.classList) for (const k of n.classList) st.toks.add('.' + k);
+  }
+  // What moves on the page right now: element -> the properties its motion is changing ('::before|opacity' on a part).
+  function motion(doc, st) {
+    for (const a of doc.getAnimations()) {
+      const ef = a.effect, t = ef && ef.target;
+      if (!t) continue;
+      let ps = [];
+      if (a.transitionProperty) ps = [a.transitionProperty];
+      else { try { for (const k of ef.getKeyframes()) for (const p in k) if (!/^(offset|computedOffset|easing|composite)$/.test(p)) ps.push(kebab(p)); } catch (_) {} }
+      const pe = ef.pseudoElement;
+      const list = st.anims.get(t) || [];
+      for (const p of ps) list.push(pe ? pe + '|' + p : p);
+      st.anims.set(t, list);
+      let end = Infinity;
+      try { end = ef.getComputedTiming().endTime; } catch (_) {}
+      if (a.playState === 'running' && end !== Infinity) st.moving.add(t);
+    }
+  }
+
+  // One picture: the copy as an SVG image (made in this idle slice), drawn once it has loaded (in another).
+  function snap(o) {
+    const t0 = performance.now();
+    const doc = o.doc;
+    const st = { win: o.win, frame: o.frame, base: null, z: 0, zTop: Infinity, toks: new Set(), anims: new Map(), moving: new Set(),
+      stillMoving: false, css: '', pid: 0, kick: o.kick, focus: doc.activeElement };
+    let vw = innerWidth, vh = innerHeight, box = [0, 0, innerWidth, innerHeight];
+    let roots = null;
+    if (o.frame) {
+      // The lobby: only its boxes over the game's frame (fixed or absolute, stacked above it), none: no picture.
+      const fe = o.frame, fz = zOf(fe, o.win), r = fe.getBoundingClientRect();
+      vw = o.win.innerWidth; vh = o.win.innerHeight;
+      box = [r.left + fe.clientLeft, r.top + fe.clientTop, fe.clientWidth || r.width, fe.clientHeight || r.height];
+      roots = [];
+      o.roots = new Set();      // watched for changes, the empty toast list too
+      for (const e of doc.body.children) {
+        if (e === fe || OV_SKIP.test(e.tagName) || e.contains(fe)) continue;
+        const cs = o.win.getComputedStyle(e);
+        if (cs.display === 'none' || cs.visibility === 'hidden' || cs.position === 'static') continue;
+        const z = parseInt(cs.zIndex, 10) || 0;
+        if (z < fz || (z === fz && !(fe.compareDocumentPosition(e) & Node.DOCUMENT_POSITION_FOLLOWING))) continue;
+        o.roots.add(e);
+        const b = e.getBoundingClientRect();
+        if (!e.childElementCount && (b.width < 1 || b.height < 1)) continue;
+        roots.push(e);
+      }
+      if (!roots.length) { o.ready = false; o.last = ''; o.busy = false; o.next = performance.now() + OV_GAP; return; }
+    } else if (base) {
+      st.base = base.c;
+      st.z = base.z;
+    }
+    const t1 = performance.now();
+    sheets(o);      // read again only when the page's sheets or fonts change: not counted in the picture's cost
+    fonts(o);
+    const prep = performance.now() - t1;
+    motion(doc, st);
+    const html = doc.documentElement.cloneNode(false);
+    html.setAttribute('style', (html.getAttribute('style') || '') + ';' + FLAT);
+    note(doc.documentElement, st);
+    const head = doc.createElement('head'), style = doc.createElement('style');
+    head.appendChild(style);
+    html.appendChild(head);
+    let body;
+    if (roots) {
+      body = doc.body.cloneNode(false);
+      body.setAttribute('style', (body.getAttribute('style') || '') + ';' + FLAT);
+      note(doc.body, st);
+      for (const e of roots) { const k = copy(e, st, true); if (k) body.appendChild(k); }
+    } else body = copy(doc.body, st, false) || doc.createElement('body');
+    html.appendChild(body);
+    let css = o.fontCss;
+    for (const r of o.rules) if (!r.k || r.k.some((k) => st.toks.has(k))) css += r.t;
+    style.textContent = css + st.css + OV_CSS;
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + vw + '" height="' + vh + '" viewBox="' + box.join(' ')
+      + '" preserveAspectRatio="none"><foreignObject x="0" y="0" width="' + vw + '" height="' + vh + '">'
+      + new XMLSerializer().serializeToString(html) + '</foreignObject></svg>';
+    if (st.stillMoving) o.dirty = true;
+    o.zTop = roots ? Infinity : st.zTop;
+    const made = performance.now() - t0 - prep;
+    // The same as the picture on hand (a leaderboard written again with the same rows): nothing to draw.
+    if (svg === o.last && o.ready) { o.same++; o.busy = false; o.next = performance.now() + Math.max(OV_GAP, made / OV_SHARE); return; }
+    o.last = svg;
+    // A data: URL, not a blob: one: Chrome marks a blob SVG holding HTML as another site's, which no video may hold.
+    const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+    const img = new Image();
+    img.decoding = 'async';
+    img.src = url;
+    img.decode().then(() => idle(() => {
+      const t2 = performance.now();
+      try {
+        if (o.c.width !== W || o.c.height !== H) { o.c.width = W; o.c.height = H; }
+        o.x.clearRect(0, 0, o.c.width, o.c.height);
+        o.x.drawImage(img, 0, 0, o.c.width, o.c.height);
+        // Never draw a picture the page may not read back: it would stop the recorder (a VideoFrame refuses it).
+        if (!o.safe) { o.x.getImageData(0, 0, 1, 1); o.safe = true; }
+        o.cost = made + performance.now() - t2;
+        // Paced by the usual cost: the first picture (cold caches, the page's first fonts) is no guide.
+        o.pace = o.n ? o.pace * 0.75 + o.cost * 0.25 : Math.min(o.cost, 4);
+        done(o, true);
+      } catch (e) { o.off = true; done(o, false, e); }
+    }), (e) => done(o, false, e));
+  }
+  function done(o, ok, why) {
+    o.busy = false;
+    if (ok) { o.n++; o.fails = 0; o.ready = !o.off; } else o.last = '';
+    if (!ok && (++o.fails >= 3 || o.off)) {
+      if (window.console && !o.told) { o.told = true; console.warn('[clips] no picture of the page: ' + (why && why.message || why)); }
+      o.off = true; o.ready = false;
+    }
+    o.next = performance.now() + Math.max(OV_GAP, o.pace / OV_SHARE);
   }
 
   /* ── encoders ──────────────────────────────────────────────────────────── */
@@ -344,6 +765,7 @@
     slow = 0;
     const [w, h] = size();
     if (w !== W || h !== H) { capturing = false; startVideo().then(ok => { capturing = ok; }); return; }
+    ovTick(now);
     composite();
     encodeMirror();
   }
@@ -591,7 +1013,8 @@
   // For a console check: what is being recorded right now.
   DSClip.stats = () => ({ on: running, capturing, asleep, late: performance.now() < lateUntil, yields, size: W + 'x' + H, layers: layers.length,
     seconds: vChunks.length > 1 ? Math.round((vChunks[vChunks.length - 1].ts - vChunks[0].ts) / 1e5) / 10 : 0,
-    audio: !!aEnc && aChunks.length > 0, mixer: mixer ? mixer.state : 'none', hooked, mb: Math.round(vChunks.concat(aChunks).reduce((n, c) => n + c.data.length, 0) / 1e5) / 10 });
+    audio: !!aEnc && aChunks.length > 0, mixer: mixer ? mixer.state : 'none', hooked,
+    overlays: ovs.map((o) => ({ pictures: o.n, ms: Math.round(o.cost * 10) / 10, same: o.same, shown: o.ready, off: o.off })), mb: Math.round(vChunks.concat(aChunks).reduce((n, c) => n + c.data.length, 0) / 1e5) / 10 });
 
   /* ── what the player sees (look A: the lobby's toast, top centre) ─────── */
   const CSS = `
@@ -974,6 +1397,7 @@
     DSClip.on = true;
     if (document.hidden) doze();
     dot(true);
+    ovStart();
     requestAnimationFrame(tick);
     startAudio();
     if (perfFresh) capturing = true; else perfTest();
