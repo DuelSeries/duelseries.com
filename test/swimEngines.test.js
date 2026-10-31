@@ -49,14 +49,20 @@ test('swimEngines.js builds exactly those three, and nothing the picker page alo
   assert.ok(/our own synthesis/i.test(src.slice(0, 600)), 'the header says it is ours');
 });
 
-test('/swim loads the list and the engines before its sound module, and plays one engine', () => {
+test('/swim loads the list and the engines before its sound module: your engine, and a capped few for the other cars', () => {
   const html = read('public/swim.html');
   const at = (s) => html.indexOf('<script src="' + s + '"></script>');
   for (const s of ['/shared/swimLooks.js', '/js/dsSfx.js', '/js/swim/swimEngines.js', '/js/swim/swimSound.js']) assert.ok(at(s) > 0, s);
   assert.ok(at('/shared/swimLooks.js') < at('/js/swim/swimSound.js'));
   assert.ok(at('/js/dsSfx.js') < at('/js/swim/swimEngines.js') && at('/js/swim/swimEngines.js') < at('/js/swim/swimSound.js'));
   const snd = read('public/js/swim/swimSound.js');
-  assert.strictEqual((snd.match(/E\.make\(/g) || []).length, 1, 'one engine, your own: no second one for the other car');
+  /* Owen 2026-10-30: hear the other cars around you. Your own engine is made in one place; the other cars' in one
+     more, never more than VOICES of them at once (2 on a phone), always quieter than yours (OTHER_MAX under 1). */
+  assert.strictEqual((snd.match(/E\.make\(/g) || []).length, 2, 'your engine, and one place for the other cars');
+  assert.match(snd, /const VOICES = PHONE \? 2 : 3;/);
+  const om = snd.match(/const OTHER_MAX = ([0-9.]+);/);
+  assert.ok(om && Number(om[1]) > 0 && Number(om[1]) < 1, 'another car is never as loud as your own');
+  assert.ok(/voices\.length >= VOICES/.test(snd), 'no voice past the cap');
   assert.ok(snd.includes('S.level'), 'the engine follows the sound engine\'s level, so mute and hold reach it');
   assert.ok(snd.includes("addEventListener('pagehide'"), 'and it stops when the page leaves');
 });
@@ -99,7 +105,8 @@ test('Customize is one choice of exactly three cars, opens on the supercar, and 
 
 test('the engine is cosmetic: no server file and no money path reads it', () => {
   const files = fs.readdirSync(path.join(ROOT, 'server'), { recursive: true }).filter((f) => /\.js$/.test(f)).map((f) => path.join('server', f));
-  for (const f of files.concat(['public/js/v2/wallet.js', 'public/js/v2/play.js', 'public/js/swim/swimMain.js'])) {
+  /* The Swim pages read a car's engine only to play it (swimSound.js f.engine, f.others): never the server or money. */
+  for (const f of files.concat(['public/js/v2/wallet.js', 'public/js/v2/play.js'])) {
     const src = read(f);
     assert.ok(!src.includes('duel.swim.engine') && !/(?:SwimLooks|swimLooks)\.(?:ENGINES|engineOf|byId)\b/.test(src) &&
       !(f.includes('swim') && /\bLOOKS\.(?:ENGINES|engineOf|byId)\b/.test(src)), f + ' never reads the engine');

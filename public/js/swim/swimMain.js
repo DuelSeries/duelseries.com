@@ -361,7 +361,10 @@ function frame(now) {
   }
   const revving = !!(r && r.revving && r.state === 'countdown');
   SOUND.frame({ on: !!(r && ((r.state === 'racing' && follow && follow.alive) || revving)), v: revving ? 0 : follow ? follow.v : 0,
-    pedal: revving ? (r.gasHeld ? 1 : 0) : r ? r.pedal : 0, rev: revving });
+    pedal: revving ? (r.gasHeld ? 1 : 0) : r ? r.pedal : 0, rev: revving,
+    /* Watching: the watched car's engine. Racing or watching: the other car heard where it is (swimSound.js). */
+    engine: r && r.side === null && r.looks && r.looks[followSide] ? engineOf(r.looks[followSide].car) : '',
+    others: soundOthers(r, follow, other, followSide) });
   const st = SOUND.state ? SOUND.state() : null;
   if (r && r.me && st) engineMoments(r, st);
   if (scene) scene.frame({ follow, other, followSide, traffic: r ? r.traffic : EMPTY, tick: tickF, dt, steer,
@@ -370,6 +373,17 @@ function frame(now) {
   publish(r, follow, other);
 }
 const EMPTY = new S.Traffic();
+/* The other car for the sound: where it is from the car the camera rides with (one object, reused). */
+const engineOf = (car) => (LOOKS ? LOOKS.engineOf(car) : 'v12');
+const sndOther = { key: 'o', engine: 'v12', v: 0, thr: 1, dx: 0, dz: 0, alive: true }, sndList = [sndOther], sndNone = [];
+function soundOthers(r, f, o, side) {
+  if (!r || !f || !o || r.state !== 'racing') return sndNone;
+  const os = side === 1 ? 0 : 1;
+  sndOther.key = 's' + os; sndOther.engine = r.looks && r.looks[os] ? engineOf(r.looks[os].car) : 'v12';
+  sndOther.v = o.v || 0; sndOther.thr = o.brake ? -1 : 1; sndOther.alive = o.alive !== false;
+  sndOther.dx = o.x - f.x; sndOther.dz = o.z - f.z;
+  return sndList;
+}
 
 /* Shifts and backfire, as the engine is heard (SwimSound.state counts them): the car lurches on an upshift,
    dips softly on a downshift, and a flame flashes at its pipes with each bang. All looks: the race's speed is

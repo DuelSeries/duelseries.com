@@ -19,8 +19,15 @@
    parked on the start line in your own lane, every other car that joined
    parked beside it, the road as wide as the field so far, and a banner says
    "Waiting for players to join" with how many are in and the time to the
-   start. Nothing moves until the countdown. The owner gets a small bar to run a
-   test race (the server checks it is him on every press). */
+   start. Nothing moves until the countdown, but the gas revs the engine (Owen:
+   rev it up while you wait): the revs climb and fall, the body rocks, the pipes
+   pop. The owner gets a small bar to run a test race (the server checks it is
+   him on every press).
+
+   SOUND (Owen 2026-10-30). Your own engine, or the watched car's when you are
+   out or watching, and the cars around it heard where they are: the nearest few
+   get an engine each, panned to their side and quieter with distance
+   (swimSound.js, f.others). */
 import { createScene } from './swimScene.js';
 
 const S = window.SwimSim;
@@ -99,7 +106,11 @@ setInterval(() => { if (race && race.state !== 'over') ping(); }, 2000);
 /* ── the controls (the duel's) ─────────────────────────────────────────── */
 const keys = new Set();
 const KEYMAP = { KeyW: 'up', ArrowUp: 'up', KeyS: 'down', ArrowDown: 'down', KeyA: 'left', ArrowLeft: 'left', KeyD: 'right', ArrowRight: 'right' };
-addEventListener('keydown', (e) => { const k = KEYMAP[e.code]; if (k && race && race.me !== null && !race.out) { keys.add(k); e.preventDefault(); } });
+addEventListener('keydown', (e) => {
+  const k = KEYMAP[e.code];
+  const mine = (race && race.me !== null && !race.out && race.state !== 'over') || (joined && (!race || race.state === 'over'));
+  if (k && mine) { keys.add(k); e.preventDefault(); }
+});
 addEventListener('keyup', (e) => { const k = KEYMAP[e.code]; if (k) keys.delete(k); });
 addEventListener('blur', () => keys.clear());
 const touch = { steer: 0, id: null, x0: 0, gas: false, brake: false };
@@ -340,10 +351,12 @@ function frame(now) {
       /* The nearest other cars, as ghosts. */
       const cand = candBuf;
       cand.length = 0;
+      sndBuf.length = 0;
       const mine = r.car && (!r.out || performance.now() - r.outAt < 1300) ? r.me : r.follow;
       for (const [seat, row] of r.rows) {
         if (seat === mine || row[2] - follow.z > 480 || follow.z - row[2] > 40) continue;   // nowhere near the picture
         const o = remote(r, seat, at, dt);
+        if (o) heard(r, seat, o, follow);
         /* Nothing from behind: a ghost between the camera and our car only hides the road (the camera looks ahead). */
         if (!o || o.z - follow.z > 470 || follow.z - o.z > 2.5) continue;
         o.d = Math.abs(o.z - follow.z) + 3 * Math.abs(o.x - follow.x);
@@ -357,18 +370,36 @@ function frame(now) {
       hud(r, follow);
     }
   }
-  if (!follow && (!r || r.state === 'over') && !overShown()) follow = lobbyView();
+  lobbyOn = false;
+  if (!follow && (!r || r.state === 'over') && !overShown()) { follow = lobbyView(); lobbyOn = !!follow; }
   if (!follow) {
     idleZ += 26 * dt;
     follow = { z: idleZ, x: S.laneX(1), v: 26, vx: 0, alive: true };
   }
-  const revving = !!(r && r.revving);
-  const soundOn = !!(r && ((r.state === 'racing' && follow && follow.alive && r.car && !r.out) || revving));
-  SOUND.frame({ on: soundOn, v: revving ? 0 : follow ? follow.v : 0, pedal: revving ? (r.gasHeld ? 1 : 0) : r ? r.pedal : 0, rev: revving });
+  /* The lobby: our car parked, the gas only revs it (as on the start line in the countdown). */
+  const inLobby = lobbyOn && joined;
+  if (inLobby) {
+    const gas = controls().pedal > 0;
+    LOB.rev += ((gas ? 1 : 0) - LOB.rev) * (1 - Math.exp(-dt / (gas ? 0.22 : 0.35)));
+    LOB.gas = gas;
+  } else LOB.rev = 0;
+  const revving = !!(r && r.revving) || inLobby;
+  const racingSound = !!(r && r.state === 'racing' && follow && follow.alive);
+  const soundOn = racingSound || revving;
+  const gasHeld = inLobby ? LOB.gas : !!(r && r.gasHeld);
+  const watching = !!(r && !(r.car && !r.out));
+  SOUND.frame({ on: soundOn, v: revving ? 0 : follow ? follow.v : 0, pedal: revving ? (gasHeld ? 1 : 0) : r && !watching ? r.pedal : 1, rev: revving,
+    engine: watching && r.follow !== null && r.seats.has(r.follow) ? engineOf(r.seats.get(r.follow).car) : '',
+    others: racingSound ? sndBuf : sndNone });
   const st = SOUND.state ? SOUND.state() : null;
-  if (r && r.car && !r.out && st) engineMoments(r, st);
-  if (scene) scene.frame({ follow, others: othersBuf, followSide: 0, traffic: r ? r.traffic : EMPTY, tick: tickF, dt, steer, rev: revving ? r.rev : 0 });
-  if (r) tach(r, st, follow);
+  if (st && (inLobby || (r && r.car && !r.out))) engineMoments(inLobby ? LOB : r, st, inLobby);
+  if (scene) scene.frame({ follow, others: othersBuf, followSide: 0, traffic: r && !lobbyOn ? r.traffic : EMPTY, tick: tickF, dt, steer,
+    rev: inLobby ? LOB.rev : revving ? r.rev : 0 });
+  if (inLobby) lobbyTach(st);
+  else if (r) tach(r, st, follow);
+  else if (!$('dash').hidden) $('dash').hidden = true;            // left the lobby: no rev counter
+  const padsOff = !TOUCH || !(inLobby || (r && r.car && !r.out && r.state !== 'over'));
+  if ($('pads').hidden !== padsOff) $('pads').hidden = padsOff;
   publish(r, follow);
 }
 /* The lobby on the road: every car that joined parked on the start line in its lane, ours solid with the camera
@@ -411,7 +442,43 @@ function leaderSeat(r) {
   if (best === null) for (const seat of r.seats.keys()) { best = seat; break; }
   return best;
 }
-function engineMoments(r, st) {
+/* The cars heard: every other car near the one the camera rides with, where it is from it (swimSound.js picks the
+   nearest few). One object per seat, reused. */
+const engineOf = (car) => (LOOKS ? LOOKS.engineOf(car) : 'v12');
+const sndBuf = [], sndNone = [], sndBySeat = new Map();
+function heard(r, seat, o, f) {
+  const dz = o.z - f.z, dx = o.x - f.x;
+  if (dz > 130 || dz < -130 || !o.alive) return;
+  let h = sndBySeat.get(seat);
+  if (!h) { h = { key: seat, engine: 'v12', v: 0, thr: 1, dx: 0, dz: 0, alive: true }; sndBySeat.set(seat, h); }
+  const st = r.seats.get(seat);
+  h.engine = st ? engineOf(st.car) : 'v12'; h.v = o.v; h.thr = o.brake ? -1 : 1; h.dx = dx; h.dz = dz; h.alive = true;
+  sndBuf.push(h);
+}
+/* The lobby's revving: our own counts of what the engine did (shifts never happen in neutral; pops do). */
+let lobbyOn = false;
+const LOB = { rev: 0, gas: false, seenUp: 0, seenDown: 0, seenPops: 0, state: 'lobby' };
+let lobTachWas = -1;
+function lobbyTach(st) {
+  const d = $('dash');
+  if (d.hidden) d.hidden = false;
+  if (!d.classList.contains('revving')) { d.classList.add('revving', 'mine'); revWas = null; }
+  const k = st && st.rev > 0 ? Math.max(0, Math.min(1, (st.rev - 0.1) / 0.85)) : LOB.rev;
+  const q = Math.round(k * 100);
+  if (q !== lobTachWas) { lobTachWas = q; $('tachFill').style.width = q + '%'; $('tach').classList.toggle('red', q >= 88); }
+  if (gearWas !== 'N') { gearWas = 'N'; $('gearNum').textContent = 'N'; $('gearNum').hidden = false; }
+  $('spdNum').textContent = '0'; $('distText').textContent = 'On the start line';
+}
+function engineMoments(r, st, lobbyRev) {
+  if (lobbyRev) {
+    if (st.pops !== r.seenPops) {
+      const n = Math.min(3, st.pops - r.seenPops);
+      if (scene && scene.backfire && n > 0) for (let i = 0; i < n; i++) scene.backfire(0, 0);
+      r.seenPops = st.pops;
+    }
+    r.seenUp = st.up; r.seenDown = st.down;
+    return;
+  }
   if (st.up !== r.seenUp) { if (scene && scene.shift && r.state === 'racing') scene.shift(1); r.seenUp = st.up; }
   if (st.down !== r.seenDown) { if (scene && scene.shift && r.state === 'racing') scene.shift(-1); r.seenDown = st.down; }
   if (st.pops !== r.seenPops) {
@@ -698,7 +765,8 @@ socket.on('se:state', (m) => {
 });
 socket.on('se:start', (m) => {
   if (!m) return;
-  myLane = null;
+  myLane = null; lobbyOn = false;
+  $('dash').classList.remove('revving'); revWas = null; gearWas = ''; tachWas = -1;
   race = newRace(m);
   seatKey = null;
   showRaceUi();

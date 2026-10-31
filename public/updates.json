@@ -2,6 +2,13 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-10-30-swim-hear-the-cars",
+      "date": "2026-10-30",
+      "tag": "new",
+      "title": "Swim: hear the cars around you",
+      "body": "In Swim and the Swim Race you now hear the other cars: one beside you comes from its side, one further away is quieter, and yours is always the loudest. Watching a race, you hear the cars around the one you follow.\n\nWaiting on the Swim Race start line, hold the gas to rev your engine. The car stays put until the countdown."
+    },
+    {
       "id": "2026-10-30-slither-quiet-boost",
       "date": "2026-10-30",
       "tag": "fix",
