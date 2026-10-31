@@ -166,7 +166,8 @@ test('a picture up to 1920x1080 at 8 Mbps, 30 a second; Chrome picks the encoder
   assert.match(js, /const BITRATE = 8e6;/);
   assert.match(js, /const cfg = await pickCodec\(W, H, BITRATE\);/);
   assert.match(js, /const FPS = 30;/);
-  assert.match(js, /const k = Math\.min\(1, MAX_W \/ w, MAX_H \/ h\);/, 'the game picture is scaled down to fit');
+  assert.match(js, /const k = Math\.min\(1, maxW \/ w, maxH \/ h\);/, 'the game picture is scaled down to fit');
+  assert.match(js, /if \(maxW > 1280\) \{ maxW = 1280; maxH = 720;/, 'an encoder that falls behind steps the picture down before clips stop');
   assert.match(js, /width: \{ max: MAX_W \}, height: \{ max: MAX_H \}/, 'and the whole-tab capture asks for no more');
   assert.match(js, /for \(const hw of TOP \? \['prefer-hardware', ''\] : \[''\]\)/);
 });

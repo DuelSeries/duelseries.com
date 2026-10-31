@@ -134,7 +134,7 @@
   function size() {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     let w = Math.round(innerWidth * dpr), h = Math.round(innerHeight * dpr);
-    const k = Math.min(1, MAX_W / w, MAX_H / h);
+    const k = Math.min(1, maxW / w, maxH / h);
     w = Math.max(2, Math.round((w * k) / 2) * 2); h = Math.max(2, Math.round((h * k) / 2) * 2);
     return [w, h];
   }
@@ -911,7 +911,7 @@
     if (asleep || !capturing || now < nextCap) return;
     nextCap = Math.max(nextCap + 1000 / FPS, now + 500 / FPS);
     lastCap = now;
-    if (sent - got > INFLIGHT) { slow++; if (slow > FPS * 3) stop('the encoder cannot keep up', true); return; }
+    if (sent - got > INFLIGHT) { slow++; if (slow > FPS * 3) behind(); return; }
     slow = 0;
     const [w, h] = size();
     if (w !== W || h !== H) { capturing = false; startVideo().then(ok => { capturing = ok; }); return; }
@@ -931,6 +931,15 @@
     worker.postMessage({ frame: f, key, gen: vGen }, [f]);
   }
   let capturing = false, slow = 0, tabbed = false;
+  /* The encoder 3 s behind (a PC whose encoder is busy, or software encoding on a loaded CPU): the picture steps
+     down to 1280x720 and starts again rather than the clips stopping; behind again at that size, they stop. */
+  let maxW = MAX_W, maxH = MAX_H;
+  function behind() {
+    slow = 0;
+    // the frames still out are the old encoder's: the next frame finds the new size and starts it afresh
+    if (maxW > 1280) { maxW = 1280; maxH = 720; sent = got; if (window.console) console.warn('[clips] the encoder is behind: 1280x720 from now'); return; }
+    stop('the encoder cannot keep up', true);
+  }
 
   /* Asleep: no picture, no sound, no encoding. While the tab is hidden (a gap would be one frame lasting minutes)
      and after IDLE_MS with no input. Waking starts the buffer again. */
@@ -1462,7 +1471,7 @@
       const now = performance.now();
       if (asleep || sizing || now - lastCap < 1000 / FPS - 3) { f.close(); continue; }
       let w = f.displayWidth, h = f.displayHeight;
-      const k = Math.min(1, MAX_W / w, MAX_H / h);
+      const k = Math.min(1, maxW / w, maxH / h);
       w = Math.max(2, Math.round((w * k) / 2) * 2); h = Math.max(2, Math.round((h * k) / 2) * 2);
       if (w !== W || h !== H) {
         f.close();
@@ -1471,7 +1480,7 @@
         continue;
       }
       lastCap = now;
-      if (!worker || sent - got > INFLIGHT) { f.close(); slow++; if (slow > FPS * 3) stop('the encoder cannot keep up', true); continue; }
+      if (!worker || sent - got > INFLIGHT) { f.close(); slow++; if (slow > FPS * 3) behind(); continue; }
       slow = 0;
       try { mctx.drawImage(f, 0, 0, W, H); } catch (_) {}
       f.close();
