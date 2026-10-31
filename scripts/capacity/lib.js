@@ -140,7 +140,8 @@ function mulberry32(seed) {
   };
 }
 
-// The address of player i: 198.18.x.y, y in 1..250.
+// The address of player i: 198.18.x.y, y in 1..250. The benchmarking range (RFC 2544) is also the server's mark of a
+// test player: a battle royale seat from it never wins, places or counts (server/clientAddr.js isLoadTestAddr).
 function ipOf(i) {
   return '198.18.' + Math.floor(i / 250) + '.' + ((i % 250) + 1);
 }

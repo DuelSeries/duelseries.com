@@ -13,10 +13,11 @@
 //   --first    the first player's number (its address and name); default 0
 //   --workers  processes; default 6
 //   --report   seconds between lines; default 5
-//   --br-leave N  battle royale safety (2026-10-30): read /api/live every 2 s, log the event's state, and once a match is
-//              under way ('running') stop every player when N or fewer snakes are alive, or when it ends: test players
-//              are always gone before the last snake is decided, so none can win (and a win with no proven wallet would
-//              only hold the prize and push Owen). Also stops them if the event ends any other way.
+//   --br-leave N  battle royale (2026-10-30): read /api/live every 2 s, log the event's state, and once a match is under
+//              way ('running') stop every player when N or fewer snakes are alive, or when it ends. NOT what keeps a
+//              test player from winning: on Oct 30 a match had no bots (they fill only the waiting room) and the last
+//              to disconnect was "won" by the tie rule. The server does that now: a seat from 198.18.0.0/15 (ipOf
+//              below) never wins, places or counts (server/clientAddr.js isLoadTestAddr, server/slBr/brMatch.js).
 //   --until    epoch ms: stop everything then, whatever else is going on
 // Free rooms only: the game modules never send a token, a stake or a wallet. Ctrl-C (or the end) stops every player.
 

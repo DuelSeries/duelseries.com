@@ -45,7 +45,7 @@ const { createZone, cruiseOf } = require('./brZone');
 const { createHeldBorder } = require('./brBorder');
 const { nextSlot } = require('./brAutoStart');
 const { countPeople } = require('./brPrizeRule');
-const { addressGroup } = require('../clientAddr');
+const { addressGroup, isLoadTestAddr } = require('../clientAddr');
 
 const SEC = 1000;
 
@@ -155,8 +155,11 @@ function createBrMatch(opts) {
   // kept current through an open countdown so its HUD and the Events tab promise only what going live would pay.
   function countIn() {
     const humans = humanSnakes();
-    m.startedWith = humans.length;
-    started = provenSeats(humans);
+    // a capacity-test seat is not a person (Owen 2026-10-30, clientAddr isLoadTestAddr): it never makes a match real
+    // (soloRun), never counts toward the prize and never turns a win into a held prize and its push
+    const people = humans.filter((h) => !h.lt);
+    m.startedWith = people.length;
+    started = provenSeats(people);
     m.startedPeople = countPeople(started);
     m.soloRun = m.isSoloRun();
     m.prizeHeld = !m.soloRun && m.startedPeople < 2;
@@ -169,7 +172,7 @@ function createBrMatch(opts) {
     if (!room) return out;
     for (const id of room.humans) {
       const s = room.sim.snake(id);
-      if (s) out.push({ id, name: s.nick, score: room._lenOf(s), isBot: false });
+      if (s) out.push({ id, name: s.nick, score: room._lenOf(s), isBot: false, lt: isLoadTest(id) });
     }
     return out;
   }
@@ -177,9 +180,17 @@ function createBrMatch(opts) {
     const out = [];
     if (!room) return out;
     room.sim.forEachSnake((s) => {
-      out.push({ id: s.id, name: s.nick, score: room._lenOf(s), isBot: !room.humans.has(s.id) });
+      const isBot = !room.humans.has(s.id);
+      out.push({ id: s.id, name: s.nick, score: room._lenOf(s), isBot, lt: !isBot && isLoadTest(s.id) });
     });
     return out;
+  }
+
+  // a seated human's snake is a capacity-test player's (noteSeat: its address is in the harness's range). Asked only of
+  // a snake in room.humans: who outlives a seat, and a later bot may be given a number a test seat once had.
+  function isLoadTest(id) {
+    const w = who.get(id);
+    return !!(w && w.lt);
   }
 
   function holdBorder(on) {
@@ -238,7 +249,7 @@ function createBrMatch(opts) {
       const i = info || {};
       const wallet = typeof i.wallet === 'string' && i.wallet ? i.wallet : null;
       who.set(snakeId, { wallet, nick: i.nick || '', owner: !!wallet && isOwner(wallet) === true,
-        net: addressGroup(i.ip) });
+        net: addressGroup(i.ip), lt: isLoadTestAddr(i.ip) });
     },
     livingCount: () => (room ? room.sim.count() : 0),
     humanLiving: () => humanSnakes().length,
@@ -369,7 +380,7 @@ function createBrMatch(opts) {
           const w = room.humans.has(id) ? who.get(id) : null;
           const d = deaths[i];
           const score = room._lenOf({ pts: { length: d.sct }, fam: d.fam });
-          m._fallen.push({ id, name: (w && w.nick) || room.names.get(id) || '', score });
+          m._fallen.push({ id, name: (w && w.nick) || room.names.get(id) || '', score, lt: !!(w && w.lt) });
         }
       }
       let changed = false;
@@ -421,9 +432,11 @@ function createBrMatch(opts) {
         m._prevAlive = onMap;
         return false;
       }
-      const longest = (list) => list.slice().sort((a, b) => (b.score || 0) - (a.score || 0))[0] || null;
+      // A capacity-test seat never wins (Owen 2026-10-30): the tie rules pick from the rest, and a test seat that is
+      // the last snake left ends the match with no winner, so nothing is shown, saved or paid for it.
+      const longest = (list) => list.filter((s) => !s.lt).sort((a, b) => (b.score || 0) - (a.score || 0))[0] || null;
       let won = null;
-      if (onMap.length === 1) won = onMap[0];
+      if (onMap.length === 1) won = onMap[0].lt ? null : onMap[0];
       else if (onMap.length > 1) {
         won = longest(onMap);
         log.warn('[BR] ' + label + ' match ' + m.matchId + ' hit the ' + BRM.MAX_MATCH_MS / 60000 + ' min backstop with ' +
@@ -443,12 +456,13 @@ function createBrMatch(opts) {
       if (won) podium.push({ place: 1, name: m.winner.name, score: won.score || 0 });
       for (const f of order) {
         if (podium.length >= 3) break;
-        if (won && f.id === won.id) continue;
+        if ((won && f.id === won.id) || f.lt) continue; // nor does it place
         podium.push({ place: podium.length + 1, name: f.name, score: f.score || 0 });
       }
-      m.podium = podium;
+      // a match of test seats alone leaves nothing to show: the Events tab keeps the last real match (publicState's past)
+      m.podium = won || podium.length ? podium : null;
       m.soloRun = m.isSoloRun();
-      m._keepPodium();
+      if (m.podium) m._keepPodium();
       log.log('[BR] ' + label + ' match ' + m.matchId + (m.soloRun ? ' (solo test run, no prize)' : '') + ' won by ' +
         (m.winner ? m.winner.name : 'nobody') + ' after ' + Math.round((m.endedAt - m.startedAt) / 1000) + 's');
       if (onDecided && m.winner && !m.winner.bot) {

@@ -387,6 +387,95 @@ test('two people: the last person standing wins, the podium is in falling order,
   assert.strictEqual(match.soloRun, false);
 });
 
+// Capacity-test players (Owen 2026-10-30): the load harness seats every simulated player from 198.18.0.0/15
+// (clientAddr isLoadTestAddr). On Oct 30 a match of them alone was "won" by the last to disconnect, its prize held and
+// Owen pushed. A test seat never wins, places, counts as a person, or reaches the prize hook or the saved podium.
+const { isLoadTestAddr } = require('../server/clientAddr');
+const REAL_LAST = { podium: [{ place: 1, name: 'chill', score: 1597 }, { place: 2, name: 'Daichi', score: 908 }],
+  winner: 'chill', prize: 0, soloRun: true, prizeHeld: false, endedAt: '2026-10-30T18:03:00.000Z' };
+function podiumStoreFake() {
+  const saved = [];
+  return { saved, store: { load: () => JSON.parse(JSON.stringify(REAL_LAST)), save: (r) => { saved.push(r); return true; } } };
+}
+
+test('isLoadTestAddr: only 198.18.0.0/15 (the harness range), mapped or not; nothing a header or a real network gives', () => {
+  for (const a of ['198.18.0.1', '198.18.12.250', '198.19.255.254', '::ffff:198.18.3.4']) assert.strictEqual(isLoadTestAddr(a), true, a);
+  for (const a of ['198.17.255.255', '198.20.0.1', '203.0.113.9', '127.0.0.1', '', null, undefined, '2001:db8::1',
+    '198.18.0.1, 1.2.3.4', 'Load13052']) assert.strictEqual(isLoadTestAddr(a), false, String(a));
+});
+
+test('a match of test seats alone: the last one left wins nothing, nobody places, no hook, the last real podium stays', () => {
+  const ps = podiumStoreFake();
+  const { ft, room, match, decided } = makeBr({ lastStore: ps.store });
+  const t1 = human(room, 'Load13050', null, '198.18.52.1');
+  const t2 = human(room, 'Load13051', null, '198.18.52.2');
+  const t3 = human(room, 'Load13052', null, '198.19.0.3');
+  match.startMatch('auto');
+  assert.strictEqual(match.publicState().startedWith, 0, 'test seats are not people');
+  assert.strictEqual(match.soloRun, true, 'no person in it: no prize');
+  assert.strictEqual(match.prizeHeld, false, 'so nothing is held either');
+  run(ft, room, BRM.COUNTDOWN_MS + 200);
+  assert.strictEqual(match.state, 'running');
+  room.sim.kill(t1.id);
+  run(ft, room, 200);
+  // the last two go in the same step (Oct 30: they all left at once): the tie rule never picks a test seat
+  room.sim.kill(t2.id);
+  room.sim.kill(t3.id);
+  run(ft, room, 200);
+  assert.strictEqual(match.state, 'over');
+  assert.strictEqual(match.winner, null);
+  assert.strictEqual(match.podium, null);
+  assert.strictEqual(decided.length, 0, 'the prize hook never hears of it');
+  assert.strictEqual(ps.saved.length, 0, 'the saved podium is not replaced');
+  run(ft, room, BRM.CASHOUT_DELAY_MS + BRZ.REOPEN_MS + 400);
+  assert.strictEqual(match.state, 'waiting');
+  const st = match.publicState();
+  assert.deepStrictEqual(st.winner, { name: 'chill', id: null }, 'the Events tab shows the last real match');
+  assert.deepStrictEqual(st.podium.map((p) => p.name), ['chill', 'Daichi']);
+});
+
+test('the one test seat left alive ends the match with no winner; a person among test seats is a solo run who places alone', () => {
+  const ps = podiumStoreFake();
+  const { ft, room, match, decided } = makeBr({ lastStore: ps.store });
+  const me = human(room, 'Owen', 'W1');
+  const t1 = human(room, 'Load1', null, '198.18.0.1');
+  const t2 = human(room, 'Load2', null, '198.18.0.2');
+  match.startMatch('test');
+  assert.strictEqual(match.publicState().startedWith, 1);
+  assert.strictEqual(match.soloRun, true, 'one person and test seats: no prize, no held push');
+  run(ft, room, BRM.COUNTDOWN_MS + 200);
+  room.sim.kill(t1.id);
+  run(ft, room, 200);
+  room.sim.kill(me.id);
+  run(ft, room, 200);
+  assert.strictEqual(match.state, 'over', 'one snake left: the match ends as it always does');
+  assert.ok(room.sim.snake(t2.id), 'the test seat is that snake');
+  assert.strictEqual(match.winner, null, 'but it does not win');
+  assert.strictEqual(decided.length, 0);
+  assert.deepStrictEqual(match.podium.map((p) => p.name), ['Owen'], 'the person places; no test seat does');
+  assert.strictEqual(ps.saved.length, 1);
+  assert.strictEqual(ps.saved[0].winner, null);
+  assert.deepStrictEqual(ps.saved[0].podium.map((p) => p.name), ['Owen']);
+  assert.ok(!JSON.stringify(match.publicState()).includes('Load'), 'no test name anywhere in what is shown');
+});
+
+test('a person who outlasts the test seats wins as usual (solo run: the hook hears it and pays nothing)', () => {
+  const { ft, room, match, decided } = makeBr();
+  const me = human(room, 'Owen', 'W1');
+  const t1 = human(room, 'Load1', null, '198.18.0.1');
+  const b = room.spawnSnake({ nick: 'b1', cv: 2, isBot: true });
+  match.startMatch('test');
+  run(ft, room, BRM.COUNTDOWN_MS + 200);
+  room.sim.kill(b.id);
+  room.sim.kill(t1.id);
+  run(ft, room, 200);
+  assert.strictEqual(match.state, 'over');
+  assert.deepStrictEqual(decided[0], { id: me.id, name: 'Owen', wallet: 'W1', bot: false });
+  assert.strictEqual(match.soloRun, true);
+  assert.strictEqual(match.publicState().prize, 0);
+  assert.deepStrictEqual(match.podium.map((p) => p.name), ['Owen', 'b1']);
+});
+
 test('abandon in the countdown or the match releases the circle and the border and opens the door', () => {
   const { ft, room, match } = makeBr();
   human(room, 'Owen', 'W1');

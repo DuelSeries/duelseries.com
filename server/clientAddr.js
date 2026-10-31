@@ -94,4 +94,17 @@ function addressGroup(ip) {
   return groups.slice(0, 4).map((g) => parseInt(g, 16).toString(16)).join(':') + '::/64';
 }
 
-module.exports = { TRUST_PROXY, bareIp, isTrustedPeer, clientAddress, socketClientIp, addressGroup };
+/* A capacity-test player (Owen 2026-10-30): the load harness (scripts/capacity, lib.js ipOf) gives every simulated
+   player an address in 198.18.0.0/15, the range RFC 2544 sets aside for benchmarking. It is never routed on the
+   internet, so no real player's connection comes from it, and nginx always appends the real peer as the last
+   X-Forwarded-For hop (clientAddress reads that one): a player cannot claim it by sending a header. Only the
+   harness's own load box reaches us with it, through the temporary nginx pass-through a test sets up. The battle
+   royale never lets such a seat win, place, count as a person or reach the prize (server/slBr/brMatch.js). */
+function isLoadTestAddr(ip) {
+  const a = bareIp(ip);
+  if (!net.isIPv4(a)) return false;
+  const [p, q] = a.split('.').map(Number);
+  return p === 198 && (q === 18 || q === 19);
+}
+
+module.exports = { TRUST_PROXY, bareIp, isTrustedPeer, clientAddress, socketClientIp, addressGroup, isLoadTestAddr };
