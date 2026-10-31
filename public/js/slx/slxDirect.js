@@ -21,7 +21,8 @@
   if (!D || !D.slx || !D.slx.active) return;
   var slx = D.slx;
   var doc = root.document;
-  if (slx.inLobby || !doc || typeof slx.guard !== 'function') return;
+  // A Spectate page (slxWatch) watches at once, from slxMain, wherever it opened: no name box or Play there.
+  if (slx.inLobby || typeof slx.watchAuth === 'function' || !doc || typeof slx.guard !== 'function') return;
   var login = doc.getElementById('login');
   if (!login) return;
 
