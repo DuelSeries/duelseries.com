@@ -242,7 +242,7 @@ function setRules(r) {
   rules.broken = !!r.broken;
   rules.shots = r.shots | 0;
   if (typeof r.shotMs === 'number') shotMs = r.shotMs;
-  if (typeof r.ms === 'number') turnEndsAt = performance.now() + r.ms;
+  if (typeof r.ms === 'number') turnEndsAt = (typeof r._rx === 'number' ? r._rx : performance.now()) + r.ms;
   if (r.balls) setBalls(r.balls);
 }
 
@@ -295,6 +295,10 @@ let groupBanner = { text: '', at: -1e9 };
 
 socket.on('p8:turn', (m) => {
   if (!match || !m) return;
+  /* The shot clock counts from when the turn ARRIVED, not from when the last tape finished playing here: a turn
+     held behind a tape (a slow phone, or a tab put away while the other side shot, which stops the frames) used to
+     show the whole clock again while the server's had been running (bug sweep 2026-10-31). */
+  m._rx = performance.now();
   if (tape && !tape.done) { pendingTurn = m; return; }
   applyTurn(m);
 });
@@ -348,6 +352,9 @@ socket.on('p8:aim', (m) => {
 socket.on('p8:timeout', (m) => {
   if (!match || !m) return;
   if (SND) SND.play('foul', 1);
+  /* The third timeout decides the match and the server holds it (settling) before the card. The screen stopped being
+     my turn too: it kept the cue live through the hold, and a shot taken then went nowhere (bug sweep 2026-10-31). */
+  if (m.over) { setPhase('settling'); releaseAll(); }
 });
 
 /* A shot: the server's tape, played back ball by ball, and the verdict once the balls stop. */
@@ -997,7 +1004,9 @@ function paintOver() {
     card.unit = 'balls potted';
     card.facts = time ? [['Time', time]] : [];
   }
-  if (m.why === 'opponent left') card.notes.push('They left the match.');
+  /* 'opponent left' is the seat that went. Lost by it, that seat is this one: its connection dropped past the five
+     second hold. It used to say "They left the match." to the player who had dropped (bug sweep 2026-10-31). */
+  if (m.why === 'opponent left') card.notes.push(won === false ? 'Your connection dropped, so the match went to them.' : 'They left the match.');
   else if (m.why && m.why !== 'potted the 8') card.notes.push(sentence((m.winnerId === m.me ? 'They ' : 'You ') + m.why));
 
   /* The same three buttons on every card, paid and free: Lobby, Spectate, Play again. Lobby and Spectate are shut
