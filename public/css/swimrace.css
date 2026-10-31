@@ -55,12 +55,15 @@
 #lobbyBar button:focus-visible, #ownerBar button:focus-visible { outline: 2px solid var(--rim); outline-offset: 2px; }
 
 /* ── the owner's test race ───────────────────────────────────────────────── */
+/* Above the shared end card (dsEnd.js, z 1000: you can be out and still want to stop a test race) and under the
+   Spectate bar (dsWatchBar.js); the note an owner press answers with goes on top of the card too. */
 #ownerBar {
-  position: fixed; z-index: 30; right: 12px; top: calc(12px + env(safe-area-inset-top));
+  position: fixed; z-index: 2147480050; right: 12px; top: calc(12px + env(safe-area-inset-top));
   display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 12px; border-radius: 999px;
   background: rgba(16, 12, 14, 0.82); box-shadow: inset 0 0 0 1px rgba(240,168,48,0.35);
 }
 #ownerBar[hidden] { display: none; }
+#botNote { z-index: 2147480060; }
 #ownerBar span { font-size: 12px; font-weight: 700; color: var(--you); margin-right: 2px; }
 #ownerBar button {
   font-family: inherit; font-size: 12.5px; font-weight: 650; cursor: pointer; border-radius: 999px; padding: 6px 12px;
