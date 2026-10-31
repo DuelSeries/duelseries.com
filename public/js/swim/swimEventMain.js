@@ -403,9 +403,14 @@ function tach(r, st, f) {
 
 /* ── where you stand ───────────────────────────────────────────────────── */
 let hudAt = 0;
+/* Every frame: text is only written when it changes, as the same text written again still costs a style and
+   layout pass (phone speed pass 2026-10-31). */
+function put(el, text) {
+  if (el.textContent !== text) el.textContent = text;
+}
 function hud(r, f) {
-  $('spdNum').textContent = String(Math.round(f.v * 3.6));
-  $('distText').textContent = metres(f.z);
+  put($('spdNum'), String(Math.round(f.v * 3.6)));
+  put($('distText'), metres(f.z));
   const t = performance.now();
   if (t - hudAt < 120) return;                      // the board eight times a second is plenty
   hudAt = t;
@@ -416,8 +421,8 @@ function hud(r, f) {
   const meRow = sd.all.find(g => g.seat === seat);
   if (!meRow) return;
   const place = meRow.place;
-  $('placeNum').textContent = ord(place);
-  $('placeOf').textContent = (mine ? 'of ' : (r.seats.get(seat) ? r.seats.get(seat).name + ', ' : '') + 'of ') + n;
+  put($('placeNum'), ord(place));
+  put($('placeOf'), (mine ? 'of ' : (r.seats.get(seat) ? r.seats.get(seat).name + ', ' : '') + 'of ') + n);
   const gl = $('gapLine');
   let text = '', lead = false;
   if (r.seats.get(seat) && r.seats.get(seat).out) text = 'Out';
