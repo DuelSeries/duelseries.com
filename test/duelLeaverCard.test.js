@@ -13,7 +13,8 @@ const path = require('path');
 const vm = require('vm');
 
 function paintOverOf(file) {
-  const src = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', file), 'utf8');
+  // A Windows checkout (core.autocrlf) has CRLF endings; the pattern below is written for LF.
+  const src = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', file), 'utf8').replace(/\r\n/g, '\n');
   const m = /\nfunction paintOver\(\) \{[\s\S]*?\n\}\n/.exec(src);
   assert.ok(m, file + ': paintOver() found');
   return m[0];
