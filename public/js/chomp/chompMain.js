@@ -185,8 +185,23 @@
       if (phase === 'play') {
         // a free chomper goes with its socket: that game is over
         tracked(function (t) { t.end({ result: 'ended', reason: 'disconnect', score: myScore }); });
+        // In the lobby's frame the title card has no way back to the lobby (the lobby never shows it): a dropped link
+        // or a server restart left a phone player there with only Play. The end card's Lobby and Play again instead.
+        if (inLobby && window.DSEnd) { showLost(); return; }
         phase = 'title'; titleEl.hidden = false;
       }
+    });
+  }
+  // The free game ended with its socket (above). Play again pressed before the link is back waits in socket.io's
+  // buffer and goes out once it reconnects, after the free arena's c:init.
+  function showLost() {
+    phase = 'over'; myId = 0;
+    window.DSEnd.show({
+      tone: 'plain', verdict: 'Disconnected', notes: ['Connection lost. That game is over.'],
+      buttons: [
+        { id: 'lobby', text: 'Lobby', onClick: function () { window.DSEnd.hide(); backToLobby(); } },
+        { id: 'again', text: 'Play again', primary: true, onClick: function () { window.DSEnd.hide(); join(); } }
+      ]
     });
   }
 
