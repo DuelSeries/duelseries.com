@@ -1168,7 +1168,7 @@ function paintOver() {
   }
   /* 'opponent left' with this seat losing means THIS seat was the one that left: its five seconds to reconnect ran
      out and ah:rejoinfail brought the result back. "They left" would blame the player who stayed. */
-  if (m.why === 'opponent left' && won !== false) card.notes.push('They left the match.');
+  if (m.why === 'opponent left') card.notes.push(won === false ? 'Your connection dropped, so the match went to them.' : 'They left the match.');
   else if (m.why === 'a draw') card.notes.push('Still level after the minute of sudden death.');
 
   /* The same three buttons on every card, paid and free: Lobby, Spectate, Play again. Lobby and Spectate are shut

@@ -979,7 +979,7 @@ function paintOver() {
   }
   /* 'opponent left' with this seat losing means THIS seat was the one that left: its five seconds to reconnect ran
      out and rt:rejoinfail brought the result back. "They left" would blame the player who stayed. */
-  if (m.why === 'opponent left' && won !== false) card.notes.push('They left the match.');
+  if (m.why === 'opponent left') card.notes.push(won === false ? 'Your connection dropped, so the match went to them.' : 'They left the match.');
   else if (m.why === 'a draw') card.notes.push('Level when the ten minutes ran out.');
   else if (m.why === 'time up') card.notes.push('Ahead when the ten minutes ran out.');
   const paid = myStake > 0;

@@ -37,6 +37,7 @@ for (const file of ['airhockey.js', 'rooftop.js']) {
       score: [0, 0], ms: 60000, money: null });
     assert.strictEqual(c.verdict, 'Alice wins');
     assert.ok(!c.notes.includes('They left the match.'), JSON.stringify(c.notes));
+    assert.ok(c.notes.includes('Your connection dropped, so the match went to them.'), 'the same line as Pool and Crossy');
   });
 
   test(file + ': the player who stayed still is', () => {
