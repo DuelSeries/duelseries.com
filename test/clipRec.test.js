@@ -215,6 +215,7 @@ test('what is over the game is in the clip, drawn again only when it changes', (
   assert.equal('Killed by Brody99 at 1,284 length'.search(addr), -1);
   assert.match(js, /attributeOldValue: true, characterDataOldValue: true/, 'a style set again to the same value is no change');
   assert.match(js, /if \(svg === o\.last && o\.ready\) \{ o\.same\+\+;/, 'the same picture is not drawn again');
+  assert.match(js, /if \(st\.settle > 0 && st\.settle < 1000 && !o\.held\) \{/, 'the end card rising gets one picture once it has settled');
   assert.match(js, /const OV_GAP = 100, OV_SHARE = 0\.02;/, 'at most 10 a second and 2% of the page\'s time');
   assert.match(js, /requestIdleCallback\(fn, \{ timeout: 250 \}\)/, 'in idle time');
   assert.match(js, /const url = 'data:image\/svg\+xml;charset=utf-8,' \+ encodeURIComponent\(svg\);/,

@@ -228,9 +228,9 @@
      all that but makes Chrome put up its "sharing this tab" bar, so a clip draws it instead: a copy of the page's
      HTML over the game, with the page's own styles and fonts, inside an SVG image, which the browser lays out exactly
      as on screen. That picture goes between the game's canvases and any canvas boxed inside it (slither's minimap).
-     It is made again only when something in it changes (a MutationObserver, and while its CSS motion plays, each
-     picture holding the motion where it was), at most 10 times a second and 2% of the page's time, in the browser's
-     idle time; every frame in between reuses the last one. Left out: the ping and FPS readout, this recorder's own
+     It is made again only when something in it changes (a MutationObserver; a short CSS motion, like the end card
+     rising, gets one picture once it has settled, a longer one a picture each time, held where it was), at most 10
+     times a second and 2% of the page's time, in the browser's idle time; every frame in between reuses the last one. Left out: the ping and FPS readout, this recorder's own
      notes, and any wallet address.
      The lobby's copy (the whole tab) has none of this: the tab capture holds it already. */
   const OV_HIDE = '.dsp-hud,.dsclip-t,.dsclip-dot,[data-clip-hide]';
@@ -269,7 +269,7 @@
 
   function overlay(doc, frame) {
     const o = { doc, win: doc.defaultView, frame, c: document.createElement('canvas'), x: null, ready: false, dirty: true, busy: false,
-      next: 0, cost: 0, pace: 0, n: 0, same: 0, fails: 0, off: false, safe: false, zTop: Infinity, roots: new Set(), last: '',
+      next: 0, cost: 0, pace: 0, n: 0, same: 0, fails: 0, off: false, safe: false, held: false, zTop: Infinity, roots: new Set(), last: '',
       sheetKey: null, rules: [], faces: [], fontKey: null, fontCss: '' };
     o.x = o.c.getContext('2d');
     const kick = () => { o.dirty = true; };
@@ -525,9 +525,12 @@
       const list = st.anims.get(t) || [];
       for (const p of ps) list.push(pe ? pe + '|' + p : p);
       st.anims.set(t, list);
-      let end = Infinity;
-      try { end = ef.getComputedTiming().endTime; } catch (_) {}
-      if (a.playState === 'running' && end !== Infinity) st.moving.add(t);
+      let end = Infinity, at = 0;
+      try { const ct = ef.getComputedTiming(); end = ct.endTime; at = ct.localTime || 0; } catch (_) {}
+      if (a.playState === 'running' && end !== Infinity && !(t.closest && t.closest(OV_HIDE))) {
+        st.moving.add(t);
+        st.settle = Math.max(st.settle, end - at);
+      }
     }
   }
 
@@ -536,7 +539,7 @@
     const t0 = performance.now();
     const doc = o.doc;
     const st = { win: o.win, frame: o.frame, base: null, z: 0, zTop: Infinity, toks: new Set(), anims: new Map(), moving: new Set(),
-      stillMoving: false, css: '', pid: 0, kick: o.kick, focus: doc.activeElement };
+      stillMoving: false, settle: 0, css: '', pid: 0, kick: o.kick, focus: doc.activeElement };
     let vw = innerWidth, vh = innerHeight, box = [0, 0, innerWidth, innerHeight];
     let roots = null;
     if (o.frame) {
@@ -567,6 +570,14 @@
     fonts(o);
     const prep = performance.now() - t1;
     motion(doc, st);
+    /* Something is still moving into place (the end card rising, a toast sliding in): one picture once it has
+       settled rather than several on the way, since that is the busiest moment of a game. Once per change, so
+       motion that keeps starting again still gets pictures. */
+    if (st.settle > 0 && st.settle < 1000 && !o.held) {
+      o.held = true; o.busy = false; o.dirty = true; o.next = performance.now() + st.settle + 20;
+      return;
+    }
+    o.held = false;
     const html = doc.documentElement.cloneNode(false);
     html.setAttribute('style', (html.getAttribute('style') || '') + ';' + FLAT);
     note(doc.documentElement, st);
