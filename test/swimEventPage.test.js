@@ -39,7 +39,8 @@ function makeEl(id, tag) {
 }
 
 /* One page: its socket's handlers, what it emitted, its timers (run only when asked), the result card's calls. */
-function boot(session) {
+function boot(session, opts) {
+  opts = opts || {};
   const els = new Map();
   const handlers = {};
   const emitted = [];
@@ -66,13 +67,13 @@ function boot(session) {
     requestAnimationFrame: () => 0,
     setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
     clearTimeout() {}, setInterval: () => 0, clearInterval() {},
-    fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve({}) }),
+    fetch: opts.fetch || (() => Promise.resolve({ ok: true, json: () => Promise.resolve({}) })),
     addEventListener() {}, removeEventListener() {},
     location: { origin: 'http://x', href: '/' },
     DSEnd: { show: (o) => shown.push(o), hide() {}, shown: () => false },
     console,
   };
-  win.window = win; win.parent = win;
+  win.window = win; win.parent = opts.parent || win;
   const scene = new Proxy({}, { get: () => () => ({}) });   // every scene call a no-op
   const src = fs.readFileSync(path.join(ROOT, 'public/js/swim/swimEventMain.js'), 'utf8')
     .replace(/^import \{ createScene \} from '\.\/swimScene\.js';$/m, 'const createScene = () => __scene;');
@@ -132,4 +133,42 @@ test('Swim Race page: put out while the connection was down, the reconnect shows
   assert.ok(card, 'the knockout card says so');
   assert.strictEqual(card.unit, 'of 3');
   assert.ok(p.win.document.body.classList.contains('watching'), 'and the page watches the rest of the race');
+});
+
+/* The owner's bar on a device not signed into Control (Owen's phone, 2026-10-31): the page asks the server about
+   the lobby's signed-in wallet, which can sign in after the page loads. The page used to read a localStorage key
+   nothing writes, so the bar only ever showed on a device with the Control session cookie. */
+test('Swim Race page: the owner bar follows the lobby wallet, shown only when the server says it is an owner', async () => {
+  const OWNER = 'Own3r111111111111111111111111111111111111111';
+  const asked = [];
+  const fetch = (url, o) => {
+    if (url === '/api/br/owner') {
+      const w = JSON.parse(o.body).wallet; asked.push(w);
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ isOwner: w === OWNER }) });
+    }
+    return Promise.resolve({ ok: true, json: () => Promise.resolve({ signedIn: false }) });
+  };
+  const listeners = {};
+  const parent = { duelWallet: { ready: true, authenticated: false, address: '' },
+    addEventListener(t, fn) { listeners[t] = fn; }, removeEventListener() {} };
+  const flush = () => new Promise(r => setImmediate(r));
+  const p = boot({}, { parent, fetch });
+  p.els('ownerBar').hidden = true;
+  await flush(); await flush();
+  assert.strictEqual(asked.length, 0, 'signed out: nothing to ask');
+  assert.strictEqual(p.els('ownerBar').hidden, true);
+
+  parent.duelWallet = { ready: true, authenticated: true, address: 'Someone1111111111111111111111111111111111111' };
+  listeners['duelwallet:change']();
+  await flush(); await flush();
+  assert.strictEqual(p.els('ownerBar').hidden, true, 'a player who is not an owner never sees it');
+
+  parent.duelWallet = { ready: true, authenticated: true, address: OWNER };
+  listeners['duelwallet:change']();
+  await flush(); await flush();
+  assert.strictEqual(p.els('ownerBar').hidden, false, 'the owner, signed in late, gets the bar');
+
+  parent.duelWallet = { ready: true, authenticated: false, address: '' };
+  listeners['duelwallet:change']();
+  assert.strictEqual(p.els('ownerBar').hidden, true, 'and loses it on signing out');
 });

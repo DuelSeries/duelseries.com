@@ -683,16 +683,46 @@ function join() {
 /* ── the owner's test race ─────────────────────────────────────────────────
    Shown only to the owner: a device signed into Control (its session cookie, asked at /api/owner/session), or the
    lobby's wallet when the server says it is an owner's (then each press is signed in the lobby, over the bridge
-   play.js keeps for game frames). Either way the server checks it on every press (/api/owner/do). */
-const OWNER = { via: null, busy: false };
+   play.js keeps for game frames). Either way the server checks it on every press (/api/owner/do).
+   The wallet is the lobby's signed-in one (window.duelWallet, same origin), not localStorage.duelseries_wallet:
+   nothing writes that key, so only a device signed into Control ever saw the bar (Owen's phone never did,
+   2026-10-31). The lobby's wallet can sign in after this page loads (Privy is slower on a phone), so its
+   duelwallet:change asks again. */
+const OWNER = { via: null, busy: false, asked: '' };
+function lobbyWallet() {
+  try {
+    const p = window.parent;
+    if (!p || p === window) return '';
+    const w = p.duelWallet || {};
+    return w.authenticated && typeof w.address === 'string' ? w.address : '';
+  } catch (_) { return ''; }   // a parent on another origin: no wallet
+}
+function ownerWalletCheck() {
+  const w = lobbyWallet();
+  if (OWNER.via || !w || w === OWNER.asked) return;
+  OWNER.asked = w;
+  fetch('/api/br/owner', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ wallet: w }) })
+    .then(r => r.json()).then(k => { if (k && k.isOwner && !OWNER.via && lobbyWallet() === w) { OWNER.via = 'wallet'; paintOwner(); } })
+    .catch(() => { OWNER.asked = ''; });
+}
+function ownerOnWallet() {
+  /* Signed out in the lobby: the wallet path's bar goes (a session's stays, it is the device's). */
+  if (OWNER.via === 'wallet' && !lobbyWallet()) { OWNER.via = null; OWNER.asked = ''; paintOwner(); }
+  ownerWalletCheck();
+}
 function ownerCheck() {
   fetch('/api/owner/session', { credentials: 'same-origin', headers: { 'X-DS-Owner': '1' } })
     .then(r => r.json()).then(j => {
       if (j && j.signedIn) { OWNER.via = 'session'; paintOwner(); return; }
-      if (!myWallet || !window.parent || window.parent === window) return;
-      return fetch('/api/br/owner', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ wallet: myWallet }) })
-        .then(r => r.json()).then(k => { if (k && k.isOwner) { OWNER.via = 'wallet'; paintOwner(); } });
-    }).catch(() => {});
+      ownerWalletCheck();
+    }).catch(() => ownerWalletCheck());
+  try {
+    const p = window.parent;
+    if (p && p !== window) {
+      p.addEventListener('duelwallet:change', ownerOnWallet);
+      addEventListener('pagehide', () => { try { p.removeEventListener('duelwallet:change', ownerOnWallet); } catch (_) {} });
+    }
+  } catch (_) {}
 }
 function paintOwner() {
   const bar = $('ownerBar');
