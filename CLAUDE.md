@@ -16,6 +16,13 @@ than stopping to report progress.
 
 Only give detail when I explicitly ask for it.
 
+## Cloud sessions (Claude Code on the web, `CLAUDE_CODE_REMOTE=true`)
+These rules win over "Commit + push after every change" and "Deploying Changes" below.
+- Report in short plain English, the same 2-sentence rule as above. No em dashes anywhere.
+- Push your work to this session's own branch only. Never push to `main`, never merge, never open a deploy: the local dispatcher session reviews the branch, runs the money safety check (`duelseries-deploy-check`) and merges it.
+- Never print, log or commit secrets (keys, `.env` values, tokens, wallet secrets). This repo is public. The cloud box has no `.env`, so the server cannot reach the database, Solana RPC or Privy here; say so instead of faking it.
+- Run `npm ci` before `npm test`. Network reaches package registries, GitHub and duelseries.com only.
+
 ## The Goal (read this first)
 This is a **real-money, multiplayer skill game** being built into a legitimate product. The end goal is a polished, trustworthy game with **1,000+ concurrent users**. Every decision should serve that bar:
 - **It handles real money (Solana/SOL).** Correctness and security in the money paths are non-negotiable — a bug here loses real funds or lets a cheater mint them. Treat anything touching stakes, escrow, cash-out, or worth as critical code.
