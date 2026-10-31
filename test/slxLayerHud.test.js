@@ -1272,26 +1272,18 @@ test('slxSound: the own food_eat is a soft pat per frame (rate 0.9 to 1.25, 40 m
   assert.strictEqual(F.plays.length, n, 'a watcher follows another snake as its own');
 });
 
-test('slxSound: boost on and off from the outbound records, only on a change', () => {
+test('slxSound: boosting is silent (Owen 2026-10-30: the boost sound is gone), the other sounds still play', () => {
   const P = soundPage();
   const F = P.F;
   const boost = (on) => ({ type: 'boost', on });
   P.slx.fire('open');
-  P.slx.fire('send', [{ type: 'angle', q: 3 }, { type: 'ping' }]);
-  P.slx.fire('send', [boost(false)]);
-  assert.deepStrictEqual(heard(F), [], 'off while off');
-  P.slx.fire('send', [{ type: 'angle', q: 4 }, boost(true)]);
   P.slx.fire('send', [boost(true)]);
-  assert.deepStrictEqual(heard(F), ['g.boostOn']);
-  P.slx.fire('send', [boost(false)]);
-  P.slx.fire('send', [boost(false)]);
-  assert.deepStrictEqual(heard(F), ['g.boostOn', 'g.boostOff']);
-  // a death while boosting: the next boost is a change again
+  P.slx.fire('send', [{ type: 'angle', q: 4 }, boost(false)]);
   P.slx.fire('send', [boost(true)]);
+  assert.deepStrictEqual(heard(F), []);
   P.slx.fire('ownDead', {});
   P.slx.fire('send', [boost(false)]);
-  P.slx.fire('send', [boost(true)]);
-  assert.deepStrictEqual(heard(F).slice(2), ['g.boostOn', 'g.death', 'g.boostOn']);
+  assert.deepStrictEqual(heard(F), ['g.death']);
 });
 
 test('slxSound: the cash-out ring starts with the own hold; its end is a cancel unless a cash-out or death follows', () => {

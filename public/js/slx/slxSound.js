@@ -16,7 +16,7 @@
 //   money     a paid room's own sl:x {t: 'w', d} with d > 0, the own snake ate gold (PAID-SL-DESIGN 9; only the own
 //             seat's worth message carries d, server/sl/slRoom.js _worthAll). A free room never sends it.   g.pickup
 //   eat       a frame's food_eat whose eater is the own snake: one soft pat per frame, rate varied, 40 ms apart   g.eat
-//   boost     the outbound {type: 'boost', on}, only when it changes                 g.boostOn, g.boostOff
+//   boost     no sound (Owen 2026-10-30: removed for good)
 //   ring      sl:x {t: 'hold'} for the own snake (hold Q): it starts, or it ends with no cash-out and no death
 //             (the server sends the ring's end before 'cashed' and the stream's `dead`, so a short wait decides)
 //                                                                                    g.ringStart, g.ringCancel
@@ -102,7 +102,6 @@
   var joined = false;
   var cashed = false;
   var kills = 0;
-  var boosting = false;
   var ringOn = false;
   var ringTimer = null;
   var myId = 0; // the own snake's id (slxBr's winner check)
@@ -128,7 +127,6 @@
     joined = false;
     cashed = false;
     kills = 0;
-    boosting = false;
     brState = null;
     brPhase = '';
     tickedK = COUNT_SECS + 1;
@@ -147,7 +145,6 @@
     play('g.join');
   });
   slx.on('ownDead', function () {
-    boosting = false;
     clearRing();
     if (cashed) return;
     played.death++;
@@ -186,19 +183,6 @@
         if (!watching()) play('g.eat', { rate: EAT_RATE_MIN + rand() * EAT_RATE_SPAN, gap: EAT_GAP });
         return;
       }
-    }
-  });
-
-  // ---- boost: the outbound records, a sound only when the state changes
-  slx.on('send', function (list) {
-    if (!list) return;
-    for (var i = 0; i < list.length; i++) {
-      var r = list[i];
-      if (!r || r.type !== 'boost') continue;
-      var on = !!r.on;
-      if (on === boosting) continue;
-      boosting = on;
-      play(on ? 'g.boostOn' : 'g.boostOff');
     }
   });
 
