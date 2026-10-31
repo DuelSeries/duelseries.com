@@ -90,7 +90,10 @@ function watchPage(o) {
   const src = fs.readFileSync(path.join(ROOT, 'public', 'js', 'shared', 'dsWatchBar.js'), 'utf8');
   vm.runInContext(src, P.win, { filename: 'dsWatchBar.js' });
   P.raf(1);
-  return Object.assign(P, { ss, ends, posted, hold, emptyMap, bar: () => P.win.DSWatchBar.state() });
+  // slxMain's own Play at boot (a Spectate page watches at once, in the lobby's frame or not): kept apart, so every
+  // test below counts only the Plays that came after it
+  const bootPlays = P.plays.splice(0);
+  return Object.assign(P, { ss, ends, posted, hold, emptyMap, bootPlays, bar: () => P.win.DSWatchBar.state() });
 }
 
 test('a paid rung: dsWatchStake goes out as watchStake (and nothing else of money); taken out with the mark', () => {
@@ -172,6 +175,28 @@ test('the mark: read once and taken out; Spectate only for dsWatch = snake on a 
   const H = watchPage({ inactive: true, main: false, card: false });
   assert.strictEqual(H.ss.getItem('dsWatch'), 'snake', 'under a harness transport nothing is read');
   assert.strictEqual(H.slx.watchAuth, undefined);
+});
+
+test('a Spectate page watches at once, outside the lobby\'s frame too (the card\'s Spectate on a direct visit)', () => {
+  // bug sweep 2026-10-31: on a direct /sl visit the card's Spectate reopened the page with the bar on "Finding a
+  // player" and the direct-visit name box, whose Play could only watch; nothing started until it was pressed
+  const P = watchPage({ session: { dsWatch: 'snake' } });
+  assert.strictEqual(P.slx.inLobby, false, 'not in the lobby frame');
+  assert.deepStrictEqual(P.bootPlays, [''], 'their Play once at boot: no name to ask for');
+  // their login layer, where the direct-visit panel goes (public/sl.html #login)
+  const login = (Q) => { const e = new Q.El(Q.doc, 'div'); e.setAttribute('id', 'login'); Q.doc.body.appendChild(e); };
+  const D = watchPage({ session: { dsWatch: 'snake' }, main: true, card: false });
+  login(D);
+  D.load('slxDirect.js');
+  assert.strictEqual(D.slx.direct, undefined, 'no name box or Play on a Spectate page');
+  assert.strictEqual(D.find('slx-direct').length, 0);
+  // a plain direct visit keeps its name box and plays nothing by itself
+  const F = watchPage({ session: {} });
+  assert.deepStrictEqual(F.bootPlays, []);
+  login(F);
+  F.load('slxDirect.js');
+  assert.ok(F.slx.direct && F.slx.direct.play, 'the name box and Play');
+  assert.deepStrictEqual(F.plays, []);
 });
 
 test('the handshake: watch 1 merged by slxMain with the cv; after for the life Next opens, before for Previous', () => {

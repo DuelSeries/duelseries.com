@@ -932,6 +932,19 @@
     }
   });
 
+  /* A frame emptied by taking it out of the page and putting it straight back, never by src = ''. A src change is a
+     navigation, and the phone's Back button walks the frame's navigations: from the second game on, Back turned the
+     open game into a blank black frame over the lobby with no way out but a reload (bug sweep 2026-10-31). A frame
+     put back starts on a fresh blank page that its next src replaces, so a frame adds nothing to the history and
+     Back in any game does what it does in the first. Out of the page with no src, the removal navigates nothing. */
+  function emptyFrame(f) {
+    const parent = f.parentNode, next = f.nextSibling;
+    if (!parent) { f.src = ''; return; }
+    parent.removeChild(f);
+    f.removeAttribute('src');
+    parent.insertBefore(f, next);
+  }
+
   /* The game signals its own exit. Both frames are cleared and the lobby's
      animations restart. */
   window.addEventListener('message', e => {
@@ -940,7 +953,10 @@
     const origin = window.location && window.location.origin;
     if (!origin || e.origin !== origin) return;
     if (!FRAMES.some(id => { const f = el(id); return !!f && !!f.contentWindow && e.source === f.contentWindow; })) return;
-    FRAMES.forEach(id => { const f = el(id); if (f) { f.style.display = 'none'; f.src = ''; } });
+    FRAMES.forEach(id => { const f = el(id); if (f) f.style.display = 'none'; });
+    /* Emptied once this message's other listeners (wallet.js, toasts.js) have run: they match e.source against the
+       frame's window, which a frame put back no longer is. */
+    setTimeout(() => FRAMES.forEach(id => { const f = el(id); if (f && f.style.display !== 'block') emptyFrame(f); }), 0);
     if (window._resumeLobbyAnims) window._resumeLobbyAnims();
     if (window.V2Board) window.V2Board.load();
     if (window.duelWalletRefresh) window.duelWalletRefresh();

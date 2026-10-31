@@ -520,7 +520,17 @@ class KnockoutRoom {
           this.ringOut.push(p.id);
         }
       }
-      if (this.checkOver()) return;
+      /* THE RING CAN DECIDE IT TOO. This used to finish on the spot, so the result card went up over a board still
+         showing the piece the ring had just taken, with no hold and no wall closing (bug sweep 2026-10-31: the card
+         said "You win" with their last piece still on the disc). The closing ring goes out first, as a turn nobody
+         aims in, and the board is held exactly as a decided reveal is (settling, then checkOver). */
+      if (this.decided()) {
+        this.state = 'settling';
+        this.phaseEndsAt = t + KO.WIN_HOLD_MS;
+        this.broadcast('ko:turn', this.publicState());
+        this.broadcast('ko:settling', { holdMs: KO.WIN_HOLD_MS });
+        return;
+      }
     }
     this.aims.clear();
     this.ready.clear();

@@ -798,6 +798,40 @@ test('knockout and battleship: a win by walk-out says they left', () => {
   }
 });
 
+/* Bug sweep 2026-10-31: a phone that locks or switches apps on the result card reconnects. The card used to be thrown
+   away and a queue sent at once (on a paid table, with no token: refused as "not paid for"). */
+test('knockout: a reconnect while the result card is up keeps the card and queues nothing', () => {
+  for (const stake of [0, 1]) {
+    const page = boot('knockout.js', stake ? { playerName: 'Owen', stake: '1', entryToken: 'tok-1' } : { playerName: 'Owen' });
+    page.deliver('connect');
+    page.deliver('ko:over', koOver({ stake }));
+    const queued = page.sent('ko:queue').length;
+    page.deliver('connect');
+    assert.strictEqual(page.sent('ko:queue').length, queued, 'nothing queued by the reconnect (stake ' + stake + ')');
+    assert.ok(page.card(), 'the card is still up');
+    assert.strictEqual(page.card().verdict, 'You win');
+  }
+});
+
+/* And mid-match (Knockout holds no seat: the drop was a walk-out): the old board comes off, so the wait card's
+   ko:queued is taken and its reconnect key used by the next blip, instead of ignored as "matched already". */
+test('knockout: a reconnect mid-match clears the old board and takes the new wait card\'s key', () => {
+  const page = boot('knockout.js', { playerName: 'Owen' });
+  page.deliver('connect');
+  page.deliver('ko:start', {
+    id: 'm1', state: 'countdown', turn: 0, arenaR: 300, pieceR: 20, maxPull: 100, phaseMs: 3000, aimMs: 15000,
+    players: [{ id: ME, name: 'Owen', side: 0, left: 2 }, { id: 'o', name: 'Nia', side: 1, left: 2 }],
+    pieces: [], ready: [], stake: 0, pot: 0, ringOut: [],
+  });
+  assert.strictEqual(page.$('top').hidden, false);
+  page.deliver('connect');
+  assert.strictEqual(page.$('top').hidden, true, 'the old match is off the screen');
+  assert.strictEqual(page.$('wait').hidden, false, 'the wait card is up');
+  page.deliver('ko:queued', { waitingMs: 0, stake: 0, worth: 0, resumeKey: 'a'.repeat(32), waitMs: 10000 });
+  page.deliver('connect');
+  assert.strictEqual(page.sent('ko:queue').pop()[1].resume, 'a'.repeat(32), 'a second blip takes the same place back');
+});
+
 /* The shared chat box on these pages: shown only while a match is on screen, typed into only by a seated player,
    a line in its seat's colour (the pair each page already draws), a refusal as a note for the sender. */
 test('knockout: chat is shown in a match, sends ko:chat, colours a line by seat, and goes away with the card', () => {

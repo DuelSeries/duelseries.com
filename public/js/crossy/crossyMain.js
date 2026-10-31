@@ -485,7 +485,9 @@ function paintOver() {
     if (time) card.facts.push(['Time', time]);
   }
   const deaths = Array.isArray(m.deaths) ? m.deaths : [];
-  if (m.why === 'opponent left') card.notes.push('They left the match.');
+  /* 'opponent left' is the seat that went. Lost by it, that seat is this one: its connection dropped past the five
+     second hold. It used to say "They left the match." to the player who had dropped (bug sweep 2026-10-31). */
+  if (m.why === 'opponent left') card.notes.push(won === false ? 'Your connection dropped, so the match went to them.' : 'They left the match.');
   else if (m.why === 'both out') card.notes.push('You were both out on the same moment, with the same coins.');
   else if (m.why === 'more coins') card.notes.push('You were both out on the same moment: more coins wins.');
   else if (m.why === 'time') card.notes.push('Five minutes up: the one further along wins.');

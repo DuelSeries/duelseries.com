@@ -264,7 +264,7 @@ test('duel:signaction never signs an owner session sign-in or sign-out for a gam
   assert.deepStrictEqual(signed, [['br:start', {}]], 'the in-game Start match still signs');
 });
 
-test('game:done closes the frames only when a game frame on our origin sends it', () => {
+test('game:done closes the frames only when a game frame on our origin sends it', async () => {
   const h = lobbyHarness([]);
   const ORIGIN = 'https://duelseries.com';
   h.win.location = { origin: ORIGIN };
@@ -273,10 +273,14 @@ test('game:done closes the frames only when a game frame on our origin sends it'
   frame.src = '/ag';
   h.win.dispatchEvent({ type: 'message', data: 'game:done', source: {}, origin: ORIGIN });
   h.win.dispatchEvent({ type: 'message', data: 'game:done', source: frame.contentWindow, origin: 'https://evil.test' });
+  await new Promise((r) => setTimeout(r, 5));
   assert.strictEqual(frame.src, '/ag', 'a stranger cannot close the game');
+  assert.strictEqual(frame.style.display, 'block');
   h.win.dispatchEvent({ type: 'message', data: 'game:done', source: frame.contentWindow, origin: ORIGIN });
-  assert.strictEqual(frame.src, '');
   assert.strictEqual(frame.style.display, 'none');
+  // emptied a tick later, after the message's other listeners (test/lobbyFrameBack.test.js)
+  await new Promise((r) => setTimeout(r, 5));
+  assert.strictEqual(frame.src, '');
 });
 
 test('every window message listener in public/js checks where the message came from', () => {

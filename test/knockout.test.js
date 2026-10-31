@@ -467,6 +467,48 @@ test('the ring says what it closed past, and where it closed from', () => {
   assert.ok(st.ringOut.includes(doomed.id), 'and which piece it took on the way');
 });
 
+test('a ring that takes the last piece shows the wall closing and holds the board before the result', () => {
+  /* Bug sweep 2026-10-31: the ring closing past somebody's last piece finished the match on the spot, so the card went
+     up with that piece still drawn on the disc and no hold. The closing ring has to reach the screens first. */
+  const { r, sent } = room();
+  runTo(r, 1000 + KO.COUNTDOWN_MS);
+  const r1 = r.arenaR;
+  const [last, other] = r.piecesOf('B');
+  other.alive = false;
+  last.x = r1 - 4; last.y = 0;
+
+  r.tick(1000 + KO.COUNTDOWN_MS + KO.AIM_MS);   // nobody aimed: the reveal is a still board
+  runTo(r, r.phaseEndsAt);                      // the next turn opens, and the ring takes the piece
+  assert.strictEqual(last.alive, false, 'the ring took it');
+  assert.strictEqual(r.state, 'settling', 'held, not finished on the spot');
+  assert.strictEqual(sent.filter(m => m.ev === 'ko:over').length, 0, 'no result yet');
+  const turn = sent.filter(m => m.ev === 'ko:turn').pop();
+  assert.ok(turn && turn.payload.ringOut.includes(last.id), 'the screens are shown the ring taking it');
+  assert.ok(sent.some(m => m.ev === 'ko:settling'), 'and told the board is being held');
+
+  runTo(r, r.phaseEndsAt + 1);
+  assert.strictEqual(r.state, 'over');
+  const over = sent.filter(m => m.ev === 'ko:over');
+  assert.strictEqual(over.length, 1, 'announced once, after the hold');
+  assert.strictEqual(over[0].payload.winnerId, 'A');
+  assert.strictEqual(over[0].payload.why, 'last one standing');
+});
+
+test('a walk-out while the ring decision is held is settled as decided', () => {
+  const { r, sent } = room();
+  runTo(r, 1000 + KO.COUNTDOWN_MS);
+  const [last, other] = r.piecesOf('B');
+  other.alive = false;
+  last.x = r.arenaR - 4; last.y = 0;
+  r.tick(1000 + KO.COUNTDOWN_MS + KO.AIM_MS);
+  runTo(r, r.phaseEndsAt);
+  assert.strictEqual(r.state, 'settling');
+  r.removePlayer('A');                          // the winner closes the tab on the hold
+  const over = sent.filter(m => m.ev === 'ko:over');
+  assert.strictEqual(over.length, 1);
+  assert.strictEqual(over[0].payload.winnerId, 'A', 'the winner is still the winner, not whoever stayed');
+});
+
 test('seat 0 is along the bottom and seat 1 along the top', () => {
   /* The client turns the board around for seat 1, so both players see their own
      pieces nearest them. That only works if the server puts the two sides on

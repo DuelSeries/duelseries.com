@@ -204,8 +204,11 @@
   // slxPaid holds the page (paidHold: a paid snake cut off by a reload, or a paid launch it could not read). Such a
   // page shows its notice on the results card and never plays free.
   // The battle royale's page (slxBr) plays itself: it asks the lobby's wallet for the prize proof first. A Spectate page
-  // (slxWatch) plays the same way as a free one: its handshake makes the socket a watcher.
-  if (slx.inLobby && !(typeof slx.paidHold === 'function' && slx.paidHold() === true)) {
+  // (slxWatch) plays the same way as a free one: its handshake makes the socket a watcher. A Spectate page outside the
+  // lobby's frame (the card's Spectate on a direct visit reopens /sl watching, slxWatch watchOpen) starts the same way:
+  // it has no name to ask for, and the name box's Play could only watch, so the bar sat on "Finding a player".
+  var watchPage = typeof slx.watchAuth === 'function';
+  if ((slx.inLobby || watchPage) && !(typeof slx.paidHold === 'function' && slx.paidHold() === true)) {
     if (!(typeof slx.brLaunch === 'function' && slx.brLaunch(lobbyName()) === true)) D.play(lobbyName());
   }
 })(typeof window !== 'undefined' ? window : globalThis);

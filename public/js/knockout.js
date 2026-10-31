@@ -688,9 +688,19 @@ function apply(state) {
    a reconnect asks again rather than assuming it is still on the list. */
 socket.on('connect', () => {
   if (WATCH) { me = seatId(0); swapping = false; watch(null); return; }
-  /* A reconnect mid-match queues afresh below: the match it was in is lost with the old socket. */
-  if (st && !overShown) trackStep('end', { result: 'left', reason: 'disconnected' });
   me = socket.id;
+  /* The result card is up: it stays, and Play again queues from it (8 Ball Pool's and Crossy Road's rule). A phone
+     that locks or switches apps on the card reconnects, and this used to throw the card away and queue at once; on a
+     paid table, with the entry already spent, that queue was refused as "not paid for" (bug sweep 2026-10-31). */
+  if (overShown) return;
+  /* A reconnect mid-match queues afresh below: the match it was in is lost with the old socket. Its board comes off
+     the screen first, so the wait card is all that is up and its ko:queued (the reconnect key) is taken, not
+     ignored as "matched already" (bug sweep 2026-10-31). */
+  if (st) {
+    trackStep('end', { result: 'left', reason: 'disconnected' });
+    st = null; tape = null; reveal = null; aims.clear(); drag = null; locked = false;
+    $('top').hidden = true; $('bar').hidden = true;
+  }
   /* A reconnect while waiting takes the same seat back (the key the server sent with ko:queued): the
      same place, the same minute, and for a paid seat the same buy-in, with no new token. */
   if (waiting && resumeKey) { queue(null, resumeKey); return; }
