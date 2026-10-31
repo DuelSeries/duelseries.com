@@ -2,6 +2,13 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-10-31-smoother-on-phones",
+      "date": "2026-10-31",
+      "tag": "fix",
+      "title": "Smoother on phones",
+      "body": "Six games now do less work on every frame, so they run smoother on phones, with fewer stutters.\n\nPac-Man no longer freezes for a moment when your score goes up. Rooftop Snipers, Knockout, Swim, Crossy Road and Head Soccer all take less of your phone's effort while you play.\n\nNothing about how they look or play has changed."
+    },
+    {
       "id": "2026-10-30-one-wait-screen",
       "date": "2026-10-30",
       "tag": "fix",
