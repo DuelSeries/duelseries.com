@@ -2,6 +2,13 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-10-30-clips-smooth-sharp",
+      "date": "2026-10-30",
+      "tag": "fix",
+      "title": "Smoother, sharper clips with full sound",
+      "body": "Clips you save with P are now smooth and sharp: a steady 30 frames a second at your screen's own size, up to full HD, at a much higher quality. The sound now runs the whole length of the clip and stays in time with the picture, even when your PC is busy.\n\nBefore, a busy PC could leave a clip with long freezes and sound that stopped halfway."
+    },
+    {
       "id": "2026-10-30-swim-race-random-spots",
       "date": "2026-10-30",
       "tag": "fix",

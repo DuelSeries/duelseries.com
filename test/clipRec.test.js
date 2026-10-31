@@ -30,7 +30,8 @@ test('keeps the last 30 seconds from a key frame, a key frame every second', () 
   assert.match(js, /const KEEP_US = 30e6;/);
   assert.match(js, /const KEY_US = 1e6;/);
   assert.match(js, /const key = frameNo === 0 \|\| ts - lastKey >= KEY_US - 20000;/, 'by time: a stretch with no picture never stretches the key frames');
-  assert.match(js, /vEnc\.encode\(f, \{ keyFrame: key \}\)/);
+  assert.match(js, /worker\.postMessage\(\{ frame: f, key, gen: vGen \}, \[f\]\);/);
+  assert.match(js, /enc\.encode\(m\.frame, \{ keyFrame: m\.key \}\);/, 'the key frame mark reaches the encoder in its worker');
   assert.match(js, /while \(v\.length && !v\[0\]\.key\) v\.shift\(\);/, 'a saved clip always starts on a key frame');
 });
 
@@ -54,8 +55,10 @@ test('P saves; never while typing in a field on screen; P never uploads, only a 
   const ov = js.slice(ovAt, ovEnd);
   assert.deepStrictEqual(ov.match(/fetch\([^)]*\)/g), ["fetch(u, { credentials: 'same-origin' })", 'fetch(s.href)']);
   assert.ok(!/method:|body:|XMLHttpRequest|sendBeacon|postMessage\(/.test(ov), 'reads only');
-  const outside = js.slice(0, Math.min(start, ovAt)) + js.slice(Math.min(end, ovEnd), Math.max(start, ovAt))
-    + js.slice(Math.max(end, ovEnd));
+  const outside = (js.slice(0, Math.min(start, ovAt)) + js.slice(Math.min(end, ovEnd), Math.max(start, ovAt))
+    + js.slice(Math.max(end, ovEnd)))
+    // the picture's own encoder worker and the sound's tap are this page's, nothing leaves the PC through them
+    .replace(/\b(worker|self|this\.port)\.postMessage\(/g, '');
   assert.ok(!/fetch\(|XMLHttpRequest|sendBeacon|postMessage\(/.test(outside), 'nothing outside the sharing section sends anything');
   const calls = outside.match(/\bshare\([a-z]+\)/g) || [];
   assert.deepStrictEqual(calls, ['share(last)', 'share(clip)'], 'share runs from the console hook and the button, nothing else');
@@ -98,33 +101,38 @@ test('offers a clip after a cash-out in each game, hooked from outside the games
   assert.match(js, /const OFFER_MS = 8000;/);
 });
 
-/* Owen 2026-10-16, "pretty laggy": the recorder must never cost the game a frame. Measured on his 240 Hz PC: free on
-   an idle PC, but on a busy one 85 -> 75 fps with 60% more late frames. */
-const paceOf = () => {
+/* Owen 2026-10-30: clips came out "laggy, low quality" with the sound ending halfway. The picture used to stop for 2 to
+   16 s whenever the game's frames ran late, so a busy PC kept 2 s of picture in a 30 s clip; now frames are kept 30 a
+   second on average whatever the game's pace, with the encoding in a worker. Checked against the line itself. */
+test('30 frames a second whatever the game\'s pace; nothing stops the picture when the game runs late', () => {
   const js = rec();
-  const src = js.slice(js.indexOf('  let paceMed = []'), js.indexOf('  /* Asleep:'));
+  const line = js.match(/nextCap = Math\.max\(nextCap \+ 1000 \/ FPS, now \+ 500 \/ FPS\);/);
+  assert.ok(line, 'each frame is due a 30th of a second after the last one was due');
   // eslint-disable-next-line no-new-func
-  return new Function(src + '\nreturn { pace, get lateUntil() { return lateUntil; }, get yields() { return yields; } };')();
-};
-const run = (p, t0, secs, dt) => { let t = t0; for (const end = t0 + secs * 1000; t < end; t += dt) p.pace(t); return t; };
+  const kept = (hz, secs) => new Function('FPS', 'hz', 'secs',
+    'let nextCap = 0, n = 0; for (let now = 0; now < secs * 1000; now += 1000 / hz) { if (now < nextCap) continue; '
+    + line[0] + ' n++; } return n / secs;')(30, hz, secs);
+  for (const hz of [55, 60, 75, 144, 240]) assert.ok(Math.abs(kept(hz, 20) - 30) < 0.6, hz + ' Hz game keeps ' + kept(hz, 20));
+  assert.ok(Math.abs(kept(25, 20) - 25) < 0.6, 'a game under 30 fps keeps every frame it has');
+  assert.ok(!/lateUntil|paceMed|yields/.test(js), 'no stop when the game runs late');
+  assert.match(js, /if \(sent - got > INFLIGHT\) \{ slow\+\+;/, 'an encoder that falls behind still stops the recorder in the end');
+  assert.match(js, /new Worker\(URL\.createObjectURL\(new Blob\(\['\(' \+ encoderWorker \+ '\)\(\)'\]/, 'the encoder runs in a worker');
+  assert.match(js, /f = new VideoFrame\(mirror, \{ timestamp: ts \}\);/);
+});
 
-test('no picture while the game stutters (frames over 20 ms), then back; a missed refresh at 240 Hz or a 60 Hz screen is not a stutter', () => {
-  const p = paceOf();
-  let t = run(p, 1000, 3, 1000 / 240);                  // a smooth 240 Hz game
-  t = run(p, t, 3, 1000 / 120);                         // every frame one refresh late: 120 fps is still smooth
-  assert.strictEqual(p.yields, 0);
-  t = run(p, t, 1.2, 30);                               // 33 fps: the PC is short of time
-  assert.ok(p.yields >= 1 && p.lateUntil > t, 'the picture stops');
-  const y = p.yields;
-  t = run(p, t, 20, 1000 / 240);                        // smooth again: the stop runs out by itself
-  assert.strictEqual(p.yields, y);
-  assert.ok(p.lateUntil < t);
-  const q = paceOf();                                   // a window on a 60 Hz screen
-  run(q, 1000, 5, 1000 / 60);
-  assert.strictEqual(q.yields, 0);
-  const r = paceOf();                                   // moved from 240 Hz to 60 Hz
-  run(r, run(r, 1000, 3, 1000 / 240), 12, 1000 / 60);
-  assert.strictEqual(r.yields, 0);
+/* The sound is read on the audio thread (an AudioWorklet) and stamped from the audio clock, so a busy page that reads
+   it late loses nothing; it was read on the page's thread, which dropped blocks, and the muxer writes AAC frames back
+   to back, so every lost block shortened the sound track and moved it off the picture. */
+test('every block of sound, in order, stamped from the audio clock', () => {
+  const js = rec();
+  assert.match(js, /registerProcessor\("dsclip-tap"/);
+  assert.match(js, /this\.port\.postMessage\(\{at:this\.at,l:this\.l,r:this\.r\},\[this\.l\.buffer,this\.r\.buffer\]\)/);
+  assert.match(js, /await mixer\.audioWorklet\.addModule\(/);
+  assert.match(js, /const o = mixer\.getOutputTimestamp\(\);/);
+  assert.match(js, /ms = o\.performanceTime \+ \(m\.at \/ aRate - o\.contextTime\) \* 1000/, 'from the frame count, not from when the page read it');
+  assert.ok(!/MediaStreamTrackProcessor\(\{ track: mixDest/.test(js), 'no longer read on the page\'s thread');
+  // the tap never makes a sound of its own
+  assert.match(js, /mute\.gain\.value = 0;/);
 });
 
 test('asleep (no picture, no sound, no encoding) while hidden or untouched for 45 s; waking starts the buffer again', () => {
@@ -132,8 +140,8 @@ test('asleep (no picture, no sound, no encoding) while hidden or untouched for 4
   assert.match(js, /const IDLE_MS = 45000;/);
   assert.match(js, /if \(document\.hidden\) doze\(\);/);
   assert.match(js, /if \(!asleep && now - lastInput > IDLE_MS\) doze\(\);/);
-  assert.match(js, /if \(asleep \|\| now < lateUntil \|\| !capturing/, 'the tick captures nothing asleep or late');
-  assert.match(js, /if \(!aEnc \|\| !running \|\| asleep\) \{ ad\.close\(\); continue; \}/, 'no sound is encoded asleep');
+  assert.match(js, /if \(asleep \|\| !capturing \|\| now < nextCap\) return;/, 'the tick captures nothing asleep');
+  assert.match(js, /if \(!aEnc \|\| !running \|\| asleep \|\| tabbed\) return;/, 'no sound is encoded asleep');
   assert.match(js, /mixer\.suspend\(\)/);
   const rouse = js.slice(js.indexOf('function rouse()'), js.indexOf('document.addEventListener(\'visibilitychange\''));
   assert.match(rouse, /vChunks = \[\]; aChunks = \[\]; frameNo = 0;/);
@@ -148,13 +156,15 @@ test('no layout read per frame; sound is bounded without a picture', () => {
   assert.match(js, /const old = chunk\.timestamp - KEEP_US - 2e6;/);
 });
 
-/* 2026-10-28: the encoder's cost grows with the picture's pixels, so a clip is at most 1280x720 (was 1920x1080).
-   Measured at 1920x1080, 240 Hz on a busy 2D canvas: the game's thread paid 71 ms a second for recording, now 39;
-   the GPU process 227, now 134. A game's recorder leaves the encoder choice to Chrome, which tries the graphics card first and falls back
-   to software by itself (prefer-hardware has no fallback: a failing card encoder would stop the recorder). */
-test('a picture of at most 1280x720, 30 a second; Chrome picks the encoder with its own fallback', () => {
+/* 2026-10-30 (Owen: "low quality"): the window's own size up to 1920x1080 at 8 Mbps; 1280x720 at a size-based
+   rate came out near 1.5 Mbps. The encoding runs in a worker, so the size no longer costs the game's thread. A game's
+   recorder leaves the encoder choice to Chrome, which tries the graphics card first and falls back to software by
+   itself (prefer-hardware has no fallback: a failing card encoder would stop the recorder). */
+test('a picture up to 1920x1080 at 8 Mbps, 30 a second; Chrome picks the encoder with its own fallback', () => {
   const js = rec();
-  assert.match(js, /const MAX_W = 1280, MAX_H = 720;/);
+  assert.match(js, /const MAX_W = 1920, MAX_H = 1080;/);
+  assert.match(js, /const BITRATE = 8e6;/);
+  assert.match(js, /const cfg = await pickCodec\(W, H, BITRATE\);/);
   assert.match(js, /const FPS = 30;/);
   assert.match(js, /const k = Math\.min\(1, MAX_W \/ w, MAX_H \/ h\);/, 'the game picture is scaled down to fit');
   assert.match(js, /width: \{ max: MAX_W \}, height: \{ max: MAX_H \}/, 'and the whole-tab capture asks for no more');
@@ -195,7 +205,7 @@ test('whole screen: off by default, PC only, asks at a click or P, this tab only
   assert.match(js, /tabDeclined = true; stop\('stopped sharing'\);/, 'Stop sharing hands back to the games and P stops asking');
   assert.match(js, /const g = TOP \? \(\/\^\(slither\|agar\|paper\|br\)\$\/\.test\(game\) \? game : 'other'\) : '';/, 'only a known game name goes to the server');
   const pump = js.slice(js.indexOf('async function pumpTab'), js.indexOf('function cursor()'));
-  assert.match(pump, /if \(asleep \|\| sizing \|\| now < lateUntil \|\| now - lastCap < 1000 \/ FPS - 3\) \{ f\.close\(\); continue; \}/, 'the game first, 30 a second at most');
+  assert.match(pump, /if \(asleep \|\| sizing \|\| now - lastCap < 1000 \/ FPS - 3\) \{ f\.close\(\); continue; \}/, '30 a second at most');
   assert.match(pump, /cursor\(\);\n\s*mark\(\);\n\s*encodeMirror\(\);/, 'the mouse and the mark are drawn into the video');
 });
 
@@ -219,9 +229,13 @@ test('what is over the game is in the clip, drawn again only when it changes', (
   assert.match(js, /const lift = ovs\.length && ovs\[0\]\.ready \? Math\.round\(ovs\[0\]\.lift \* \(H \/ innerHeight\)\) : 0;/,
     'the mark steps up above the game\'s own words in its corner (Paper\'s chat hint)');
   assert.match(js, /if \(!roots\) o\.lift = liftFor\(st\.words\);/, 'measured with the picture, not per frame');
-  assert.match(js, /const OV_GAP = 100, OV_SHARE = 0\.02;/, 'at most 10 a second and 2% of the page\'s time');
+  assert.match(js, /const OV_GAP = 250, OV_SHARE = 0\.02;/, 'at most 4 a second and 2% of the page\'s time');
+  assert.match(js, /if \(tag === 'IMG' && nativeImg\.has\(n\)\) return null;/, 'slither\'s minimap dot is drawn from the page, not copied');
+  assert.match(js, /if \(r\.type === 'attributes' && \(t\.tagName === 'CANVAS' \|\| nativeImg\.has\(t\)\)\) continue;/, 'and its moves make no new picture');
+  assert.match(js, /if \(!img\.complete \|\| !img\.naturalWidth \|\| !ownSrc\(img\.currentSrc \|\| img\.src\) \|\| !visible\(img\)\) continue;/,
+    'only this site\'s or data: pictures, which never mark the video as another site\'s');
   assert.match(js, /requestIdleCallback\(fn, \{ timeout: 250 \}\)/, 'in idle time');
-  assert.match(js, /const url = 'data:image\/svg\+xml;charset=utf-8,' \+ encodeURIComponent\(svg\);/,
+  assert.match(js, /const url = 'data:image\/svg\+xml;charset=utf-8,' \+ encodeURIComponent\(pre\) \+ o\.fontEnc \+ encodeURIComponent\(post\);/,
     'a data: URL: Chrome marks a blob: SVG holding HTML as another site\'s, which a VideoFrame refuses');
   assert.match(js, /if \(!o\.safe\) \{ o\.x\.getImageData\(0, 0, 1, 1\); o\.safe = true; \}/, 'never draws a picture it may not read back');
   const comp = js.slice(js.indexOf('function composite()'), js.indexOf('function mark()'));

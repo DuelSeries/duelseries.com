@@ -10,43 +10,43 @@
 
    How:
      picture  every visible canvas on the page, drawn in stacking order onto one
-              hidden canvas of at most 1280x720, 30 times a second (/sl draws the world, its minimap
-              and its overlays on separate canvases), the page's HTML over the game (end card, chat,
-              HUD, the lobby's toasts: "what is over the game" below), plus the mark
-     encode   the browser's own H.264 and AAC encoders (WebCodecs), one key
+              hidden canvas the size of the window up to 1920x1080, 30 times a second (/sl draws the
+              world, its minimap and its overlays on separate canvases), the page's HTML over the game
+              (end card, chat, HUD, the lobby's toasts: "what is over the game" below), plus the mark
+     encode   the browser's own H.264 (8 Mbps, in a worker) and AAC encoders (WebCodecs), one key
               frame a second, kept in memory as encoded chunks; anything older
               than 30 seconds (from a key frame) is dropped
      sound    every node a game connects to its speakers is also connected to a
               tap (AudioNode.prototype.connect, wrapped before any game sound
-              exists), mixed with the mic in one AudioContext
+              exists), mixed with the mic in one AudioContext and read on the
+              audio thread (an AudioWorklet), every block in order
      save     mp4mux.js turns the kept chunks into an ordinary MP4
 
    Off on phones and touch screens, without WebCodecs, on fewer than 4 cores,
    when the player switched it off (localStorage dsClipsOn = '0'), and on a PC
    that dropped frames while recording (tested once a week, dsClipPerf).
 
-   It never costs the game a frame (Owen 2026-10-16, "pretty laggy"). Measured
-   on his 240 Hz PC with slither in the lobby frame: on an idle PC recording is
-   free, but on a busy one (other DuelSeries tabs sharing Chrome's GPU, test
-   servers) it took the game from 85 to 75 fps with 60% more late frames. So it
-   steps aside: nothing at all (no picture, no sound, no encoding) while its tab
-   is hidden or nobody has touched the game for 45 s, as in a tab left open in
-   another window, and no picture while the game's own frames run late.
+   It never costs the game a frame (Owen 2026-10-16, "pretty laggy"): nothing at
+   all (no picture, no sound, no encoding) while its tab is hidden or nobody has
+   touched the game for 45 s, as in a tab left open in another window.
 
-   A smaller picture (2026-10-28): the hidden canvas was up to 1920x1080 and is
-   now at most 1280x720 (a 1080p or bigger screen records 1280x720, a 1280x800
-   window 1152x720). Nearly all of the picture's cost is the encoder taking each
-   frame, and that grows with the pixels; copying the game's canvases onto the
-   hidden one costs next to nothing. Measured in headless Chrome at 1920x1080 and
-   240 Hz, against the same page with recording off (in-page A/B on a busy 2D
-   canvas): the game's thread paid 71 ms a second more, now 39; Chrome's GPU
-   process 227, now 134. In the games themselves (same A/B, noisier) the GPU
-   process paid 337 more on Agar.io, now 214, and 344 on Paper.io, now 202.
-   960x540 or 24 a second saved nothing more measurable.
-   The rest is the sound (12 ms a second) and the frame watch above (4). The
-   graphics card's encoder is already used: no hardwareAcceleration means try it
-   first and fall back to software if it fails, where prefer-hardware would stop
-   the recorder instead (prefer-software moved 250 ms a second onto the CPU).
+   Smooth clips on a busy PC (Owen 2026-10-30: clips "laggy, low quality", the
+   sound ending halfway). The picture used to stop for 2 to 16 s whenever the
+   game's own frames ran late, which on a loaded PC left a 30 s clip with 2 s of
+   picture; the sound was read on the page's thread, which dropped blocks while
+   the page was busy, so the sound track came out short and drifted. Now the
+   encoding runs in a worker (the game's thread only hands it each frame), the
+   sound is read on the audio thread, and frames are kept 30 a second whatever
+   the game's pace, at the window's own size up to 1920x1080 and 8 Mbps.
+   Measured in headless Chrome at 1920x1080 on /sl with the CPU slowed 3x, a
+   saved 30 s clip: before, 6.9 s of picture at 5 fps (1280x720, 0.6 Mbps, one
+   5 s freeze) and 9 s of sound; after, 30.9 s at 28.4 fps (1920x1080, 7.2 Mbps,
+   longest gap 0.15 s) and 30.9 s of sound. At full speed 30.0 fps, no gap over
+   0.1 s. The game's own frame rate, recording on against off in one session:
+   239.8 against 239.8 at full speed, 236.5 against 239.7 with the CPU halved.
+   The graphics card's encoder is used when there is one: no hardwareAcceleration
+   means try it first and fall back to software if it fails, where prefer-hardware
+   would stop the recorder instead.
 
    Loaded as <script src="/js/clip/clipRec.js" data-game="slither"> after
    mp4mux.js. window.DSClip = { on, save(), offer(why) }.
@@ -73,7 +73,10 @@
   const KEEP_US = 30e6;          // what a clip holds
   const FPS = 30;
   const KEY_US = 1e6;            // a key frame each second of time, so a clip starts at most 1 s early
-  const MAX_W = 1280, MAX_H = 720;     // was 1920x1080: half the encoding cost, see "A smaller picture" above
+  const MAX_W = 1920, MAX_H = 1080;    // the window's own size up to 1080p (Owen 2026-10-30, was 1280x720)
+  const BITRATE = 8e6;           // was 2.5 to 8 Mbps by size, which came out near 1.5 (Owen: "low quality")
+  const INFLIGHT = 12;           // frames handed to the encoder and not back yet: more and the encoder is behind
+  const LATENCY = 'quality';     // the encoder spends what it needs on each frame; a clip is never watched live
   const OFFER_MS = 8000;
   const IDLE_MS = 45000;         // no key, click or mouse move for this long: nobody is playing this tab
   const LS_ON = 'dsClipsOn', LS_MIC = 'dsClipsMic', LS_PERF = 'dsClipPerf';
@@ -120,10 +123,10 @@
   };
 
   /* ── state ─────────────────────────────────────────────────────────────── */
-  let vEnc = null, aEnc = null, vDesc = null, aDesc = null, aRate = 48000;
+  let aEnc = null, vDesc = null, aDesc = null, aRate = 48000;
   let vChunks = [], aChunks = [];
   let mirror = null, mctx = null, W = 0, H = 0;
-  let T0 = performance.now(), frameNo = 0, lastKey = 0, lastCap = 0, running = false, failed = false;
+  let T0 = performance.now(), frameNo = 0, lastKey = 0, lastCap = 0, nextCap = 0, running = false, failed = false;
   let layers = [], layersAt = 0;
   const usNow = () => Math.round((performance.now() - T0) * 1000);
 
@@ -159,6 +162,38 @@
     for (let n = c.parentElement; n && n !== document.body; n = n.parentElement) if (getComputedStyle(n).position !== 'static') return true;
     return false;
   }
+  /* Pictures in a canvas's box (slither's minimap frame and its "you are here" dot) are drawn like that canvas,
+     straight from the page every frame, not through the page's picture: the dot moves all the time, and a new page
+     picture for each move was most of what that picture cost while playing (2026-10-30). Only pictures from this
+     site or data: ones, which never mark the video as another site's. Where one sits comes from its own left/top,
+     read each frame without a layout. */
+  let pics = [];
+  const nativeImg = new WeakSet();
+  const ownSrc = (u) => { try { return u.startsWith('data:') || new URL(u, location.href).origin === location.origin; } catch (_) { return false; } };
+  function positioned(el) {
+    for (let n = el.parentElement; n && n !== document.body; n = n.parentElement) if (getComputedStyle(n).position !== 'static') return n;
+    return null;
+  }
+  function findPics() {
+    const seen = new Set();
+    pics = [];
+    for (const L of layers) {
+      if (!L.boxed) continue;
+      const box = positioned(L.c);
+      if (!box || seen.has(box)) continue;
+      seen.add(box);
+      for (const img of box.querySelectorAll('img')) {
+        if (!img.complete || !img.naturalWidth || !ownSrc(img.currentSrc || img.src) || !visible(img)) continue;
+        const cb = positioned(img) || box, br = cb.getBoundingClientRect(), o = Number(getComputedStyle(img).opacity);
+        nativeImg.add(img);
+        pics.push({ img, pic: true, z: zOf(img), r: img.getBoundingClientRect(), bx: br.left + cb.clientLeft, by: br.top + cb.clientTop, o: Number.isFinite(o) ? o : 1 });
+      }
+    }
+    // with the canvases they sit among, in stacking order, then page order
+    upper = layers.filter((L) => L.boxed).concat(pics)
+      .sort((a, b) => a.z - b.z || ((a.c || a.img).compareDocumentPosition(b.c || b.img) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
+  }
+  let upper = [];
   function findLayers() {
     layers = Array.from(document.querySelectorAll('canvas'))
       .filter(c => c !== mirror && visible(c))
@@ -169,6 +204,7 @@
     // The game itself: the biggest canvas not in a box. What is over it is drawn as the page's picture (overlays below).
     base = null;
     for (const L of layers) if (!L.boxed && (!base || L.r.width * L.r.height > base.r.width * base.r.height)) base = L;
+    findPics();
     layersAt = performance.now();
   }
   let bg = '#000', base = null;
@@ -190,7 +226,8 @@
     for (const L of layers) if (!L.boxed && L.z <= over) draw(L, kx, ky);
     mctx.globalAlpha = 1;
     if (own && own.ready) mctx.drawImage(own.c, 0, 0, W, H);
-    for (const L of layers) if (L.boxed || L.z > over) draw(L, kx, ky);
+    for (const L of upper) if (L.pic) drawPic(L, kx, ky); else draw(L, kx, ky);
+    for (const L of layers) if (!L.boxed && L.z > over) draw(L, kx, ky);
     mctx.globalAlpha = 1;
     if (top && top.ready) mctx.drawImage(top.c, 0, 0, W, H);
     mark();
@@ -201,29 +238,52 @@
     mctx.globalAlpha = o;
     try { mctx.drawImage(c, r.left * kx, r.top * ky, r.width * kx, r.height * ky); } catch (_) {}
   }
+  function drawPic(P, kx, ky) {
+    const s = P.img.style;
+    const x = s.left.endsWith('px') ? P.bx + parseFloat(s.left) : P.r.left;
+    const y = s.top.endsWith('px') ? P.by + parseFloat(s.top) : P.r.top;
+    const o = s.opacity !== '' ? Number(s.opacity) : P.o;
+    mctx.globalAlpha = Number.isFinite(o) ? o : 1;
+    try { mctx.drawImage(P.img, x * kx, y * ky, P.r.width * kx, P.r.height * ky); } catch (_) {}
+  }
   /* DuelSeries.com, bottom left (Owen: free advertising on every post), on a soft dark pill so it reads on
      slither's dark floor and on Paper.io's white one alike. Over a game it steps up above any of the game's own
      words in that corner (Paper's chat hint), now that those are in the video too (liftFor, below). */
   let markBox = null;
+  // Drawn once into its own small canvas for each picture height (and again once its font has loaded), then copied
+  // onto every frame: setting the font, measuring and drawing the words 30 times a second was the biggest part of
+  // putting a frame together (2026-10-30).
+  let markC = null, markFor = '', fontOk = false;
   function mark() {
     const px = Math.max(14, Math.round(H * 0.022));
-    mctx.font = '700 ' + px + 'px Archivo, "Segoe UI", system-ui, sans-serif';
-    mctx.textBaseline = 'middle';
-    const a = mctx.measureText('Duel').width, b = mctx.measureText('Series').width, c = mctx.measureText('.com').width;
+    if (!fontOk) fontOk = !document.fonts || document.fonts.check('700 ' + px + 'px Archivo');
+    if (!markC || markFor !== H + '/' + fontOk) {
+      markC = markC || document.createElement('canvas');
+      const g = markC.getContext('2d');
+      g.font = '700 ' + px + 'px Archivo, "Segoe UI", system-ui, sans-serif';
+      const a = g.measureText('Duel').width, b = g.measureText('Series').width, c = g.measureText('.com').width;
+      const padX = px * 0.6, h = px * 1.7;
+      markC.width = Math.ceil(a + b + c + padX * 2); markC.height = Math.ceil(h);
+      g.font = '700 ' + px + 'px Archivo, "Segoe UI", system-ui, sans-serif';
+      g.textBaseline = 'middle';
+      g.fillStyle = 'rgba(16,14,11,.42)';
+      g.beginPath();
+      if (g.roundRect) g.roundRect(0, 0, a + b + c + padX * 2, h, h / 2); else g.rect(0, 0, a + b + c + padX * 2, h);
+      g.fill();
+      const ty = h / 2 + px * 0.04;
+      g.fillStyle = 'rgba(245,241,232,.8)';
+      g.fillText('Duel', padX, ty);
+      g.fillStyle = 'rgba(240,168,48,.9)';
+      g.fillText('Series', padX + a, ty);
+      g.fillStyle = 'rgba(245,241,232,.8)';
+      g.fillText('.com', padX + a + b, ty);
+      markFor = H + '/' + fontOk;
+    }
     const lift = ovs.length && ovs[0].ready ? Math.round(ovs[0].lift * (H / innerHeight)) : 0;
-    const padX = px * 0.6, h = px * 1.7, x = Math.round(px), y = H - Math.round(px) - h - lift;
-    markBox = { x, w: a + b + c + padX * 2, h, m: Math.round(px) };
-    mctx.fillStyle = 'rgba(16,14,11,.42)';
-    mctx.beginPath();
-    if (mctx.roundRect) mctx.roundRect(x, y, a + b + c + padX * 2, h, h / 2); else mctx.rect(x, y, a + b + c + padX * 2, h);
-    mctx.fill();
-    const tx = x + padX, ty = y + h / 2 + px * 0.04;
-    mctx.fillStyle = 'rgba(245,241,232,.8)';
-    mctx.fillText('Duel', tx, ty);
-    mctx.fillStyle = 'rgba(240,168,48,.9)';
-    mctx.fillText('Series', tx + a, ty);
-    mctx.fillStyle = 'rgba(245,241,232,.8)';
-    mctx.fillText('.com', tx + a + b, ty);
+    const x = Math.round(px), y = H - Math.round(px) - markC.height - lift;
+    markBox = { x, w: markC.width, h: markC.height, m: Math.round(px) };
+    mctx.globalAlpha = 1;
+    mctx.drawImage(markC, x, y);
   }
 
   /* ── what is over the game (Owen 2026-10-30) ─────────────────────────────
@@ -233,7 +293,7 @@
      HTML over the game, with the page's own styles and fonts, inside an SVG image, which the browser lays out exactly
      as on screen. That picture goes between the game's canvases and any canvas boxed inside it (slither's minimap).
      It is made again only when something in it changes (a MutationObserver; a short CSS motion, like the end card
-     rising, gets one picture once it has settled, a longer one a picture each time, held where it was), at most 10
+     rising, gets one picture once it has settled, a longer one a picture each time, held where it was), at most 4
      times a second and 2% of the page's time, in the browser's idle time; every frame in between reuses the last one. Left out: the ping and FPS readout, this recorder's own
      notes, and any wallet address.
      The lobby's copy (the whole tab) has none of this: the tab capture holds it already. */
@@ -242,13 +302,14 @@
   // A Solana address, whole or as the lobby shortens it (7xKp…3fA2), wherever it shows (a chat line, a toast).
   const OV_ADDR = new RegExp(B58 + '{32,44}|' + B58 + '{4,8}\u2026' + B58 + '{4,8}', 'g');
   const OV_SKIP = /^(SCRIPT|STYLE|LINK|META|NOSCRIPT|TEMPLATE|IFRAME|FRAME|VIDEO|AUDIO|OBJECT|EMBED)$/;
-  const OV_GAP = 100, OV_SHARE = 0.02;
+  const OV_GAP = 250, OV_SHARE = 0.02;
   // In the copy: no motion of its own (see freeze below), no page colour over the game, no text cursor.
   const OV_CSS = '*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important}'
     + 'html,body{background:transparent!important}';
   // A box the game is drawn over: only what is above the game shows, its own paint is under it.
   const FLAT = 'background:none!important;border-color:transparent!important;box-shadow:none!important;outline:none!important;';
   const XHTML = 'http://www.w3.org/1999/xhtml';
+  const FONT_SLOT = '/*dsclip-fonts*/';
   const kebab = (p) => (p.startsWith('--') ? p : p.replace(/[A-Z]/g, (m) => '-' + m.toLowerCase()));
   const unq = (s) => String(s || '').trim().replace(/^["']|["']$/g, '');
   const idle = (fn) => (window.requestIdleCallback ? requestIdleCallback(fn, { timeout: 250 }) : setTimeout(fn, 0));
@@ -274,7 +335,7 @@
   function overlay(doc, frame) {
     const o = { doc, win: doc.defaultView, frame, c: document.createElement('canvas'), x: null, ready: false, dirty: true, busy: false,
       next: 0, cost: 0, pace: 0, n: 0, same: 0, fails: 0, off: false, safe: false, held: false, lift: 0, zTop: Infinity, roots: new Set(), last: '',
-      sheetKey: null, rules: [], faces: [], fontKey: null, fontCss: '' };
+      sheetKey: null, rules: [], faces: [], fontKey: null, fontCss: '', fontEnc: null };
     o.x = o.c.getContext('2d');
     const kick = () => { o.dirty = true; };
     o.kick = kick;
@@ -294,7 +355,7 @@
           if (n && o.roots.has(n)) { kick(); return; }
           continue;
         }
-        if (r.type === 'attributes' && t.tagName === 'CANVAS') continue;      // drawn from the canvas itself
+        if (r.type === 'attributes' && (t.tagName === 'CANVAS' || nativeImg.has(t))) continue;      // drawn from the page itself
         if (t.closest && t.closest(OV_HIDE)) continue;
         kick();
         return;
@@ -423,6 +484,7 @@
         + (f.stretch ? ';font-stretch:' + f.stretch : '') + (f.range ? ';unicode-range:' + f.range : '')
         + ';src:url(' + d + ')' + (f.fmt ? ' format("' + f.fmt + '")' : '') + '}';
     }
+    if (css !== o.fontCss) o.fontEnc = null;
     o.fontCss = css;
     o.fontKey = waiting ? null : key;
   }
@@ -463,6 +525,7 @@
       return c;
     }
     if (flat && (tag === 'IMG' || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'BUTTON' || tag === 'SELECT')) return null;
+    if (tag === 'IMG' && nativeImg.has(n)) return null;
     const c = n.cloneNode(false);
     note(n, st);
     let add = flat ? FLAT : '';
@@ -622,21 +685,26 @@
       for (const e of roots) { const k = copy(e, st, true); if (k) body.appendChild(k); }
     } else body = copy(doc.body, st, false) || doc.createElement('body');
     html.appendChild(body);
-    let css = o.fontCss;
+    // The fonts (most of the picture's bytes) go in at a mark after the copy is written out, already escaped once for
+    // all pictures, rather than being copied and escaped again for each one.
+    let css = FONT_SLOT;
     for (const r of o.rules) if (!r.k || r.k.some((k) => st.toks.has(k))) css += r.t;
     style.textContent = css + st.css + OV_CSS;
-    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + vw + '" height="' + vh + '" viewBox="' + box.join(' ')
-      + '" preserveAspectRatio="none"><foreignObject x="0" y="0" width="' + vw + '" height="' + vh + '">'
-      + new XMLSerializer().serializeToString(html) + '</foreignObject></svg>';
+    const xml = new XMLSerializer().serializeToString(html), at = xml.indexOf(FONT_SLOT);
+    const pre = '<svg xmlns="http://www.w3.org/2000/svg" width="' + vw + '" height="' + vh + '" viewBox="' + box.join(' ')
+      + '" preserveAspectRatio="none"><foreignObject x="0" y="0" width="' + vw + '" height="' + vh + '">' + xml.slice(0, at);
+    const post = xml.slice(at + FONT_SLOT.length) + '</foreignObject></svg>';
     if (st.stillMoving) o.dirty = true;
     o.zTop = roots ? Infinity : st.zTop;
     if (!roots) o.lift = liftFor(st.words);
     const made = performance.now() - t0 - prep;
     // The same as the picture on hand (a leaderboard written again with the same rows): nothing to draw.
+    const svg = pre + '\n' + o.fontCss.length + '\n' + post;
     if (svg === o.last && o.ready) { o.same++; o.busy = false; o.next = performance.now() + Math.max(OV_GAP, made / OV_SHARE); return; }
     o.last = svg;
+    if (o.fontEnc === null) o.fontEnc = encodeURIComponent(o.fontCss);
     // A data: URL, not a blob: one: Chrome marks a blob SVG holding HTML as another site's, which no video may hold.
-    const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+    const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(pre) + o.fontEnc + encodeURIComponent(post);
     const img = new Image();
     img.decoding = 'async';
     img.src = url;
@@ -666,11 +734,57 @@
   }
 
   /* ── encoders ──────────────────────────────────────────────────────────── */
+  /* The picture's encoder runs in a worker (2026-10-30): the game's thread hands it each frame (a VideoFrame of the
+     hidden canvas, which stays on the graphics card) and gets the encoded chunks back; the encoding never lands on
+     the game's thread. A new size starts a new generation, and chunks from the old one are ignored. */
+  function encoderWorker() {
+    'use strict';
+    let enc = null, gen = 0;
+    const own = (b) => (b instanceof ArrayBuffer ? new Uint8Array(b) : new Uint8Array(b.buffer, b.byteOffset, b.byteLength)).slice();
+    self.onmessage = (e) => {
+      const m = e.data;
+      if (m.cfg) {
+        if (enc) { try { enc.close(); } catch (_) {} }
+        const g = gen = m.gen;
+        enc = new VideoEncoder({
+          output: (chunk, meta) => {
+            const data = new Uint8Array(chunk.byteLength);
+            chunk.copyTo(data);
+            const d = meta && meta.decoderConfig && meta.decoderConfig.description;
+            self.postMessage({ gen: g, data, ts: chunk.timestamp, key: chunk.type === 'key', desc: d ? own(d) : null }, [data.buffer]);
+          },
+          error: (err) => self.postMessage({ gen: g, error: String((err && err.message) || err) }),
+        });
+        try { enc.configure(m.cfg); } catch (err) { enc = null; self.postMessage({ gen: g, error: String(err && err.message) }); }
+      } else if (m.frame) {
+        if (!enc || m.gen !== gen) { m.frame.close(); self.postMessage({ gen: m.gen, drop: 1 }); return; }
+        try { enc.encode(m.frame, { keyFrame: m.key }); } catch (_) { self.postMessage({ gen, drop: 1 }); }
+        m.frame.close();
+      } else if (m.close && enc) { try { enc.close(); } catch (_) {} enc = null; }
+    };
+  }
+  let worker = null, vGen = 0, sent = 0, got = 0;
+  function encoder() {
+    if (worker) return worker;
+    try { worker = new Worker(URL.createObjectURL(new Blob(['(' + encoderWorker + ')()'], { type: 'text/javascript' }))); } catch (_) { return null; }
+    worker.onmessage = (e) => {
+      const m = e.data;
+      if (m.gen !== vGen) return;
+      if (m.error) { stop('video encoder: ' + m.error); return; }
+      got++;
+      if (m.drop) return;
+      if (m.desc) vDesc = m.desc;
+      vChunks.push({ data: m.data, ts: m.ts, key: m.key });
+      prune();
+    };
+    worker.onerror = () => stop('video encoder worker');
+    return worker;
+  }
   async function pickCodec(w, h, bitrate) {
     // The whole tab asks for the graphics card's encoder first: it runs beside a game that is already busy.
     for (const hw of TOP ? ['prefer-hardware', ''] : ['']) {
       for (const codec of ['avc1.640028', 'avc1.4D4028', 'avc1.42E028', 'avc1.42E01F']) {
-        const cfg = { codec, width: w, height: h, bitrate, framerate: FPS, avc: { format: 'avc' }, latencyMode: 'realtime' };
+        const cfg = { codec, width: w, height: h, bitrate, framerate: FPS, avc: { format: 'avc' }, latencyMode: LATENCY };
         if (hw) cfg.hardwareAcceleration = hw;
         try { if ((await VideoEncoder.isConfigSupported(cfg)).supported) return cfg; } catch (_) {}
       }
@@ -681,29 +795,24 @@
     [W, H] = w ? [w, h] : size();
     if (!mirror) { mirror = document.createElement('canvas'); mctx = mirror.getContext('2d', { alpha: false }); }
     mirror.width = W; mirror.height = H;
-    const bitrate = Math.round(Math.min(TOP ? 6e6 : 8e6, Math.max(2.5e6, W * H * FPS * 0.1)));
-    const cfg = await pickCodec(W, H, bitrate);
-    if (!cfg) { stop('no H.264 encoder'); return false; }
-    if (vEnc) { try { vEnc.close(); } catch (_) {} }
-    vChunks = []; vDesc = null; frameNo = 0;
-    vEnc = new VideoEncoder({
-      output: (chunk, meta) => {
-        if (meta && meta.decoderConfig && meta.decoderConfig.description) vDesc = new Uint8Array(meta.decoderConfig.description);
-        const data = new Uint8Array(chunk.byteLength);
-        chunk.copyTo(data);
-        vChunks.push({ data, ts: chunk.timestamp, key: chunk.type === 'key' });
-        prune();
-      },
-      error: (e) => stop('video encoder: ' + (e && e.message)),
-    });
-    vEnc.configure(cfg);
+    const cfg = await pickCodec(W, H, BITRATE);
+    if (!cfg || !encoder()) { stop('no H.264 encoder'); return false; }
+    vChunks = []; vDesc = null; frameNo = 0; sent = got = 0;
+    worker.postMessage({ cfg, gen: ++vGen });
     return true;
   }
 
+  /* The sound's tap: an AudioWorklet hands over every block in order from the audio thread (2048 frames a message),
+     so a busy page reads late but loses nothing. */
+  const TAP = 'registerProcessor("dsclip-tap",class extends AudioWorkletProcessor{constructor(){super();this.n=0;this.a()}'
+    + 'a(){this.l=new Float32Array(2048);this.r=new Float32Array(2048)}'
+    + 'process(i){const x=i[0]||[],l=x[0],r=x[1]||l,k=l?l.length:128;if(this.n===0)this.at=currentFrame;'
+    + 'if(l){this.l.set(l,this.n);this.r.set(r,this.n)}this.n+=k;'
+    + 'if(this.n>=2048){this.port.postMessage({at:this.at,l:this.l,r:this.r},[this.l.buffer,this.r.buffer]);this.a();this.n=0}return true}})';
   async function startAudio(tabSound) {
     try {
       mixer = new AudioContext();
-      mixDest = mixer.createMediaStreamDestination();
+      mixDest = mixer.createGain();      // every sound is summed here, then tapped
       aRate = mixer.sampleRate;
       // A silent source keeps the stream running before the game makes any sound (with no input Chrome sends nothing),
       // so every clip has one unbroken sound track.
@@ -719,7 +828,8 @@
           .catch(() => { /* not allowed: game sound only */ });
       }
       const cfg = { codec: 'mp4a.40.2', sampleRate: aRate, numberOfChannels: 2, bitrate: 128000 };
-      if (!(await AudioEncoder.isConfigSupported(cfg)).supported || typeof MediaStreamTrackProcessor !== 'function') return;
+      if (!(await AudioEncoder.isConfigSupported(cfg)).supported || !mixer.audioWorklet) return;
+      await mixer.audioWorklet.addModule(URL.createObjectURL(new Blob([TAP], { type: 'text/javascript' })));
       aEnc = new AudioEncoder({
         output: (chunk, meta) => {
           if (meta && meta.decoderConfig && meta.decoderConfig.description) aDesc = new Uint8Array(meta.decoderConfig.description);
@@ -733,8 +843,13 @@
         error: () => { aEnc = null; aChunks = []; },
       });
       aEnc.configure(cfg);
-      const reader = new MediaStreamTrackProcessor({ track: mixDest.stream.getAudioTracks()[0] }).readable.getReader();
-      pumpAudio(reader);
+      const tap = new AudioWorkletNode(mixer, 'dsclip-tap', { numberOfInputs: 1, numberOfOutputs: 1, channelCount: 2, channelCountMode: 'explicit' });
+      const mute = mixer.createGain();
+      mute.gain.value = 0;      // the tap runs while it leads to the speakers; nothing is heard from it
+      mixDest.connect(tap);
+      tap.connect(mute);
+      mute.connect(mixer.destination);
+      tap.port.onmessage = (e) => takeAudio(e.data);
       // The mixer only runs once the page has had a gesture; games get one at the first key or click.
       const wake = () => { if (mixer && mixer.state === 'suspended' && !asleep) mixer.resume().catch(() => {}); };
       if (asleep) mixer.suspend().catch(() => {});
@@ -742,34 +857,26 @@
       ['keydown', 'pointerdown'].forEach(t => addEventListener(t, wake, { capture: true, passive: true }));
     } catch (_) { aEnc = null; }
   }
-  /* Restamped on this page's clock, so sound and picture line up: samples are counted from where the first one
-     landed, and re-anchored if the stream ever falls more than 150 ms off (a hidden tab, a stall). */
-  async function pumpAudio(reader) {
-    let base = null, count = 0;
-    for (;;) {
-      let r;
-      try { r = await reader.read(); } catch (_) { return; }
-      if (r.done || !running && failed) { if (r.value) r.value.close(); return; }
-      const ad = r.value;
-      if (!aEnc || !running || asleep) { ad.close(); continue; }
-      if (tabbed) { ad.close(); continue; }      // the lobby is recording the whole tab, sound included
-      const n = ad.numberOfFrames, ch = Math.min(2, ad.numberOfChannels);
-      const durUs = (n / ad.sampleRate) * 1e6;
-      const arrive = usNow() - durUs;
-      let ts = base === null ? null : base + (count / ad.sampleRate) * 1e6;
-      if (ts === null || Math.abs(ts - arrive) > 150000) { base = arrive; count = 0; ts = arrive; }
-      count += n;
-      try {
-        const buf = new Float32Array(n * 2);
-        ad.copyTo(buf.subarray(0, n), { planeIndex: 0, format: 'f32-planar' });
-        ad.copyTo(buf.subarray(n), { planeIndex: ch > 1 ? 1 : 0, format: 'f32-planar' });
-        const out = new AudioData({ format: 'f32-planar', sampleRate: ad.sampleRate, numberOfFrames: n,
-                                    numberOfChannels: 2, timestamp: Math.round(ts), data: buf });
-        aEnc.encode(out);
-        out.close();
-      } catch (_) { /* one block lost, not the recorder */ }
+  /* Each block is stamped from the audio clock (its first frame, placed on this page's clock by the context, less
+     the output's own delay), never from when the page got round to it, so sound and picture stay together. */
+  function takeAudio(m) {
+    if (!aEnc || !running || asleep || tabbed) return;
+    const n = m.l.length;
+    let ms = null;
+    try {
+      const o = mixer.getOutputTimestamp();
+      if (o && o.performanceTime > 0) ms = o.performanceTime + (m.at / aRate - o.contextTime) * 1000 - ((mixer.outputLatency || 0) + (mixer.baseLatency || 0)) * 1000;
+    } catch (_) {}
+    if (ms === null) ms = performance.now() - (n / aRate) * 1000;
+    try {
+      const buf = new Float32Array(n * 2);
+      buf.set(m.l, 0);
+      buf.set(m.r, n);
+      const ad = new AudioData({ format: 'f32-planar', sampleRate: aRate, numberOfFrames: n, numberOfChannels: 2,
+                                 timestamp: Math.round((ms - T0) * 1000), data: buf });
+      aEnc.encode(ad);
       ad.close();
-    }
+    } catch (_) { /* one block lost, not the recorder */ }
   }
 
   // Keep 30 seconds from a key frame; sound from just before the first kept frame.
@@ -796,14 +903,15 @@
     // The lobby is recording the whole tab: this game's recorder stands down, and starts its buffer afresh after.
     const T = topClip();
     if (T && T.tab) { if (!tabbed) { vChunks = []; aChunks = []; } tabbed = true; return; }
-    if (tabbed) { tabbed = false; vChunks = []; aChunks = []; frameNo = 0; lastNow = 0; gaps = []; }
+    if (tabbed) { tabbed = false; vChunks = []; aChunks = []; frameNo = 0; }
     sampleFps(now);
-    pace(now);
     if (!asleep && now - lastInput > IDLE_MS) doze();
     if (TOP) return;      // the lobby's pictures come from the tab itself (pumpTab)
-    if (asleep || now < lateUntil || !capturing || now - lastCap < 1000 / FPS - 3) return;
+    // 30 a second on average whatever the game's own pace (a 55 fps game gave 27 when each frame waited a full 33 ms)
+    if (asleep || !capturing || now < nextCap) return;
+    nextCap = Math.max(nextCap + 1000 / FPS, now + 500 / FPS);
     lastCap = now;
-    if (vEnc.encodeQueueSize > 4) { slow++; if (slow > FPS * 3) stop('the encoder cannot keep up', true); return; }
+    if (sent - got > INFLIGHT) { slow++; if (slow > FPS * 3) stop('the encoder cannot keep up', true); return; }
     slow = 0;
     const [w, h] = size();
     if (w !== W || h !== H) { capturing = false; startVideo().then(ok => { capturing = ok; }); return; }
@@ -812,43 +920,17 @@
     encodeMirror();
   }
   function encodeMirror() {
+    const ts = usNow();
+    // By time, not by frame count: a stretch with no picture (asleep, a stall) must not stretch the key frames.
+    const key = frameNo === 0 || ts - lastKey >= KEY_US - 20000;
     let f;
-    try {
-      const ts = usNow();
-      // By time, not by frame count: a stretch with no picture (the game came first) must not stretch the key frames.
-      const key = frameNo === 0 || ts - lastKey >= KEY_US - 20000;
-      if (key) lastKey = ts;
-      f = new VideoFrame(mirror, { timestamp: ts });
-      vEnc.encode(f, { keyFrame: key });
-      frameNo++;
-    } catch (_) { /* a frame lost */ }
-    if (f) f.close();
+    try { f = new VideoFrame(mirror, { timestamp: ts }); } catch (_) { return; }      // a frame lost
+    if (key) lastKey = ts;
+    frameNo++;
+    sent++;
+    worker.postMessage({ frame: f, key, gen: vGen }, [f]);
   }
   let capturing = false, slow = 0, tabbed = false;
-
-  /* ── the game first ────────────────────────────────────────────────────── */
-  /* The game's own pace: each second's median frame time; the best of the last 10 s is the screen's pace (240 Hz,
-     60 Hz, whatever this window is on). A frame is late when it is a stutter you can see: over 1.5x that pace and
-     over 20 ms (at 240 Hz one missed refresh is 8 ms and still smooth). A second with over 5% of its frames late
-     means the PC is short of time, and the picture stops for 2 s, then 4, 8, up to 16 s while it stays short (calm
-     again for 10 s resets it). The clip holds a still frame over that stretch; the sound keeps going. */
-  let paceMed = [], gaps = [], secAt = 0, lastNow = 0, lateUntil = 0, lateBack = 2000, yields = 0;
-  function pace(now) {
-    if (lastNow) gaps.push(now - lastNow);
-    lastNow = now;
-    if (now - secAt < 1000) return;
-    secAt = now;
-    const g = gaps.sort((a, b) => a - b);
-    gaps = [];
-    if (g.length < 5) return;
-    paceMed.push(g[g.length >> 1]);
-    if (paceMed.length > 10) paceMed.shift();
-    const lim = Math.max(Math.min.apply(null, paceMed) * 1.5, 20);
-    let late = 0;
-    for (const x of g) if (x > lim) late++;
-    if (paceMed.length >= 2 && late > g.length * 0.05) { lateUntil = now + lateBack; lateBack = Math.min(16000, lateBack * 2); yields++; }
-    else if (now > lateUntil + 10000) lateBack = 2000;
-  }
 
   /* Asleep: no picture, no sound, no encoding. While the tab is hidden (a gap would be one frame lasting minutes)
      and after IDLE_MS with no input. Waking starts the buffer again. */
@@ -862,7 +944,6 @@
     if (!asleep || !running || document.hidden) return;
     asleep = false;
     vChunks = []; aChunks = []; frameNo = 0;
-    lastNow = 0; gaps = []; secAt = performance.now();
     if (mixer && mixer.state === 'suspended') mixer.resume().catch(() => {});
   }
   document.addEventListener('visibilitychange', () => {
@@ -897,9 +978,9 @@
 
   function stop(why, tell) {
     running = false; capturing = false; failed = !TOP; DSClip.on = false;
-    try { if (vEnc) vEnc.close(); } catch (_) {}
+    if (worker) { vGen++; worker.postMessage({ close: 1 }); }
     try { if (aEnc) aEnc.close(); } catch (_) {}
-    vEnc = aEnc = null; vChunks = []; aChunks = [];
+    aEnc = null; vChunks = []; aChunks = [];
     dot(false);
     if (TOP) {      // the lobby can start again later this visit
       const s = tabStream;
@@ -1053,7 +1134,7 @@
   }
   DSClip.share = () => share(last);
   // For a console check: what is being recorded right now.
-  DSClip.stats = () => ({ on: running, capturing, asleep, late: performance.now() < lateUntil, yields, size: W + 'x' + H, layers: layers.length,
+  DSClip.stats = () => ({ on: running, capturing, asleep, inflight: sent - got, size: W + 'x' + H, layers: layers.length,
     seconds: vChunks.length > 1 ? Math.round((vChunks[vChunks.length - 1].ts - vChunks[0].ts) / 1e5) / 10 : 0,
     audio: !!aEnc && aChunks.length > 0, mixer: mixer ? mixer.state : 'none', hooked,
     overlays: ovs.map((o) => ({ pictures: o.n, ms: Math.round(o.cost * 10) / 10, same: o.same, shown: o.ready, off: o.off })), mb: Math.round(vChunks.concat(aChunks).reduce((n, c) => n + c.data.length, 0) / 1e5) / 10 });
@@ -1362,7 +1443,7 @@
     tabStream = s;
     vt.addEventListener('ended', () => { if (tabStream === s) { tabDeclined = true; stop('stopped sharing'); } });
     T0 = performance.now(); lastCap = 0; frameNo = 0; vChunks = []; aChunks = []; W = H = 0;
-    lastInput = performance.now(); asleep = false; lateUntil = 0; lastNow = 0; gaps = [];
+    lastInput = performance.now(); asleep = false;
     running = true; DSClip.on = true;
     requestAnimationFrame(tick);
     startAudio(s.getAudioTracks()[0] || null);
@@ -1379,7 +1460,7 @@
       const f = r.value;
       if (r.done || tabStream !== s) { if (f) f.close(); break; }
       const now = performance.now();
-      if (asleep || sizing || now < lateUntil || now - lastCap < 1000 / FPS - 3) { f.close(); continue; }
+      if (asleep || sizing || now - lastCap < 1000 / FPS - 3) { f.close(); continue; }
       let w = f.displayWidth, h = f.displayHeight;
       const k = Math.min(1, MAX_W / w, MAX_H / h);
       w = Math.max(2, Math.round((w * k) / 2) * 2); h = Math.max(2, Math.round((h * k) / 2) * 2);
@@ -1390,7 +1471,7 @@
         continue;
       }
       lastCap = now;
-      if (!vEnc || vEnc.encodeQueueSize > 4) { f.close(); slow++; if (slow > FPS * 3) stop('the encoder cannot keep up', true); continue; }
+      if (!worker || sent - got > INFLIGHT) { f.close(); slow++; if (slow > FPS * 3) stop('the encoder cannot keep up', true); continue; }
       slow = 0;
       try { mctx.drawImage(f, 0, 0, W, H); } catch (_) {}
       f.close();
