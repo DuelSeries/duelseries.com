@@ -156,7 +156,7 @@ canvas { width: 100%; height: auto; display: block; border-radius: 10px; }
 .mini {
   flex: 1 1 0; min-width: 0;
   font-family: inherit; font-size: 12px; font-weight: 600;
-  border-radius: 9px; padding: 10px 8px; cursor: pointer;
+  border-radius: 9px; padding: 10px 8px; min-height: 40px; cursor: pointer;
   border: 1px solid var(--s3); background: var(--s1); color: var(--tx);
   transition: background 0.15s, border-color 0.15s, opacity 0.15s;
 }
@@ -219,7 +219,8 @@ canvas { width: 100%; height: auto; display: block; border-radius: 10px; }
 
 /* Sideways on a phone, the two boards sit next to each other, which is the
    whole reason to turn it. */
-@media (max-width: 900px) and (orientation: landscape) {
+/* Short as well as narrow: a big phone held sideways (915 x 412) is wider than 900 and still a phone. */
+@media (max-width: 900px) and (orientation: landscape), (max-height: 500px) and (orientation: landscape) {
   #boards { grid-template-columns: 1fr 1fr; }
   #wrapTheirs { order: 2; }
   #wrapMine   { order: 1; }
@@ -301,7 +302,7 @@ body.watching #top { padding-left: 126px; padding-right: 126px; }
   border: 1px solid var(--s3); background: transparent; color: var(--tx);
   transition: background 0.15s, border-color 0.15s;
 }
-.waitCard button { margin-top: 20px; width: 100%; }
+.waitCard button { margin-top: 20px; width: 100%; min-height: 44px; }
 .waitCard button:hover { background: var(--s2); border-color: #3a4553; }
 
 /* ── narrow screens ────────────────────────────────────────────────────────
@@ -436,7 +437,7 @@ body.placing .dsc-phone { --dsc-t: calc(100vh - 160px); }              /* under 
 @media (orientation: landscape) {                                       /* sideways: your waters are the right-hand board... */
   .dsc-phone, body.placing .dsc-phone { --dsc-l: calc(100vw - 250px); --dsc-t: 56px; }
 }
-@media (max-width: 900px) and (orientation: landscape) {                /* ...except on a phone, which turns them round */
+@media (max-width: 900px) and (orientation: landscape), (max-height: 500px) and (orientation: landscape) {   /* ...except on a phone, which turns them round */
   .dsc-phone, body.placing .dsc-phone { --dsc-l: 10px; }
 }
 

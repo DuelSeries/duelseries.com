@@ -80,7 +80,7 @@ html, body {
   border-radius: 10px; padding: 11px 16px; cursor: pointer;
   border: 1px solid var(--s3); background: transparent; color: var(--tx);
   transition: background 0.15s, border-color 0.15s;
-  margin-top: 20px; width: 100%;
+  margin-top: 20px; width: 100%; min-height: 44px;
 }
 .waitCard button:hover { background: var(--s2); border-color: #3a3126; }
 .waitCard button:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }

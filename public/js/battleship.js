@@ -1191,6 +1191,7 @@ socket.on('bs:over', (m) => {
     me: socket.id || myId,
     ms: matchAt ? Date.now() - matchAt : 0,
     hits: ((st && st.myShots) || []).filter(s => s && s.hit).length,
+    vsBot: !!(st && st.vsBot),     // the card names the bot as a bot, as Pool and Air Hockey do
   });
   restake = null; restakeLine = '';
   paintOver();
@@ -1248,7 +1249,7 @@ function paintOver() {
   const time = m.ms > 0 ? DSEnd.clock(m.ms) : '';
   const card = {
     tone: 'plain',
-    verdict: won === true ? 'You win' : won === false ? (m.winner || 'Your opponent') + ' wins' : 'Draw',
+    verdict: won === true ? 'You win' : won === false ? (m.winner || 'Your opponent') + (m.vsBot && m.winner ? ' (bot)' : '') + ' wins' : 'Draw',
     notes: [],
   };
   if (money) {

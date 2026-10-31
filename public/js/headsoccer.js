@@ -296,7 +296,10 @@ function layoutButtons() {
     r.K = mk(V.w / 2 + gap / 2, y, bw, bh); r.J = mk(V.w / 2 + gap / 2 + bw + gap, y, bw, bh);
   } else {
     const zw = 400 * V.s, zh = 350 * V.s, left = sx(-V.vw / 2), right = sx(V.vw / 2), bot = sy(HS.VIEW_H);
-    const btn = (x0) => { const d = 269 * V.s, cx = x0 + zw / 2, cy = bot - zh / 2; return mk(cx - d / 2, cy - d / 2, d, d); };
+    /* Lifted, only as far as it takes, to clear the ping and FPS readout in the bottom right corner (dsPerfHud.js,
+       about 24 px tall): on a phone on its side the kick and jump buttons sat under it. The zones still reach the bottom. */
+    const d0 = 269 * V.s, lift = Math.max(0, bot - zh / 2 + d0 / 2 - (V.h - 26));
+    const btn = (x0) => { const d = d0, cx = x0 + zw / 2, cy = bot - zh / 2 - lift; return mk(cx - d / 2, cy - d / 2, d, d); };
     r.L = btn(left); r.R = btn(left + zw); r.J = btn(right - zw); r.K = btn(right - 2 * zw);
   }
   BTN = r;
@@ -998,7 +1001,7 @@ socket.on('hs:over', (m) => {
   releaseAll();
   /* Whose result it is, read now: a reconnect while the card is up changes the socket id, and the card is drawn
      again on every restake step. */
-  lastOver = Object.assign({}, m || {}, { ms: matchAt ? Date.now() - matchAt : 0, me, seat: mySeat });
+  lastOver = Object.assign({}, m || {}, { ms: matchAt ? Date.now() - matchAt : 0, me, seat: mySeat, vsBot: !!(match && match.vsBot) });   // the card names the bot as a bot, as Pool and Air Hockey do
   if (m && m.winnerId) { if (m.winnerId === me) series.mine++; else series.theirs++; }
   restake = null; restakeLine = '';
   paintOver();
@@ -1034,7 +1037,7 @@ function paintOver() {
   const time = m.ms > 0 ? DSEnd.clock(m.ms) : '';
   const card = {
     tone: 'plain',
-    verdict: won === true ? 'You win' : won === false ? (m.winner || 'Opponent') + ' wins' : 'Draw',
+    verdict: won === true ? 'You win' : won === false ? (m.winner || 'Opponent') + (m.vsBot && m.winner ? ' (bot)' : '') + ' wins' : 'Draw',
     notes: [],
   };
   if (money) {
