@@ -832,6 +832,71 @@ test('knockout: a reconnect mid-match clears the old board and takes the new wai
   assert.strictEqual(page.sent('ko:queue').pop()[1].resume, 'a'.repeat(32), 'a second blip takes the same place back');
 });
 
+/* 2026-10-31: a PAID seat whose connection dropped after its match began used to queue again on its spent entry (and
+   be told "not paid for"), or, dropped as the match was made, that its buy-in "goes back to your wallet" when the
+   match had been lost. It now asks with its seat's key, and says what the server says happened to the money. */
+const koPaidStart = () => ({
+  id: 'm1', state: 'countdown', turn: 0, arenaR: 300, pieceR: 20, maxPull: 100, phaseMs: 3000, aimMs: 15000,
+  players: [{ id: ME, name: 'Owen', side: 0, left: 2 }, { id: 'o', name: 'Nia', side: 1, left: 2 }],
+  pieces: [], ready: [], stake: 1, pot: 2, ringOut: [],
+});
+const PAID_PAGE = { playerName: 'Owen', stake: '1', entryToken: 'tok-1' };
+
+test('knockout: a paid drop mid-match asks with its seat key, and a forfeit says the buy-in is lost', () => {
+  const page = boot('knockout.js', PAID_PAGE);
+  page.deliver('connect');
+  page.deliver('ko:start', koPaidStart());
+  page.deliver('ko:matchkey', { key: 'b'.repeat(32) });
+  page.deliver('connect');
+  const ask = page.sent('ko:queue').pop()[1];
+  assert.strictEqual(ask.resume, 'b'.repeat(32), 'asks about its seat');
+  assert.ok(!ask.entryToken, 'and spends no entry');
+  assert.strictEqual(page.$('top').hidden, true, 'the old board is off the screen');
+  page.deliver('ko:missed', { result: 'lost', micro: 1e6 });
+  assert.strictEqual(page.$('waitMain').textContent, 'Match lost');
+  assert.match(page.$('waitSub').textContent, /your opponent won it, so your \$1\.00 buy-in does not come back/);
+  assert.doesNotMatch(page.$('waitSub').textContent, /back to your wallet/);
+  assert.strictEqual(page.$('waitCancel').textContent, 'Back to the lobby');
+});
+
+test('knockout: a paid seat dropped as its match was made waits for the result, and a true refund says so', () => {
+  const page = boot('knockout.js', PAID_PAGE);
+  page.deliver('connect');
+  page.deliver('ko:queued', { waitingMs: 0, stake: 1, worth: 1, resumeKey: 'c'.repeat(32), waitMs: 20000 });
+  page.deliver('connect');                          // dropped before its ko:start arrived
+  assert.strictEqual(page.sent('ko:queue').pop()[1].resume, 'c'.repeat(32));
+  page.deliver('ko:missed', { result: 'playing' });
+  assert.strictEqual(page.$('waitMain').textContent, 'Match still on');
+  assert.doesNotMatch(page.$('waitSub').textContent, /back to your wallet/);
+  page.deliver('connect');                          // another blip asks again with the same key
+  assert.strictEqual(page.sent('ko:queue').pop()[1].resume, 'c'.repeat(32));
+  page.deliver('ko:missed', { result: 'refunded', micro: 1e6 });
+  assert.strictEqual(page.$('waitMain').textContent, 'Buy-in refunded');
+  assert.match(page.$('waitSub').textContent, /no winner, so your \$1\.00 buy-in went back to your wallet/);
+});
+
+test('knockout: a paid drop on a match already won says the winnings went out', () => {
+  const page = boot('knockout.js', PAID_PAGE);
+  page.deliver('connect');
+  page.deliver('ko:start', koPaidStart());
+  page.deliver('ko:matchkey', { key: 'e'.repeat(32) });
+  page.deliver('connect');
+  page.deliver('ko:missed', { result: 'won', micro: 1800000 });
+  assert.strictEqual(page.$('waitMain').textContent, 'You win');
+  assert.match(page.$('waitSub').textContent, /\$1\.80 went to your wallet/);
+});
+
+test('knockout: a paid match the server no longer knows (it restarted) is not called unpaid', () => {
+  const page = boot('knockout.js', PAID_PAGE);
+  page.deliver('connect');
+  page.deliver('ko:start', koPaidStart());
+  page.deliver('ko:matchkey', { key: 'f'.repeat(32) });
+  page.deliver('connect');
+  page.deliver('ko:refused', { why: 'that buy-in was not paid for' });
+  assert.match(page.$('waitSub').textContent, /restarted/);
+  assert.doesNotMatch(page.$('waitSub').textContent, /not paid for|while you waited/);
+});
+
 /* The shared chat box on these pages: shown only while a match is on screen, typed into only by a seated player,
    a line in its seat's colour (the pair each page already draws), a refusal as a note for the sender. */
 test('knockout: chat is shown in a match, sends ko:chat, colours a line by seat, and goes away with the card', () => {

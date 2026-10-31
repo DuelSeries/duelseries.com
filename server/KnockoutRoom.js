@@ -486,6 +486,7 @@ class KnockoutRoom {
            produced it, which is the one thing everybody wants to look at. */
         this.state = 'settling';
         this.phaseEndsAt = t + KO.WIN_HOLD_MS;
+        this.payDecided();                          // paid already by resolve(); once, whichever gets there
         this.broadcast('ko:settling', { holdMs: KO.WIN_HOLD_MS });
         return;
       }
@@ -527,6 +528,7 @@ class KnockoutRoom {
       if (this.decided()) {
         this.state = 'settling';
         this.phaseEndsAt = t + KO.WIN_HOLD_MS;
+        this.payDecided();                          // the money now, the card after the hold
         this.broadcast('ko:turn', this.publicState());
         this.broadcast('ko:settling', { holdMs: KO.WIN_HOLD_MS });
         return;
@@ -578,6 +580,9 @@ class KnockoutRoom {
       reveal: this.revealAims(),
       revealMs: KO.REVEAL_MS,
     }, tape));
+    /* The tape is the whole turn, run already: a board it decided is paid now, while the screens play it and then
+       hold it (payDecided). */
+    this.payDecided();
   }
 
   /* Every arrow that is about to be fired, by piece. Safe now and only now:
@@ -720,21 +725,74 @@ class KnockoutRoom {
     return standing <= 1;
   }
 
-  checkOver() {
-    if (this.state === 'over') return true;
+  /* What the pieces on the disc say: { winnerId, why }, winnerId null for a draw, or null while two sides still stand. */
+  boardResult() {
     const standing = [];
     for (const id of this.players.keys()) {
       if (this.piecesOf(id).length > 0) standing.push(id);
     }
-    if (standing.length === 1) { this.finish(standing[0], 'last one standing'); return true; }
+    if (standing.length === 1) return { winnerId: standing[0], why: 'last one standing' };
     if (standing.length === 0 && this.players.size) {
       /* Both sides cleared on the same reveal. It happens: two pieces trade a
          hit at the edge and leave together. Nobody won it, and calling it for
          whoever the loop reached first would be inventing a result. */
-      this.finish(null, 'everyone went off');
-      return true;
+      return { winnerId: null, why: 'everyone went off' };
     }
-    return false;
+    return null;
+  }
+
+  checkOver() {
+    if (this.state === 'over') return true;
+    const r = this.boardResult();
+    if (!r) return false;
+    this.finish(r.winnerId, r.why);
+    return true;
+  }
+
+  /* THE MONEY GOES THE MOMENT THE BOARD DECIDES IT; ONLY THE CARD WAITS (2026-10-31). A decided board is held on the
+     screens (its tape, then KO.WIN_HOLD_MS) before the result goes up, and a restart inside that used to refund both
+     seats, the restart's rows (duelQueue.shutdownRows) reading an unsettled room as a match nobody won, instead of
+     paying the winner. Nothing in the hold can change the result: no turn opens, no piece moves, and a walk-out or a
+     drop in it settles as decided (removePlayer, bothGone). So the board's result is settled here, once (payResult),
+     which marks the room settled, so a restart's rows skip it; finish() after the hold only announces it. A board
+     still undecided pays nothing here and stays a restart's refund, as before. Knockout's own board only: the games
+     built on this room never call it. */
+  payDecided() {
+    if (this.state === 'over' || !this.decided()) return;
+    const r = this.boardResult();
+    if (r) this.payResult(r.winnerId, r.why);
+  }
+
+  /* Per seat, so a refund gives each player back their OWN stake
+     rather than half a pot they may not have paid half of. */
+  moneySeats() {
+    return [...this.players.entries()].map(([id, p]) => ({
+      id, name: p.name, wallet: p.wallet, worth: this.worth.get(id) || 0,
+      /* A draw's refund: the stake, never more than what landed on-chain. */
+      refund: refundBound(this.worth.get(id) || 0, p.paid),
+    }));
+  }
+
+  /* EXACTLY ONCE PER TABLE. finish() is reachable from a win, from a draw and
+     from somebody closing their laptop, and payDecided() from the board deciding
+     it before the hold, and a room that settles twice pays twice. The guard is
+     here rather than at the money end because this is the one place every route
+     passes through. */
+  payResult(winnerId, why) {
+    if (this.settled) return;
+    this.settled = true;
+    const pot = this.pot();
+    if (pot > 0 && typeof this.onSettled === 'function') {
+      try {
+        this.onSettled({
+          roomId: this.id,
+          winnerId: winnerId || null,
+          why: why || '',
+          pot,
+          seats: this.moneySeats(),
+        });
+      } catch (e) { console.error('[' + this.ev.toUpperCase() + '] settle hook failed:', e.message); }
+    }
   }
 
   finish(winnerId, why) {
@@ -744,31 +802,8 @@ class KnockoutRoom {
     this.overWhy = why || '';
 
     const pot = this.pot();
-    /* Per seat, so a refund gives each player back their OWN stake
-       rather than half a pot they may not have paid half of. */
-    const seats = [...this.players.entries()].map(([id, p]) => ({
-      id, name: p.name, wallet: p.wallet, worth: this.worth.get(id) || 0,
-      /* A draw's refund: the stake, never more than what landed on-chain. */
-      refund: refundBound(this.worth.get(id) || 0, p.paid),
-    }));
-    /* EXACTLY ONCE PER TABLE. finish() is reachable from a win, from a draw and
-       from somebody closing their laptop, and a room that settles twice pays
-       twice. The guard is here rather than at the money end because this is the
-       one place all three routes pass through. */
-    if (!this.settled) {
-      this.settled = true;
-      if (pot > 0 && typeof this.onSettled === 'function') {
-        try {
-          this.onSettled({
-            roomId: this.id,
-            winnerId: winnerId || null,
-            why: why || '',
-            pot,
-            seats,
-          });
-        } catch (e) { console.error('[' + this.ev.toUpperCase() + '] settle hook failed:', e.message); }
-      }
-    }
+    const seats = this.moneySeats();
+    this.payResult(winnerId, why);
 
     /* Kept (overMsg), so a held seat that comes back after the match ended is shown the real result. */
     this.overMsg = Object.assign({

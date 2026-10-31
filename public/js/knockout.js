@@ -701,6 +701,9 @@ socket.on('connect', () => {
     st = null; tape = null; reveal = null; aims.clear(); drag = null; locked = false;
     $('top').hidden = true; $('bar').hidden = true;
   }
+  /* A paid seat whose match began asks what became of its buy-in (ko:missed), never queues again on the entry it
+     already spent (2026-10-31). */
+  if (matchKey) { askMissed(); return; }
   /* A reconnect while waiting takes the same seat back (the key the server sent with ko:queued): the
      same place, the same minute, and for a paid seat the same buy-in, with no new token. */
   if (waiting && resumeKey) { queue(null, resumeKey); return; }
@@ -714,6 +717,9 @@ socket.on('connect', () => {
    ko:queued; the minute starts here so the clock is up before the answer. */
 const WAIT_MS = window.DS_DUEL_WAIT_MS;   // shared/duelWait.js, the server's number too
 let waiting = false, waitPaid = false, waitEndsAt = 0, waitFrom = 0, waitTimer = 0, resumeKey = null;
+/* A paid seat's key once its match began (ko:matchkey, to this socket only): a reconnect shows it and is told what the
+   table did with the buy-in (ko:missed). missedAsk: that question is out, so a refusal answers it. */
+let matchKey = null, missedAsk = false;
 function clockText(ms) {
   const s = Math.max(0, Math.ceil(ms / 1000));
   return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
@@ -760,6 +766,7 @@ socket.on('ko:queued', (q = {}) => {
 function queue(token, resume) {
   overShown = false;
   lastOver = null;
+  matchKey = null; missedAsk = false;    // a new seat: the last match's key is done with
   DSEnd.hide();
   chatShow(false);
   $('wait').hidden = false;
@@ -784,6 +791,49 @@ function waitSpin(on) {
   const s = document.querySelector('.waitSpin');
   if (s) s.hidden = !on;
 }
+
+/* WHAT BECAME OF A PAID SEAT THE CONNECTION DROPPED FROM (2026-10-31). Knockout holds no seat for a reconnect: a drop
+   during the match is a walk-out, and the match goes on to its result. This page used to queue again on the entry it
+   had already spent and say "not paid for", or, dropped as the match was made, that the buy-in "goes back to your
+   wallet" when the match had been lost. Now the server says what that table really did with it (ko:missed, its own
+   figures); 'playing' is a match still being decided, and the answer comes again when it ends. */
+socket.on('ko:matchkey', ({ key } = {}) => {
+  if (!WATCH && typeof key === 'string' && myStake > 0) matchKey = key;
+});
+function askMissed() {
+  stopWait();
+  missedAsk = true;
+  $('wait').hidden = false;
+  waitSpin(true);
+  $('waitMain').textContent = 'Reconnecting…';
+  $('waitSub').textContent = 'Your connection dropped during the match. Checking how it ended.';
+  $('waitCancel').textContent = 'Back to the lobby';
+  socket.emit('ko:queue', { name: myName, wallet: myWallet, stake: myStake, resume: matchKey });
+}
+const MISSED = {
+  lost: ['Match lost', (a) => 'Your connection dropped during the match and your opponent won it, so your '
+    + (a ? a + ' ' : '') + 'buy-in does not come back.'],
+  won: ['You win', (a) => 'Your connection dropped, but the match was already yours: '
+    + (a ? a + ' went' : 'your winnings went') + ' to your wallet.'],
+  refunded: ['Buy-in refunded', (a) => 'Your connection dropped and the match ended with no winner, so your '
+    + (a ? a + ' ' : '') + 'buy-in went back to your wallet.'],
+  playing: ['Match still on', () => 'Your connection dropped during the match, and a match cannot be rejoined. '
+    + 'How it ends will show here.'],
+};
+socket.on('ko:missed', ({ result, micro } = {}) => {
+  if (WATCH || st || !MISSED[result]) return;
+  const say = MISSED[result];
+  missedAsk = false;
+  // Still on: the key is kept, so the next reconnect asks again (a dropped-while-waiting seat asked with its queue key).
+  matchKey = result === 'playing' ? (matchKey || resumeKey) : null;
+  stopWait(); resumeKey = null; waitPaid = false;
+  if (result !== 'playing') trackStep('unqueue', 'missed');
+  $('wait').hidden = false;
+  waitSpin(result === 'playing');
+  $('waitMain').textContent = say[0];
+  $('waitSub').textContent = say[1](Number(micro) > 0 ? DSEnd.usd(Math.round(Number(micro))) : '');
+  $('waitCancel').textContent = 'Back to the lobby';
+});
 
 socket.on('ko:start', (raw) => {
   stopWait();
@@ -849,6 +899,7 @@ socket.on('ko:over', (m) => {
   if (WATCH) { watchOver(m || {}); return; }
   if (overShown) return;
   overShown = true;
+  matchKey = null;                         // the card says how it ended
   /* Whose result it is, read now: a reconnect while the card is up changes
      the socket id, and the card is drawn again on every restake step. */
   lastOver = Object.assign({}, m || {}, { ms: matchAt ? Date.now() - matchAt : 0, me, vsBot: !!(st && st.vsBot) });   // the card names the bot as a bot, as Pool and Air Hockey do
@@ -1059,12 +1110,19 @@ socket.on('ko:refused', ({ why } = {}) => {
     /* A paid reconnect whose seat could not be taken back (the server restarted, say): never "unpaid",
        because it was paid; a seat the server lost is refunded by the server. */
     const lost = waiting && waitPaid && resumeKey;
+    /* A paid match this server no longer knows (ko:missed's question refused): it restarted since, and a restart
+       refunds a match it could not finish and pays one already won to its winner. */
+    const gone = missedAsk;
+    missedAsk = false; matchKey = null;
     trackStep('unqueue', 'refused');
     stopWait(); resumeKey = null; waitPaid = false;
     $('wait').hidden = false;
     waitSpin(false);
     $('waitMain').textContent = 'Not seated';
-    $('waitSub').textContent = lost
+    $('waitSub').textContent = gone
+      ? 'Your connection dropped during the match, and the game restarted after. A match it could not finish gave '
+        + 'every buy-in back, and one already won was paid to its winner.'
+      : lost
       ? 'Your connection dropped while you waited. Your buy-in goes back to your wallet.'
       : (sentence(why) || 'The table did not let you in.');
     $('waitCancel').textContent = 'Back to the lobby';

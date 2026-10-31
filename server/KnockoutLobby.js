@@ -96,6 +96,25 @@ function send(socket, ev, payload) {
   try { if (socket && typeof socket.emit === 'function') socket.emit(ev, payload); } catch (_) {}
 }
 
+/* How long a paid Knockout seat's key still answers once its match began (KnockoutLobby.missed): an hour, so a phone
+   that was locked for the whole match is still told how it ended. One small record per paid seat. */
+const MISSED_REMEMBER_MS = 60 * 60000;
+
+/* What a finished table did with one seat's buy-in, from the same result its card shows (room.overMsg.money,
+   server/duelMoney.js, the split index.js pays): { result: 'won' | 'lost' | 'refunded', micro }, or null while the
+   table is still on. Display only. A seat that walked out is no longer in the result's seats, so its stake is read
+   from the room's worth, which keeps every seat that paid. */
+function seatOutcome(room, side) {
+  if (!room || room.state !== 'over' || !room.overMsg) return null;
+  const seat = room.seats[side];
+  const money = room.overMsg.money;
+  const figs = seat && money && money.seats ? money.seats[seat.id] : null;
+  const stakeMicro = Math.round(((seat && room.worth.get(seat.id)) || 0) * 1e6);
+  if (money && money.refunded && figs && figs.refundMicro > 0) return { result: 'refunded', micro: figs.refundMicro };
+  if (money && !money.refunded && seat && room.winner === seat.id) return { result: 'won', micro: money.netMicro };
+  return { result: 'lost', micro: stakeMicro };
+}
+
 class KnockoutLobby {
   /* opts lets another real-time duel (Head Soccer, server/HeadSoccerLobby.js) run on this same queue, refund and
      watch code rather than a copy of it: its own event prefix, game name for restart refunds, log tag and room
@@ -119,6 +138,11 @@ class KnockoutLobby {
        old rule: a drop is a leave at once. Knockout and Head Soccer pass nothing and are exactly what they were. */
     this.graceMs = Number(o.graceMs) > 0 ? Number(o.graceMs) : 0;
     this.ended = new Map();       // seat key -> { over, side, you, at }: matches that ended, for a late reconnect
+    /* Knockout's own lobby only (the duels built on this one pass their own game): a paid seat's queue key once its
+       match began -> { room, side, at, waiter, out } (room let go for out once the table is swept), so a page whose
+       connection dropped is told what became of that buy-in (missed below). */
+    this.tellsMissed = this.game === 'knockout';
+    this.paidSeats = new Map();
     /* The most FREE tables this lobby runs at once (night review 2026-10-29). Every table is physics on the one
        event loop every paid game shares, and a free seat needs no login, so without a ceiling enough sockets
        queued for free play could slow every paid match on the box. At the ceiling a free pair or a free seat due
@@ -507,7 +531,64 @@ class KnockoutLobby {
       for (const id of room.players.keys()) room.issueSeatKey(id);
     }
     this.matchStarted(room);
+    if (this.tellsMissed && room.stake > 0 && room.state !== 'waiting') this.notePaidSeats(room, entries);
     return room;
+  }
+
+  /* ── a paid seat that lost its connection after its match began (Knockout) ─────────────────────────────────────
+     Knockout holds no seat for a reconnect: a drop is a walk-out (KnockoutRoom.removePlayer) and the match goes on to
+     its result. The page used to come back and queue again on an entry it had already spent, and be refused as "not
+     paid for", or, when it dropped as its match was being made, be told its buy-in "goes back to your wallet" when the
+     match had gone on and been lost (2026-10-31). Each paid seat's queue key (sent with <ev>:queued, and with
+     <ev>:matchkey once it is at a table, to that seat's own socket only) now names its seat, and a reconnect that shows
+     it is told what the table really did with that buy-in. Display only: nothing here moves, decides or holds money,
+     and it never seats anybody. */
+  notePaidSeats(room, entries) {
+    const t = Date.now();
+    this.prunePaidSeats(t);
+    for (const e of entries) {
+      if (!e || !e.socket || !(e.worth > 0) || !duelQueue.isKey(e.resumeKey)) continue;
+      const p = room.players.get(e.socket.id);
+      if (!p) continue;
+      this.paidSeats.set(e.resumeKey, { room, side: p.side, at: t, waiter: null, out: null });
+      send(e.socket, this.ev + ':matchkey', { key: e.resumeKey });
+    }
+  }
+
+  // A seat whose table ended (or was dropped unswept) an hour ago is forgotten; a table still on never is.
+  prunePaidSeats(t) {
+    for (const [k, v] of this.paidSeats) {
+      const on = v.room && this.rooms.get(v.room.id) === v.room;
+      if (!on && t - v.at > MISSED_REMEMBER_MS) this.paidSeats.delete(k);
+    }
+  }
+
+  /* What became of the paid seat this key names: seatOutcome's answer once its table is over, { result: 'playing' }
+     while it is still being decided (this socket is then told again, <ev>:missed, when it ends: sweep), or null for a
+     key this lobby does not know, or while it is stopping for a restart (the restart's own rows settle every seat). */
+  missed(socket, key) {
+    if (!this.tellsMissed || this.stopping || !socket || !duelQueue.isKey(key)) return null;
+    const m = this.paidSeats.get(key);
+    if (!m) return null;
+    const out = m.out || seatOutcome(m.room, m.side);
+    if (out) return out;
+    m.waiter = socket;
+    return { result: 'playing' };
+  }
+
+  /* A swept table: each paid seat's answer is kept and the room let go (an hour of finished rooms, their sockets and
+     tapes, held for one line each, was the alternative), and the sockets that asked while it was still on are told
+     how it ended (missed: 'playing'). */
+  tellMissed(room) {
+    const t = Date.now();
+    for (const m of this.paidSeats.values()) {
+      if (m.room !== room) continue;
+      const out = seatOutcome(room, m.side);
+      if (!out) continue;
+      if (m.waiter) send(m.waiter, this.ev + ':missed', out);
+      Object.assign(m, { out, room: null, waiter: null, at: t });
+    }
+    this.prunePaidSeats(t);
   }
 
   /* PRODUCT ANALYTICS: the match began. Whoever set onMatchStart (index.js trackDuelLobby) records each paid seat's
@@ -569,6 +650,7 @@ class KnockoutLobby {
     const humans = [...room.players.keys()].filter(id => !String(id).startsWith('bot_'));
     if (humans.length && room.state !== 'over') return;
     if (this.rooms.get(room.id) === room) this.rememberEnded(room);
+    if (this.paidSeats.size) this.tellMissed(room);
     for (const [sid, rid] of [...this.bySocket]) {
       if (rid === room.id) this.bySocket.delete(sid);
     }

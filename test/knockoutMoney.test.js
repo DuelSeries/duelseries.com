@@ -373,3 +373,142 @@ test('leaving during a reveal that decided nothing is still a forfeit', () => {
   assert.strictEqual(settled[0].winnerId, 'B', 'walking out of a live match is still walking out');
   assert.strictEqual(settled[0].why, 'opponent left');
 });
+
+/* ── a restart in the result hold (2026-10-31) ───────────────────────────────
+   A decided board is held on the screens (its tape, then KO.WIN_HOLD_MS) before
+   the result card. A restart in there used to refund both seats (the restart's
+   rows, duelQueue.shutdownRows, read an unsettled room as a match nobody won)
+   instead of paying the winner. The money now goes the moment the board decides
+   it and only the card waits, so the restart's rows skip the table. */
+function runTo(room, t) { for (let i = 0; i < 4; i++) room.tick(t); }
+
+test('a restart during the result hold pays the winner, once, and refunds nobody', () => {
+  const { lob, settled, room } = decidedReveal(false);
+  assert.strictEqual(settled.length, 1, 'paid the moment the tape decided it');
+  assert.strictEqual(settled[0].winnerId, 'A');
+  assert.strictEqual(settled[0].why, 'last one standing');
+  assert.strictEqual(settled[0].pot, 2);
+  runTo(room, room.phaseEndsAt);
+  assert.strictEqual(room.state, 'settling', 'in the hold, the card not up yet');
+  assert.strictEqual(room.settled, true);
+  assert.deepStrictEqual(lob.shutdownSettle('shutdown'), [], 'no refund rows for a table already paid');
+  lob.leave('A'); lob.leave('B');                 // both sockets dropping in the exit window
+  assert.deepStrictEqual(lob.shutdownSettle('crash'), [], 'and a second restart owes nothing either');
+  assert.strictEqual(settled.length, 1, 'paid once');
+  assert.strictEqual(room.overMsg.winnerId, room.publicId('A'), 'the screens are told the same result');
+});
+
+test('a hold that runs out on its own announces the paid result and pays nothing more', () => {
+  const { settled, room } = decidedReveal(false);
+  runTo(room, room.phaseEndsAt);
+  runTo(room, room.phaseEndsAt + 1);
+  assert.strictEqual(room.state, 'over');
+  assert.strictEqual(room.overMsg.winnerId, room.publicId('A'));
+  assert.strictEqual(room.overMsg.money.netMicro, 1800000, 'the card quotes what was paid');
+  assert.strictEqual(settled.length, 1);
+});
+
+test('a draw decided before the hold refunds each seat at once, and a restart in the hold adds nothing', () => {
+  const { lob, settled, room } = decidedReveal(true);
+  assert.strictEqual(settled.length, 1);
+  assert.strictEqual(settled[0].winnerId, null);
+  assert.strictEqual(settled[0].why, 'everyone went off');
+  for (const s of settled[0].seats) assert.strictEqual(s.refund, 1);
+  runTo(room, room.phaseEndsAt);
+  assert.deepStrictEqual(lob.shutdownSettle('shutdown'), []);
+  assert.strictEqual(settled.length, 1);
+});
+
+test('a ring-decided hold pays at once too, so a restart in it refunds nobody', () => {
+  const { lob, settled } = lobby();
+  lob.enqueue(sock('A'), 'Ann', 'WA', 1, 1);
+  lob.enqueue(sock('B'), 'Bob', 'WB', 1, 1);
+  const room = lob.roomOf('A');
+  room.start(1000);
+  runTo(room, 1000 + KO.COUNTDOWN_MS);
+  const [last, other] = room.piecesOf('B');
+  other.alive = false;
+  last.x = room.arenaR - 4; last.y = 0;
+  room.tick(1000 + KO.COUNTDOWN_MS + KO.AIM_MS);  // nobody aimed: a still board, nothing decided
+  assert.strictEqual(settled.length, 0);
+  runTo(room, room.phaseEndsAt);                   // the next turn's ring takes B's last piece
+  assert.strictEqual(room.state, 'settling');
+  assert.strictEqual(settled.length, 1);
+  assert.strictEqual(settled[0].winnerId, 'A');
+  assert.deepStrictEqual(lob.shutdownSettle('crash'), []);
+  assert.strictEqual(settled.length, 1);
+});
+
+test('a restart before the result is decided still refunds both seats, and nothing pays after it', () => {
+  const { lob, settled } = lobby();
+  lob.enqueue(sock('A'), 'Ann', 'WA', 1, 1);
+  lob.enqueue(sock('B'), 'Bob', 'WB', 1, 1);
+  const room = lob.roomOf('A');
+  room.start(1000);
+  runTo(room, 1000 + KO.COUNTDOWN_MS);
+  room.tick(1000 + KO.COUNTDOWN_MS + KO.AIM_MS);  // nobody aimed: the reveal decided nothing
+  assert.strictEqual(room.state, 'resolving');
+  assert.ok(!room.decided());
+  assert.strictEqual(settled.length, 0, 'nothing paid for a match nobody has won');
+  const rows = lob.shutdownSettle('shutdown');
+  assert.deepStrictEqual(rows.map(r => [r.wallet, r.micro]).sort(), [['WA', 1e6], ['WB', 1e6]]);
+  assert.ok(rows.every(r => /^refund knockout shutdown mid-match agowed:/.test(r.reason)));
+  lob.leave('A');                                  // the socket dropping in the exit window
+  assert.strictEqual(settled.length, 0, 'the walk-out after the restart rows pays nothing: the table is settled');
+  assert.deepStrictEqual(lob.shutdownSettle('shutdown'), [], 'and a second restart owes nothing more');
+});
+
+/* ── a paid seat whose connection dropped after its match began (2026-10-31) ──
+   Knockout holds no seat for a reconnect: the drop is a walk-out. The page used
+   to be told its buy-in "goes back to your wallet" even when the match had gone
+   on and been lost. Each paid seat's key now answers what really happened. */
+const keyOf = (s) => { const m = s.sent.filter(x => x.e === 'ko:matchkey').pop(); return m ? m.p.key : null; };
+
+test('a paid seat that dropped mid-match and forfeited is told it lost, and the other that it won', () => {
+  const { lob, settled } = lobby();
+  const a = sock('A'), b = sock('B');
+  lob.enqueue(a, 'Ann', 'WA', 1, 1);
+  lob.enqueue(b, 'Bob', 'WB', 1, 1);
+  const ka = keyOf(a), kb = keyOf(b);
+  assert.ok(ka && kb && ka !== kb, 'each seat its own key, to its own socket');
+  const back = sock('A2');
+  assert.deepStrictEqual(lob.missed(back, ka), { result: 'playing' }, 'still being played');
+  lob.leave('A');                                  // the old socket's drop is noticed: a walk-out
+  assert.strictEqual(settled[0].winnerId, 'B');
+  const told = back.sent.filter(x => x.e === 'ko:missed');
+  assert.deepStrictEqual(told.map(x => x.p), [{ result: 'lost', micro: 1e6 }], 'the waiting socket is told when it ends');
+  assert.deepStrictEqual(lob.missed(sock('A3'), ka), { result: 'lost', micro: 1e6 });
+  assert.deepStrictEqual(lob.missed(sock('B2'), kb), { result: 'won', micro: 1800000 });
+  assert.ok([...lob.paidSeats.values()].every(m => m.room === null), 'the swept room is let go, its answers kept');
+});
+
+test('a true refund is told as one: a paid draw says refunded', () => {
+  const { lob } = lobby();
+  const a = sock('A'), b = sock('B');
+  lob.enqueue(a, 'Ann', 'WA', 1, 1);
+  lob.enqueue(b, 'Bob', 'WB', 1, 1);
+  lob.roomOf('A').finish(null, 'everyone went off');
+  assert.deepStrictEqual(lob.missed(sock('A2'), keyOf(a)), { result: 'refunded', micro: 1e6 });
+  assert.deepStrictEqual(lob.missed(sock('B2'), keyOf(b)), { result: 'refunded', micro: 1e6 });
+});
+
+test('only a paid Knockout seat gets a key, and an unknown key or a restarting lobby answers nothing', () => {
+  const { lob } = lobby();
+  const f = sock('F');
+  lob.enqueue(f, 'Ann', null, 0, 0);
+  lob.enqueue(sock('G'), 'Bob', null, 0, 0);
+  assert.strictEqual(keyOf(f), null, 'a free seat has no buy-in to ask about');
+  assert.strictEqual(lob.missed(sock('X'), 'd'.repeat(32)), null);
+  assert.strictEqual(lob.missed(sock('X'), 'not a key'), null);
+  const other = new KnockoutLobby(io, { ev: 'hs', game: 'headsoccer' });
+  const h = sock('H');
+  other.enqueue(h, 'Ann', 'WA', 1, 1);
+  other.enqueue(sock('I'), 'Bob', 'WB', 1, 1);
+  assert.ok(!h.sent.some(x => x.e === 'hs:matchkey'), 'the duels built on this lobby are as they were');
+  const a = sock('A');
+  lob.enqueue(a, 'Ann', 'WA', 1, 1);
+  lob.enqueue(sock('B'), 'Bob', 'WB', 1, 1);
+  assert.ok(keyOf(a));
+  lob.shutdownSettle('shutdown');
+  assert.strictEqual(lob.missed(sock('A2'), keyOf(a)), null, 'restarting: the restart rows settle that seat');
+});

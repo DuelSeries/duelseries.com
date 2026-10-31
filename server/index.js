@@ -6495,6 +6495,11 @@ io.on('connection', (socket) => {
       return;
     }
     if (back && back.refunded) { socket.emit('ko:unqueued', { refunded: true, why: 'connection dropped' }); return; }
+    /* A PAID SEAT WHOSE MATCH BEGAN OR WENT ON WITHOUT IT (its connection dropped as the match was made, or during
+       it) is told what its table really did with that buy-in (KnockoutLobby.missed), never queued again on an entry
+       it already spent, nor told it "goes back" when the match was lost (2026-10-31). Display only. */
+    const missed = back ? null : knockoutLobby.missed(socket, resume);
+    if (missed) { socket.emit('ko:missed', missed); return; }
 
     /* A BOUGHT SKIN IS PROVED, NOT CLAIMED, the same as a stake. The page names a skin and sends the lobby's skin
        pass (docs/skin-purchases.md); the seat wears it only when the pass is genuine, unexpired and lists
