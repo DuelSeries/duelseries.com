@@ -87,7 +87,7 @@ html, body {
 .waitCard span { display: block; margin-top: 6px; font-size: 13px; color: var(--tx3); }
 .waitCard button {
   font-family: inherit; font-size: 13.5px; font-weight: 600;
-  border-radius: 10px; padding: 11px 16px; cursor: pointer;
+  border-radius: 10px; padding: 11px 16px; min-height: 44px; cursor: pointer;   /* 44 px, the same in every duel */
   border: 1px solid var(--s3); background: transparent; color: var(--tx);
   transition: background 0.15s, border-color 0.15s;
   margin-top: 20px; width: 100%;
@@ -102,6 +102,8 @@ html, body {
   box-shadow: 0 6px 24px rgba(0,0,0,0.5);
 }
 #botNote[hidden] { display: none; }
+/* An upright phone draws the rival's row (name, score, rows ahead) at about 80 to 100 px: the note goes under it. */
+@media (max-width: 600px) { #botNote { top: 132px; } }
 
 /* The spinner spins under reduced motion as well (it is the only thing on the card saying the search is running). */
 @media (prefers-reduced-motion: reduce) {

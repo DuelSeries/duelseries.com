@@ -705,7 +705,8 @@ function showOver(m) {
   const ms = race.startedAt ? performance.now() - race.startedAt : 0;
   const mine = (m.cars || [])[race.side];
   lastOver = Object.assign({}, m || {}, { ms, side: race.side, closes: race.closes, topKmh: Math.round(race.topV * 3.6),
-                                          metres: mine ? mine.z : Math.round(race.me ? race.me.z : 0) });
+                                          metres: mine ? mine.z : Math.round(race.me ? race.me.z : 0),
+                                          vsBot: !!race.vsBot });   // the card names the bot as a bot, as Rooftop's and Crossy's do
   const won = m.winnerSide === race.side;
   if (m.winnerSide === null || m.winnerSide === undefined) SOUND.play('g.lose');
   else SOUND.play(won ? 'g.win' : 'g.lose');
@@ -725,7 +726,7 @@ function paintOver() {
   const seat = money && money.seats ? money.seats['s' + m.side] || null : null;
   const won = m.winnerSide === null || m.winnerSide === undefined ? null : m.winnerSide === m.side;
   const time = m.ms > 0 ? DSEnd.clock(m.ms) : '';
-  const card = { tone: 'plain', verdict: won === true ? 'You win' : won === false ? (m.winner || 'Opponent') + ' wins' : 'Draw', notes: [] };
+  const card = { tone: 'plain', verdict: won === true ? 'You win' : won === false ? (m.winner || 'Opponent') + (m.vsBot && m.winner ? ' (bot)' : '') + ' wins' : 'Draw', notes: [] };
   const facts = [['Distance', DSEnd.int(Math.max(0, Math.round(m.metres || 0))) + ' m'], ['Top speed', m.topKmh + ' km/h'], ['Close passes', DSEnd.int(m.closes || 0)]];
   if (time) facts.push(['Time', time]);
   if (money) {

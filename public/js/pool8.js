@@ -204,7 +204,9 @@ function toDesign(X, Y) {
 
 function placeOverlays() {
   const top = VIEW.rot ? 0 : Math.round(VIEW.oy + (Art.LAYOUT.bar.h + 6) * VIEW.s);
-  const note = $('botNote'); if (note) note.style.top = (top + 4) + 'px';
+  /* The pill goes on the felt under the first turn's two tutorial lines (Art.LAYOUT.hint), not over them. */
+  const under = VIEW.rot ? 4 : Math.round(VIEW.oy + (Art.LAYOUT.hint.y2 + 26) * VIEW.s);
+  const note = $('botNote'); if (note) note.style.top = under + 'px';
   const line = $('watchLine'); if (line) line.style.top = (top + 4) + 'px';
   if (typeof chat !== 'undefined' && chat && chat.el) {
     chat.el.style.setProperty('--dsc-t', (top + 8) + 'px');

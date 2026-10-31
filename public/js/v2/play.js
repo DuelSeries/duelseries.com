@@ -470,7 +470,7 @@
        Everything else, the battle royale included, still asks to sign in. */
     const guest = !connected();
     if (guest && !guestFree(game, sel)) {
-      say('Sign in first — your wallet is your account here.');
+      say('Sign in first. Your wallet is your account here.');
       if (window.duelWalletLogin) window.duelWalletLogin('play');
       return;
     }

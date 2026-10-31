@@ -160,6 +160,9 @@ body.touch #close { bottom: calc(150px + env(safe-area-inset-bottom)); }
   body.touch #dash { right: auto; left: 50%; transform: translateX(-50%); bottom: auto; top: calc(66px + env(safe-area-inset-top)); }
   body.touch #dash .spd b { font-size: 30px; }
   body.touch #warn { top: calc(124px + env(safe-area-inset-top)); }
+  /* Under the speed (66 px down, about 60 tall), not on it; the hint clears the 142 px tall Gas pedal. */
+  body.touch #botNote { top: calc(140px + env(safe-area-inset-top)); }
+  body.touch #keys { bottom: calc(154px + env(safe-area-inset-bottom)); }
 }
 
 /* ── the overlays every duel shares (knockout.css) ───────────────────────── */
@@ -196,7 +199,7 @@ body.touch #close { bottom: calc(150px + env(safe-area-inset-bottom)); }
 .waitCard span { display: block; margin-top: 6px; font-size: 13px; color: var(--tx3); }
 .waitCard button {
   font-family: inherit; font-size: 13.5px; font-weight: 600; margin-top: 20px; width: 100%;
-  border-radius: 10px; padding: 11px 16px; cursor: pointer;
+  border-radius: 10px; padding: 11px 16px; min-height: 44px; cursor: pointer;   /* 44 px, the same in every duel */
   border: 1px solid var(--s3); background: transparent; color: var(--tx);
   transition: background 0.15s, border-color 0.15s;
 }
@@ -213,6 +216,11 @@ body.touch #close { bottom: calc(150px + env(safe-area-inset-bottom)); }
 /* Watching: nothing on screen is yours to drive. The shared Spectate bar
    (dsWatchBar.js) sits top left, so the strip makes room for it. */
 body.watching #pads, body.watching #keys, body.watching #close, body.watching #warn { display: none; }
+/* A computer: the Spectate bar's arrows and name take the bottom centre (24 px up, 56 tall), so the speed sits above
+   them, not under. On a phone they are 116 px up and the speed already clears them (dsWatchBar.js's phone rule). */
+@media (min-width: 601px) and (pointer: fine), (min-width: 601px) and (min-height: 601px) {
+  body.watching #dash { bottom: calc(96px + env(safe-area-inset-bottom)); }
+}
 body.watching #top { padding-left: 126px; padding-right: 126px; }
 @media (max-width: 600px) { body.watching #top { padding: 62px 14px 10px; } }
 

@@ -27,9 +27,10 @@
 
 /* ---- Live HUD extras (the rest of the HUD is drawn on the canvas, the leaderboard by dsEnd.js) - */
 
-/* Desktop hint, bottom left (the minimap owns bottom right). */
+/* Desktop hint, bottom left (the minimap owns bottom right), one line up: the clip recorder's
+   "P clip" dot (clipRec.js, data-dot="bl") holds the bottom line, and the two used to overlap. */
 .pp-hint {
-  position: absolute; left: 12px; bottom: 10px; z-index: 2;
+  position: absolute; left: 12px; bottom: 28px; z-index: 2;
   color: rgba(0, 0, 0, 0.45); font-size: 14px; pointer-events: none; user-select: none;
 }
 .pp-hint[hidden] { display: none; }

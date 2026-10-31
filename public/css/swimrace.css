@@ -48,10 +48,13 @@
 #lobbyBar i { font-style: normal; font-size: 12px; font-weight: 650; color: #1a1206; background: var(--you); border-radius: 999px; padding: 2px 8px; }
 #lobbyBar i[hidden] { display: none; }
 #lobbyBar button {
+  position: relative;
   margin-top: 10px; font-family: inherit; font-size: 12.5px; font-weight: 600; color: var(--tx2); cursor: pointer;
   background: none; border: 1px solid var(--s3); border-radius: 999px; padding: 5px 14px;
 }
 #lobbyBar button:hover { color: var(--tx); border-color: #3a3126; }
+/* The pill stays small; the place to tap around it is 44 px tall (a thumb, on a phone). */
+#lobbyBar button::after { content: ''; position: absolute; inset: -10px -8px; }
 #lobbyBar button:focus-visible, #ownerBar button:focus-visible { outline: 2px solid var(--rim); outline-offset: 2px; }
 
 /* ── the owner's test race ───────────────────────────────────────────────── */
@@ -133,9 +136,18 @@
 @media (max-width: 600px) {
   #feed { width: 46vw; }
   #feed li { font-size: 12px; padding: 4px 8px; }
-  body.touch #feed { bottom: auto; top: calc(80px + env(safe-area-inset-top)); }
+  /* Under the speed (66 to about 132 px down, swim.css), not across it: a long name reached the number. */
+  body.touch #feed { bottom: auto; top: calc(140px + env(safe-area-inset-top)); }
 }
-/* Watching: the Spectate bar has the top left; on a phone the board moves down out of its way. */
-@media (max-width: 600px) { body.watching #board { top: calc(66px + env(safe-area-inset-top)); } }
+/* Watching: the Spectate bar has the top left; on a phone the board moves down out of its way, and the speed and
+   the knockouts move down under it (they sat on the board's place and gap at 66 and 80 px). */
+@media (max-width: 600px) {
+  body.watching #board { top: calc(66px + env(safe-area-inset-top)); }
+  body.touch.watching #dash { top: calc(128px + env(safe-area-inset-top)); }
+  body.touch.watching #feed { top: calc(202px + env(safe-area-inset-top)); }
+}
+/* Knocked out, the result card comes up while the race goes on: the Spectate bar's arrows and name (bottom centre)
+   wait until Watch the race closes it, rather than sitting on the card's rows on a phone. */
+body.watching:has(.dse) .dsw-switch { visibility: hidden; }
 body.watching #pads, body.watching #keys, body.watching #close { display: none; }
 @media (prefers-reduced-motion: reduce) { #feed li { animation: none; } }

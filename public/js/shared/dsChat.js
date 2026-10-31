@@ -80,10 +80,12 @@
     '.dsc-count.dsc-low{color:#f0b43c}',
     '.dsc-mute{position:absolute;right:4px;top:50%;transform:translateY(-50%);width:24px;height:24px;border:0;padding:3px;' +
       'margin:0;background:none;border-radius:6px;cursor:pointer;color:rgba(255,255,255,.6)}',
+    // the 24 px eye keeps a 40 px tap area
+    '.dsc-mute:before{content:"";position:absolute;inset:-8px}',
     '.dsc-mute:hover,.dsc-mute:focus-visible{color:#fff;background:rgba(255,255,255,.1);outline:0}',
     '.dsc-mute svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;' +
       'stroke-linejoin:round;display:block}',
-    '.dsc-btn{display:none;flex:none;width:38px;height:38px;border:0;padding:0;margin:0;cursor:pointer;color:#fff;' +
+    '.dsc-btn{display:none;flex:none;width:40px;height:40px;border:0;padding:0;margin:0;cursor:pointer;color:#fff;' +
       'pointer-events:auto;position:relative;touch-action:manipulation}',
     '.dsc-phone .dsc-btn{display:grid;place-items:center}',
     '.dsc-phone.dsc-nosend .dsc-btn{display:none}',

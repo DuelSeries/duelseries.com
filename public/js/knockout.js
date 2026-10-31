@@ -610,7 +610,12 @@ function paintPips() {
   const them = st.players.find(p => p.id !== me);
   /* Watching, both sides are somebody else, so both get their names. */
   if (you) $('youName').textContent = WATCH ? (you.name || 'Player') : 'You';
-  if (them) $('themName').textContent = (them.name || 'Opponent') + (st.vsBot ? ' (bot)' : '');
+  if (them) {
+    /* A bot's " (bot)" is never the part the strip's ellipsis cuts: the name gives way instead (Air Hockey's rule). */
+    const el = $('themName'), full = them.name || 'Opponent';
+    el.textContent = full + (st.vsBot ? ' (bot)' : '');
+    if (st.vsBot) for (let n = full.length - 1; n >= 3 && el.scrollWidth > el.clientWidth; n--) el.textContent = full.slice(0, n) + '… (bot)';
+  }
 }
 
 /* "Playing a bot", said as the match starts and kept on the name above (Owen 2026-10-21: the player
@@ -829,7 +834,7 @@ socket.on('ko:over', (m) => {
   overShown = true;
   /* Whose result it is, read now: a reconnect while the card is up changes
      the socket id, and the card is drawn again on every restake step. */
-  lastOver = Object.assign({}, m || {}, { ms: matchAt ? Date.now() - matchAt : 0, me });
+  lastOver = Object.assign({}, m || {}, { ms: matchAt ? Date.now() - matchAt : 0, me, vsBot: !!(st && st.vsBot) });   // the card names the bot as a bot, as Pool and Air Hockey do
   restake = null; restakeLine = '';
   paintOver();
   $('bar').hidden = true;
@@ -865,7 +870,7 @@ function paintOver() {
   const time = m.ms > 0 ? DSEnd.clock(m.ms) : '';
   const card = {
     tone: 'plain',
-    verdict: won === true ? 'You win' : won === false ? (m.winner || 'Opponent') + ' wins' : 'Draw',
+    verdict: won === true ? 'You win' : won === false ? (m.winner || 'Opponent') + (m.vsBot && m.winner ? ' (bot)' : '') + ' wins' : 'Draw',
     notes: [],
   };
   if (money) {

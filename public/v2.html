@@ -403,7 +403,7 @@ body.signedout .me{display:none}
 .medisc.big{width:46px;height:46px;font-size:19px;box-shadow:none;flex:none}
 .meid{display:flex;flex-direction:column;gap:3px;min-width:0}
 .meid b{font-size:17px;font-weight:650;letter-spacing:-.3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.meid b.none{color:var(--tx3)}
+.meid b.none{color:var(--tx3);padding:0;line-height:inherit}   /* not the empty-list .none's 26px padding */
 .meaddr{font-size:12px;color:var(--tx3)}
 .meaddr:empty{display:none}
 .meacts{display:flex;gap:8px}
@@ -1205,7 +1205,7 @@ body.ingame .win-live i,body.ingame .win-live i::before{animation-play-state:pau
 .evown small{font-weight:600;opacity:.62;margin-left:8px;font-size:12.5px}
 .evhow{display:inline-flex;align-items:center;gap:7px;margin:14px auto 0;
   background:none;border:none;cursor:pointer;font-family:inherit;
-  font-size:13px;font-weight:600;color:var(--tx3);padding:11px 12px;   /* 40px to tap */
+  font-size:13px;font-weight:600;color:var(--tx3);padding:11px 12px;min-height:40px;   /* 40px to tap (the padding alone made 36) */
   transition:color .15s}
 .evhow:hover{color:var(--tx)}
 /* Re-stated for everyone, like the ticker: Owen's PC reports reduced motion, and this effect was invisible to him (site sweep 2026-10-28). */
@@ -1482,6 +1482,7 @@ body.ingame .win-live i,body.ingame .win-live i::before{animation-play-state:pau
   .sw::before{content:"";position:absolute;inset:-9px -6px}
   .seg button{padding:10px 14px}
   #detail .back{padding-bottom:12px;margin-bottom:-12px}
+  .ap-back-btn{min-height:40px}   /* Customize's only way out was 35px tall */
 }
 /* Settings' Sound group: the volume slider sits where a switch would. */
 .vol{flex:none;width:min(170px,42vw);height:26px;margin:0;accent-color:var(--bone);cursor:pointer}
@@ -2295,7 +2296,7 @@ footer{margin-top:96px;padding:30px 0 44px;border-top:1px solid var(--s2)}
         min-height:calc(100svh - 145px - env(safe-area-inset-top) - env(safe-area-inset-bottom))}
 
   #detail .backrow{padding:0 14px}   /* the logo's 14px */
-  #detail .back{padding:12px 0 0}
+  #detail .back{padding-top:12px}   /* top only: the shorthand wiped the touch rule's taller hit area below it */
   #dname{margin-top:4px;font-size:23px}
   .howbtn{margin-top:10px;padding:7px 13px;font-size:12.5px}
   .stakes{margin:14px 0 8px}
@@ -2538,9 +2539,10 @@ body.scr-anim { overflow-x:hidden }
   <!-- The logo goes Home, as a logo does everywhere else. -->
   <a class="logo" href="/" onclick="go('play');return false" aria-label="DuelSeries home">Duel<em>Series</em></a>
   <div class="sp"></div>
-  <!-- Signed out this reads "—", not $0.00: a real zero balance and having no
-       wallet at all are very different things to tell someone about money. -->
-  <div class="balbox"><span class="v num ph-no-capture" id="hdr-balance" data-cu aria-label="Balance">—</span></div>
+  <!-- Until the wallet is known this reads "…", not $0.00: a real zero balance and having no
+       wallet at all are very different things to tell someone about money. (It was an em dash,
+       which on a phone read as a minus button; signed out, the box is hidden.) -->
+  <div class="balbox"><span class="v num ph-no-capture" id="hdr-balance" data-cu aria-label="Balance">…</span></div>
   <!-- One wallet surface. The dropdown that used to hang here was a second
        place to do money in, with its own tabs and its own idea of the balance. -->
   <button class="wbtn" id="wbtn" onclick="V2Wallet.headerTap()">

@@ -709,6 +709,7 @@ function drawHud(now) {
     ctx.font = '600 ' + 22 + 'px ' + MONO;
     ctx.fillStyle = sdC >= 0 ? '#ff5a4f' : '#f5f1e8';
     ctx.fillText(clock, V.w / 2, cy - 4);
+    const clockL = V.w / 2 - ctx.measureText(clock).width / 2 - 8;   // where a name has to stop, each side of the clock
     ctx.font = '600 11px ' + FONT; ctx.fillStyle = 'rgba(214,222,232,0.85)';
     ctx.fillText(sdC >= 0 ? 'Next goal wins' : 'First to ' + AH.TO_WIN, V.w / 2, cy + 15);
     const side = (seat, x, align) => {
@@ -720,7 +721,12 @@ function drawHud(now) {
       ctx.restore();
       ctx.font = '600 13px ' + FONT; ctx.fillStyle = 'rgba(232,238,245,0.92)';
       const nx = align === 'left' ? x + 30 : x - 30;
-      ctx.fillText(cutTo(seat === mySeat ? 'You' : nameOf(seat), 11), nx, cy);
+      /* Cut further on a narrow phone so the name never runs into the clock ("MrCo… (bot)3:55" on a 360 px screen). */
+      const full = seat === mySeat ? 'You' : nameOf(seat), room = align === 'left' ? clockL - nx : nx - (V.w - clockL);
+      let n = 11, t = cutTo(full, n);
+      while (n > 4 && ctx.measureText(t).width > room) t = cutTo(full, --n);
+      if (ctx.measureText(t).width > room) ctx.font = '600 11px ' + FONT;
+      ctx.fillText(t, nx, cy);
     };
     side(top, 52, 'left');
     side(bot, V.w - 14, 'right');

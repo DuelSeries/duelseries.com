@@ -48,7 +48,7 @@
     'font:600 15px ' + SANS + ';color:#f5f1e8;background:none;}',
     '.dsw-btn:focus-visible{outline:2px solid #f4f1ea;outline-offset:2px;}',
     '.dsw-btn:disabled{opacity:.35;cursor:default;}',
-    '.dsw-lobby{left:16px;top:16px;gap:6px;height:40px;padding:0 16px 0 10px;border-radius:999px;background:#f4f1ea;',
+    '.dsw-lobby{left:calc(16px + env(safe-area-inset-left,0px));top:calc(16px + env(safe-area-inset-top,0px));gap:6px;height:40px;padding:0 16px 0 10px;border-radius:999px;background:#f4f1ea;',
     'color:#100e0b;box-shadow:0 2px 10px rgba(0,0,0,.25);}',
     '.dsw-lobby:hover{background:#fff;}',
     '.dsw-lobby svg{width:18px;height:18px;flex:none;}',

@@ -99,7 +99,8 @@ html, body {
 #bar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
   display: flex; align-items: center; gap: 12px;
-  padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
+  /* The bottom padding keeps Lock in clear of the ping and FPS readout (dsPerfHud.js) in the corner under it. */
+  padding: 12px 14px calc(28px + env(safe-area-inset-bottom));
   background: linear-gradient(to top, rgba(11,9,7,0.96), rgba(11,9,7,0));
 }
 #bar[hidden] { display: none; }
@@ -111,7 +112,7 @@ html, body {
 .their.ready { color: var(--live); }
 #lock {
   font-family: inherit; font-size: 13.5px; font-weight: 650;
-  border-radius: 10px; padding: 11px 18px; cursor: pointer;
+  border-radius: 10px; padding: 11px 18px; min-height: 44px; cursor: pointer;
   border: 1px solid var(--rim); background: var(--rim); color: var(--ink);
   transition: opacity 0.15s, background 0.15s;
 }
@@ -167,7 +168,7 @@ html, body {
   border: 1px solid var(--s3); background: transparent; color: var(--tx);
   transition: background 0.15s, border-color 0.15s;
 }
-.waitCard button { margin-top: 20px; width: 100%; }
+.waitCard button { margin-top: 20px; width: 100%; min-height: 44px; }
 .waitCard button:hover { background: var(--s2); border-color: #3a3126; }
 
 /* ── watching ──────────────────────────────────────────────────────────────

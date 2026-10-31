@@ -703,8 +703,9 @@
       if (ly > -60) F.center(g, h.label, mid, ly, 30, { outline: 4, shadow: [1, 1, '#000'], color: '#ffffff' });
       // each seat's name above its sniper (ours: the reference's players are only Red and Blue)
       if (h.tags) nameTags(g, h, ly > -60 ? ly : null);
-      // the pause button (T: TopBar/PauseButton, "||" size 70)
-      if (h.pause) F.center(g, '||', 36, 45, 70, { outline: 4, color: '#ffffff', bold: true });
+      /* the pause button (T: TopBar/PauseButton, "||" size 70). Centred at 50, not the reference's 36: at 36 the
+         left bar and its outline ran off the screen's edge. Now 10 px in, the speaker's margin on the other side. */
+      if (h.pause) F.center(g, '||', 50, 45, 70, { outline: 4, color: '#ffffff', bold: true });
       // "Play up to 5" on the first round, "Match Point" when somebody is one away (T: BottomMessage)
       const goSince = (now - h.goAt) / 1000;
       if (h.first && h.goAt > 0 && goSince >= 0 && goSince < 3) {

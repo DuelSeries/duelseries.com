@@ -531,7 +531,7 @@
         send: function (t) { return net.chat(t); },
         canSend: function () { return page.phase === 'live' && !page.watch; },
         light: true,
-        pc: { left: 12, bottom: watchMode ? 58 : 40 },
+        pc: { left: 12, bottom: watchMode ? 58 : 54 },
         phoneAt: { left: 10, top: 124 }
       });
       net.on('pp:chat', function (m) {
