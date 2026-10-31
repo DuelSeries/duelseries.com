@@ -683,17 +683,44 @@ function join() {
 /* ── the owner's test race ─────────────────────────────────────────────────
    Shown only to the owner: a device signed into Control (its session cookie, asked at /api/owner/session), or the
    lobby's wallet when the server says it is an owner's (then each press is signed in the lobby, over the bridge
-   play.js keeps for game frames). Either way the server checks it on every press (/api/owner/do). */
-const OWNER = { via: null, busy: false };
+   play.js keeps for game frames). Either way the server checks it on every press (/api/owner/do).
+
+   The lobby's wallet is the one its wallet widget is signed in with (window.duelWallet, what the lobby's own Events
+   tab asks /api/br/owner about), read from the lobby that frames this page (same origin). It used to be
+   localStorage.duelseries_wallet, which nothing writes, so the bar showed only on a device with the cookie: Owen's
+   computer, never his phone (2026-10-31). The wallet is only what decides whether the bar is drawn; a press still
+   needs that wallet's signature, checked on the server. */
+const OWNER = { via: null, busy: false, asked: '' };
+function lobbyWallet() {
+  try {
+    if (!window.parent || window.parent === window) return '';
+    const w = window.parent.duelWallet;
+    return w && w.authenticated && typeof w.address === 'string' ? w.address : '';
+  } catch (_) { return ''; }   // framed by another origin: no wallet, no bar
+}
 function ownerCheck() {
   fetch('/api/owner/session', { credentials: 'same-origin', headers: { 'X-DS-Owner': '1' } })
     .then(r => r.json()).then(j => {
       if (j && j.signedIn) { OWNER.via = 'session'; paintOwner(); return; }
-      if (!myWallet || !window.parent || window.parent === window) return;
-      return fetch('/api/br/owner', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ wallet: myWallet }) })
-        .then(r => r.json()).then(k => { if (k && k.isOwner) { OWNER.via = 'wallet'; paintOwner(); } });
+      ownerByWallet();
     }).catch(() => {});
 }
+/* Asked once per wallet; asked again only when the lobby signs in with another (or after a failed ask). */
+function ownerByWallet() {
+  const w = lobbyWallet();
+  if (OWNER.via || !w || w === OWNER.asked) return;
+  OWNER.asked = w;
+  fetch('/api/br/owner', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ wallet: w }) })
+    .then(r => r.json()).then(k => { if (k && k.isOwner && !OWNER.via && lobbyWallet() === w) { OWNER.via = 'wallet'; paintOwner(); } })
+    .catch(() => { if (OWNER.asked === w) OWNER.asked = ''; });
+}
+/* The lobby's wallet can load after this page, or sign out or change while it is open: the bar follows it. */
+function ownerFollow() {
+  if (OWNER.via === 'session') return;
+  if (OWNER.via === 'wallet' && lobbyWallet() !== OWNER.asked) { OWNER.via = null; OWNER.asked = ''; paintOwner(); }
+  ownerByWallet();
+}
+setInterval(ownerFollow, 5000);
 function paintOwner() {
   const bar = $('ownerBar');
   if (!OWNER.via) { bar.hidden = true; return; }

@@ -79,6 +79,17 @@
   #ownerBar { top: auto; bottom: calc(150px + env(safe-area-inset-bottom)); right: 8px; }
   #lobbyBar b { font-size: 17px; }
 }
+/* A phone on its side, or a tablet (wider than 600, a finger for a pointer): at those widths the top right is the
+   ribbon's and the banner's (812 wide, the bar sat 54 px into the ribbon and 107 px into "Waiting for players to
+   join"), so the bar goes where it is on a phone held upright, over the Gas pedal. A computer keeps the top right. */
+@media (min-width: 601px) and (pointer: coarse) {
+  #ownerBar { top: auto; bottom: calc(150px + env(safe-area-inset-bottom)); right: calc(8px + env(safe-area-inset-right)); }
+}
+/* A finger's 44 px to tap, the pills drawn as they are (the Leave pill's way); the 6 px gap is split between them. */
+@media (pointer: coarse) {
+  #ownerBar button { position: relative; }
+  #ownerBar button::after { content: ''; position: absolute; inset: -8px -3px; }
+}
 
 /* ── the knockouts ───────────────────────────────────────────────────────── */
 #feed {
