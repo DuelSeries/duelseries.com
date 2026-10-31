@@ -58,13 +58,32 @@ const { createSkinShop, liveChain } = require('./skinShop');   // buying skins w
 const { sharedPass: sharedSkinPass } = require('./skinPass');   // the pass a game checks before wearing a paid skin
 const skinCatalog = require('./skinCatalog');                   // what is for sale, at the server's prices
 const { liveCounts, withBoardBots } = require('./liveCounts'); // per-game totals, for the lobby cards
+const autoMark = require('./autoMark');   // our own test clients' ds_auto token (the owner's live view only)
 
 const REGION = process.env.REGION || 'na';
 /* Join pushes on their own two topics, paid loud and free quiet (server/joinAlerts.js). Never throws,
    so a join path calls it after the seat exists and a lost push can never cost a seat. The owner's own joins
    are skipped: a paid one by its verified payer, any one that hands in its socket by isOwnerSocket. */
-const joinAlerts = require('./joinAlerts').createJoinAlerts({ push: notify.pushOwner, region: REGION,
+const phoneJoinAlerts = require('./joinAlerts').createJoinAlerts({ push: notify.pushOwner, region: REGION,
   isOwner: (w) => OWNER_WALLETS.has(w), ownerSocket: (s) => isOwnerSocket(s) });
+/* The owner console's Live and Today tabs (server/livePlayers.js): every join the phone hears of, ungated, sorted into
+   real people and our own test clients, pushed to the owner's console sockets only. Each call site's joinAlerts.joined
+   now feeds both; neither throws or is waited on. The slither process sends its own seats (slLink onPresence). */
+const livePlayers = require('./livePlayers').createLivePlayers({
+  isOwnerWallet: (w) => OWNER_WALLETS.has(w),
+  isOwnerSocket: (s) => isOwnerSocket(s),
+  provenWallet: (s) => socketIdentity.proven(s),
+  board: () => ownerLiveBoard(),
+  emit: (ev, payload) => { for (const s of socketIdentity.alertSockets()) s.emit(ev, payload); },
+  watching: () => socketIdentity.alertSockets().length > 0,
+  store: db.readPool ? require('./livePlayers').pgStore(db.readPool) : null,
+});
+const joinAlerts = Object.freeze({
+  joined(info) {
+    phoneJoinAlerts.joined(info);
+    livePlayers.joined(info);
+  },
+});
 
 // Record a house money event to BOTH our own ledger (source of truth) and PostHog (dashboards).
 // amountUsdc is signed: positive = revenue (rake, skins), negative = cost (bot entries).
@@ -2817,6 +2836,9 @@ const slOpened = slBoot.openSl({
     /* SERVER-DESIGN 13 item 9: slSockets throttles (C_PUSH) before calling this. */
     notifyJoin: (name, where, socket) => joinAlerts.joined({ game: where === 'br' ? 'br' : 'sl', stake: 0, name, socket }),
     ownerSocket: (s) => isOwnerSocket(s),   // the owner's own join spends none of slSockets' push gate
+    /* Every free and BR seat, ungated, for the owner's live view (server/livePlayers.js). */
+    livePresence: (socket, info) => livePlayers.joined({ game: info && info.where === 'br' ? 'br' : 'sl', stake: 0,
+      name: info && info.name, socket }),
     /* The bot governor's paid-seat input, once a second (SERVER-DESIGN 11). */
     paidLoad: () => ({ paidPlayers: ops.drainStatus(ALL_ROOMS(), entryStore.pending()).paid, paid: [] }),
   },
@@ -4627,6 +4649,49 @@ function liveSnapshot() {
 const liveJson = liveCache(liveSnapshot);
 app.get('/api/live', (_req, res) => res.type('json').send(liveJson()));
 
+/* The rooms' own counts for the owner's live view (server/livePlayers.js): /api/live's rows, one per game and rung
+   (a duel row's stake from its id), and the battle royale. livePlayers holds its counts of real people to these, once
+   a second while anybody is present or a console watches. Counts only, as /api/live already shows everyone. */
+function ownerLiveBoard() {
+  const s = liveSnapshot();
+  const rows = [];
+  for (const l of s.lobbies || []) {
+    if (!l) continue;
+    rows.push({ game: l.game, stake: l.stake, players: l.players, bots: l.bots, capacity: l.capacity, state: l.state });
+  }
+  for (const x of s.extras || []) {
+    if (!x) continue;
+    const m = /:s([0-9.]+)$/.exec(String(x.id || ''));
+    rows.push({ game: x.game, stake: x.stake != null ? x.stake : m ? Number(m[1]) : 0, players: x.players, bots: x.bots,
+      waiting: x.waiting, state: x.state });
+  }
+  const b = s.br;
+  return {
+    rows,
+    br: b ? { humans: b.humans, bots: Math.max(0, (Number(b.players) || 0) - (Number(b.humans) || 0)),
+      joinable: !!b.joinable, state: b.state } : null,
+    soon: Array.isArray(s.soon) ? s.soon : [],
+  };
+}
+
+/* Marks a browser as one of our own test clients (server/autoMark.js): a Claude session's test browser opens
+   /api/auto/mark?t=<token> once (scripts/lib/dsAuto.js makes the token from the key on Owen's PC), and the owner's live
+   view then shows it on the greyed "Our test clients" line instead of as a real person. The cookie lasts as long as
+   the token. ?off=1 takes it away. Nothing else reads the cookie: no door, check, game or money path changes. */
+app.get('/api/auto/mark', socialLimiter, (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  if (req.query && req.query.off === '1') {
+    res.clearCookie(autoMark.COOKIE, { path: '/', secure: true, httpOnly: true, sameSite: 'lax' });
+    return res.type('text').send('This browser is no longer marked as a DuelSeries test client.');
+  }
+  const t = req.query && typeof req.query.t === 'string' ? req.query.t : '';
+  const exp = autoMark.expiryOf(t);
+  if (!exp) return res.status(400).type('text').send('That test-client token is not valid or has run out.');
+  res.cookie(autoMark.COOKIE, t, { path: '/', secure: true, httpOnly: true, sameSite: 'lax',
+    maxAge: Math.max(0, exp * 1000 - Date.now()) });
+  res.type('text').send('This browser is marked as a DuelSeries test client until ' + new Date(exp * 1000).toISOString() + '.');
+});
+
 /* The lobby's Open lobbies board, pushed (Owen 2026-10-27: a player waiting in a queue or joining a paid room
    "doesn't show up until I reload my page"; the 10 s poll was the only way it learned). A lobby page's listen-only
    socket (toasts.js) joins 'live:watch'. Once a second, only while one is watching, the board is built once for
@@ -5708,6 +5773,23 @@ io.on('connection', (socket) => {
     socketIdentity.ownerAlerts(socket, ownerProof);
     socketIdentity.ownerAlertsByTicket(socket, ownerTicket);
     if (fresh) broadcastLobbyState();
+    // The owner console's Live tab: its whole state once, as soon as this socket is the owner's (server/livePlayers.js)
+    if (socket._ownerAlerts === true && !socket._liveSent) {
+      socket._liveSent = true;
+      socket.emit('owner:live', livePlayers.snapshot());
+    }
+  });
+  /* The owner console asks again (its tab came back) and asks for a day's numbers (the Today tab). Owner sockets
+     only: anyone else's ask is ignored. */
+  on('owner:live:get', () => {
+    if (socket._ownerAlerts !== true || !socketRL(socket, 'ownerlive', 500)) return;
+    socket.emit('owner:live', livePlayers.snapshot());
+  });
+  on('owner:live:today', (q) => {
+    if (socket._ownerAlerts !== true || !socketRL(socket, 'ownerlivetoday', 1000)) return;
+    const which = q && q.day === 'yesterday' ? 'yesterday' : 'today';
+    livePlayers.dayStats(which).then((v) => socket.emit('owner:live:today', v),
+      (e) => socket.emit('owner:live:today', { error: String((e && e.message) || 'not available') }));
   });
 
   /* walletAddress and googleId are the client's claims and are NOT used for identity or for
@@ -7558,8 +7640,12 @@ function reopenAfterUpdate() {
    and no nginx edit is ever part of a rollback. Only while /sl is open. */
 if (slLink.remote && slArenas) {
   slLink.start({
-    init: () => ({ region: REGION, owners: [...OWNER_WALLETS], ops: ops.get(), smooth: require('./sl/slRoom').smoothOn(),
-      door: slLink.doorWanted(), brOnNew, podiumFile: brLastPodium.file, botsPauseMs: BOTS_PAUSE_MS, load: null }),
+    init: () => {
+      livePlayers.dropSource('sl');   // a new slither process: the last one's sockets went with it (owner's Live tab)
+      return { region: REGION, owners: [...OWNER_WALLETS], ops: ops.get(), smooth: require('./sl/slRoom').smoothOn(),
+        door: slLink.doorWanted(), brOnNew, podiumFile: brLastPodium.file, botsPauseMs: BOTS_PAUSE_MS, load: null };
+    },
+    onPresence: (m) => livePlayers.presence(m),
     onJoin: (m) => {
       const socket = { request: { method: 'GET', headers: m.h } };   // only ever asked whether it is the owner's
       joinAlerts.joined({ game: m.where === 'br' ? 'br' : 'sl', stake: 0, name: m.name, socket });

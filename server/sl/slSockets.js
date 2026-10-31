@@ -50,7 +50,8 @@
 //
 // attachSlSockets(nsp, arenas, helpers): nsp is io.of('/sl') (null: attach sockets by hand, tests). arenas is
 // slArenas (join, leave, disconnect, input, hold, vis, chat, diag, isOpen, laws). helpers: { socketRL (required),
-// ops, notifyJoin(name, where, socket) (the socket only keeps the owner's own join off his phone), ownerSocket(socket)
+// ops, notifyJoin(name, where, socket) (the socket only keeps the owner's own join off his phone), livePresence(socket,
+// { name, where }) (every seat, ungated: the owner's live view, server/livePlayers.js), ownerSocket(socket)
 // (is this the owner's: his join spends no push gate), clientIp(socket), now() wall ms for the input window, seed, log,
 // role ('all' by default, 'paid' or 'free': Roles below) }.
 //
@@ -364,6 +365,7 @@ function attachSlSockets(nsp, arenas, helpers) {
   const now = typeof h.now === 'function' ? h.now : Date.now;
   const timers = h.timers || REAL_TIMERS; // the pending sl:vis timer (tests pass fake timers)
   const notifyJoin = typeof h.notifyJoin === 'function' ? h.notifyJoin : null;
+  const livePresence = typeof h.livePresence === 'function' ? h.livePresence : null;
   // the owner's own join (h.ownerSocket: index.js isOwnerSocket) is never pushed, so it never spends the push gate;
   // a check that throws counts as a player
   const ownerSocket = typeof h.ownerSocket === 'function' ? h.ownerSocket : null;
@@ -618,6 +620,10 @@ function attachSlSockets(nsp, arenas, helpers) {
     if (st.br && !st.br.watch) dropWatchersFrom(addrOf(socket), brRooms()); // seated: its address's BR watchers end
     if (st.watch) stats.watches++;
     if (st.watch || (st.br && st.br.watch)) return; // a watcher is nobody joining
+    // the owner's live view of real players (server/livePlayers.js): every seat, ungated, never waited on
+    if (livePresence) {
+      safeAsync(() => livePresence(socket, { name: nick, where: st.br ? 'br' : 'free' }), 'sl.livePresence', safeStats, { log });
+    }
     if (notifyJoin && !ownJoin(socket) && pushGate.allow(nick, now())) {
       stats.pushes++;
       const where = st.br ? 'br' : 'free';

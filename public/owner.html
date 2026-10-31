@@ -178,6 +178,75 @@ dialog::backdrop{background:rgba(0,0,0,.55)}
 .dft{display:flex;align-items:center;gap:12px;padding:12px 20px 18px;border-top:1px solid var(--ln)}
 .dft .status{flex:1}
 
+/* ═══ Live and Today (public/js/ownerLive.js): the real people in every lobby, pushed as they come ═══ */
+.lvtabs{position:sticky;top:0;z-index:5;display:flex;gap:4px;max-width:1440px;margin:0 auto;padding:10px 36px 0;background:var(--bg);border-bottom:1px solid var(--ln)}
+.lvtabs button{border:0;background:none;padding:8px 12px 10px;margin-bottom:-1px;font-weight:600;font-size:14.5px;color:var(--tx3);cursor:pointer;border-bottom:2px solid transparent;display:inline-flex;align-items:center;gap:8px}
+.lvtabs button.on{color:var(--tx);border-bottom-color:var(--gold)}
+.lvtabs button:hover:not(.on){color:var(--tx2)}
+.lvbadge{background:var(--ok);color:var(--ink);border-radius:10px;min-width:20px;height:20px;padding:0 6px;font-size:12.5px;font-weight:700;display:inline-grid;place-items:center}
+main:not([data-tab="live"]) #live,main:not([data-tab="today"]) #today,main[data-tab="live"] #panel,main[data-tab="today"] #panel{display:none}
+.lv{max-width:1100px;margin:0 auto;padding:0 36px 40px}
+.lvtop{display:flex;align-items:flex-end;gap:18px;padding:24px 0 18px;border-bottom:1px solid var(--ln);flex-wrap:wrap}
+.lvbig{font-size:22px;font-weight:650;letter-spacing:-.2px}
+.lvbig.ok{color:var(--ok)}
+.lvsub{font-size:13.5px;color:var(--tx2);margin-top:3px}
+.lvctl{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.lvconn{font-size:13px;color:var(--tx3);display:inline-flex;align-items:center;gap:6px;margin-right:4px}
+.lvconn::before{content:'';width:8px;height:8px;border-radius:50%;background:var(--tx3)}
+.lvconn.on{color:var(--ok)}
+.lvconn.on::before{background:var(--ok)}
+.lvrow{display:grid;grid-template-columns:64px minmax(0,1fr) auto;gap:14px;align-items:center;margin:0 -16px;padding:12px 16px;border-bottom:1px solid var(--s2)}
+.lvrow .lvn{font-size:26px;font-weight:650;text-align:right;color:var(--tx3);padding-right:6px}
+.lvrow.has{background:var(--s1);box-shadow:inset 3px 0 0 var(--ok)}
+.lvrow.has .lvn{color:var(--ok)}
+.lvrow.soon{opacity:.55}
+.lvname b{font-weight:650;font-size:15.5px}
+.lvrung{margin-left:8px;font-size:13px;color:var(--tx2);font-weight:600}
+.lvrung.paid{color:var(--gold)}
+.lvnames{font-size:14px;margin-top:2px;overflow-wrap:anywhere}
+.lvextra{font-size:12.5px;color:var(--tx3);margin-top:2px}
+.lvextra:empty{display:none}
+.lvtestbox{margin-top:26px}
+.lvtestbox h3{margin:0 0 4px;font-size:13px;font-weight:600;color:var(--tx3)}
+.lvnote{margin:0 0 10px;font-size:13px}
+.lvt{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:12px;padding:6px 0;border-top:1px solid var(--s2);font-size:13.5px;color:var(--tx3)}
+.lvt .lvtn{color:var(--tx2);overflow-wrap:anywhere}
+.lvtoasts{position:fixed;right:20px;bottom:20px;z-index:50;display:flex;flex-direction:column;gap:10px;width:min(380px,calc(100vw - 32px))}
+.lvtoast{display:flex;align-items:center;gap:12px;background:var(--s2);border:1px solid var(--ln2);border-radius:12px;padding:12px 12px 12px 16px;box-shadow:inset 3px 0 0 var(--ok),0 10px 30px rgba(0,0,0,.45);animation:lvin .18s ease-out}
+.lvtoast.out{opacity:0;transform:translateY(6px);transition:opacity .18s,transform .18s}
+.lvtx{flex:1;min-width:0;display:flex;flex-direction:column}
+.lvtx b{font-size:15.5px;font-weight:650;overflow-wrap:anywhere}
+.lvtx span{font-size:13.5px;color:var(--tx2)}
+.lvtx span.dim{font-size:12px;color:var(--tx3)}
+.lvx{font-size:12.5px;color:var(--tx3)}
+@keyframes lvin{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.lvchart{padding:22px 0 8px}
+.lvbars{display:grid;grid-template-columns:repeat(24,minmax(0,1fr));gap:4px;height:140px;align-items:end}
+.lvbars span{height:100%;display:flex;align-items:flex-end;background:var(--s1);border-radius:3px}
+.lvbars span.now{box-shadow:inset 0 -2px 0 var(--gold)}
+.lvbars i{display:block;width:100%;background:var(--ok);border-radius:3px}
+.lvbars.sm{height:28px;gap:2px}
+.lvaxis{display:grid;grid-template-columns:repeat(4,1fr);font-size:12px;color:var(--tx3);padding-top:6px}
+.lvdrow{display:grid;grid-template-columns:minmax(0,1.3fr) 80px 140px minmax(0,1.6fr);gap:14px;align-items:center;padding:10px 0;border-bottom:1px solid var(--s2)}
+.lvdh{font-size:13px;color:var(--tx3);font-weight:600;border-bottom-color:var(--ln);padding-top:18px}
+.lvdn b{font-weight:650}
+.lvdv{font-weight:600}
+.lv .tg button.on{background:var(--s2);color:var(--tx)}
+@media (max-width:700px){
+  .lvtabs{padding:6px 8px 0}
+  .lv{padding:0 16px 32px}
+  .lvtop{padding:18px 0 14px}
+  .lvbig{font-size:19px}
+  .lvctl{margin-left:0}
+  .lvrow{grid-template-columns:40px minmax(0,1fr) auto;gap:10px}
+  .lvrow .lvn{font-size:22px;padding-right:2px}
+  .lvtoasts{left:12px;right:12px;bottom:12px;width:auto}
+  .lvbars{height:110px;gap:2px}
+  .lvdrow{grid-template-columns:minmax(0,1fr) 56px 92px;gap:8px}
+  .lvdrow .lvbars.sm{grid-column:1/-1}
+  .lvdh span:last-child{display:none}
+}
+
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important;scroll-behavior:auto!important}}
 </style>
 </head>
@@ -224,6 +293,7 @@ dialog::backdrop{background:rgba(0,0,0,.55)}
 
 <script src="/socket.io/socket.io.js"></script>
 <script src="/js/ownerAlerts.js"></script>
+<script src="/js/ownerLive.js"></script>
 <script>
 'use strict';
 /* The owner console. A device signs in once with the owner wallet and the
@@ -1241,7 +1311,7 @@ function startAlerts() {
   }
   try {
     alertSocket = OwnerAlerts.connectOwnerAlerts({ io, sign: signed, ticket: alertTicket,
-      onState: (st) => { alertState = String(st || ''); update(); },
+      onState: (st) => { alertState = String(st || ''); update(); if (window.OwnerLive) OwnerLive.state(st); },
       onAlert: (a) => {
         if (!a || typeof a !== 'object') return;
         alertList.unshift({ title: String(a.title || 'Alert'), text: String(a.text || ''), at: num(a.at) || Date.now() });
@@ -1250,6 +1320,7 @@ function startAlerts() {
         update();
       },
     });
+    if (window.OwnerLive) OwnerLive.attach(alertSocket);   // the Live and Today tabs ride the same owner socket
   } catch (e) {
     alertSocket = null;
     alertState = 'unavailable';
@@ -1257,6 +1328,7 @@ function startAlerts() {
   }
 }
 function stopAlerts() {
+  if (window.OwnerLive) OwnerLive.stop();
   try { if (alertSocket && typeof alertSocket.disconnect === 'function') alertSocket.disconnect(); } catch (_) { /* gone already */ }
   alertSocket = null;
   alertState = 'connecting';

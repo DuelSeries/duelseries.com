@@ -12,7 +12,7 @@
 //   mirrorGovernor(), freeProxy(local), brProxy(), decisionProxy(d), noteDecided(d), room(lobbyType)
 //   useHelpers({ paidLoad })     slBoot's remote branch: the paid seats count the 1 Hz load message carries
 //   doorWanted()                 the free door the owner last set (default open), sent again in every init
-//   start({ init, onJoin, onPush, onLive, onDecided, onExit, brOnSl })   fork and supervise (below)
+//   start({ init, onJoin, onPresence, onPush, onLive, onDecided, onExit, brOnSl })   fork and supervise (below)
 //   call(op, args)               an owner command: -> Promise<{ ok, note?, why?, result? }>, 5 s, NEVER retried
 //   send(msg), emit(ev, data)    fire and forget to the child
 //   ownsCommand(action, args)    does this /api/owner/do action belong to the child (spec X6)
@@ -327,6 +327,9 @@ function create(opts) {
         return undefined;
       case 'join':
         if (h.onJoin) h.onJoin(m);
+        return undefined;
+      case 'presence':
+        if (h.onPresence) h.onPresence(m);
         return undefined;
       case 'push':
         if (h.onPush) h.onPush(m);

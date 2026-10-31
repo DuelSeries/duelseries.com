@@ -109,8 +109,9 @@ function snapshotOf(o) {
   });
 }
 
-// The cookie header reduced to the owner session's two names (ownerSession.js namesFor): all the main server's
-// ownerDevice reads, so nothing else a player's browser holds crosses.
+// The cookie header reduced to the owner session's two names (ownerSession.js namesFor), all the main server's
+// ownerDevice reads, and our test tools' ds_auto (server/autoMark.js, the owner's live view): nothing else a player's
+// browser holds crosses.
 function ownerCookies(raw) {
   if (typeof raw !== 'string' || !raw) return '';
   const keep = [];
@@ -118,7 +119,7 @@ function ownerCookies(raw) {
     const eq = part.indexOf('=');
     if (eq < 0) continue;
     const name = part.slice(0, eq).trim();
-    if (name === '__Host-ds_owner' || name === 'ds_owner') keep.push(part.trim());
+    if (name === '__Host-ds_owner' || name === 'ds_owner' || name === 'ds_auto') keep.push(part.trim());
   }
   return keep.join('; ').slice(0, 8192);
 }
@@ -139,6 +140,7 @@ function main() {
   const { socketRL } = require('../socketRL');
   const slBoot = require('../sl/slBoot');
   const slRoom = require('../sl/slRoom');
+  const { socketClientIp: clientIpOf } = require('../clientAddr');
   const { safeEvery, createSafeStats } = require('../sl/slSafe');
   const { SlBrArena } = require('../slBr/slBrArena');
   const { createLastPodiumStore } = require('../slBr/brLastPodium');
@@ -223,6 +225,26 @@ function main() {
   // A free or BR seat passed slSockets' own push pre-filter: the main server's join gates decide the push.
   function notifyJoin(name, where, socket) {
     send({ t: 'join', name: String(name || '').slice(0, 64), where: where === 'br' ? 'br' : 'free', h: joinHeaders(socket) });
+  }
+
+  // Every free or BR seat, ungated, and its socket's end: the owner's live view (server/livePlayers.js) in the main
+  // server decides who is a real person. ip is the address the per-address caps count (a capacity-test address is
+  // not a person there).
+  const presenceHooked = new WeakSet();
+  function livePresence(socket, info) {
+    const sid = String((socket && socket.id) || '').slice(0, 64);
+    if (!sid) return;
+    const where = info && info.where === 'br' ? 'br' : 'free';
+    let ip = '';
+    try { ip = String(clientIpOf(socket) || '').slice(0, 64); } catch (_) { ip = ''; }
+    send({ t: 'presence', op: 'join', sid, where, name: String((info && info.name) || '').slice(0, 64),
+      h: joinHeaders(socket), ip });
+    if (socket && typeof socket.once === 'function' && !presenceHooked.has(socket)) {
+      presenceHooked.add(socket);
+      socket.once('disconnect', () => {
+        if (!leaving) send({ t: 'presence', op: 'leave', sid, where, name: '', h: {}, ip: '' });
+      });
+    }
   }
 
   // The live-match record (brMatch journal.setLive): forwarded in order, except that a clear waits one tick, so a
@@ -390,6 +412,7 @@ function main() {
         socketRL,
         ops: { get: () => opsMirror },
         notifyJoin,
+        livePresence,
         // the main server's join gates know the owner (his session cookie); here every join spends the pre-filter
         ownerSocket: () => false,
         paidLoad: () => ({ paidPlayers: load.paidPlayers, paid: [] }),

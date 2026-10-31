@@ -94,6 +94,9 @@ const CHILD_TO_MAIN = Object.freeze({
   ready: { boot: str(64), port: count(65535), dev: bool },
   snap: SNAP,
   join: { name: str(64), where: oneOf(['free', 'br']), h: headers },
+  // every free or BR seat and its socket's end, for the owner's live view (server/livePlayers.js)
+  presence: { op: oneOf(['join', 'leave']), sid: str(64), where: oneOf(['free', 'br']), name: str(64), h: headers,
+    ip: str(64) },
   push: { text: str(2000), title: str(200), priority: opt(str(16)) },
   'br.live': { rec: nullOr(isObj) },
   'br.decided': { d: decided },
