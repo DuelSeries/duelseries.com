@@ -777,6 +777,8 @@
       scene.hud = phase === 'play' || phase === 'over'
         ? { score: myScore, high: Math.max(high, myScore), lives: Math.max(0, myLives - 1), fruit: true, blink: phase === 'play' }
         : { score: 0, high: high, lives: 0, fruit: true, watch: phase === 'watch' };
+      // the level fruit sits left of the ping and FPS readout in the bottom right corner (about 130 px wide)
+      if (draw.k) scene.hud.fruitClear = Math.ceil(136 * draw.dpr / draw.k);
       if (stakeNow > 0) {
         // a paid room: money in place of the scores (yours while you play, the richest chomper's beside it)
         var mine = phase === 'play' ? myMoney : 0;

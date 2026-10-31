@@ -389,7 +389,8 @@
     if (hud.highMoney != null) g.drawImage(text(hud.highMoney, COIN.gold), 17 * T - hud.highMoney.length * T + 1, T + 1);
     else if (hud.high > 0) { var hs = String(hud.high); g.drawImage(text(hs, C.white), 17 * T - hs.length * T + 1, T + 1); }
     for (var i = 0; i < hud.lives; i++) g.drawImage(life(), 2 * T + i * 16, BH - HUD_BOTTOM + 2);
-    if (hud.fruit) g.drawImage(cherry(), BW - 4 * T, BH - HUD_BOTTOM);
+    // fruitClear: arcade pixels kept free at the right for the ping and FPS readout (dsPerfHud.js), which covered it
+    if (hud.fruit) g.drawImage(cherry(), Math.min(BW - 4 * T, BW - (hud.fruitClear || 0) - 2 * T), BH - HUD_BOTTOM);
   };
 
   function burst(color, n) {

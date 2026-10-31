@@ -151,11 +151,13 @@
     '.dse-lr.net b{font-weight:600;font-size:20px;line-height:1.1}',
     '.dse.t-win .dse-lr.net b{color:var(--dse-gold)}',
     '.dse.t-loss .dse-lr.net b{color:var(--dse-loss)}',
-    '.dse-st{display:flex;align-items:center;flex-wrap:wrap;column-gap:9px;row-gap:2px;padding:9px 0 8px;font-size:14px;' +
+    // the dot beside the first line and the words wrapping under themselves: as a flex row, words too long for the
+    // dot's line dropped below it and left the dot alone (a long delayed-payout line on a phone)
+    '.dse-st{display:flow-root;position:relative;padding:9px 0 8px 23px;font-size:14px;' +
       'color:var(--dse-tx2);border-top:1px solid var(--dse-line)}',
     '.dse-st:first-child{border-top:0}',
-    '.dse-st i{position:relative;flex:0 0 auto;width:8px;height:8px;margin:0 3px;border-radius:50%;background:var(--dse-gold);' +
-      'animation:dse-breathe 1.4s ease-in-out infinite}',
+    '.dse-st i{position:absolute;left:3px;top:calc(9px + .675em - 4px);width:8px;height:8px;border-radius:50%;' +
+      'background:var(--dse-gold);animation:dse-breathe 1.4s ease-in-out infinite}',
     // sent: a pulsing green dot (Owen 2026-10-16, his one green: the lobby's live dot, --live #8ed081), for everyone
     '.dse-st.ok{color:var(--dse-tx)}',
     '.dse-st.ok i{width:9px;height:9px;background:#8ed081;animation:none;box-shadow:0 0 7px rgba(142,208,129,.55)}',
@@ -164,7 +166,7 @@
     '@keyframes dse-ping{0%{transform:scale(1);opacity:.75}80%,100%{transform:scale(2.7);opacity:0}}',
     '.dse-st.err{color:#ff8a78}',
     '.dse-st.err i{background:var(--dse-loss);animation:none}',
-    '.dse-st a{margin-left:auto;color:var(--dse-tx);font-weight:650;text-decoration:underline;' +
+    '.dse-st a{float:right;margin-left:12px;color:var(--dse-tx);font-weight:650;text-decoration:underline;' +
       'text-decoration-color:rgba(240,168,48,.65);text-underline-offset:3px}',
     '.dse-st a:hover{color:var(--dse-gold)}',
     '.dse-st[data-chg] i{animation:dse-pop .28s cubic-bezier(.25,1,.5,1) both}',
@@ -201,6 +203,8 @@
     '.dse-share{position:absolute;top:10px;right:10px;display:flex;align-items:center;gap:6px;height:32px;padding:0 12px 0 10px;' +
       'border:0;border-radius:99px;background:rgba(245,241,232,.06);color:var(--dse-tx2);font:650 13px ' + SANS + ';cursor:pointer;' +
       'box-shadow:inset 0 0 0 1px rgba(245,241,232,.14);touch-action:manipulation;-webkit-user-select:none;user-select:none}',
+    // the pill is 32 px tall; its tap area reaches 40
+    '.dse-share:before{content:"";position:absolute;inset:-4px -2px}',
     '.dse-share:hover{background:rgba(245,241,232,.11);color:var(--dse-tx)}',
     '.dse-share:focus-visible{outline:2px solid var(--dse-gold);outline-offset:2px}',
     '.dse-share svg{flex:none}',

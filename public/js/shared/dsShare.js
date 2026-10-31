@@ -100,7 +100,13 @@
       // the big figure and its words
       var hero = String(o.hero || '');
       ctx.fillStyle = BONE;
-      ctx.font = '600 150px ' + MONO;
+      // the figure and its words stay left of the game's picture (x 600 on): a long score is drawn smaller rather
+      // than running its words into the art
+      ctx.font = '500 40px ' + SANS;
+      var uw = o.unit ? ctx.measureText(String(o.unit)).width + 18 : 0;
+      var hs = 150;
+      ctx.font = '600 ' + hs + 'px ' + MONO;
+      while (hs > 90 && ctx.measureText(hero).width + uw > 528) { hs -= 6; ctx.font = '600 ' + hs + 'px ' + MONO; }
       hero = fit(ctx, hero, 760);
       ctx.fillText(hero, x - 6, 386);
       var hw = ctx.measureText(hero).width;
@@ -115,7 +121,10 @@
         var f = Array.isArray(facts[i]) ? facts[i] : [facts[i].k || facts[i].label, facts[i].v || facts[i].value];
         var fx = x + i * 220;
         ctx.fillStyle = BONE;
-        ctx.font = '600 42px ' + MONO;
+        // a long value ("#2 of 10") is drawn smaller to fit its column rather than cut short
+        var fs = 42;
+        ctx.font = '600 ' + fs + 'px ' + MONO;
+        while (fs > 28 && ctx.measureText(String(f[1])).width > 196) { fs -= 2; ctx.font = '600 ' + fs + 'px ' + MONO; }
         ctx.fillText(fit(ctx, f[1], 196), fx, 470);
         ctx.fillStyle = TX3;
         ctx.font = '500 24px ' + SANS;
@@ -146,6 +155,8 @@
     '.dss-top p{margin:0;font-size:16px;font-weight:650}',
     '.dss-x{width:34px;height:34px;border:0;border-radius:50%;background:rgba(245,241,232,.06);color:#a89c8a;font:600 20px/1 ' + SANS + ';' +
       'cursor:pointer;box-shadow:inset 0 0 0 1px rgba(245,241,232,.14)}',
+    // the round close button is 34 px; its tap area reaches 42
+    '.dss-x{position:relative}.dss-x:before{content:"";position:absolute;inset:-4px;border-radius:50%}',
     '.dss-x:hover{color:#f5f1e8;background:rgba(245,241,232,.11)}',
     '.dss-pic{display:block;width:100%;aspect-ratio:1200/630;border-radius:10px;background:#0d0b08;object-fit:cover;' +
       'box-shadow:inset 0 0 0 1px rgba(245,241,232,.08)}',
@@ -157,6 +168,8 @@
     '.dss-btn.pri:hover{background:#fffaf0}',
     '.dss-btn:disabled{opacity:.5;cursor:default}',
     '.dss-btn:focus-visible,.dss-x:focus-visible{outline:2px solid #f0a830;outline-offset:2px}',
+    // three buttons on a phone: the next step gets its own row, so Copy invite link is not squeezed onto three lines
+    '@media (max-width:480px){.dss-btns.n3{flex-wrap:wrap}.dss-btns.n3 .dss-btn.pri{flex:1 1 100%}}',
   ].join('\n');
 
   var styled = false;
@@ -298,6 +311,7 @@
         saveBtn.type = 'button';
         saveBtn.addEventListener('click', function () { save(); track('save'); });
         btns.insertBefore(saveBtn, main);
+        btns.className = 'dss-btns n3';
       } else {
         main.textContent = 'Save image';
         main.onclick = function () { save(); track('save'); };

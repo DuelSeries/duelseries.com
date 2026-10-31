@@ -2823,9 +2823,9 @@ requestAnimationFrame(gameLoop);
   window.openProfile = async function openProfile(playerName) {
     modal.classList.remove('hidden');
     nameEl.textContent = playerName;
-    earningsEl.textContent = '—';
-    gamesEl.textContent = '—';
-    timeEl.textContent = '—';
+    earningsEl.textContent = '…';
+    gamesEl.textContent = '…';
+    timeEl.textContent = '…';
     loadingEl.style.display = 'block';
     chartCanvas.style.display = 'none';
     currentProfile = null;
