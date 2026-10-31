@@ -451,19 +451,20 @@ function blobTexture(stops) {
    opts: { sim (default window.SwimSim), touch (a phone: lower caps),
    maxPixelRatio (1.5), antialias (default off on touch), adaptive (true:
    drops the pixel ratio a step at a time if frames stay slow) } */
-/* A WIDER ROAD (the Swim Race event, public/js/swim/swimEventMain.js): opts.lanes lanes (4, the duel's, when left
-   out), lane 0 at the same place and the road growing to the right (shared/swimSim.js laneX), so the duel's road,
-   its barriers and its scenery are exactly as they were. On a wider road the middle lanes are one repeating lane
-   tile, a solid line marks each carriageway of four (traffic never crosses it), the gantries are left out, and
-   traffic is drawn only within opts.laneSpan lanes of the camera's (the neighbours you can reach), up to
-   opts.trafficCap cars of each type. opts.ghosts is how many other players' cars can be drawn at once (frame's
-   f.others; the duel uses f.other). */
+/* A WIDER ROAD (the Swim Race event, public/js/swim/swimEventMain.js): with opts.lanes the road has that many
+   lanes, lane 0 at the same place and the road growing to the right (shared/swimSim.js laneX), and setLanes(n)
+   widens or narrows it at any time (the lobby grows as people join). The middle lanes are one repeating lane tile,
+   a solid line marks each carriageway of four (traffic never crosses it), the right-hand barrier, poles, lamps
+   and sand ride in one group moved over with the edge, the gantries are left out, and traffic is drawn only within
+   opts.laneSpan lanes of the camera's (the neighbours you can reach), up to opts.trafficCap cars of each type.
+   opts.ghosts is how many other players' cars can be drawn at once (frame's f.others; the duel uses f.other).
+   Without opts.lanes (the duel) the road, its barriers and its scenery are exactly as they always were. */
 export function createScene(canvasEl, opts = {}) {
   const S = opts.sim || (typeof window !== 'undefined' ? window.SwimSim : null);
   if (!S) throw new Error('swimScene: SwimSim is not loaded');
-  const LANES_N = Number.isInteger(opts.lanes) && opts.lanes > 0 ? opts.lanes : S.LANES;
-  const WIDE = LANES_N !== S.LANES;
-  const SHIFT_R = (LANES_N - S.LANES) * S.LANE_W;          // how much further right the right edge is than the duel's
+  const DYN = Number.isInteger(opts.lanes) && opts.lanes > 0;   // the event's road, any width (setLanes)
+  let LANES_N = DYN ? opts.lanes : S.LANES;
+  let SHIFT_R = (LANES_N - S.LANES) * S.LANE_W;            // how much further right the right edge is than the duel's
   const LANE_SPAN = opts.laneSpan > 0 ? opts.laneSpan : 99;
   const T_CAP = opts.trafficCap > 0 ? opts.trafficCap : TRAFFIC_CAP;
   const GHOSTS = Number.isInteger(opts.ghosts) && opts.ghosts > 1 ? opts.ghosts : 1;
@@ -571,6 +572,12 @@ export function createScene(canvasEl, opts = {}) {
   /* the treadmill: everything pinned to the world in a 48 m pattern */
   const ground = new THREE.Group();
   scene.add(ground);
+  /* Everything right of the road (barrier, poles, lamps, sand), built where the duel's is and moved over with the
+     right edge on a wider road. */
+  const rightSide = new THREE.Group();
+  ground.add(rightSide);
+  rightSide.position.x = DYN ? SHIFT_R : 0;
+  let middle = null, lines = null, laneTex = null;          // the event's middle lanes and carriageway lines (setLanes)
   const Z_BACK = BLOCK, Z_FRONT = -(AHEAD + BLOCK + 24);         // local z range the static set covers
   {
     // road and gravel, x -10..10; v counts 12 m periods of world z
@@ -584,101 +591,117 @@ export function createScene(canvasEl, opts = {}) {
     rg.setAttribute('position', new THREE.Float32BufferAttribute(rp, 3));
     rg.setAttribute('uv', new THREE.Float32BufferAttribute(ru, 2));
     const roadTex = keep(roadTexture(aniso));
-    if (!WIDE) {
-      const road = new THREE.Mesh(rg, keep(new THREE.MeshBasicMaterial({ map: roadTex })));
-      road.frustumCulled = false;
-      ground.add(road);
+    const stripGeo = (xa, xb, ua, ub) => {
+      const g = new THREE.BufferGeometry(), p = [], u = [];
+      for (let i = 0; i < segs; i++) {
+        const za = Z_BACK - len * i / segs, zb = Z_BACK - len * (i + 1) / segs;
+        p.push(xa, 0, za, xb, 0, za, xb, 0, zb, xa, 0, za, xb, 0, zb, xa, 0, zb);
+        u.push(ua, -za / 12, ub, -za / 12, ub, -zb / 12, ua, -za / 12, ub, -zb / 12, ua, -zb / 12);
+      }
+      g.setAttribute('position', new THREE.Float32BufferAttribute(p, 3));
+      g.setAttribute('uv', new THREE.Float32BufferAttribute(u, 2));
+      return g;
+    };
+    const flat = (geo, mat, into) => { const m = new THREE.Mesh(geo, mat); m.frustumCulled = false; into.add(m); return m; };
+    if (!DYN) {
+      flat(rg, keep(new THREE.MeshBasicMaterial({ map: roadTex })), ground);
     } else {
-      /* The duel's left edge (x -10 to -5.4) and right edge (its 5.4 to 10, moved over), and between them one lane
-         tile (lane centre to lane centre, the dash in the middle) repeated, then each carriageway's solid line. */
-      const strip = (xa, xb, ua, ub, ku, tex) => {
-        const g = new THREE.BufferGeometry(), p = [], u = [];
-        for (let i = 0; i < segs; i++) {
-          const za = Z_BACK - len * i / segs, zb = Z_BACK - len * (i + 1) / segs;
-          p.push(xa, 0, za, xb, 0, za, xb, 0, zb, xa, 0, za, xb, 0, zb, xa, 0, zb);
-          u.push(ua, -za / 12 * ku, ub, -za / 12 * ku, ub, -zb / 12 * ku, ua, -za / 12 * ku, ub, -zb / 12 * ku, ua, -zb / 12 * ku);
+      /* The duel's left edge (x -10 to -5.4) and right edge (its 5.4 to 10, in rightSide), and between them one
+         lane tile (lane centre to lane centre, the dash in the middle) repeated, then each carriageway's line. */
+      const edgeMat = keep(new THREE.MeshBasicMaterial({ map: roadTex }));
+      flat(keep(stripGeo(-10, S.laneX(0), 0, (S.laneX(0) + 10) / 20)), edgeMat, ground);
+      flat(keep(stripGeo(5.4, 10, (5.4 + 10) / 20, 1)), edgeMat, rightSide);
+      laneTex = keep(laneTileTexture(roadTex.image, aniso));
+      middle = flat(new THREE.BufferGeometry(), keep(new THREE.MeshBasicMaterial({ map: laneTex })), ground);
+      lines = flat(new THREE.BufferGeometry(), keep(new THREE.MeshBasicMaterial({ color: 0xd9d2c4 })), ground);
+      middle.userData.build = () => {
+        const n = LANES_N, lx0 = S.laneX(0), lx1 = S.laneX(n - 1);
+        middle.geometry.dispose();
+        middle.geometry = n > 1 ? stripGeo(lx0, lx1, 0, n - 1) : new THREE.BufferGeometry();
+        const lp = [];
+        for (let l = 3; l < n - 1; l += 4) {
+          const xc = S.laneX(l) + S.LANE_W / 2;
+          for (const o of [-0.13, 0.13]) {
+            const xa = xc + o - 0.06, xb = xc + o + 0.06, za = Z_BACK, zb = -744;
+            lp.push(xa, 0.012, za, xb, 0.012, za, xb, 0.012, zb, xa, 0.012, za, xb, 0.012, zb, xa, 0.012, zb);
+          }
         }
-        g.setAttribute('position', new THREE.Float32BufferAttribute(p, 3));
-        g.setAttribute('uv', new THREE.Float32BufferAttribute(u, 2));
-        const m = new THREE.Mesh(keep(g), keep(new THREE.MeshBasicMaterial({ map: tex })));
-        m.frustumCulled = false;
-        ground.add(m);
+        lines.geometry.dispose();
+        lines.geometry = new THREE.BufferGeometry();
+        lines.geometry.setAttribute('position', new THREE.Float32BufferAttribute(lp, 3));
+        lines.visible = lp.length > 0;
       };
-      const lx0 = S.laneX(0), lx1 = S.laneX(LANES_N - 1);
-      strip(-10, lx0, 0, (lx0 + 10) / 20, 1, roadTex);
-      strip(lx1, lx1 + (10 - 5.4), (5.4 + 10) / 20, 1, 1, roadTex);
-      if (LANES_N > 1) strip(lx0, lx1, 0, LANES_N - 1, 1, keep(laneTileTexture(roadTex.image, aniso)));
-      const lines = new THREE.BufferGeometry(), lp = [];
-      for (let l = 3; l < LANES_N - 1; l += 4) {
-        const xc = S.laneX(l) + S.LANE_W / 2;
-        for (const o of [-0.13, 0.13]) {
-          const xa = xc + o - 0.06, xb = xc + o + 0.06, za = Z_BACK, zb = -744;
-          lp.push(xa, 0.012, za, xb, 0.012, za, xb, 0.012, zb, xa, 0.012, za, xb, 0.012, zb, xa, 0.012, zb);
-        }
-      }
-      if (lp.length) {
-        lines.setAttribute('position', new THREE.Float32BufferAttribute(lp, 3));
-        const lm = new THREE.Mesh(keep(lines), keep(new THREE.MeshBasicMaterial({ color: 0xd9d2c4 })));
-        lm.frustumCulled = false;
-        ground.add(lm);
-      }
+      middle.userData.build();
     }
-    // sand either side, 24 m tiles
-    const sg = keep(new THREE.BufferGeometry()), sp = [], su = [];
-    for (const [x0, x1] of [[-700, -10], [10 + SHIFT_R, 700 + SHIFT_R]]) {
-      const za = Z_BACK, zb = -744;
-      sp.push(x0, 0, za, x1, 0, za, x1, 0, zb, x0, 0, za, x1, 0, zb, x0, 0, zb);
-      su.push(x0 / 24, -za / 24, x1 / 24, -za / 24, x1 / 24, -zb / 24, x0 / 24, -za / 24, x1 / 24, -zb / 24, x0 / 24, -zb / 24);
-    }
-    sg.setAttribute('position', new THREE.Float32BufferAttribute(sp, 3));
-    sg.setAttribute('uv', new THREE.Float32BufferAttribute(su, 2));
-    const sand = new THREE.Mesh(sg, keep(new THREE.MeshBasicMaterial({ map: keep(sandTexture(aniso)) })));
-    sand.frustumCulled = false;
-    ground.add(sand);
+    // sand either side, 24 m tiles (the right side's in rightSide on the event's road)
+    const sandMat = keep(new THREE.MeshBasicMaterial({ map: keep(sandTexture(aniso)) }));
+    const sandGeo = (pairs) => {
+      const sg = new THREE.BufferGeometry(), sp = [], su = [];
+      for (const [x0, x1] of pairs) {
+        const za = Z_BACK, zb = -744;
+        sp.push(x0, 0, za, x1, 0, za, x1, 0, zb, x0, 0, za, x1, 0, zb, x0, 0, zb);
+        su.push(x0 / 24, -za / 24, x1 / 24, -za / 24, x1 / 24, -zb / 24, x0 / 24, -za / 24, x1 / 24, -zb / 24, x0 / 24, -zb / 24);
+      }
+      sg.setAttribute('position', new THREE.Float32BufferAttribute(sp, 3));
+      sg.setAttribute('uv', new THREE.Float32BufferAttribute(su, 2));
+      return keep(sg);
+    };
+    if (!DYN) flat(sandGeo([[-700, -10], [10, 700]]), sandMat, ground);
+    else { flat(sandGeo([[-700, -10]]), sandMat, ground); flat(sandGeo([[10, 700]]), sandMat, rightSide); }
   }
   const propMat = keep(litMaterial({}));
   {
     // barriers (posts every 4 m, reflectors every 12 m) and light poles (every 24 m, alternate sides)
-    const m = new Mesher(), len = Z_BACK - Z_FRONT, mid = (Z_BACK + Z_FRONT) / 2;
-    const R = (s) => (s > 0 ? SHIFT_R : 0);          // the right side sits SHIFT_R further over on a wider road
+    /* On the event's road the right side is its own mesh in rightSide (moved over with the edge); the duel's is one. */
+    const mL = new Mesher(), mR = DYN ? new Mesher() : mL, len = Z_BACK - Z_FRONT, mid = (Z_BACK + Z_FRONT) / 2;
+    const M = (s) => (s > 0 ? mR : mL);
     for (const s of [-1, 1]) {
-      m.box(s * 7.72 + R(s), 0.58, mid, 0.10, 0.34, len, C.rail);
-      m.box(s * 7.665 + R(s), 0.58, mid, 0.03, 0.07, len, 0x7c8189);
-      for (let z = Z_BACK; z >= Z_FRONT; z -= 4) m.box(s * 7.84 + R(s), 0.40, z, 0.12, 0.80, 0.14, C.post);
-      for (let z = Z_BACK; z >= Z_FRONT; z -= 12) m.box(s * 7.655 + R(s), 0.66, z, 0.03, 0.06, 0.12, s < 0 ? C.reflL : C.reflR, 1);
+      M(s).box(s * 7.72, 0.58, mid, 0.10, 0.34, len, C.rail);
+      M(s).box(s * 7.665, 0.58, mid, 0.03, 0.07, len, 0x7c8189);
+      for (let z = Z_BACK; z >= Z_FRONT; z -= 4) M(s).box(s * 7.84, 0.40, z, 0.12, 0.80, 0.14, C.post);
+      for (let z = Z_BACK; z >= Z_FRONT; z -= 12) M(s).box(s * 7.655, 0.66, z, 0.03, 0.06, 0.12, s < 0 ? C.reflL : C.reflR, 1);
     }
     for (let z = Z_BACK; z >= Z_FRONT; z -= 24) {
       const s = (Math.round(z / 24) & 1) ? 1 : -1;
-      m.box(s * 9.5 + R(s), 4.9, z, 0.22, 9.8, 0.22, C.pole);
-      m.box(s * 9.5 + R(s), 0.4, z, 0.5, 0.8, 0.5, 0x6b6f76);
-      m.box(s * 8.15 + R(s), 9.62, z, 2.7, 0.14, 0.14, C.pole);
-      m.box(s * 6.75 + R(s), 9.64, z, 1.0, 0.16, 0.44, C.housing);
-      m.box(s * 6.75 + R(s), 9.53, z, 0.86, 0.06, 0.34, C.lampOn, 1);
+      M(s).box(s * 9.5, 4.9, z, 0.22, 9.8, 0.22, C.pole);
+      M(s).box(s * 9.5, 0.4, z, 0.5, 0.8, 0.5, 0x6b6f76);
+      M(s).box(s * 8.15, 9.62, z, 2.7, 0.14, 0.14, C.pole);
+      M(s).box(s * 6.75, 9.64, z, 1.0, 0.16, 0.44, C.housing);
+      M(s).box(s * 6.75, 9.53, z, 0.86, 0.06, 0.34, C.lampOn, 1);
     }
-    const props = new THREE.Mesh(keep(m.build()), propMat);
+    const props = new THREE.Mesh(keep(mL.build()), propMat);
     props.frustumCulled = false;
     ground.add(props);
+    if (DYN) {
+      const propsR = new THREE.Mesh(keep(mR.build()), propMat);
+      propsR.frustumCulled = false;
+      rightSide.add(propsR);
+    }
 
     // soft light: a warm pool on the road under each lamp, a halo round each head
-    const gp = [], gc = [], gu = [], pool = new THREE.Color(0xffb878), halo = new THREE.Color(0xffdcae);
-    const quad = (pts, c, a) => {
+    const GL = { p: [], c: [], u: [] }, GR = DYN ? { p: [], c: [], u: [] } : GL;
+    const pool = new THREE.Color(0xffb878), halo = new THREE.Color(0xffdcae);
+    const quad = (G, pts, c, a) => {
       const uv = [[0, 0], [1, 0], [1, 1], [0, 0], [1, 1], [0, 1]], ix = [0, 1, 2, 0, 2, 3];
-      for (let k = 0; k < 6; k++) { const p = pts[ix[k]]; gp.push(p[0], p[1], p[2]); gc.push(c.r, c.g, c.b, a); gu.push(uv[k][0], uv[k][1]); }
+      for (let k = 0; k < 6; k++) { const p = pts[ix[k]]; G.p.push(p[0], p[1], p[2]); G.c.push(c.r, c.g, c.b, a); G.u.push(uv[k][0], uv[k][1]); }
     };
     for (let z = Z_BACK; z >= Z_FRONT; z -= 24) {
-      const s = (Math.round(z / 24) & 1) ? 1 : -1, x = s * 4.6 + R(s), y = 0.025;
-      quad([[x - 7, y, z + 9], [x + 7, y, z + 9], [x + 7, y, z - 9], [x - 7, y, z - 9]], pool, 0.20);
-      const hx = s * 6.75 + R(s), hy = 9.45, hz = z + 0.3;
-      quad([[hx - 1.3, hy - 1.3, hz], [hx + 1.3, hy - 1.3, hz], [hx + 1.3, hy + 1.3, hz], [hx - 1.3, hy + 1.3, hz]], halo, 0.55);
+      const s = (Math.round(z / 24) & 1) ? 1 : -1, G = s > 0 ? GR : GL, x = s * 4.6, y = 0.025;
+      quad(G, [[x - 7, y, z + 9], [x + 7, y, z + 9], [x + 7, y, z - 9], [x - 7, y, z - 9]], pool, 0.20);
+      const hx = s * 6.75, hy = 9.45, hz = z + 0.3;
+      quad(G, [[hx - 1.3, hy - 1.3, hz], [hx + 1.3, hy - 1.3, hz], [hx + 1.3, hy + 1.3, hz], [hx - 1.3, hy + 1.3, hz]], halo, 0.55);
     }
-    const gg = keep(new THREE.BufferGeometry());
-    gg.setAttribute('position', new THREE.Float32BufferAttribute(gp, 3));
-    gg.setAttribute('color', new THREE.Float32BufferAttribute(gc, 4));
-    gg.setAttribute('uv', new THREE.Float32BufferAttribute(gu, 2));
     const glowTex = keep(blobTexture([[0, 'rgba(255,255,255,1)'], [0.25, 'rgba(255,255,255,0.6)'], [0.6, 'rgba(255,255,255,0.16)'], [1, 'rgba(255,255,255,0)']]));
-    const glows = new THREE.Mesh(gg, keep(new THREE.MeshBasicMaterial({ map: glowTex, vertexColors: true, transparent: true, depthWrite: false })));
-    glows.frustumCulled = false; glows.renderOrder = 1;
-    ground.add(glows);
+    const glowMat = keep(new THREE.MeshBasicMaterial({ map: glowTex, vertexColors: true, transparent: true, depthWrite: false }));
+    for (const [G, into] of DYN ? [[GL, ground], [GR, rightSide]] : [[GL, ground]]) {
+      const gg = keep(new THREE.BufferGeometry());
+      gg.setAttribute('position', new THREE.Float32BufferAttribute(G.p, 3));
+      gg.setAttribute('color', new THREE.Float32BufferAttribute(G.c, 4));
+      gg.setAttribute('uv', new THREE.Float32BufferAttribute(G.u, 2));
+      const glows = new THREE.Mesh(gg, glowMat);
+      glows.frustumCulled = false; glows.renderOrder = 1;
+      into.add(glows);
+    }
   }
 
   /* scattered scenery, laid per world slot by a hash (never repeats) */
@@ -771,7 +794,7 @@ export function createScene(canvasEl, opts = {}) {
     trees.count = scatter(trees, 0, base, 12, 300, 0.45, 11.5, 75, 0.8, 1.5, 0.85, 1.2, 0.8, 1.1);
     let g = 0;
     for (let k = Math.floor((base - 40) / 768); k <= Math.ceil((base + BLOCK + AHEAD) / 768); k++) {
-      if (g >= 2 || WIDE) break;                    // a gantry spans the duel's road only
+      if (g >= 2 || DYN) break;                     // a gantry spans the duel's road only
       _p.set(0, 0, -(k * 768 + 300 - base));
       gantries.setMatrixAt(g++, _m.compose(_p, _q.identity(), _s.set(1, 1, 1)));
     }
@@ -1458,6 +1481,15 @@ export function createScene(canvasEl, opts = {}) {
     },
     /* The event's followed car only (the ghosts take their own looks from f.others). */
     followLook(l) { if (cars[0].look !== l) lookCar(cars[0], l); },
+    /* The event's road, n lanes wide from now on (the middle lanes, the carriageway lines, the right side). */
+    setLanes(n) {
+      if (!DYN || !Number.isInteger(n) || n < 1 || n === LANES_N) return;
+      LANES_N = n; SHIFT_R = (n - S.LANES) * S.LANE_W;
+      rightSide.position.x = SHIFT_R;
+      if (middle) middle.userData.build();
+      sceneryBase = NaN;                             // the right side's scenery is laid again where the edge is now
+    },
+    lanes() { return LANES_N; },
     /* A gear change heard on the car being followed: 1 up (the lurch), -1 down (a softer dip). */
     shift(dir) { K.lurchT = 0; K.lurchDir = dir > 0 ? 1 : -1; },
     /* A backfire on a seat's car: n 0 is one flame now (your own car, on each bang heard), else a run of n. */
@@ -1480,6 +1512,7 @@ export function createScene(canvasEl, opts = {}) {
     dispose() {
       for (const d of disposables) if (d && d.dispose) d.dispose();
       for (const t of tmesh) { t.paint.dispose(); t.det.dispose(); }
+      if (middle) { middle.geometry.dispose(); lines.geometry.dispose(); }
       for (const im of [shadows, streaks, parts, rocks, buttes, trees, gantries, tLamps, tHalos]) im.dispose();
       renderer.dispose();
     },

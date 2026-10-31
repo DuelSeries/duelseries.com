@@ -189,6 +189,77 @@ test('the event: 1 km behind the leader is out, so parking never outlasts the dr
   assert.notStrictEqual(ev.state, 'over', 'the others race on');
 });
 
+test('the lobby: lanes in the order people join, the lane of whoever leaves handed down, a parked car per lane', () => {
+  const { ev, io } = newEvent();
+  const a = sock('a'), b = sock('b'), c = sock('c');
+  assert.strictEqual(ev.join(a, 'A', null, {}).lane, 0);
+  assert.strictEqual(ev.join(b, 'B', null, {}).lane, 1);
+  const moved = [];
+  c.emit = (ev2, m) => { if (ev2 === 'se:lane') moved.push(m.lane); };
+  assert.strictEqual(ev.join(c, 'C', null, {}).lane, 2);
+  assert.strictEqual(ev.join(a, 'A', null, {}).lane, 0, 'joining again is the same lane');
+  ev.leave('a');
+  assert.deepStrictEqual(moved, [0], 'the car in the highest lane moves down into the free one');
+  ev.lobby(0);
+  const msg = io.sent.filter(m => m.ev === 'se:lobby').pop().p;
+  assert.deepStrictEqual(msg.cars.map(x => x[0]), [0, 1]);
+  assert.deepStrictEqual(msg.cars.map(x => x[1]), ['C', 'B']);
+  assert.ok(!JSON.stringify(msg).includes('"c"'), 'no socket ids');
+});
+
+test('the lobby: bots trickle in one at a time at uneven gaps before the start, never all at once, only below 8', () => {
+  const { ev, clock } = newEvent();
+  ev.join(sock('p'), 'Pat', null, {});
+  ev.nextSlotAt = clock.t + 10 * 60 * 1000;               // the race in 10 minutes; bots come in its last 8
+  const arrivals = [];
+  for (let t = 0; t < 10 * 60 * 1000 && ev.state === 'waiting'; t += 250) {
+    clock.t += 250;
+    const before = ev.entrants.size;
+    ev.tick(clock.t);
+    if (ev.state === 'waiting' && ev.entrants.size > before) { assert.strictEqual(ev.entrants.size - before, 1, 'one at a time'); arrivals.push(t); }
+  }
+  assert.strictEqual(arrivals.length, MIN_FIELD - 1, 'seven bots join a lobby of one');
+  assert.ok(arrivals[0] >= 2 * 60 * 1000 - 1, 'none before the last 8 minutes');
+  const gaps = arrivals.slice(1).map((t, i) => t - arrivals[i]);
+  assert.ok(new Set(gaps.map(g => Math.round(g / 1000))).size > 2, 'uneven gaps: ' + gaps.join(', '));
+  const bots = [...ev.entrants.values()].filter(e => e.bot);
+  assert.ok(bots.every(e => e.lane < MIN_FIELD), 'every bot in lanes 0 to 7');
+  assert.ok(new Set(bots.map(e => e.name)).size === bots.length && bots.every(e => !/bot/i.test(e.name)), 'player names');
+});
+
+test('the lobby: the owner test race starts on its own clock with the bots trickled in, and needs a person', () => {
+  const { ev, clock } = newEvent();
+  assert.ok(ev.ownerOpen(60000));
+  for (let i = 0; i < 70 * 4 && ev.state === 'waiting'; i++) { clock.t += 250; ev.tick(clock.t); }
+  assert.strictEqual(ev.state, 'waiting', 'nobody joined: no race, the bots gone');
+  assert.strictEqual(ev.entrants.size, 0);
+  ev.join(sock('o'), 'Owen', null, {});
+  ev.ownerOpen(60000);
+  clock.t += 5000; ev.tick(clock.t);
+  assert.ok(ev.ownerStartSoon(15000));
+  let most = 0;
+  for (let i = 0; i < 20 * 4 && ev.state === 'waiting'; i++) {
+    const before = ev.entrants.size; clock.t += 250; ev.tick(clock.t);
+    if (ev.state === 'waiting') most = Math.max(most, ev.entrants.size - before);
+  }
+  assert.strictEqual(ev.state, 'countdown', 'it started');
+  assert.ok(most <= 1, 'never two bots in the same moment');
+  assert.strictEqual(ev.lanes, MIN_FIELD);
+});
+
+test('a test player (capacity harness) races but never wins or places', () => {
+  const { ev } = newEvent();
+  ev.join(sock('t'), 'Load1', null, {}, true);
+  ev.join(sock('p'), 'Pat', null, {});
+  ev.start('t');
+  const lt = ev.racers.find(r => r && r.lt);
+  ev.finish(lt, 'last car');
+  assert.notStrictEqual(ev.overMsg.winner.name, 'Load1');
+  assert.ok(!ev.overMsg.places.some(p => p.name === 'Load1'));
+  assert.ok(!ev.last.podium.includes('Load1'));
+  assert.deepStrictEqual(ev.overMsg.places.map(p => p.place), ev.overMsg.places.map((_, i) => i + 1));
+});
+
 test('the saved podium keeps names only, cut to size', () => {
   assert.strictEqual(cleanLast(null), null);
   assert.strictEqual(cleanLast({ podium: [] }), null);

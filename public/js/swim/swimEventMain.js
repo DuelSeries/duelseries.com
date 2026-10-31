@@ -13,7 +13,14 @@
    crash we did not see) is taken, and our inputs since are replayed on it.
 
    Opened from the Events tab: Join sets sessionStorage seJoin, so the page
-   joins on connect; Spectate opens it bare, and it just watches. */
+   joins on connect; Spectate opens it bare, and it just watches.
+
+   THE LOBBY (Owen 2026-10-30). Join any time between races: your car waits
+   parked on the start line in your own lane, every other car that joined
+   parked beside it, the road as wide as the field so far, and a banner says
+   "Waiting for players to join" with how many are in and the time to the
+   start. Nothing moves until the countdown. The owner gets a small bar to run a
+   test race (the server checks it is him on every press). */
 import { createScene } from './swimScene.js';
 
 const S = window.SwimSim;
@@ -50,15 +57,13 @@ const paintHex = (car) => (LOOKS ? LOOKS.paintOf(car) : '#e2363f');
 const ord = (n) => { const s = ['th', 'st', 'nd', 'rd'], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); };
 const metres = (m) => (m >= 1000 ? (m / 1000).toFixed(2) + ' km' : Math.max(0, Math.round(m)) + ' m');
 
-/* ── the road (made for each race: its width is the field) ──────────────── */
-let scene = null, sceneLanes = 0, noGl = false;
+/* ── the road: one scene for the page, as wide as the field (setLanes) ──── */
+let scene = null, noGl = false;
 function sceneFor(lanes) {
   if (noGl) return null;
-  if (scene && sceneLanes === lanes) return scene;
+  if (scene) { scene.setLanes(lanes); return scene; }
   try {
-    if (scene) scene.dispose();
     scene = createScene($('road'), { touch: TOUCH, lanes, ghosts: GHOSTS, laneSpan: LANE_SPAN, trafficCap: TOUCH ? 90 : 150, shadowCap: TOUCH ? 220 : 360 });
-    sceneLanes = lanes;
   } catch (e) {
     console.error('[swimrace] no WebGL:', e);
     noGl = true; scene = null;
@@ -352,6 +357,7 @@ function frame(now) {
       hud(r, follow);
     }
   }
+  if (!follow && (!r || r.state === 'over') && !overShown()) follow = lobbyView();
   if (!follow) {
     idleZ += 26 * dt;
     follow = { z: idleZ, x: S.laneX(1), v: 26, vx: 0, alive: true };
@@ -365,6 +371,35 @@ function frame(now) {
   if (r) tach(r, st, follow);
   publish(r, follow);
 }
+/* The lobby on the road: every car that joined parked on the start line in its lane, ours solid with the camera
+   behind it (or, before we join, the first car's), the others as ghosts, the road as wide as the field so far. */
+const lobbyLooks = new Map();      // 'name|car' -> the look object the scene keeps (so it is not swapped each frame)
+const lobbyCars = [];
+function lookFor(name, car) {
+  const k = name + '|' + car;
+  let l = lobbyLooks.get(k);
+  if (!l) { const c = LOOKS ? LOOKS.carOf(car) : 'supercar'; l = { car: c, paint: paintHex(c) }; lobbyLooks.set(k, l); }
+  return l;
+}
+function lobbyView() {
+  const cars = Array.isArray(lobby.cars) ? lobby.cars : [];
+  if (!cars.length && !joined) return null;
+  sceneFor(Math.max(lobby.min || 8, lobby.n || 0, myLane !== null ? myLane + 1 : 0));
+  const meLane = joined && myLane !== null ? myLane : cars.length ? cars[0][0] : 1;
+  const mine = cars.find(c => c[0] === meLane);
+  const myL = joined ? lookFor(myName, myLook().car) : mine ? lookFor(mine[1], mine[2]) : lookFor('', 'supercar');
+  if (scene && scene.followLook) scene.followLook(myL);
+  lobbyCars.length = 0;
+  for (const c of cars) {
+    if (c[0] === meLane) continue;
+    lobbyCars.push({ z: 0, x: S.laneX(c[0]), v: 0, vx: 0, alive: true, brake: false, look: lookFor(c[1], c[2]), d: Math.abs(c[0] - meLane) });
+  }
+  lobbyCars.sort((a, b) => a.d - b.d);
+  for (let i = 0; i < Math.min(GHOSTS, lobbyCars.length); i++) othersBuf.push(lobbyCars[i]);
+  return { z: 0, x: S.laneX(meLane), v: 0, vx: 0, alive: true, brake: false };
+}
+const overShown = () => !!(window.DSEnd && DSEnd.shown && DSEnd.shown());
+
 let followPinned = false;
 function leaderSeat(r) {
   let best = null, bz = -Infinity;
@@ -503,23 +538,36 @@ requestAnimationFrame(frame);
 window.__swimraceTraffic = () => (race ? race.traffic : EMPTY);
 window.__swimraceRace = () => race;
 
-/* ── the start card (before the race) ─────────────────────────────────── */
-function paintLobby() {
-  if (race && race.state !== 'over') return;
-  $('wait').hidden = noGl;
+/* ── the start card (before joining) and the banner (after) ─────────────── */
+let myLane = null, lobbyRecv = 0;
+function startsIn() {
+  if (lobby && Number.isFinite(lobby.startIn)) return Math.max(0, Math.round((lobby.startIn - (performance.now() - lobbyRecv)) / 1000));
   const L = live;
-  const secs = L && Number.isFinite(L.nextInSec) ? L.nextInSec - Math.floor((Date.now() - liveAt) / 1000) : null;
-  const clockEl = $('seClock');
-  if (secs !== null && secs >= 0) {
-    const h = Math.floor(secs / 3600), m = Math.floor(secs / 60) % 60, s = secs % 60;
-    clockEl.textContent = (h ? h + ':' + String(m).padStart(2, '0') : String(m)) + ':' + String(s).padStart(2, '0');
-  } else clockEl.textContent = '--:--';
+  return L && Number.isFinite(L.nextInSec) ? Math.max(0, L.nextInSec - Math.floor((Date.now() - liveAt) / 1000)) : null;
+}
+function clockText(secs) {
+  if (secs === null) return '--:--';
+  const h = Math.floor(secs / 3600), m = Math.floor(secs / 60) % 60, x = secs % 60;
+  return (h ? h + ':' + String(m).padStart(2, '0') : String(m)) + ':' + String(x).padStart(2, '0');
+}
+function paintLobby() {
+  if (race && race.state !== 'over') { $('lobbyBar').hidden = true; return; }
+  if (race && race.state === 'over' && overShown()) { $('wait').hidden = true; $('lobbyBar').hidden = true; return; }
+  const secs = startsIn(), n = lobby.n || 0, L = live;
+  /* Joined: the road shows our car parked; the banner says what we are waiting for. */
+  $('wait').hidden = noGl || joined;
+  $('lobbyBar').hidden = noGl || !joined;
+  $('lbCount').textContent = n === 1 ? '1 joined' : n + ' joined';
+  $('lbClock').textContent = secs === null ? '' : 'Starts in ' + clockText(secs);
+  $('lbTest').hidden = !lobby.test;
+  if (joined) return;
+  $('seClock').textContent = clockText(secs);
   const when = $('seWhen');
-  if (L && Number.isInteger(L.startHour)) {
+  if (lobby.test) when.textContent = 'A test race, started by the owner';
+  else if (L && Number.isInteger(L.startHour)) {
     const h12 = ((L.startHour + 11) % 12) + 1, ap = L.startHour < 12 ? 'AM' : 'PM';
     when.textContent = 'Starts at ' + h12 + ':' + String(L.startMin || 0).padStart(2, '0') + ' ' + ap + ' ET, every ' + (L.every || 6) + ' hours';
   } else when.textContent = '';
-  const n = lobby.n || 0;
   $('seCount').textContent = String(n);
   $('seCountOf').textContent = (n === 1 ? 'racer in' : 'racers in') + (n >= lobby.max ? ', full' : '');
   const names = $('seNames');
@@ -527,22 +575,14 @@ function paintLobby() {
   for (const nm of (lobby.names || []).slice(0, 24)) {
     const li = document.createElement('li');
     li.textContent = nm;
-    if (joined && nm === myName) li.className = 'me';
     names.append(li);
   }
   const btn = $('seJoin'), note = $('seNote');
-  if (joined) {
-    btn.hidden = false; btn.textContent = 'Leave the race'; btn.classList.remove('seGo');
-    note.textContent = 'You are in. Stay on this page: the race starts at zero. Fewer than ' + lobby.min + ' racers and bots fill the road.';
-  } else if (lobby.n >= lobby.max) {
-    btn.hidden = true; note.textContent = 'Event full. Watch it from here when it starts.';
-  } else if (lobby.open) {
+  if (n >= lobby.max) { btn.hidden = true; note.textContent = 'Event full. Watch it from here when it starts.'; }
+  else if (lobby.open !== false) {
     btn.hidden = false; btn.textContent = 'Join the race'; btn.classList.add('seGo');
-    note.textContent = refusedNote || 'Free. One lane each, so ' + Math.max(lobby.min, n + 1) + ' racers means ' + Math.max(lobby.min, n + 1) + ' lanes.';
-  } else {
-    btn.hidden = true;
-    note.textContent = refusedNote || 'Joining opens ' + Math.round(((L && L.openSec) || 900) / 60) + ' minutes before the start.';
-  }
+    note.textContent = refusedNote || 'Free. Join any time before the start: your car waits on the start line in its own lane.';
+  } else { btn.hidden = true; note.textContent = refusedNote || 'The game is updating. Back in a minute.'; }
 }
 let liveAt = 0, refusedNote = '';
 function pullLive() {
@@ -555,16 +595,66 @@ pullLive();
 setInterval(pullLive, 5000);
 setInterval(paintLobby, 1000);
 
-$('seJoin').addEventListener('click', () => {
-  if (joined) { socket.emit('se:leave'); joined = false; paintLobby(); return; }
-  join();
-});
+$('seJoin').addEventListener('click', () => join());
+$('lbLeave').addEventListener('click', () => { socket.emit('se:leave'); joined = false; myLane = null; paintLobby(); });
 $('seBack').addEventListener('click', () => toLobby());
 function join() {
   refusedNote = '';
   const look = myLook();
   socket.emit('se:join', { name: myName, wallet: myWallet, car: look.car, v: S.VERSION });
 }
+
+/* ── the owner's test race ─────────────────────────────────────────────────
+   Shown only to the owner: a device signed into Control (its session cookie, asked at /api/owner/session), or the
+   lobby's wallet when the server says it is an owner's (then each press is signed in the lobby, over the bridge
+   play.js keeps for game frames). Either way the server checks it on every press (/api/owner/do). */
+const OWNER = { via: null, busy: false };
+function ownerCheck() {
+  fetch('/api/owner/session', { credentials: 'same-origin', headers: { 'X-DS-Owner': '1' } })
+    .then(r => r.json()).then(j => {
+      if (j && j.signedIn) { OWNER.via = 'session'; paintOwner(); return; }
+      if (!myWallet || !window.parent || window.parent === window) return;
+      return fetch('/api/br/owner', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ wallet: myWallet }) })
+        .then(r => r.json()).then(k => { if (k && k.isOwner) { OWNER.via = 'wallet'; paintOwner(); } });
+    }).catch(() => {});
+}
+function paintOwner() {
+  const bar = $('ownerBar');
+  if (!OWNER.via) { bar.hidden = true; return; }
+  bar.hidden = false;
+  const on = race && (race.state === 'countdown' || race.state === 'racing');
+  $('ownOpen').hidden = !!on; $('ownStart').hidden = !!on; $('ownStop').hidden = !on;
+  for (const id of ['ownOpen', 'ownStart', 'ownStop']) $(id).disabled = OWNER.busy;
+}
+let signId = 0;
+function signInLobby(action) {
+  return new Promise((resolve, reject) => {
+    const id = 'se' + (++signId), origin = location.origin;
+    const done = (e) => {
+      const d = e.data;
+      if (e.source !== window.parent || e.origin !== origin || !d || d.id !== id) return;
+      window.removeEventListener('message', done);
+      if (d.type === 'duel:signaction:done' && d.proof) resolve(d.proof); else reject(new Error(d.message || 'The wallet did not sign.'));
+    };
+    window.addEventListener('message', done);
+    window.parent.postMessage({ type: 'duel:signaction', id, action, args: {} }, origin);
+    setTimeout(() => { window.removeEventListener('message', done); reject(new Error('The wallet did not answer.')); }, 15000);
+  });
+}
+function ownerDo(action) {
+  if (OWNER.busy || !OWNER.via) return;
+  OWNER.busy = true; paintOwner();
+  const body = OWNER.via === 'session' ? Promise.resolve({ action, args: {} }) : signInLobby(action);
+  body.then(b => fetch('/api/owner/do', { method: 'POST', credentials: 'same-origin',
+      headers: { 'content-type': 'application/json', 'X-DS-Owner': '1' }, body: JSON.stringify(b) }))
+    .then(r => r.json().then(j => note(r.ok ? (j.note || 'Done') : (j.error || 'Refused'), 4000)))
+    .catch(e => note((e && e.message) || 'Could not reach the server', 4000))
+    .then(() => { OWNER.busy = false; paintOwner(); pullLive(); });
+}
+$('ownOpen').addEventListener('click', () => ownerDo('se:open'));
+$('ownStart').addEventListener('click', () => ownerDo('se:start'));
+$('ownStop').addEventListener('click', () => ownerDo('se:stop'));
+ownerCheck();
 
 /* ── the server ────────────────────────────────────────────────────────── */
 socket.on('connect', () => {
@@ -574,13 +664,16 @@ socket.on('connect', () => {
   if (WANT_JOIN || joined) { joined = false; join(); }
 });
 socket.on('disconnect', () => { if (race && race.car && !race.out && race.state !== 'over') note('Reconnecting...', 6000); });
-socket.on('se:lobby', (m) => { if (!m) return; lobby = Object.assign(lobby, m); paintLobby(); });
+socket.on('se:lobby', (m) => { if (!m) return; lobby = Object.assign(lobby, m); lobbyRecv = performance.now(); paintLobby(); });
 socket.on('se:joined', (m) => {
   joined = true; refusedNote = '';
-  if (m && m.state === 'waiting') lobby = Object.assign(lobby, m);
+  if (m && Number.isInteger(m.lane)) myLane = m.lane;
+  if (m && m.state === 'waiting') { lobby = Object.assign(lobby, m); lobbyRecv = performance.now(); }
   SOUND.play('g.join');
   paintLobby();
 });
+/* Someone left the lobby and our car moved down into their lane (SwimEvent.closeGap). */
+socket.on('se:lane', (m) => { if (m && Number.isInteger(m.lane)) myLane = m.lane; });
 socket.on('se:refused', (m) => {
   joined = false;
   const why = m && typeof m.why === 'string' ? m.why : 'not seated';
@@ -605,6 +698,7 @@ socket.on('se:state', (m) => {
 });
 socket.on('se:start', (m) => {
   if (!m) return;
+  myLane = null;
   race = newRace(m);
   seatKey = null;
   showRaceUi();
@@ -660,6 +754,7 @@ socket.on('se:ko', (k) => {
 socket.on('se:over', (m) => {
   if (!race || !m) return;
   race.state = 'over'; race.overMsg = m;
+  paintOwner();
   seatKey = null; joined = false;
   for (const p of m.places || []) { const s = race.seats.get(p.seat); if (s) s.out = p.place; }
   $('count').hidden = true; $('pads').hidden = true;
@@ -669,7 +764,8 @@ socket.on('se:over', (m) => {
 /* ── out, watching, the cards ──────────────────────────────────────────── */
 function showRaceUi() {
   if (!race) return;
-  $('wait').hidden = true;
+  $('wait').hidden = true; $('lobbyBar').hidden = true;
+  paintOwner();
   $('board').hidden = false; $('dash').hidden = false;
   $('pads').hidden = !TOUCH || !(race.car && !race.out);
   if (window.DSEnd) DSEnd.hide();

@@ -47,7 +47,7 @@ const { isWalletString } = require('./b58Caps');     // a client address is a ke
 const rpcBudget = require('./rpcBudget');            // server-wide budgets for the chain reads strangers can cause
 const rpcDay = require('./rpcDay');                  // their day on the shared key, kept across restarts (night review 2026-10-29)
 const Swap = require('./swap');                      // SOL <-> USDC in the player's own wallet
-const { TRUST_PROXY } = require('./clientAddr');     // X-Forwarded-For only from nginx (loopback / private)
+const { TRUST_PROXY, socketClientIp, isLoadTestAddr } = require('./clientAddr');     // X-Forwarded-For only from nginx (loopback / private)
 const addrLimits = require('./addrLimits');          // sockets and free duel seats per address on the main namespace
 const { securityHeaders } = require('./securityHeaders');
 const { cacheControl, precompressed, byteBudget, budgetMbFrom, staticNames } = require('./staticCache'); // static: no-cache + ETag, br/gzip, bytes per address
@@ -2144,18 +2144,20 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
     }
     /* The emergency exit (Owen's own, so no push): the match is voided, nobody
        is paid, and the arena goes straight back to waiting. */
-    /* The Swim Race (server/swim/SwimEvent.js), for trying it: se:open opens the door now for 15 minutes,
-       se:start runs the race with whoever joined (bots fill to 8), se:stop calls it off with no result. */
+    /* The Swim Race (server/swim/SwimEvent.js), for the owner to try it any time (Owen 2026-10-30): se:open makes
+       the lobby's race a test race in SE_OWNER_LOBBY_MS (the bots trickle in over that time), se:start brings it
+       to SE_OWNER_START_MS from now (the bots still to come trickle in meanwhile, never all at once), se:stop
+       calls a race off with no result. A test race has the same rules as any. */
     case 'se:open': {
       if (swimEvent.state !== 'waiting') return refuse('A Swim Race is on now');
-      seOwnerOpenUntil = Date.now() + SWIM_EVENT.openMs;
-      swimEvent.doorOpen = true;
-      return done('Swim Race open to join for 15 minutes');
+      swimEvent.ownerOpen(SE_OWNER_LOBBY_MS);
+      return done('Swim Race test lobby open: it starts in ' + Math.round(SE_OWNER_LOBBY_MS / 60000) + ' minutes');
     }
     case 'se:start': {
-      const why = swimEvent.start('owner');
-      if (why) return refuse(why === 'nobody joined' ? 'Nobody has joined the Swim Race' : 'A Swim Race is already on');
-      return done('Swim Race started, ' + swimEvent.lanes + ' lanes');
+      if (swimEvent.state !== 'waiting') return refuse('A Swim Race is on now');
+      if (!swimEvent.people()) return refuse('Nobody has joined yet: join on the race page first');
+      swimEvent.ownerStartSoon(SE_OWNER_START_MS);
+      return done('Swim Race starting in ' + Math.round(SE_OWNER_START_MS / 1000) + ' seconds');
     }
     case 'se:stop': {
       return swimEvent.abort('owner') ? done('Swim Race stopped, no result') : refuse('No Swim Race is running');
@@ -3940,7 +3942,7 @@ const SWIM_EVENT = C.SWIM_EVENT;
 const swimEventStore = createSwimEventStore({
   file: process.env.SWIM_EVENT_PATH || path.join(path.dirname(agJournal.file), 'swim-event.json'),
 });
-const swimEvent = new SwimEvent(io);
+const swimEvent = new SwimEvent(io, { botsMs: SWIM_EVENT.botsMs });
 swimEvent.last = swimEventStore.load().last;
 swimEvent.onFinish = ({ id, why, winner, last }) => {
   swimEventStore.save({ last });
@@ -3973,7 +3975,8 @@ if (SE_DEV_EVERY > 0 && process.env.SWIM_EVENT_PERF_LOG === '1') {
     gcWin.n = 0; gcWin.ms = 0; gcWin.worst = 0;
   }, 5000);
 }
-let seOwnerOpenUntil = 0;   // the owner's se:open: the door open now, for a race he starts himself
+/* The owner's test race (se:open, se:start): the lobby's race in 2 minutes, or in 15 seconds. */
+const SE_OWNER_LOBBY_MS = 2 * 60 * 1000, SE_OWNER_START_MS = 15 * 1000;
 /* The next start: { due: the key of a slot due now (else null), secs to the next start, its Eastern hour and minute }. */
 function swimEventClock() {
   if (SE_DEV_EVERY > 0) {
@@ -3987,14 +3990,15 @@ function swimEventClock() {
   const key = seClock.slotKey(et, o);
   return { due: key && et.minute >= SWIM_EVENT.minute ? key : null, secs: next.secs, hour: next.hour, minute: next.minute };
 }
-/* Every second: open the door SWIM_EVENT.openMs before a start, and start the race on the second the clock shows
-   zero, once per slot (the slot is saved before the start, so a crash in it never runs the slot twice). */
+/* Every second: the lobby is open whenever it is waiting (Owen 2026-10-30: join any time; maintenance shuts it),
+   it is told when the next slot is (its bots trickle in before it), and the race starts on the second the clock
+   shows zero, once per slot (the slot is saved before the start, so a crash in it never runs the slot twice). */
 setInterval(() => {
   try {
     const c = swimEventClock();
     const maint = !!ops.get().maintenance;
-    swimEvent.doorOpen = !maint && swimEvent.state === 'waiting'
-      && (SE_DEV_EVERY > 0 || c.secs * 1000 <= SWIM_EVENT.openMs || Date.now() < seOwnerOpenUntil);
+    swimEvent.doorOpen = !maint && swimEvent.state === 'waiting';
+    swimEvent.nextSlotAt = Date.now() + c.secs * 1000;
     if (!c.due || swimEventStore.get().slot === c.due) return;
     swimEventStore.save({ slot: c.due });
     if (maint) { console.log('[SE] slot ' + c.due + ' skipped: maintenance is on'); return; }
@@ -4008,10 +4012,12 @@ swimEvent.ensureTimer();
 function liveSwimEvent() {
   try {
     const c = swimEventClock();
+    /* The next start: the slot's, or the owner's test race when it is sooner (then startHour is the slot's still). */
+    const at = swimEvent.state === 'waiting' ? swimEvent.startAt() : 0;
+    const secs = at ? Math.max(0, Math.ceil((at - Date.now()) / 1000)) : c.secs;
     return Object.assign(swimEvent.liveState(), {
       joinOpen: swimEvent.doorOpen && swimEvent.state === 'waiting',
-      nextInSec: c.secs, startHour: c.hour, startMin: c.minute, every: SWIM_EVENT.every,
-      openSec: Math.round(SWIM_EVENT.openMs / 1000),
+      nextInSec: secs, startHour: c.hour, startMin: c.minute, every: SWIM_EVENT.every,
     });
   } catch (e) {
     console.error('[SE] live:', e && e.message);
@@ -7443,9 +7449,11 @@ io.on('connection', (socket) => {
     }
     const w = typeof wallet === 'string' && wallet.length >= 32 && wallet.length <= 64 ? wallet : null;
     const look = { car: typeof car === 'string' ? car.slice(0, 24) : null };
-    const r = swimEvent.join(socket, sanitizeName(name), w, look);
+    /* A capacity-test seat (clientAddr.isLoadTestAddr, as the battle royale's) races but never wins or places. */
+    const lt = isLoadTestAddr(socketClientIp(socket));
+    const r = swimEvent.join(socket, sanitizeName(name), w, look, lt);
     if (!r.ok) { socket.emit('se:refused', { why: r.why, full: !!r.full, started: !!r.started, closed: !!r.closed }); return; }
-    socket.emit('se:joined', swimEvent.publicState(true));
+    socket.emit('se:joined', Object.assign(swimEvent.publicState(true), { lane: r.lane }));
   });
   on('se:leave', () => swimEvent.leave(socket.id));
   on('se:in', (msg) => {

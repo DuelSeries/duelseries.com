@@ -890,6 +890,7 @@
      holding a reference to the lobby (an opener, a page that frames it) could
      otherwise have the wallet sign an owner action without a prompt. The answer
      goes to our own origin only, so a frame that navigated elsewhere never gets it. */
+  const SIGNABLE = new Set(['play:identify', 'br:start', 'se:open', 'se:start', 'se:stop']);
   window.addEventListener('message', async e => {
     const d = e.data;
     if (!d || d.type !== 'duel:signaction') return;
@@ -901,10 +902,12 @@
       if (frame.contentWindow) frame.contentWindow.postMessage(msg, origin);
     };
     /* Only what a game frame has reason to sign over this bridge: who is
-       playing, and the owner's Start. Narrowing, not a wall: a same-origin
-       frame can still reach the lobby's own functions directly; this keeps a
-       bridge message from asking for an owner console action. */
-    if (d.action !== 'play:identify' && d.action !== 'br:start') {
+       playing, and the owner's Start (the battle royale's, and the Swim
+       Race's test race: open, start now, stop). Narrowing, not a wall: a
+       same-origin frame can still reach the lobby's own functions directly;
+       this keeps a bridge message from asking for any other owner console
+       action. The server checks the signer is an owner either way. */
+    if (!SIGNABLE.has(d.action)) {
       reply({ type: 'duel:signaction:error', id: d.id, message: 'The game cannot ask the wallet to sign that.' });
       return;
     }

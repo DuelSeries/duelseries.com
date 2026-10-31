@@ -60,6 +60,21 @@
   </div>
 </div>
 
+<!-- Joined and waiting: our car is parked on the start line behind this. -->
+<div id="lobbyBar" hidden role="status">
+  <b>Waiting for players to join</b>
+  <div class="lbLine"><span id="lbCount">1 joined</span><span id="lbClock">Starts in 0:00</span><i id="lbTest" hidden>Test race</i></div>
+  <button type="button" id="lbLeave">Leave</button>
+</div>
+
+<!-- The owner's test race (shown to the owner only; the server checks every press). -->
+<div id="ownerBar" hidden>
+  <span>Owner</span>
+  <button type="button" id="ownOpen">Test race in 2 min</button>
+  <button type="button" id="ownStart">Start now</button>
+  <button type="button" id="ownStop" hidden>Stop the race</button>
+</div>
+
 <!-- The 10 seconds on the start line. -->
 <div id="count" hidden><span id="countNum">10</span></div>
 <div id="botNote" role="status" hidden></div>

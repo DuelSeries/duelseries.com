@@ -2988,15 +2988,15 @@ function v2SwimEventInit(){
     var n=SE.entrants||0, min=SE.min||8, max=SE.max||50, line;
     if(on) line=(SE.left||0)+' of '+(SE.lanes||0)+' cars still racing';
     else if(st==='over') line='Race over. The next one opens 15 minutes before it starts.';
-    else if(SE.joinOpen) line=(n===1?'1 racer in':n+' racers in')+', so '+Math.max(min,n)+' lanes'+(n<min?' (bots fill the rest)':'');
-    else line='Joining opens '+Math.round((SE.openSec||900)/60)+' minutes before the start. One lane per racer.';
+    else if(SE.joinOpen) line=(n===1?'1 racer in':n+' racers in')+(SE.test?' for a test race':'')+'. Join any time: one lane per racer.';
+    else line='The game is updating. Back in a minute.';
     setText('sw-line',line);
     pod(SE.podium||(SE.last&&SE.last.podium)||null);
     var full=!on&&n>=max, open=!on&&!!SE.joinOpen&&!full;
     var join=document.getElementById('sw-join');
     if(join){ if(join.disabled===open) join.disabled=!open; join.classList.toggle('hot',open&&left()!==null&&left()<=600); }
     setText('sw-join-t', on?'Race on':full?'Event full':'Join');
-    setText('sw-join-s', on?'Watch it live':full?'Watch it when it starts':open?'Free entry':'Opens 15 min before');
+    setText('sw-join-s', on?'Watch it live':full?'Watch it when it starts':open?'Free entry':'Back in a minute');
     setText('sw-watch-t', on?'Watch live':'Spectate');
     setText('sw-watch-s', on?(SE.left||0)+' still racing':'');
   }
@@ -3007,8 +3007,8 @@ function v2SwimEventInit(){
 if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',v2SwimEventInit); else v2SwimEventInit();
 function openSwimHow(){
   openHow('Swim Race',[
-    ['Join before it starts','Free, nothing staked. Joining opens 15 minutes before the start and stays open until zero.'],
-    ['One lane per racer','The road gets a lane for everyone who joined, up to 50. Fewer than 8 and bots fill the road to 8.'],
+    ['Join any time before it starts','Free, nothing staked. Your car waits on the start line in its own lane until the countdown.'],
+    ['One lane per racer','The road gets a lane for everyone who joined, up to 50.'],
     ['Touch a car and you are out','Weave through the traffic at full speed. One touch, or falling 1 km behind the leader, and your race is over: you watch the rest.'],
     ['Win it','Get 500 m clear of every other car, or be the last car left. The top 3 stay on this tab until the next race.'],
   ]);

@@ -299,8 +299,9 @@ const CONSTANTS = {
      set, Eastern wall clock. Every `every` hours from hour:minute (Owen
      2026-10-30: a timer like the battle royale's, never on top of it): 5 AM,
      11 AM, 5 PM and 11 PM, three hours off the battle royale's 2, 8, 2 and 8.
-     Joining opens `openMs` before each start and stays open to zero. */
-  SWIM_EVENT: Object.freeze({ hour: 5, minute: 0, every: 6, openMs: 15 * 60 * 1000 }),
+     The lobby is open any time between races; while it has fewer than 8 cars,
+     bots trickle into it over the last `botsMs` before the start. */
+  SWIM_EVENT: Object.freeze({ hour: 5, minute: 0, every: 6, botsMs: 8 * 60 * 1000 }),
 
   BOT_MIN: 22,
   /* BACK TO THE HUNDRED ORIGINALLY ASKED FOR, because the thing that made it

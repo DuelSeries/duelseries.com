@@ -2,6 +2,17 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-10-30-swim-race-join-any-time",
+      "date": "2026-10-30",
+      "tag": "event",
+      "title": "Swim Race: join any time, wait on the start line",
+      "body": "You can now join the Swim Race any time before it starts, not just in the last 15 minutes.\n\nYour car waits parked on the start line in its own lane, beside everyone else who has joined, with a banner showing how many are in and the time to the start. Nothing moves until the 10 second countdown.",
+      "image": {
+        "src": "/updates/swim-race-lobby.webp",
+        "alt": "Cars parked side by side on the Swim Race start line, a banner reading Waiting for players to join"
+      }
+    },
+    {
       "id": "2026-10-30-one-wait-screen",
       "date": "2026-10-30",
       "tag": "fix",
