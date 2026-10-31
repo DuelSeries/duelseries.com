@@ -45,7 +45,7 @@
 const crypto = require('crypto');
 const S = require('../../shared/swimSim');
 const { Spawner } = require('./swimTraffic');
-const { SwimBot } = require('./swimBot');
+const { SwimBot, SERVER_BUDGET } = require('./swimBot');
 const { refundBound } = require('../stakeRules');
 const { duelMoney } = require('../duelMoney');
 const { newResumeKey } = require('../duelQueue');
@@ -140,7 +140,7 @@ class SwimRoom {
     const botSocket = { id: 'bot_' + this.id, join() {}, emit() {} };
     if (!this.addPlayer(botSocket, name, null)) return false;
     const seat = this.players.get(botSocket.id);
-    seat.bot = new SwimBot(S.rng(this.seed ^ 0x5bd1e995));
+    seat.bot = new SwimBot(S.rng(this.seed ^ 0x5bd1e995), { budget: SERVER_BUDGET });   // one CPU budget for every bot (swimBot.js)
     /* The bot wears one of the listed looks, chosen by the room's seed (a look only, it changes no step). */
     const k = this.seed >>> 0;
     seat.look = SwimLooks.clean({ car: SwimLooks.CARS[k % 3].id });

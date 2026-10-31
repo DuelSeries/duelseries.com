@@ -850,6 +850,41 @@ test('the bot holds the gas itself, close passes with daylight, and lasts its fi
   }
 });
 
+test('the bot keeps its room whoever leads: well ahead, it still lasts its first minute at full pace', () => {
+  /* Until 2026-10-30 it kept more room once 100 m ahead, and the jump left it no line it thought clear: it
+     crashed while winning. A stand-in rival kept 150 m behind it the whole way. */
+  const { SwimBot } = require('../server/swim/swimBot');
+  for (let seed = 1; seed <= 3; seed++) {
+    const tr = new S.Traffic(), sp = new Spawner(seed), car = S.newCar(seed & 1), bot = new SwimBot(S.rng(seed));
+    const rival = { z: 0 };
+    sp.run(tr, 0, 0, S.V0, null);
+    let sv = 0, st = 0;
+    for (let t = 0; t < 60 * 60 && car.alive; t++) {
+      sp.run(tr, t, car.z, car.v, null);
+      rival.z = car.z - 150;
+      S.step(car, bot.input(car, tr, t, rival), tr);
+      tr.prune(car.z - 120, t + 1);
+      sv += car.v; st += S.cruise(t);
+    }
+    assert.strictEqual(car.alive, true, 'seed ' + seed + ': crashed at ' + (car.crashTick / 60).toFixed(1) + ' s');
+    assert.ok(sv / st > 1.1, 'seed ' + seed + ': ' + (100 * sv / st).toFixed(0) + '% of the cruise pace on average');
+  }
+});
+
+test('every server bot shares one CPU budget, and a busy server makes them search less', () => {
+  const { Budget, SERVER_BUDGET } = require('../server/swim/swimBot');
+  const b = new Budget(150);
+  b.add(100, 0); assert.strictEqual(b.level(), 0);
+  b.add(100, 500); b.add(1, 1000); assert.strictEqual(b.level(), 1, '200 ms in the last second');
+  b.add(400, 1500); b.add(1, 2000); assert.strictEqual(b.level(), 2, '401 ms in the last second');
+  b.add(1, 3000); assert.strictEqual(b.level(), 0, 'quiet again');
+  const { room } = bareRoom();
+  room.addPlayer(sock('a'), 'Ann');
+  room.addBot('Bot');
+  const seat = [...room.players.values()].find(p => p.bot);
+  assert.strictEqual(seat.bot.budget, SERVER_BUDGET);
+});
+
 test('a server stall does not drive anyone blind: inputs sent in time are still used', () => {
   const { room } = racing();
   run(room, 60, S.NEUTRAL, S.NEUTRAL);
