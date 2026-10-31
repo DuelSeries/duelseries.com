@@ -3,15 +3,15 @@
    Owen 2026-10-30: "if 20 players join, there's going to be 20 lanes". Every
    6 hours (shared/constants.js SWIM_EVENT) the race starts on the Eastern wall
    clock. Between races the lobby is always open (Owen, the same night: "join
-   anytime"): a joiner takes the lowest free lane and their car waits parked on
-   the start line in it; someone leaving hands their lane to the car in the
-   highest one, so the lanes stay 0 to n - 1. At the start the road is one lane
-   per entrant (at most MAX_FIELD; past that a join is told "Event full"), a
-   10 second countdown, then go.
+   anytime"): a joiner gets a random spot on the start line, a lane of their own
+   (placeNew: never join order, so nobody is in lane 0 for being first), and
+   their car waits parked in it. At the start the road is one lane per entrant
+   (at most MAX_FIELD; past that a join is told "Event full"), every car in the
+   lane it waited in, a 10 second countdown, then go.
 
    BOTS TRICKLE IN (Owen, the same night). While fewer than MIN_FIELD are in,
    bots join the lobby one at a time at uneven intervals in the last
-   SWIM_EVENT.botsMs before the start, each into the lowest free lane with a
+   SWIM_EVENT.botsMs before the start, each into a random free lane with a
    player's name, so the lobby fills the way people arriving would. A bot only
    ever joins below MIN_FIELD, so it is always in lanes 0 to 7, two full
    carriageways, where the duel's own driver (server/swim/swimBot.js) drives a
@@ -186,7 +186,7 @@ class SwimEvent {
     const had = this.entrants.get(socket.id);
     if (had) return { ok: true, again: true, lane: had.lane };
     if (this.entrants.size >= MAX_FIELD) return { ok: false, why: 'Event full', full: true };
-    const lane = this.freeLane();
+    const lane = this.placeNew();
     this.entrants.set(socket.id, { id: socket.id, socket, name: name || 'Player', wallet: wallet || null, look: SwimLooks.clean(look),
       lane, bot: false, lt: !!lt, at: this.now() });
     this.enter(socket);
@@ -204,24 +204,51 @@ class SwimEvent {
     return l;
   }
 
-  /* Someone left the lobby: the car in the highest lane moves down into theirs, so the lanes stay 0 to n - 1 and
-     a bot (always below MIN_FIELD) only ever moves to a lower lane. */
+  /* A RANDOM SPOT ON THE START LINE (Owen 2026-10-30: "starting spots should be random", never join order). While
+     fewer than MIN_FIELD are in, a new car draws one of the free lanes among the first MIN_FIELD; those are all
+     filled by the start (the bots trickle into the rest), so the road is lanes 0 to 7 and nobody is in lane 0 just
+     for being first. From MIN_FIELD on the lanes are 0 to n - 1: the newcomer draws lane n or a person's lane at
+     random, and a person in the lane drawn moves out to lane n (told by se:lane), which makes the order a fair
+     shuffle of the people while every bot stays put in lanes 0 to 7, the two full carriageways its driver needs
+     (BotSeat). No two cars ever share a lane, and every car is on the start line. */
+  placeNew() {
+    const n = this.entrants.size;
+    if (n < MIN_FIELD) {
+      const used = new Set([...this.entrants.values()].map(e => e.lane)), free = [];
+      for (let l = 0; l < MIN_FIELD; l++) if (!used.has(l)) free.push(l);
+      if (free.length) return free[Math.floor(Math.random() * free.length)];
+      return this.freeLane();
+    }
+    const people = [...this.entrants.values()].filter(e => !e.bot);
+    const k = Math.floor(Math.random() * (people.length + 1));
+    if (k >= people.length) return this.freeLane();
+    const moved = people[k], lane = moved.lane;
+    this.moveTo(moved, this.freeLane());
+    return lane;
+  }
+  moveTo(e, lane) {
+    e.lane = lane;
+    if (e.socket) { try { e.socket.emit('se:lane', { lane }); } catch (_) {} }
+  }
+
+  /* Someone left the lobby. Among the first MIN_FIELD lanes nothing moves (a free lane there is filled by the next
+     car, a person's or a bot's); past them the lanes stay 0 to n - 1: the car in the highest lane, always a person
+     there, moves into the free one. */
   closeGap(lane) {
     let top = null;
     for (const e of this.entrants.values()) if (e.lane > lane && (!top || e.lane > top.lane)) top = e;
-    if (!top) return;
-    top.lane = lane;
-    if (top.socket) { try { top.socket.emit('se:lane', { lane }); } catch (_) {} }
+    if (!top || top.lane < MIN_FIELD) return;
+    this.moveTo(top, lane);
   }
 
-  /* A bot joins the lobby: a player's name nobody in it has, a car, the lowest free lane. */
+  /* A bot joins the lobby: a player's name nobody in it has, a car, a random free lane among the first MIN_FIELD. */
   addBot() {
     if (this.state !== 'waiting' || this.entrants.size >= MIN_FIELD) return null;
     const taken = new Set([...this.entrants.values()].map(e => String(e.name).toLowerCase()));
     const name = pickName(Math.random(), { maxLen: 16, taken: (n) => taken.has(n) });
     const id = 'bot:' + (++this.botCount);
     const e = { id, socket: null, name, wallet: null, look: SwimLooks.clean({ car: SwimLooks.CARS[Math.floor(Math.random() * SwimLooks.CARS.length)].id }),
-      lane: this.freeLane(), bot: true, lt: false, at: this.now() };
+      lane: this.placeNew(), bot: true, lt: false, at: this.now() };
     this.entrants.set(id, e);
     this.lobbyDirty = true;
     return e;

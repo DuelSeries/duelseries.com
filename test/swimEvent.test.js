@@ -189,22 +189,43 @@ test('the event: 1 km behind the leader is out, so parking never outlasts the dr
   assert.notStrictEqual(ev.state, 'over', 'the others race on');
 });
 
-test('the lobby: lanes in the order people join, the lane of whoever leaves handed down, a parked car per lane', () => {
-  const { ev, io } = newEvent();
-  const a = sock('a'), b = sock('b'), c = sock('c');
-  assert.strictEqual(ev.join(a, 'A', null, {}).lane, 0);
-  assert.strictEqual(ev.join(b, 'B', null, {}).lane, 1);
-  const moved = [];
-  c.emit = (ev2, m) => { if (ev2 === 'se:lane') moved.push(m.lane); };
-  assert.strictEqual(ev.join(c, 'C', null, {}).lane, 2);
-  assert.strictEqual(ev.join(a, 'A', null, {}).lane, 0, 'joining again is the same lane');
-  ev.leave('a');
-  assert.deepStrictEqual(moved, [0], 'the car in the highest lane moves down into the free one');
+test('the lobby: random spots, no two cars in a lane, lanes 0 to n - 1 past 8, bots never moved', () => {
+  /* Random: over many lobbies the first person in is spread over the first 8 lanes, not always lane 0. */
+  const firstLanes = new Set();
+  for (let k = 0; k < 60; k++) { const { ev } = newEvent(); firstLanes.add(ev.join(sock('a'), 'A', null, {}).lane); }
+  assert.ok(firstLanes.size >= 6 && [...firstLanes].every(l => l >= 0 && l < MIN_FIELD), 'first car lanes: ' + [...firstLanes]);
+  const { ev, io, clock } = newEvent();
+  const moved = new Map();
+  const mk = (id) => { const s = sock(id); s.emit = (e2, m) => { if (e2 === 'se:lane') moved.set(id, m.lane); }; return s; };
+  for (let i = 0; i < 3; i++) ev.join(mk('p' + i), 'P' + i, null, {});
+  ev.nextSlotAt = clock.t + 60000;
+  for (let i = 0; i < 4 * 60 && ev.entrants.size < MIN_FIELD; i++) { clock.t += 250; ev.tick(clock.t); }
+  assert.strictEqual(ev.entrants.size, MIN_FIELD);
+  const lanes = () => [...ev.entrants.values()].map(e => e.lane).sort((a, b) => a - b);
+  assert.deepStrictEqual(lanes(), [0, 1, 2, 3, 4, 5, 6, 7], 'eight cars, eight lanes, one each');
+  const botLanes = new Map([...ev.entrants.values()].filter(e => e.bot).map(e => [e.id, e.lane]));
+  for (let i = 3; i < 15; i++) {
+    const r = ev.join(mk('p' + i), 'P' + i, null, {});
+    assert.ok(r.ok && r.lane >= 0 && r.lane <= ev.entrants.size - 1);
+    assert.deepStrictEqual(lanes(), Array.from({ length: ev.entrants.size }, (_, k) => k), 'lanes 0 to n - 1, no two in one');
+  }
+  for (const e of ev.entrants.values()) if (e.bot) assert.strictEqual(e.lane, botLanes.get(e.id), 'a bot never moves');
+  for (const [id, lane] of moved) assert.strictEqual(ev.entrants.get(id).lane, lane, 'a moved person is told their new lane');
+  /* Leaving: past the first 8 the highest car (a person) moves into the gap; the lanes stay 0 to n - 1. */
+  const leaver = [...ev.entrants.values()].find(e => !e.bot && e.lane < 8);
+  ev.leave(leaver.id);
+  assert.deepStrictEqual(lanes(), Array.from({ length: ev.entrants.size }, (_, k) => k));
+  for (const e of ev.entrants.values()) if (e.bot) assert.strictEqual(e.lane, botLanes.get(e.id));
   ev.lobby(0);
   const msg = io.sent.filter(m => m.ev === 'se:lobby').pop().p;
-  assert.deepStrictEqual(msg.cars.map(x => x[0]), [0, 1]);
-  assert.deepStrictEqual(msg.cars.map(x => x[1]), ['C', 'B']);
-  assert.ok(!JSON.stringify(msg).includes('"c"'), 'no socket ids');
+  assert.strictEqual(msg.cars.length, ev.entrants.size);
+  assert.ok(!JSON.stringify(msg).includes('"p1"'), 'no socket ids');
+  /* The start: every car in the lane it waited in, bots in lanes 0 to 7. */
+  const waited = new Map([...ev.entrants.values()].map(e => [e.name, e.lane]));
+  ev.start('t');
+  assert.strictEqual(ev.lanes, waited.size);
+  for (const r of ev.racers) assert.strictEqual(r.seat, waited.get(r.name));
+  for (const r of ev.racers) if (r.bot) assert.ok(r.seat < MIN_FIELD);
 });
 
 test('the lobby: bots trickle in one at a time at uneven gaps before the start, never all at once, only below 8', () => {

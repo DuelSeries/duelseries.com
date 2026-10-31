@@ -739,7 +739,7 @@ socket.on('se:joined', (m) => {
   SOUND.play('g.join');
   paintLobby();
 });
-/* Someone left the lobby and our car moved down into their lane (SwimEvent.closeGap). */
+/* Our parked car moved lane: somebody left, or a newcomer drew our lane (SwimEvent.placeNew, closeGap). */
 socket.on('se:lane', (m) => { if (m && Number.isInteger(m.lane)) myLane = m.lane; });
 socket.on('se:refused', (m) => {
   joined = false;
