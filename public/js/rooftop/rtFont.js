@@ -113,24 +113,28 @@
     const p = px(size), s = String(text);
     const ol = o.outline ? Math.max(1, Math.round(o.outline * 0.75)) : 0;
     const pw = o.bold ? 2 * p : p;
-    const L = layout(s, o.bold), cells = [];
+    const L = layout(s, o.bold);
+    cells.length = 0;
     for (let i = 0; i < s.length; i++) {
       const rows = glyph(s[i]);
       for (let r = 0; r < rows.length; r++) {
         const row = rows[r];
-        for (let c = 0; c < 5; c++) if (row.charCodeAt(c) === 35) cells.push([x + (L.at[i] + c) * p, y + r * p]);
+        for (let c = 0; c < 5; c++) if (row.charCodeAt(c) === 35) cells.push(x + (L.at[i] + c) * p, y + r * p);
       }
     }
-    if (o.shadow) {
-      g.fillStyle = o.shadow[2];
-      for (const [cx, cy] of cells) g.fillRect(cx + o.shadow[0], cy + o.shadow[1], pw, p);
-    }
-    if (ol) {
-      g.fillStyle = o.outlineColor || '#000';
-      for (const [cx, cy] of cells) g.fillRect(cx - ol, cy - ol, pw + 2 * ol, p + 2 * ol);
-    }
-    g.fillStyle = o.color || '#fff';
-    for (const [cx, cy] of cells) g.fillRect(cx, cy, pw, p);
+    if (o.shadow) fillCells(g, o.shadow[2], o.shadow[0], o.shadow[1], pw, p);
+    if (ol) fillCells(g, o.outlineColor || '#000', -ol, -ol, pw + 2 * ol, p + 2 * ol);
+    fillCells(g, o.color || '#fff', 0, 0, pw, p);
+  }
+  /* One pass of squares as one path and one fill, not a fillRect per square (the HUD drew over 1,300 a frame).
+     Every square sits on whole pixels and every colour is solid, so the pixels are exactly what the separate
+     fillRects made (phone speed pass 2026-10-31). cells: x, y pairs, reused so a frame allocates nothing here. */
+  const cells = [];
+  function fillCells(g, color, dx, dy, w, h) {
+    g.fillStyle = color;
+    g.beginPath();
+    for (let i = 0; i < cells.length; i += 2) g.rect(cells[i] + dx, cells[i + 1] + dy, w, h);
+    g.fill();
   }
   // Centred on cx, with the capitals' middle on cy.
   function center(g, text, cx, cy, size, opts) {

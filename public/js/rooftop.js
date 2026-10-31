@@ -606,9 +606,12 @@ function frame() {
   lastFrame = now;
   refit();
   update(now, dt);
-  draw(now);
+  /* Held upright, the opaque turn-sideways card covers the whole screen and nothing drawn under it is seen: the
+     match keeps stepping, only the drawing waits until the phone turns (phone speed pass 2026-10-31). */
+  if (rotateCard.hidden) draw(now);
   requestAnimationFrame(frame);
 }
+const rotateCard = $('rotate');
 
 function update(now, dt) {
   drawable = false;
