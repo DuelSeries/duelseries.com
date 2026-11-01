@@ -262,12 +262,14 @@ class SwimEvent {
   }
 
   /* The wait before the next bot joins: what is left of the time before the start, shared out over the bots still
-     to come, each wait between a third and one and two thirds of the even share, so they never come on a beat. */
+     to come, each wait between a third and one and two thirds of the even share, so they never come on a beat.
+     Never more than 0.9 of the time left: the last bot's share (left / 1.5) times 1.65 is 1.1 x the time left, and
+     in about 1 lobby in 8 it came due after the quiet window, so the lobby sat at 7 cars until the start. */
   botGap(now) {
     const need = MIN_FIELD - this.entrants.size;
     const left = Math.max(0, this.startAt() - now - BOT_QUIET_MS);
     const even = left / (need + 0.5);
-    const g = even * (0.35 + 1.3 * Math.random());
+    const g = Math.min(even * (0.35 + 1.3 * Math.random()), 0.9 * left);
     return Math.max(BOT_GAP_MIN, Math.min(BOT_GAP_MAX, g));
   }
 
