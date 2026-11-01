@@ -252,6 +252,9 @@ test('dev agar $0.50: hand-off, door, ready, hold Q 3 s, paid 90/10; away seat c
   const paid = await first(a, ['ag:paid', 'ag:payerror'], 5000);
   assert.strictEqual(paid.ev, 'ag:paid');
   assert.match(String(paid.m.sig), /^DEV/, 'the fake withdraw');
+  // The server logs the dev withdraw just before it emits ag:paid, but the log comes down the stdout pipe and the
+  // event down the socket: the event can win (1 run of the full suite, 2026-11-01). Give the pipe a moment.
+  for (let i = 0; i < 50 && !out.stdout.includes('DEV withdraw'); i++) await sleep(20);
   assert.ok(out.stdout.includes('[AG] DEV withdraw') || out.stdout.includes('DEV withdraw'), 'paid through the dev money');
 
   // An away seat: counted on the row (players and parked); solvency includes it.
