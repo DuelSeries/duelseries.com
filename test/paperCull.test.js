@@ -373,9 +373,14 @@ test('real socket.io: a paid arena finds its pages through the adapter, and each
   for (const h of ['onCashout', 'onTransfer', 'onRefund', 'onSweep', 'onBreach']) hooks[h] = () => {};
   const room = new PaperRoom({ stake: 0.5, io, hooks, now: () => t, autoTick: false, seed: 0.3 });
   try {
-    for (let i = 0; i < 100 && onServer.length < 2; i++) await new Promise((res) => setTimeout(res, 20));
+    // Both ends: the server can hold a socket a moment before its client has the handshake (and so its id), and a
+    // lookup by an id not yet known found nothing (about 1 run in 7 under load, 2026-11-01).
+    for (let i = 0; i < 100 && (onServer.length < 2 || !clients.every((c) => c.connected)); i++) {
+      await new Promise((res) => setTimeout(res, 20));
+    }
     assert.strictEqual(onServer.length, 2, 'both connected');
     const byClient = clients.map((c) => onServer.find((s) => s.id === c.id));
+    assert.ok(byClient.every(Boolean), 'each client found its server socket');
     room.game.radiusTarget = () => 950;
     room.game.setRadiusNow(950);
     const seats = [at(600, 0), at(600, Math.PI)].map((spot, i) => {

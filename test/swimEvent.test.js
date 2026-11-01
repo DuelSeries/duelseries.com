@@ -228,6 +228,25 @@ test('the lobby: random spots, no two cars in a lane, lanes 0 to n - 1 past 8, b
   for (const r of ev.racers) if (r.bot) assert.ok(r.seat < MIN_FIELD);
 });
 
+test('the lobby: the last bot lands before the start even on the longest wait the dice can give', () => {
+  /* botGap shares the time left over the bots still to come, each wait 0.35 to 1.65 of the even share left / (need +
+     0.5). For the last bot that is up to 1.1 x the time left, so in about 1 lobby in 8 it came due after the quiet
+     window and the lobby showed 7 cars until the start (the lobby test above failed that way, 1 full run in 5 on
+     2026-11-01; 487 of 4000 simulated lobbies of 3 people with the race 60 s out). Every draw at its top here. */
+  const real = Math.random;
+  Math.random = () => 0.999;
+  try {
+    const { ev, clock } = newEvent();
+    for (let i = 0; i < 3; i++) ev.join(sock('p' + i), 'P' + i, null, {});
+    ev.nextSlotAt = clock.t + 60000;
+    for (let i = 0; i < 4 * 60 && ev.state === 'waiting' && ev.entrants.size < MIN_FIELD; i++) { clock.t += 250; ev.tick(clock.t); }
+    assert.strictEqual(ev.state, 'waiting', 'still the lobby');
+    assert.strictEqual(ev.entrants.size, MIN_FIELD, 'all eight cars in the lobby before the race');
+  } finally {
+    Math.random = real;
+  }
+});
+
 test('the lobby: bots trickle in one at a time at uneven gaps before the start, never all at once, only below 8', () => {
   const { ev, clock } = newEvent();
   ev.join(sock('p'), 'Pat', null, {});

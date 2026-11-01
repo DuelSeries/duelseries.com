@@ -270,7 +270,18 @@ async function tryJoin(xff, ms) {
 
 test('owner console: the room is listed by name, the door closes and reopens it, bots by hand, maintenance and announce reach /sl', async () => {
   assert.ok(ownerSecret, 'dev-local printed its throwaway owner key');
-  const st = await ownerDo('maintenance:check', {});
+  let st = await ownerDo('maintenance:check', {});
+  // A server booted inside a battle royale slot hour (2, 8, 14 or 20 Eastern) starts that slot's match at boot (a slot
+  // fires in its own hour, server/slBr/brAutoStart.js, and this boot's journal is new), and a live match makes the
+  // restart check answer 409. Run in those hours this test failed (2026-11-01, 14:15 ET); the owner stops it first.
+  if (st.status === 409 && /battle royale match is live/.test(String(st.json.error))) {
+    const stop = await ownerDo('br:stop', {});
+    assert.strictEqual(stop.status, 200, 'the owner stops the slot\'s match: ' + JSON.stringify(stop.json).slice(0, 200));
+    for (let i = 0; i < 5 && st.status !== 200; i++) {
+      await sleep(200);
+      st = await ownerDo('maintenance:check', {});
+    }
+  }
   assert.strictEqual(st.status, 200, JSON.stringify(st.json).slice(0, 200));
   const row = st.json.state.rooms.find((r) => r.id === 'sl_na_s0');
   assert.ok(row, 'the console lists the room');

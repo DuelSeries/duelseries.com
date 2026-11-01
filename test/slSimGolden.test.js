@@ -7,6 +7,7 @@
 // Re-cut ONLY with a law-table change or a reviewed sim change: SL_SIM_GOLDEN_CUT=1 node --test test/slSimGolden.test.js
 // (T8 extends the windows with 4 seats' bundles once slView exists; that is a re-cut too.)
 
+require('./powPin'); // Math.pow as on the host that cut the goldens (two inputs; see test/powPin.js)
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('crypto');

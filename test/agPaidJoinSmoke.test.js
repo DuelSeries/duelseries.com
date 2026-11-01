@@ -239,6 +239,11 @@ test('dev agar $0.50: hand-off, door, ready, hold Q 3 s, paid 90/10; away seat c
   // Hold Q for 3 s: 90/10 through the fake withdraw. The page repeats ag:hold every 200 ms; this repeats it every
   // 100 ms and waits 30 s because the full suite pages the box (free RAM near 0.3 GB, 2026-10-16), and a stall past
   // HOLD_INPUT_STALE_MS (500) drops the hold so it starts again. The 90/10 below is still asserted exactly.
+  // Listening for the payout before the hold: the server emits ag:cashedout and ag:paid in the same tick, and when
+  // both arrive in one read the client fires ag:paid before a listener added after awaiting ag:cashedout exists (the
+  // full suite, 2026-11-01: "none of ag:paid, ag:payerror within 5000 ms" with the cash-out already in).
+  const paidP = first(a, ['ag:paid', 'ag:payerror'], 35000);
+  paidP.catch(() => {}); // a failed hold below reports first; this one is awaited after it
   let holding = true;
   const rep = setInterval(() => { if (holding) a.emit('ag:hold', { on: 1 }); }, 100);
   a.emit('ag:hold', { on: 1 });
@@ -249,9 +254,12 @@ test('dev agar $0.50: hand-off, door, ready, hold Q 3 s, paid 90/10; away seat c
   holding = false;
   clearInterval(rep);
   assert.deepStrictEqual([c.m.grossMicro, c.m.cutMicro, c.m.netMicro], [500000, 50000, 450000]);
-  const paid = await first(a, ['ag:paid', 'ag:payerror'], 5000);
+  const paid = await paidP;
   assert.strictEqual(paid.ev, 'ag:paid');
   assert.match(String(paid.m.sig), /^DEV/, 'the fake withdraw');
+  // The server logs the dev withdraw just before it emits ag:paid, but the log comes down the stdout pipe and the
+  // event down the socket: the event can win (another run of the full suite, 2026-11-01). Give the pipe a moment.
+  for (let i = 0; i < 50 && !out.stdout.includes('DEV withdraw'); i++) await sleep(20);
   assert.ok(out.stdout.includes('[AG] DEV withdraw') || out.stdout.includes('DEV withdraw'), 'paid through the dev money');
 
   // An away seat: counted on the row (players and parked); solvency includes it.

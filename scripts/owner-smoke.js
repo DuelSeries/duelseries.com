@@ -104,9 +104,12 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
     r = await post('/api/owner/do', proof(ownerKey, ownerAddr, 'br:start', { force: true }));
     ok('and forcing one with nobody in it is refused too', r.status === 409, JSON.stringify(r.body.error));
 
-    /* Bots into the battle royale room, then start a real match with them.
-       This is the other way to test the mode: a solo run exercises the zone,
-       bots exercise the actual win condition. */
+    /* Bots into the battle royale room. On this (old) engine bots are
+       opposition, never contenders: since 28d75e3 (2026-09-07) a room full of
+       bots does not meet the start minimum (BattleRoyaleRoom.canStart counts
+       people), so the owner's Start with bots alone is refused and the arena
+       stays waiting. The sl engine starts with bots alone; br-sl-smoke.js
+       covers that. */
     r = await post('/api/owner/do', proof(ownerKey, ownerAddr, 'bots:add', { room: 'na_br', count: 3 }));
     ok('bots can be added to the battle royale room', r.status === 200,
        JSON.stringify(r.body.note || r.body.error));
@@ -115,14 +118,14 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
        'players=' + JSON.stringify((r.body.state.battleRoyale || {}).players));
 
     r = await post('/api/owner/do', proof(ownerKey, ownerAddr, 'br:start', {}));
-    ok('so a real match can be started against them', r.status === 200,
+    ok('but bots alone do not start a match on this engine', r.status === 409,
        JSON.stringify(r.body.note || r.body.error));
-    ok('and it counts down rather than starting cold',
-       (r.body.state.battleRoyale || {}).state === 'countdown',
+    ok('and the arena stays waiting',
+       (r.body.state.battleRoyale || {}).state === 'waiting',
        'state=' + JSON.stringify((r.body.state.battleRoyale || {}).state));
 
     r = await post('/api/owner/do', proof(ownerKey, ownerAddr, 'br:stop', {}));
-    ok('and called off again', r.status === 200, JSON.stringify(r.body.note || r.body.error));
+    ok('so there is no match to call off', r.status === 409, JSON.stringify(r.body.note || r.body.error));
 
     r = await post('/api/owner/do', proof(ownerKey, ownerAddr, 'bots:clear', { room: 'na_br' }));
     ok('and the bots cleared out', r.status === 200, JSON.stringify(r.body.note || r.body.error));

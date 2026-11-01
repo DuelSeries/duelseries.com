@@ -9,6 +9,7 @@
 // run totals equal test/slGoldenFrames.json.gz. Then the zero-registration check: loading the layer after the frozen
 // client adds no timer, animation frame, listener, image load, element, window property or S key, and changes no
 // hook, transport, io or render_mode. A planted registration is caught, so the replay can see one.
+require('./powPin'); // Math.pow as on the host that cut the goldens (two inputs; see test/powPin.js)
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');

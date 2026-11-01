@@ -1430,7 +1430,10 @@ class SlRoom {
     if (job.last) this.timing.step(job.last[0], job.last[1], end, end);
     this.timing.wakeEnd(job.ran);
     this.cache.clear();
-    this.failRun = 0;
+    // Only a wake that stepped the sim ends a run of throwing wakes: one with no step due ran none of the code that
+    // threw, so it proves nothing (on real timers a wake now and then has no step, and three throwing wakes then
+    // took four to six to close the room; test/slSafe.test.js).
+    if (job.ran > 0) this.failRun = 0;
     this._afterWake();
   }
 

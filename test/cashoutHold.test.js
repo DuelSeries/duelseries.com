@@ -48,72 +48,99 @@ test('cashing out requires the hold, and the server times it', { timeout: 90000 
            MONEY_MODE: 'usdc', DATABASE_URL: '', NTFY_DISABLED: '1' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
+  t.after(() => { try { srv.kill('SIGKILL'); } catch (_) {} });
   let stderr = '';
   srv.stderr.on('data', d => { stderr += d.toString(); });
   assert.ok(await waitForServer(PORT), 'server came up');
 
-  const sock = io(`http://localhost:${PORT}`, {
-    transports: ['websocket'], forceNew: true, reconnection: false, timeout: 5000,
-  });
-  t.after(() => { try { sock.close(); } catch (_) {} try { srv.kill('SIGKILL'); } catch (_) {} });
+  /* One run of the attack on a fresh socket and a fresh snake. The free room has
+     bots, and the test's snake steers nothing, so now and then a bot kills it
+     before the honest hold (measured 2026-11-01: 1 run in 24 under a loaded
+     box, the hold then paid nothing because there was no snake to pay). Every
+     check below means something only while the snake is alive, so a run in
+     which it died is thrown away and done again, rather than counted as a pass
+     or a failure. */
+  async function attempt() {
+    const sock = io(`http://localhost:${PORT}`, {
+      transports: ['websocket'], forceNew: true, reconnection: false, timeout: 5000,
+    });
+    let died = false;
+    sock.on(C.EVENTS.PLAYER_DIED, () => { died = true; });
+    try {
+      await new Promise((res, rej) => {
+        const bail = setTimeout(() => rej(new Error('socket never connected')), 10000);
+        sock.on('connect', () => { clearTimeout(bail); res(); });
+        sock.on('connect_error', (e) => { clearTimeout(bail); rej(e); });
+      });
 
-  await new Promise((res, rej) => {
-    const bail = setTimeout(() => rej(new Error('socket never connected')), 10000);
-    sock.on('connect', () => { clearTimeout(bail); res(); });
-    sock.on('connect_error', (e) => { clearTimeout(bail); rej(e); });
-  });
+      // Join the free room. Worth is zero there, but the guard being tested runs
+      // before any of that and emits the same result event either way.
+      const joined = new Promise((res, rej) => {
+        const bail = setTimeout(() => rej(new Error('never joined')), 15000);
+        sock.on(C.EVENTS.GAME_JOINED, () => { clearTimeout(bail); res(); });
+      });
+      sock.emit(C.EVENTS.PLAY, { name: 'holdtest', lobbyType: 'free', stake: 0, region: 'na' });
+      await joined;
 
-  // Join the free room. Worth is zero there, but the guard being tested runs
-  // before any of that and emits the same result event either way.
-  const joined = new Promise((res, rej) => {
-    const bail = setTimeout(() => rej(new Error('never joined')), 15000);
-    sock.on(C.EVENTS.GAME_JOINED, () => { clearTimeout(bail); res(); });
-  });
-  sock.emit(C.EVENTS.PLAY, { name: 'holdtest', lobbyType: 'free', stake: 0, region: 'na' });
-  await joined;
+      const nextResult = (ms) => new Promise((res) => {
+        const timer = setTimeout(() => { sock.off('cashout:result', hit); res(null); }, ms);
+        function hit(payload) { clearTimeout(timer); sock.off('cashout:result', hit); res(payload); }
+        sock.on('cashout:result', hit);
+      });
+      const out = {};
 
-  const nextResult = (ms) => new Promise((res) => {
-    const timer = setTimeout(() => { sock.off('cashout:result', hit); res(null); }, ms);
-    function hit(payload) { clearTimeout(timer); sock.off('cashout:result', hit); res(payload); }
-    sock.on('cashout:result', hit);
-  });
+      /* THE CHEAT: bank without ever holding. This is a one-line client edit. */
+      sock.emit('cashout');
+      out.noHold = await nextResult(1500);
 
-  /* THE CHEAT: bank without ever holding. This is a one-line client edit. */
-  sock.emit('cashout');
-  assert.equal(await nextResult(1500), null,
-    'cashing out with no hold pays nothing');
+      /* Cut a hold short — the other half of the same cheat, holding just long
+         enough to look legitimate and releasing before the risk window is up. */
+      sock.emit('cashout:start');
+      await new Promise(r => setTimeout(r, Math.round(C.CASHOUT_HOLD_MS / 3)));
+      sock.emit('cashout');
+      out.cutShort = await nextResult(400);
 
-  /* Cut a hold short — the other half of the same cheat, holding just long
-     enough to look legitimate and releasing before the risk window is up. */
-  sock.emit('cashout:start');
-  await new Promise(r => setTimeout(r, Math.round(C.CASHOUT_HOLD_MS / 3)));
-  sock.emit('cashout');
-  assert.equal(await nextResult(400), null, 'a hold cut short pays nothing');
+      /* Cancelling has to actually release it, or a cancelled hold would keep
+         counting and pay out on its own later. */
+      sock.emit('cashout:cancel');
+      out.cancelled = await nextResult(C.CASHOUT_HOLD_MS);
+      if (died) return { died };
 
-  /* Cancelling has to actually release it, or a cancelled hold would keep
-     counting and pay out on its own later. */
-  sock.emit('cashout:cancel');
-  assert.equal(await nextResult(C.CASHOUT_HOLD_MS), null,
-    'a cancelled hold never pays out');
+      /* And the honest path: hold, and the SERVER completes it. Nothing is emitted
+         by the client to finish it — deliberately, because the client's clock
+         starts a round trip earlier than the server's, so a client that announced
+         "three seconds are up" would always be announcing it slightly too early. */
+      /* Generous slack on purpose. This file and joinSmoke each boot a real
+         server, node:test runs files in parallel, and under that contention the
+         run stretched from 10s to 14s and ate a 4s margin — a false failure that
+         teaches you to ignore red. What is being asserted is that the payout does
+         not arrive EARLY; waiting longer for it cannot weaken that. */
+      const paid = nextResult(C.CASHOUT_HOLD_MS + 20000);
+      const t0 = Date.now();
+      sock.emit('cashout:start');
+      out.result = await paid;
+      out.took = Date.now() - t0;
+      // A death before the payout lands is a bot's doing, not the hold's (a cash-out ends the snake with no death).
+      if (died && !out.result) return { died };
+      return out;
+    } finally {
+      try { sock.close(); } catch (_) {}
+    }
+  }
 
-  /* And the honest path: hold, and the SERVER completes it. Nothing is emitted
-     by the client to finish it — deliberately, because the client's clock
-     starts a round trip earlier than the server's, so a client that announced
-     "three seconds are up" would always be announcing it slightly too early. */
-  /* Generous slack on purpose. This file and joinSmoke each boot a real
-     server, node:test runs files in parallel, and under that contention the
-     run stretched from 10s to 14s and ate a 4s margin — a false failure that
-     teaches you to ignore red. What is being asserted is that the payout does
-     not arrive EARLY; waiting longer for it cannot weaken that. */
-  const paid = nextResult(C.CASHOUT_HOLD_MS + 20000);
-  const t0 = Date.now();
-  sock.emit('cashout:start');
-  const result = await paid;
-  const took = Date.now() - t0;
+  let run = null;
+  for (let i = 0; i < 4 && !run; i++) {
+    const r = await attempt();
+    if (!r.died) run = r;
+  }
+  assert.ok(run, 'a bot killed the test snake in 4 runs out of 4');
 
-  assert.ok(result, 'holding pays out without the client asking');
-  assert.ok(took >= C.CASHOUT_HOLD_MS - 50,
-    `the full hold was served (${took}ms >= ${C.CASHOUT_HOLD_MS}ms)`);
+  assert.equal(run.noHold, null, 'cashing out with no hold pays nothing');
+  assert.equal(run.cutShort, null, 'a hold cut short pays nothing');
+  assert.equal(run.cancelled, null, 'a cancelled hold never pays out');
+  assert.ok(run.result, 'holding pays out without the client asking');
+  assert.ok(run.took >= C.CASHOUT_HOLD_MS - 50,
+    `the full hold was served (${run.took}ms >= ${C.CASHOUT_HOLD_MS}ms)`);
 
   assert.equal(srv.exitCode, null, `server still alive. stderr:\n${stderr}`);
 });

@@ -160,16 +160,22 @@ test('state v2, maintenance and the paid Knockout door across a restart, bots:se
      owner shuts reads false there at once, so the lobby strikes that game's $0.50 and $1 through. */
   const DUELS = ['knockout', 'battleship', 'swim', 'headsoccer', 'pool8', 'airhockey', 'rooftop', 'crossy'];
   const doors = async (port) => JSON.parse((await get(`http://localhost:${port}/api/live`)).body).paidDoors;
+  /* /api/live is shared for up to 1 s once more than 10 requests come in one second (server/liveCache.js), and this
+     test reads it faster than that: in the six-door loop below the 11th read inside one second (battleship's, after
+     bs:paid:off) was the copy built before the switch (1 full run in 5, 2026-11-01). A read right after a switch
+     waits out that window for the feed to show it; a feed that never does still fails, with what it showed. */
+  const doorsWhen = async (port, ok) => (await until(async () => { const d = await doors(port); return ok(d) ? d : null; }, 2500))
+    || doors(port);
   assert.deepStrictEqual(await doors(one.port), Object.fromEntries(DUELS.map((g) => [g, true])), 'every duel door open at boot');
   r = await act(one.port, 'p8:paid:off');
   assert.strictEqual(r.status, 200, r.body);
   assert.match(r.json.note, /Paid 8 Ball Pool closed to new players/);
   assert.deepStrictEqual([gameOf(r.json.state, 'pool8').paid.open, gameOf(r.json.state, 'pool8').paid.saved], [false, true]);
-  assert.deepStrictEqual(await doors(one.port), Object.fromEntries(DUELS.map((g) => [g, g !== 'pool8'])), 'p8:paid:off shuts pool8 alone');
+  assert.deepStrictEqual(await doorsWhen(one.port, (d) => d.pool8 === false), Object.fromEntries(DUELS.map((g) => [g, g !== 'pool8'])), 'p8:paid:off shuts pool8 alone');
   r = await act(one.port, 'p8:paid:on');
   assert.strictEqual(r.status, 200, r.body);
   assert.strictEqual(gameOf(r.json.state, 'pool8').paid.open, true);
-  assert.strictEqual((await doors(one.port)).pool8, true, 'and p8:paid:on opens it again');
+  assert.strictEqual((await doorsWhen(one.port, (d) => d.pool8 === true)).pool8, true, 'and p8:paid:on opens it again');
   assert.strictEqual(gameOf(s, 'agar').rungs[0].room, 'ag_na_s0');
   assert.strictEqual(gameOf(s, 'paper').rungs[0].room, 'paper_na_s0');
   for (const k of ['safe', 'reason', 'people', 'paidPeople', 'moneyInPlay', 'floor', 'pending', 'duels']) assert.ok(k in s.drain, k);
@@ -237,7 +243,7 @@ test('state v2, maintenance and the paid Knockout door across a restart, bots:se
   assert.strictEqual(r.status, 200, r.body);
   assert.match(r.json.note, /stays closed across restarts/);
   assert.deepStrictEqual(gameOf(r.json.state, 'knockout').paid, { enabled: true, open: false, stopping: false, saved: true, action: 'ko:paid' });
-  assert.strictEqual((await doors(one.port)).knockout, false, 'ko:paid:off shuts Knockout in the lobby feed');
+  assert.strictEqual((await doorsWhen(one.port, (d) => d.knockout === false)).knockout, false, 'ko:paid:off shuts Knockout in the lobby feed');
 
   // the audit names who acted and what was asked
   s = (await state(one.port)).json;
@@ -271,7 +277,7 @@ test('state v2, maintenance and the paid Knockout door across a restart, bots:se
   assert.deepStrictEqual([s.drain.pendingEntries, s.drain.safe], [1, false], 'the token was not spent, and the drain still counts it');
   r = await act(two.port, 'ko:paid:on', {});
   assert.deepStrictEqual([r.status, gameOf(r.json.state, 'knockout').paid.open, gameOf(r.json.state, 'knockout').paid.saved], [200, true, false]);
-  assert.strictEqual((await doors(two.port)).knockout, true, 'ko:paid:on opens Knockout in the lobby feed again');
+  assert.strictEqual((await doorsWhen(two.port, (d) => d.knockout === true)).knockout, true, 'ko:paid:on opens Knockout in the lobby feed again');
   /* Every other duel's door, off and on, reaches the lobby feed. On the restarted server, after the battle royale
      checks above it on the first one (their timing counts on nothing slow before them), each from an address of
      its own (behind the proxy) so these twelve do not spend the signature limiter's minute. */
@@ -288,10 +294,10 @@ test('state v2, maintenance and the paid Knockout door across a restart, bots:se
   for (const [g, key] of [['headsoccer', 'hs'], ['rooftop', 'rt'], ['airhockey', 'ah'], ['crossy', 'cr'], ['swim', 'sw'], ['battleship', 'bs']]) {
     r = await actFrom(two.port, key + ':paid:off');
     assert.strictEqual(r.status, 200, key + ' ' + r.body);
-    assert.strictEqual((await doors(two.port))[g], false, key + ':paid:off shuts ' + g + ' in the lobby feed');
+    assert.strictEqual((await doorsWhen(two.port, (d) => d[g] === false))[g], false, key + ':paid:off shuts ' + g + ' in the lobby feed');
     r = await actFrom(two.port, key + ':paid:on');
     assert.strictEqual(r.status, 200, key + ' ' + r.body);
-    assert.strictEqual((await doors(two.port))[g], true, key + ':paid:on opens it again');
+    assert.strictEqual((await doorsWhen(two.port, (d) => d[g] === true))[g], true, key + ':paid:on opens it again');
   }
   assert.ok(!/TypeError|ReferenceError|is not a function/.test(one.out.stderr + two.out.stderr), 'no wiring error\n' + two.out.stderr.slice(-800));
 });

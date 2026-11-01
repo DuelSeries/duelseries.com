@@ -16,6 +16,7 @@
 // The frame model follows the reference harness (instrument.js and golden.js): clock += step, due timers, then the
 // input of that frame, then the socket (open on the frame after it was made, then every message with t0 + t <= now),
 // then the animation-frame callbacks. Warm-up, the Play frame and the open frame are the reference goldens' own.
+require('./powPin'); // Math.pow as on the host that cut the goldens (two inputs; see test/powPin.js)
 const test = require('node:test');
 const assert = require('node:assert');
 const crypto = require('crypto');
