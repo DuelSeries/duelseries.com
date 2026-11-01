@@ -1763,6 +1763,9 @@ body.no-foot footer{display:none}
 .stk.off{background:transparent;border:1px dashed var(--s3);color:var(--tx3);
   text-decoration:line-through;cursor:not-allowed}
 .stk.off:hover{background:transparent;color:var(--tx3)}
+/* Play for money from a game's page lands on Free and outlines the paid rungs
+   that are open (invite.js pointAtPaid); the first tap anywhere clears it. */
+.stakes.hint .stk:not(.free):not(.off){box-shadow:0 0 0 2px var(--money)}
 /* ── a game with nothing to customize yet ─────────────────────────────────
    Every game gets the Customize bar (BACKLOG 3.1). One with nothing to change
    yet shows the bar quiet and shut: the game's own picture instead of a
@@ -3557,7 +3560,7 @@ function openSwimHow(){
 <footer><div class="wrap ft">
   <span>&copy; 2026 DuelSeries</span>
   <span class="sp"></span>
-  <a href="/games">All games</a>
+  <a href="/games">Game guides</a>
   <a href="/terms.html">Terms of service</a>
   <a href="/privacy.html">Privacy policy</a>
   <a href="/responsible-play.html">Responsible play</a>
@@ -5255,6 +5258,7 @@ function paintCounts(){
   });
   if(window.V2Side)V2Side.paint();
   if(window.V2_watchDots)V2_watchDots();   // new rows and newly lit dots pause off screen
+  if(window.V2_restep)V2_restep();         // and the open game's buy-ins (restep)
 }
 /* Text that changes in place: the existing text node takes the new words, so a
    count or a clock ticking over adds no node to the page. */
@@ -5737,6 +5741,19 @@ function drawStake(){
   const lbl=document.getElementById('golabel');
   if(lbl)lbl.textContent=shut?'Coming soon':paid?'Play '+cash(Number(STEPS[si])):'Play';
 }
+/* Every board answer (V2Board load and push, through paintCounts) re-strikes the
+   rungs of the game screen up now. open_ was the only other caller of
+   refreshSteps, so a screen opened before /api/live had answered (an invite, a
+   game page's Play, the lobby's first load) kept $0.50 and $1 struck until the
+   game was opened again (review 2026-11-01). The rung on screen stays put
+   unless it has just closed; a newly open paid rung is never picked for them. */
+function restep(){
+  if(!cur)return;
+  const was=[...STEPS_OFF].join(),at=si;
+  refreshSteps(cur.id);
+  if([...STEPS_OFF].join()!==was||si!==at)drawStake();
+}
+window.V2_restep=restep;
 function pickStake(i){
   const s=STEPS[i];
   if(STEPS_OFF.has(s))return;      // the button is disabled; this is the belt to that brace
@@ -6145,6 +6162,18 @@ function setClipTab(b){
   lsPut('dsClipsTab',on?'1':'0');
   const C=window.DSClip;
   if(C&&C.top){if(on)C.start(true);else C.stop()}
+  else if(on&&window.DSLater&&DSLater.clip){
+    /* Pressed before the recorder came in (DSLater brings it once the page is
+       idle): fetch it now and start it the moment it lands, still inside the
+       few seconds this click lets the page ask to share the tab. */
+    DSLater.clip();
+    const t0=Date.now();
+    (function wait(){
+      const R=window.DSClip;
+      if(R&&R.top){if(lsGet('dsClipsTab')==='1')R.start(true);drawClipSet();return}
+      if(Date.now()-t0<10000)setTimeout(wait,50);
+    })();
+  }
   drawClipSet();
 }
 async function setMic(b){
@@ -6489,18 +6518,23 @@ drawNav();V2Wallet.render();drawRail();drawTicker();loadRealWins();V2Board.start
 (function(){
   var LATER=[['/js/HexGrid.js'],['/js/Camera.js'],['/js/SnakeGL.js'],['/js/FoodGL.js'],['/js/shooterArt.js'],['/js/Renderer.js'],
     ['/js/clip/mp4mux.js'],['/js/clip/clipRec.js',{game:'other',top:'1'}]];
-  var sent=false;
+  var sent=false, added={};
+  function add(t){
+    if(added[t[0]])return;added[t[0]]=true;
+    var s=document.createElement('script');
+    s.src=t[0];s.async=false;
+    if(t[1])for(var k in t[1])s.dataset[k]=t[1][k];
+    s.onerror=function(){console.warn('[lobby-v2] '+t[0]+' did not load (Serve this page from the app, npm start, to see the real renderer.)')};
+    document.body.appendChild(s);
+  }
   function now(){
     if(sent)return;sent=true;
-    LATER.forEach(function(t){
-      var s=document.createElement('script');
-      s.src=t[0];s.async=false;
-      if(t[1])for(var k in t[1])s.dataset[k]=t[1][k];
-      s.onerror=function(){console.warn('[lobby-v2] '+t[0]+' did not load (Serve this page from the app, npm start, to see the real renderer.)')};
-      document.body.appendChild(s);
-    });
+    LATER.forEach(add);
   }
   window.DSLater={now:now};
+  /* Just the clip recorder, at once: Settings > Clips > Record the whole screen
+     pressed before the rest came in (setClipTab). now() skips what is added. */
+  window.DSLater.clip=function(){LATER.filter(function(t){return t[0].indexOf('/js/clip/')===0}).forEach(add)};
   function idle(){(window.requestIdleCallback||function(f){return setTimeout(f,200)})(now,{timeout:2000})}
   if(document.readyState==='complete')idle();else addEventListener('load',idle,{once:true});
   setTimeout(now,15000);   // a page whose load event never comes still gets them
@@ -6555,7 +6589,7 @@ drawNav();V2Wallet.render();drawRail();drawTicker();loadRealWins();V2Board.start
   function stub(where){
     if(busy)return;
     busy=true;
-    var D=window.DSDialog, end=Date.now()+20000;
+    var D=window.DSDialog, end=0;
     if(D)D.busy({title:'Signing in',line:'Getting ready'});
     function fail(){
       busy=false;
@@ -6567,18 +6601,23 @@ drawNav();V2Wallet.render();drawRail();drawTicker();loadRealWins();V2Board.start
       var real=window.duelWalletLogin;
       if(typeof real==='function'&&real!==stub){
         busy=false;
-        /* Privy already up: its window opens next, so this card goes first.
-           Still starting: the widget's sign in shows this same card and closes
-           it itself once Privy is ready. */
-        var w=window.duelWallet;
-        if(D&&w&&w.ready)D.close();
+        /* This card always goes here. Privy already up: its window opens next.
+           Still starting: the widget's sign in puts this same card straight
+           back up, in the same task, and closes it itself once Privy is ready.
+           Closing it only when duelWallet said ready left it up for good when
+           Privy was ready a moment before the widget published duelWallet
+           (its sign in then opens Privy, or returns, and never closes it). */
+        if(D)D.close();
         real(where);
         return;
       }
       if(Date.now()>end)return fail();
       setTimeout(handOver,50);
     }
-    B.load().then(handOver,fail);
+    /* The 20 s is for the widget to start once its script is here, not for
+       the download: a slow phone's 1.2 MB could use it all up and fail a
+       widget that was about to mount. */
+    B.load().then(function(){end=Date.now()+20000;handOver()},fail);
   }
   window.duelWalletLogin=stub;
 

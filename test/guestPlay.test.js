@@ -107,3 +107,75 @@ test('signed in, a free Paper table still goes through the widget as before', ()
   assert.strictEqual(JSON.stringify(L.events[0].detail), JSON.stringify({ game: 'paper', stake: 0 }));
   assert.ok(!shown(L, 'game-frame'), 'the widget opens the page, not play.js');
 });
+
+/* Lobby first load (2026-11-01): the widget comes in after the loading screen, so a returning player's first Play
+   can come before it says who they are. With a session in this browser (DSWalletBoot.session) Play waits for it
+   under the Signing in card instead of starting them as a guest (review 2026-11-01). */
+function waiting(L, session) {
+  let now = 0, up = false, loads = 0;
+  const timers = [], dialog = [];
+  L.win.setTimeout = (f, ms) => { timers.push({ at: now + (ms || 0), f }); return timers.length; };
+  L.win.Date = class extends Date { static now() { return now; } };
+  L.win.DSDialog = { busy: (c) => { up = true; dialog.push(['busy', c.title]); }, close: () => { up = false; dialog.push(['close']); },
+    isOpen: () => up };
+  L.win.DSWalletBoot = { session, load: () => { loads++; return Promise.resolve(); } };
+  L.els['play-name'] = { value: 'Owen', style: {}, classList: { add() {}, remove() {}, toggle() {} } };
+  const advance = (ms) => {
+    const until = now + ms;
+    for (;;) {
+      timers.sort((a, b) => a.at - b.at);
+      const t = timers[0];
+      if (!t || t.at > until) break;
+      timers.shift(); now = t.at; t.f();
+    }
+    now = until;
+  };
+  return { dialog, advance, loads: () => loads, escape: () => { up = false; } };
+}
+
+test('a returning player whose wallet is still starting: the Signing in card, then their own Play, never a guest seat', () => {
+  const L = lobby({ local: { duelseries_playername: 'Owen' } });
+  const w = waiting(L, true);
+  L.win.V2Play.launch('paper', { stake: 0 });
+  L.win.V2Play.launch('paper', { stake: 0 });   // a second press while it waits adds nothing
+  assert.deepStrictEqual(w.dialog, [['busy', 'Signing in']]);
+  assert.strictEqual(w.loads(), 1, 'the widget is asked for now');
+  assert.ok(!shown(L, 'game-frame'), 'no guest seat');
+  assert.strictEqual(L.ss.getItem('playerName'), null);
+  w.advance(2000);
+  assert.strictEqual(L.events.length, 0, 'still waiting');
+  L.win.duelWallet = { ready: true, authenticated: true, address: 'Wa11et' };
+  w.advance(100);
+  assert.deepStrictEqual(w.dialog, [['busy', 'Signing in'], ['close']]);
+  assert.strictEqual(L.events.length, 1, 'their own Play, through the widget');
+  assert.strictEqual(JSON.stringify(L.events[0].detail), JSON.stringify({ game: 'paper', stake: 0 }));
+  assert.ok(!shown(L, 'game-frame'));
+});
+
+test('waiting for the wallet: none at all without a session; a wallet that never comes leaves Play as it was; Escape drops it', () => {
+  const A = lobby();
+  const a = waiting(A, false);
+  A.win.V2Play.launch('paper', { stake: 0 });
+  assert.strictEqual(a.dialog.length, 0, 'nobody can be signed in: a guest at once');
+  assert.ok(shown(A, 'game-frame'));
+
+  const B = lobby();
+  const b = waiting(B, true);
+  B.win.V2Play.launch('paper', { stake: 0.5 });
+  b.advance(10100);
+  assert.deepStrictEqual(b.dialog, [['busy', 'Signing in'], ['close']]);
+  assert.strictEqual(B.logins(), 1, 'signed out after all: a paid rung asks to sign in, as before');
+  assert.strictEqual(B.events.length, 0, 'no stake');
+  B.win.V2Play.launch('paper', { stake: 0 });
+  assert.strictEqual(b.dialog.length, 2, 'it waits once a page, not on every Play');
+  assert.ok(shown(B, 'game-frame'), 'Free then plays as a guest');
+
+  const C = lobby();
+  const c = waiting(C, true);
+  C.win.V2Play.launch('paper', { stake: 0 });
+  c.escape();
+  C.win.duelWallet = { ready: true, authenticated: true, address: 'Wa11et' };
+  c.advance(500);
+  assert.strictEqual(C.events.length, 0, 'closed by the player: that Play is dropped');
+  assert.ok(!shown(C, 'game-frame'));
+});

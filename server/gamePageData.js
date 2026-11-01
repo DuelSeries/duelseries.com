@@ -7,7 +7,11 @@
 
    page    the address, /games/<page>: the words people search for, lower case and hyphens.
    share   its shared/shareGames.js slug: Play goes to /play/<share>, and its 1200 x 630 picture is the link preview.
-   name    what the lobby card calls it (public/v2.html GAMES, shared/chompName.js, SwimSim.NAME): the h1.
+   name    our own name for it: the h1, the title, the link preview and the JSON-LD name. The lobby card's name
+           (public/v2.html GAMES, shared/chompName.js, SwimSim.NAME) where that is ours, else a plain word like
+           shared/shareGames.js uses.
+   like    the other publisher's game it plays like, when the lobby card is named after one: the lede says
+           "like <like>", and that is the only place the page names it.
    kind    'arena' (a room you drop into, KIND.arena) or 'duel' (a 1v1 you are matched into, KIND.duel).
    title   the page's title, before " | DuelSeries"; description  the search result's words (and the link preview's).
 
@@ -16,8 +20,9 @@
      winning or of money, and the paid paragraph says what a player can lose.
    - title and description never mention money (they leave the site in search results and link previews, the same
      rule as shareGames.js); the money is on the page, in KIND, under Play for money.
-   - The names are the ones players search for and the lobby shows. Where that is another publisher's game, the
-     title says "style" and every page's footer says the site is not affiliated with them (DISCLAIMER).
+   - Safe names (Owen, 2026-11-01): the title, description, link preview and JSON-LD carry our own name only,
+     the rule shared/shareGames.js and shared/chompName.js keep for shared links. Another publisher's game is named
+     in the body alone, as "like X", and every page's footer says the site is not affiliated with them (DISCLAIMER).
    - Plain words: no em dashes, no hype. */
 
 const SHARE = require('../shared/shareGames');
@@ -25,11 +30,11 @@ const CHOMP_NAME = require('../shared/chompName');
 
 const PAGES = Object.freeze([
   {
-    page: 'pac-man', share: 'chomp', name: CHOMP_NAME, kind: 'arena',
-    title: 'Pac-Man Style Multiplayer Maze Game: Play Free Online',
-    description: 'Play a Pac-Man style maze game with other people, free in your browser. Eat the dots, dodge the ghosts, and grab a power pellet to turn the tables. No download.',
+    page: 'pac-man', share: 'chomp', name: 'Chomp', like: CHOMP_NAME, kind: 'arena',
+    title: 'Chomp: Multiplayer Maze Game, Play Free Online',
+    description: 'Play a multiplayer maze game free in your browser. Eat the dots, dodge the ghosts, and grab a power pellet to turn the tables on everyone. No download.',
     short: 'Eat the dots, dodge the ghosts, hunt other players.',
-    lede: 'A Pac-Man style maze you share with other players. Eat the dots, stay clear of the ghosts, and grab a power pellet to hunt them, and anyone near you, for a few seconds.',
+    lede: 'A maze like ' + CHOMP_NAME + ' that you share with other players. Eat the dots, stay clear of the ghosts, and grab a power pellet to hunt them, and anyone near you, for a few seconds.',
     about: [
       'Everyone runs the same maze at once, and its edges wrap around. You get one life: a ghost that catches you ends the run. A power pellet turns the ghosts blue for you alone for six seconds, speeds you up, and lets you eat ghosts and other players. A cherry gives a short burst of speed.',
       'Computer players keep the maze busy when it is quiet, and one room holds up to 100 players.',
@@ -43,11 +48,11 @@ const PAGES = Object.freeze([
     genre: ['Arcade', 'Maze', 'Multiplayer'],
   },
   {
-    page: 'slither-io', share: 'snake', name: 'Slither.io', kind: 'arena',
-    title: 'Slither.io Style Snake Game: Play Free Online',
-    description: 'Play a slither.io style snake game free in your browser. Eat to grow, boost past rivals, and cut other snakes off before they cut you off. Phone and PC, no download.',
+    page: 'slither-io', share: 'snake', name: 'Snake', like: 'Slither.io', kind: 'arena',
+    title: 'Snake: Multiplayer Snake Game, Play Free Online',
+    description: 'Play a multiplayer snake game free in your browser. Eat to grow, boost past rivals, and cut other snakes off before they cut you off. Phone and PC, no download.',
     short: 'Grow, boost, and cut other snakes off.',
-    lede: 'The snake arena you know: eat to grow, boost to get ahead, and make the other snakes run into you.',
+    lede: 'A snake arena like Slither.io: eat to grow, boost to get ahead, and make the other snakes run into you.',
     about: [
       'Every snake shares one big arena. Run into another snake\'s body or the border and you are out, and everything you grew drops as food for whoever is close. Boosting makes you faster but sheds a little length, so pick your moments.',
       'The free arena is always running, with computer snakes in it, so there is a game the moment you press Play.',
@@ -61,11 +66,11 @@ const PAGES = Object.freeze([
     genre: ['Arcade', 'IO game', 'Snake', 'Multiplayer'],
   },
   {
-    page: 'agar-io', share: 'cells', name: 'Agar.io', kind: 'arena',
-    title: 'Agar.io Style Cell Game: Play Free Online',
-    description: 'Play an agar.io style cell game free in your browser. Eat anything smaller than you, split to chase, and stay clear of anything bigger. Phone and PC, no download.',
+    page: 'agar-io', share: 'cells', name: 'Cells', like: 'Agar.io', kind: 'arena',
+    title: 'Cells: Multiplayer Cell Game, Play Free Online',
+    description: 'Play a multiplayer cell game free in your browser. Eat anything smaller than you, split to chase, and stay clear of anything bigger. Phone and PC, no download.',
     short: 'Eat smaller cells, split to chase.',
-    lede: 'Start small, eat whatever is smaller than you, and stay out of reach of whatever is bigger.',
+    lede: 'A cell game like Agar.io. Start small, eat whatever is smaller than you, and stay out of reach of whatever is bigger.',
     about: [
       'A cell can eat another that is clearly smaller than it. Split to lunge at a smaller cell, eject mass to feed or bait, and keep away from the viruses once you are big. Split pieces merge back together after about thirty seconds.',
       'Your run ends when your last cell is eaten. The free room has computer cells in it, some hunting and some shy.',
@@ -79,11 +84,11 @@ const PAGES = Object.freeze([
     genre: ['Arcade', 'IO game', 'Multiplayer'],
   },
   {
-    page: 'paper-io', share: 'paper', name: 'Paper.io', kind: 'arena',
-    title: 'Paper.io Style Territory Game: Play Free Online',
-    description: 'Play a paper.io style territory game free in your browser. Leave your zone, draw a loop, and get home to claim the ground before anyone crosses your trail. No download.',
+    page: 'paper-io', share: 'paper', name: 'Paper', like: 'Paper.io', kind: 'arena',
+    title: 'Paper: Multiplayer Territory Game, Play Free Online',
+    description: 'Play a multiplayer territory game free in your browser. Leave your zone, draw a loop, and get home to claim the ground before anyone crosses your trail. No download.',
     short: 'Draw a loop, get home, claim the ground.',
-    lede: 'Take the map one loop at a time. Leave your zone, draw a line, and make it home before anyone cuts your trail.',
+    lede: 'A territory game like Paper.io. Take the map one loop at a time. Leave your zone, draw a line, and make it home before anyone cuts your trail.',
     about: [
       'Outside your own ground you leave a trail behind you. Close the loop back in your zone and everything inside it becomes yours. If another player crosses your trail first you are out, and the same goes for hitting the wall, crossing your own trail or being surrounded.',
       'The arena grows a little as players join and shrinks slowly as they leave. The free arena fills up with computer players when it is quiet.',
@@ -98,7 +103,7 @@ const PAGES = Object.freeze([
   },
   {
     page: 'head-soccer', share: 'headsoccer', name: 'Head Soccer', kind: 'duel',
-    title: 'Head Soccer Style 1v1 Football Game: Play Free Online',
+    title: 'Head Soccer: 1v1 Football Game, Play Free Online',
     description: 'Play a 1v1 head soccer game free in your browser. Jump, kick and head the ball into the other goal in a two minute match. Phone and PC, no download.',
     short: 'One on one football with oversized heads.',
     lede: 'One on one, oversized heads, and a ball that rarely goes where you meant it to.',
@@ -200,11 +205,11 @@ const PAGES = Object.freeze([
     genre: ['Strategy', 'Board game'],
   },
   {
-    page: 'rooftop-snipers', share: 'rooftop', name: 'Rooftop Snipers', kind: 'duel',
-    title: 'Rooftop Snipers Style 1v1 Game: Play Free Online',
-    description: 'Play a Rooftop Snipers style 1v1 game free in your browser. Jump, aim and fire to knock the other sniper off the roof. First to five. Phone and PC, no download.',
+    page: 'rooftop-snipers', share: 'rooftop', name: 'Rooftop Duel', like: 'Rooftop Snipers', kind: 'duel',
+    title: 'Rooftop Duel: 1v1 Sniper Game, Play Free Online',
+    description: 'Play a 1v1 rooftop sniper game free in your browser. Jump, aim and fire to knock the other sniper off the roof. First to five. Phone and PC, no download.',
     short: 'Two snipers on one wobbly roof.',
-    lede: 'Two snipers on one wobbly roof. Knock the other one off five times first.',
+    lede: 'A 1v1 like Rooftop Snipers: two snipers on one wobbly roof. Knock the other one off five times first.',
     about: [
       'Both snipers wobble on their feet. Hold to raise your gun and let go to fire; a hit shoves the other sniper back, and whoever falls off the roof loses the round. First to five rounds takes the match. Later rounds can change the roof, the weapons and the weather, or drop things from the sky.',
     ],
@@ -217,11 +222,11 @@ const PAGES = Object.freeze([
     genre: ['Action', 'Shooter', 'Physics'],
   },
   {
-    page: 'crossy-road', share: 'crossy', name: 'Crossy Road', kind: 'duel',
-    title: 'Crossy Road Style 1v1 Race: Play Free Online',
-    description: 'Play a Crossy Road style 1v1 race free in your browser. Hop the same roads, rivers and rails as your rival; the first one hit loses. Phone and PC, no download.',
+    page: 'crossy-road', share: 'crossy', name: 'Road Hop', like: 'Crossy Road', kind: 'duel',
+    title: 'Road Hop: 1v1 Road Crossing Race, Play Free Online',
+    description: 'Play a 1v1 road crossing race free in your browser. Hop the same roads, rivers and rails as your rival; the first one hit loses. Phone and PC, no download.',
     short: 'Hop the same roads as your rival.',
-    lede: 'Hop the same roads, rivers and rails as your rival. The first one hit loses.',
+    lede: 'A 1v1 race like Crossy Road. Hop the same roads, rivers and rails as your rival. The first one hit loses.',
     about: [
       'You both hop the same map at the same time. Getting hit, falling in the river, riding a log off the edge, or dawdling until the eagle takes you all lose the race. Forward hops buy time on the eagle and backward hops cost it. If you both go out at once, the coins you picked up decide it, and after five minutes whoever is further ahead takes it.',
     ],
@@ -267,7 +272,7 @@ const INDEX = Object.freeze({
   lede: 'Arenas you drop into and 1v1 games you are matched into, all free in your browser on a phone or a computer. Players 21 and over can also play for money where that is legal.',
 });
 
-const DISCLAIMER = 'Game names describe the style of each game. DuelSeries is independent and is not affiliated with or endorsed by the owners of those names.';
+const DISCLAIMER = 'Where a game is said to be like another game, that name belongs to its owner. DuelSeries is independent and is not affiliated with or endorsed by the owners of those names.';
 
 const byPage = (page) => PAGES.find((p) => p.page === page) || null;
 const byShare = (slug) => PAGES.find((p) => p.share === slug) || null;

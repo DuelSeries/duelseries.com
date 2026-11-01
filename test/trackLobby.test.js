@@ -351,3 +351,12 @@ test('the widget wires the funnel in, keeps one signed_in, and names its broadca
   for (const s of ['signin_opened', 'signin_abandoned', 'wallet_setup_failed', 'kind:`withdraw`', 'kind:`add`']) assert.ok(built.includes(s), 'the built widget has ' + s);
   assert.ok(!built.includes('wallet_signin'), 'and is rebuilt from this source');
 });
+
+test('the header before the wallet is in: Sign in when this browser has no session, the Wallet tab when it has one', () => {
+  const asked = [], went = [];
+  const extra = (session) => ({ duelWalletLogin: (w) => asked.push(w), go: (t) => went.push(t), DSWalletBoot: { session } });
+  walletPage({ ready: false, authenticated: false, address: null }, extra(false)).win.V2Wallet.headerTap();
+  assert.deepStrictEqual([asked, went], [['header'], []], 'nobody can be signed in: Sign in, which fetches the widget');
+  walletPage({ ready: false, authenticated: false, address: null }, extra(true)).win.V2Wallet.headerTap();
+  assert.deepStrictEqual([asked, went], [['header'], ['wallet']], 'a session may be coming back: the Wallet tab, as before');
+});

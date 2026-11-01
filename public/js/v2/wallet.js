@@ -31,6 +31,8 @@
 (function () {
   const el = id => document.getElementById(id);
   const w = () => window.duelWallet || {};
+  // no sign of a session in this browser (v2.html DSWalletBoot): nobody can be signed in, widget or not
+  const noSession = () => !!(window.DSWalletBoot && window.DSWalletBoot.session === false);
   /* Which step the cash-out panel is on. Module state rather than DOM state,
      because a balance refresh re-renders the panel and would otherwise throw
      away whatever was half-typed into it. */
@@ -153,8 +155,11 @@
     /* Signed out (known, not merely not loaded yet): the header drops the
        empty balance box and says Sign in, on a phone too, where it was a lone
        dash beside an unlabelled icon. While the wallet is still starting it
-       says Wallet, so a signed-in player never sees a Sign in flash by. */
-    const out = !!w().ready && !connected();
+       says Wallet, so a signed-in player never sees a Sign in flash by. A
+       browser with no sign of a session at all (DSWalletBoot.session, the top
+       of v2.html) is known signed out from the start: the widget now comes in
+       once the page is idle, and the header said Wallet until then. */
+    const out = (!!w().ready || noSession()) && !connected();
     if (label) label.textContent = out ? 'Sign in' : 'Wallet';
     // A name for screen readers too: on a phone the label is hidden and only the icon shows.
     const btn = el('wbtn'); if (btn) btn.setAttribute('aria-label', out ? 'Sign in' : 'Wallet');
@@ -163,7 +168,9 @@
   /* The header button signs you in when you are signed out, instead of
      opening a Wallet tab whose only content is a second Sign in button. */
   function headerTap() {
-    if (w().ready && !connected()) return login('header');
+    /* Before the widget is in, too, when nobody can be signed in: Sign in fetches it and hands over (v2.html
+       stub), where the Wallet tab would only say Starting your wallet and ask for a second tap. */
+    if ((w().ready || noSession()) && !connected()) return login('header');
     if (window.go) window.go('wallet');
   }
 

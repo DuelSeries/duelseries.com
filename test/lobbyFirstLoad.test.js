@@ -232,17 +232,48 @@ test('Sign in first: the widget\'s own "Signing in" card, the widget fetched now
   assert.strictEqual(p.sent.length, 0, 'the widget sends signin_opened itself');
 });
 
-test('Privy still starting when the widget mounts: the card is left for the widget\'s sign in to close', async () => {
+test('Privy still starting when the widget mounts: the card goes, and the widget\'s sign in puts it back itself', async () => {
   const p = page({});
   p.run(BOOT); p.run(LOADER);
   p.win.duelWalletLogin('play');
   p.scripts(WIDGET)[0].onload();
   const calls = [];
   p.win.duelWallet = { ready: false };
-  p.win.duelWalletLogin = (w) => { calls.push(w); };
+  p.win.duelWalletLogin = (w) => { calls.push(w); p.win.DSDialog.busy({ title: 'Signing in', line: 'Getting ready' }); };
   await p.advance(60);
   assert.deepStrictEqual(calls, ['play']);
-  assert.deepStrictEqual(p.dialog, [['busy', 'Signing in', 'Getting ready']], 'not closed here');
+  assert.deepStrictEqual(p.dialog, [['busy', 'Signing in', 'Getting ready'], ['close'], ['busy', 'Signing in', 'Getting ready']],
+    'closed, then the widget\'s own card in the same task');
+});
+
+test('Privy ready a moment before the widget publishes duelWallet: the card still goes (it used to stay up for good)', async () => {
+  const p = page({});
+  p.run(BOOT); p.run(LOADER);
+  p.win.duelWalletLogin('header');
+  p.scripts(WIDGET)[0].onload();
+  const calls = [];
+  // duelWalletLogin is in, duelWallet not yet: the widget's sign in opens Privy (or returns) and never closes it
+  p.win.duelWalletLogin = (w) => { calls.push(w); };
+  await p.advance(60);
+  assert.deepStrictEqual(calls, ['header']);
+  assert.deepStrictEqual(p.dialog, [['busy', 'Signing in', 'Getting ready'], ['close']]);
+});
+
+test('a slow download does not use up the 20 s: the limit starts once the script is in', async () => {
+  const p = page({});
+  p.run(BOOT); p.run(LOADER);
+  p.win.duelWalletLogin('header');
+  await p.advance(25000);   // still downloading
+  p.scripts(WIDGET)[0].onload();
+  await p.advance(100);
+  assert.deepStrictEqual(p.dialog, [['busy', 'Signing in', 'Getting ready']], 'no "didn\'t load" for a widget about to mount');
+  const calls = [];
+  p.win.duelWallet = { ready: true };
+  p.win.duelWalletLogin = (w) => { calls.push(w); };
+  await p.advance(60);
+  assert.deepStrictEqual(calls, ['header']);
+  assert.deepStrictEqual(p.dialog[1], ['close']);
+  assert.strictEqual(p.sent.length, 0);
 });
 
 test('the widget cannot be fetched: the widget\'s own message, a planned signin_failed, and the next press tries again', async () => {
@@ -312,6 +343,23 @@ test('DSLater: after load and idle, in order, async=false, clipRec with data-gam
   p.win.DSLater.now();
   await p.advance(20000);
   assert.strictEqual(p.scripts().length, 8, 'once');
+});
+
+test('Record the whole screen pressed before the recorder is in: DSLater.clip fetches just it, now() never adds it twice', async () => {
+  const p = page({});
+  p.run(LATER);
+  p.win.DSLater.clip();
+  assert.deepStrictEqual(p.scripts().map((n) => n.src), ['/js/clip/mp4mux.js', '/js/clip/clipRec.js']);
+  assert.deepStrictEqual(Object.assign({}, p.scripts()[1].dataset), { game: 'other', top: '1' });
+  p.fire('load');
+  await p.advance(600);
+  const s = p.scripts().map((n) => n.src);
+  assert.strictEqual(s.length, 8, 'the rest, and the recorder only once');
+  assert.strictEqual(new Set(s).size, 8);
+  // and the switch asks for it, then starts it once it is in (still inside the click's few seconds)
+  const tab = HTML.slice(HTML.indexOf('function setClipTab(b){'), HTML.indexOf('async function setMic(b){'));
+  assert.match(tab, /else if\(on&&window\.DSLater&&DSLater\.clip\)\{/);
+  assert.match(tab, /if\(R&&R\.top\)\{if\(lsGet\('dsClipsTab'\)==='1'\)R\.start\(true\)/);
 });
 
 /* needR and cvOnScreen, lifted out of the lobby script with the two bindings they use. */

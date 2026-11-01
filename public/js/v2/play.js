@@ -285,6 +285,33 @@
     return !!(w.authenticated && w.address);
   }
 
+  /* The widget not ready yet in a browser with a session: up to WALLET_WAIT_MS with the Signing in card up, then
+     then(). True while it waits (the caller stops there). Once per page: a wallet that never says ready leaves
+     Play as it was (a guest on Free, Sign in for the rest). Closing the card (Escape) drops the Play. */
+  const WALLET_WAIT_MS = 10000;
+  let walletWaited = false, walletWaiting = false;
+  function waitForWallet(then) {
+    if (walletWaiting) return true;
+    const boot = window.DSWalletBoot;
+    if (walletWaited || (window.duelWallet && window.duelWallet.ready) || !boot || boot.session !== true) return false;
+    walletWaiting = true;
+    const D = window.DSDialog;
+    if (D) D.busy({ title: 'Signing in', line: 'Getting your wallet ready' });
+    if (typeof boot.load === 'function') boot.load().catch(() => {});
+    const end = Date.now() + WALLET_WAIT_MS;
+    const tick = () => {
+      if (D && !D.isOpen()) { walletWaiting = false; return; }   // closed by the player: this Play is dropped
+      const ready = !!(window.duelWallet && window.duelWallet.ready);
+      if (!ready && Date.now() < end) { setTimeout(tick, 100); return; }
+      walletWaiting = false;
+      if (!ready) walletWaited = true;
+      if (D) D.close();
+      then();
+    };
+    setTimeout(tick, 100);
+    return true;
+  }
+
   function say(msg) {
     const box = el('play-msg');
     if (!box) { if (window.DSDialog) window.DSDialog.alert({ line: msg }); else alert(msg); return; }
@@ -465,6 +492,11 @@
       }
       if (String(row.id || '').indexOf('sl:') === 0) engine = 'sl';
     }
+    /* Not a guest yet: a returning player whose wallet is still starting (the
+       widget comes in after the loading screen, lobby first load 2026-11-01).
+       This browser shows a session (DSWalletBoot.session, the top of v2.html),
+       so wait for the widget to say who it is, then run this same Play again. */
+    if (!connected() && waitForWallet(() => launch(game, sel))) return;
     /* A guest (Owen 2026-10-26, "yes, free only"): signed out, a free room of
        a game whose free page needs no wallet plays at once under a Guest name.
        Everything else, the battle royale included, still asks to sign in. */

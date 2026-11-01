@@ -20,9 +20,11 @@
    A game's own page (/games/<page>, server/gamePages.js) sends its Play
    buttons here too, marked ?from=page: Play free arrives exactly like an
    invite but is not counted as one (the page sent landing_play_clicked), and
-   Play for money adds &pick=1, which opens that game's screen on its cheapest
-   open paid rung and presses nothing: Play, signing in and the wallet's own
-   confirm are still the player's, exactly as from the lobby's own card (an
+   Play for money adds &pick=1, which opens that game's screen on Free too,
+   points at its paid rungs and presses nothing. A paid rung is always picked
+   on purpose (Owen, 2026-10-10, v2.html defaultStep): an embedded wallet signs
+   a stake with no pop-up of its own, so the rung they press, then Play, is the
+   whole confirmation, and a link must never make that choice for them (an
    invite, which arrives without the mark, stays free only). Both marks are
    taken off the address with the path. */
 (function () {
@@ -30,6 +32,7 @@
   if (!SHARE) return;
   const GUEST_MS = 4000;   // Privy not ready by then: Play as a guest (free rooms need no sign in, play.js guestFree)
   const WAIT_MS = 10000;   // after this nothing presses Play by itself; it is left to them
+  const BOARD_MS = 4000;   // Play for money: how long the paid hint waits for /api/live to say which rungs are open
 
   function linkFor(gameId) {
     const g = SHARE.byGame(gameId);
@@ -100,16 +103,10 @@
     if (typeof window.open_ !== 'function' || typeof window.pickStake !== 'function') return;
     if (window.V2_IS_SOON && window.V2_IS_SOON(g.game)) return;
     try { window.open_(g.game, fromPage ? 'landing' : 'invite'); } catch (_) { return; }
-    /* Play for money from a game's page: its screen on the cheapest paid rung it offers, nothing pressed. */
-    if (pick) {
-      const off = typeof STEPS_OFF !== 'undefined' ? STEPS_OFF : new Set();
-      const paid = typeof STEPS !== 'undefined' ? STEPS.findIndex((v) => v > 0 && !off.has(v)) : -1;
-      if (paid >= 0) window.pickStake(paid);
-      return;
-    }
-    /* Free, whatever this browser last played: an invite is to the free room. */
+    /* Free, whatever this browser last played: an invite is to the free room, and Play for money only points. */
     const free = typeof STEPS !== 'undefined' ? STEPS.indexOf(0) : -1;
     if (free >= 0) window.pickStake(free);
+    if (pick) { pointAtPaid(g); return; }
     if (window.DSTrack && !fromPage) window.DSTrack.event('invite_opened', { game: g.game });
     let started = false, gaveUp = false;
     const onFree = () => !!(window.V2Detail && V2Detail.game === g.game && V2Detail.stake === 0);
@@ -133,6 +130,34 @@
     setTimeout(start, GUEST_MS);
     setTimeout(() => { gaveUp = true; window.removeEventListener('duelwallet:change', go); }, WAIT_MS);
     go();
+  }
+
+  /* Play for money from a game's page: the screen stays on Free and nothing is pressed. Once the board says which
+     paid rungs are open (v2.html restep un-strikes them), those are outlined and a toast says to pick one. */
+  function pointAtPaid(g) {
+    const box = document.getElementById('stakes');
+    const t0 = Date.now();
+    const boardIn = () => !!(window.V2Board && Array.isArray(V2Board.lobbies) && V2Board.lobbies.length);
+    const wait = () => {
+      if (!(window.V2Detail && V2Detail.game === g.game)) return;   // they have moved on
+      if (!boardIn() && Date.now() - t0 < BOARD_MS) { setTimeout(wait, 100); return; }
+      const off = typeof STEPS_OFF !== 'undefined' ? STEPS_OFF : new Set();
+      const paid = (typeof STEPS !== 'undefined' ? STEPS : []).filter((v) => v > 0 && !off.has(v));
+      const amt = (v) => '$' + (Number.isInteger(v) ? v : v.toFixed(2));
+      if (!paid.length) {
+        if (window.DSToast) DSToast.show({ kind: 'info', title: 'No paid tables open right now', detail: 'Free is open: press Play to play free.' });
+        return;
+      }
+      if (box) {
+        box.classList.add('hint');
+        try { box.scrollIntoView({ block: 'nearest' }); } catch (_) {}
+        const clear = () => box.classList.remove('hint');
+        document.addEventListener('pointerdown', clear, { once: true, capture: true });
+        setTimeout(clear, 8000);
+      }
+      if (window.DSToast) DSToast.show({ kind: 'info', title: 'Pick ' + paid.map(amt).join(' or ') + ' to play for money' });
+    };
+    wait();
   }
 
   if (arrived) {

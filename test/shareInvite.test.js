@@ -165,3 +165,121 @@ test('the Share pill: free cards only, in all three .io games, beside the one ro
   const chomp = read('public/js/chomp/chompMain.js');
   assert.ok(chomp.includes("share: paidMode || typeof window.DSEnd.share !== 'function' ? null : { onClick: function () {"), 'never a paid Chomp page');
 });
+
+/* ── Play for money from a game's page (review 2026-11-01) ── invite.js run in a vm, on a clock of its own. A paid
+   rung is always picked on purpose (Owen, 2026-10-10): the link lands on Free, outlines the open paid rungs once the
+   board says which, toasts which to pick, and presses nothing. */
+function arrival(search, o) {
+  o = o || {};
+  const vm = require('vm');
+  let now = 0;
+  const timers = [];
+  const listeners = {};
+  const picks = [], opened = [], toasts = [], started = [];
+  const cls = new Set();
+  const stakes = { classList: { add: (c) => cls.add(c), remove: (c) => cls.delete(c), contains: (c) => cls.has(c) }, scrollIntoView() {} };
+  const win = {
+    DS_SHARE: SHARE, console, Number, Set, URLSearchParams, Date: { now: () => now },
+    location: { pathname: '/play/headsoccer', search, hash: '', origin: 'https://duelseries.com' },
+    history: { state: null, replaceState(_s, _t, url) { win.location.search = ''; win.replaced = url; } },
+    document: { readyState: 'complete', title: '', getElementById: (id) => (id === 'stakes' ? stakes : null),
+      addEventListener: (t, f) => { (listeners[t] = listeners[t] || []).push(f); } },
+    addEventListener() {}, removeEventListener() {},
+    setTimeout: (f, ms) => { timers.push({ at: now + (ms || 0), f }); return timers.length; },
+    STEPS: [0, 0.5, 1], STEPS_OFF: new Set([0.5, 1]),
+    open_: (g, where) => opened.push([g, where]),
+    pickStake: (i) => picks.push(win.STEPS[i]),
+    startFromDetail: () => started.push(1),
+    V2Detail: { game: 'headsoccer', get stake() { return picks.length ? picks[picks.length - 1] : null; } },
+    V2Board: { lobbies: [] },
+    DSToast: { show: (t) => toasts.push(t) },
+    DSWalletBoot: { session: false },
+  };
+  win.window = win;
+  vm.createContext(win);
+  vm.runInContext(read('public/js/v2/invite.js'), win);
+  const advance = (ms) => {
+    const until = now + ms;
+    for (;;) {
+      timers.sort((a, b) => a.at - b.at);
+      const t = timers[0];
+      if (!t || t.at > until) break;
+      timers.shift(); now = t.at; t.f();
+    }
+    now = until;
+  };
+  return { win, picks, opened, toasts, started, cls, advance, tap: () => (listeners.pointerdown || []).forEach((f) => f()) };
+}
+
+test('Play for money from a game page lands on Free, presses nothing, and points at the paid rungs once they open', () => {
+  const a = arrival('?from=page&pick=1');
+  a.advance(1);
+  assert.deepStrictEqual(a.opened, [['headsoccer', 'landing']]);
+  assert.strictEqual(a.win.replaced, '/', 'the marks come off the address');
+  assert.deepStrictEqual(a.picks, [0], 'Free, never a paid rung');
+  a.advance(500);
+  assert.strictEqual(a.toasts.length, 0, 'waits for the board before naming amounts');
+  // the board answers: v2.html restep un-strikes both paid rungs
+  a.win.V2Board.lobbies = [{ game: 'headsoccer' }];
+  a.win.STEPS_OFF = new Set();
+  a.advance(200);
+  assert.deepStrictEqual(a.picks, [0], 'still Free');
+  assert.deepStrictEqual(a.toasts.map((t) => t.title), ['Pick $0.50 or $1 to play for money']);
+  assert.ok(a.cls.has('hint'), 'the open paid rungs are outlined');
+  a.advance(20000);
+  assert.strictEqual(a.started.length, 0, 'Play is never pressed for them');
+  assert.ok(!a.cls.has('hint'), 'the outline goes by itself');
+});
+
+test('Play for money: only the open paid rungs are named, none open says so, and a first tap clears the outline', () => {
+  const a = arrival('?from=page&pick=1');
+  a.win.V2Board.lobbies = [{ game: 'headsoccer' }];
+  a.win.STEPS_OFF = new Set([0.5]);
+  a.advance(300);
+  assert.deepStrictEqual(a.toasts.map((t) => t.title), ['Pick $1 to play for money']);
+  a.tap();
+  assert.ok(!a.cls.has('hint'));
+  const b = arrival('?from=page&pick=1');
+  b.advance(5000);   // the board never answers: every paid rung stays struck
+  assert.deepStrictEqual(b.toasts.map((t) => t.title), ['No paid tables open right now']);
+  assert.ok(!b.cls.has('hint'));
+  assert.deepStrictEqual(b.picks, [0]);
+});
+
+test('pick=1 without the page mark is an invite: Free, and Play is pressed for them as before', () => {
+  const a = arrival('?pick=1');
+  a.advance(10);
+  assert.deepStrictEqual(a.opened, [['headsoccer', 'invite']]);
+  assert.deepStrictEqual(a.picks, [0]);
+  assert.strictEqual(a.started.length, 1, 'no session in this browser: straight to the free table');
+  assert.strictEqual(a.toasts.length, 0);
+});
+
+/* restep (v2.html): the board's answer re-strikes the rungs of a game screen opened before it came. */
+test('a game screen opened before /api/live answered un-strikes its paid rungs when the board does', () => {
+  const vm = require('vm');
+  const html = read('public/v2.html').replace(/\r\n/g, '\n');
+  const from = html.indexOf('let STEPS=[0];');
+  const to = html.indexOf('/* The buy-in you last played');
+  const re = html.slice(html.indexOf('function restep(){'), html.indexOf('function pickStake(i){'));
+  assert.ok(from > 0 && to > from && re.length > 20);
+  let open = false;
+  const ctx = { Set, Math, draws: 0, DS_LADDER: { LADDER: [0, 0.5, 1] }, V2Board: { duelPaidOpen: () => open } };
+  ctx.window = ctx;
+  vm.createContext(ctx);
+  vm.runInContext(html.slice(from, to) + re + `
+    let si=0, cur={id:'headsoccer'};
+    const G=id=>({id,paid:1,duel:1});
+    function drawStake(){draws++}
+    this.go=()=>{refreshSteps(cur.id);};
+    this.restep=restep; this.off=()=>JSON.stringify([...STEPS_OFF]); this.si=()=>si;`, ctx);
+  ctx.go();
+  assert.strictEqual(ctx.off(), "[0.5,1]", 'no answer yet: struck');
+  ctx.restep();
+  assert.strictEqual(ctx.draws, 0, 'nothing changed, nothing redrawn');
+  open = true;
+  ctx.restep();
+  assert.strictEqual(ctx.off(), "[]", 'the answer opens them');
+  assert.strictEqual(ctx.draws, 1, 'and the row is redrawn');
+  assert.strictEqual(ctx.si(), 0, 'still on Free: an open rung is never picked for them');
+});

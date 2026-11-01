@@ -11,8 +11,10 @@
    One system with the invites: the words are server/gamePageData.js, the pictures and the Play target are the
    game's shareGames.js entry, and Play is that game's invite link, /play/<slug>, with ?from=page so the lobby opens
    its free room without calling it an invite (public/js/v2/invite.js). Play for money adds &pick=1: the lobby opens
-   the game's screen on its cheapest open paid rung and presses nothing; Play, signing in and the wallet's confirm
-   are the player's, as from the lobby's own card. This page names no amount to the lobby and touches no money code.
+   the game's screen on Free, points at its paid rungs and presses nothing. A paid rung is always picked on purpose
+   (Owen, 2026-10-10): an embedded wallet signs a stake with no pop-up of its own, so the rung the player presses on
+   that screen, then Play, is the whole confirmation. This page names no amount to the lobby and touches no money
+   code.
 
    Live only: a game that is locked (shared/lockedGames.js) or Coming soon (server/comingSoon.js, a runtime switch,
    asked on every request) has no page (302 to the lobby, like /play) and is left out of /games and the sitemap.
@@ -160,7 +162,8 @@ function renderPage(p, live) {
         '@type': 'VideoGame',
         '@id': url + '#game',
         name: p.name,
-        alternateName: share.name !== p.name ? share.name : undefined,
+        // the invite's plain word, when it differs and is not the other publisher's name (gamePageData like)
+        alternateName: share.name !== p.name && share.name !== p.like ? share.name : undefined,
         description: p.description,
         url,
         image,

@@ -45,11 +45,13 @@ test('every shared game has a page, under the name the lobby shows, at a search-
     // the lobby card's name: written there, or read from the one file it comes from
     const card = new RegExp("\\{id:'" + p.game + "',name:([^,]+),").exec(v2);
     assert.ok(card, 'a lobby card: ' + p.game);
-    if (p.game === 'chomp') assert.strictEqual(p.name, require('../shared/chompName'));
+    // ours (the page's name), or the other publisher's game it plays like (named in the lede alone)
+    const ours = (n) => assert.ok(n === p.name || n === p.like, p.page + ': ' + n);
+    if (p.game === 'chomp') ours(require('../shared/chompName'));
     else if (p.game === 'swim') {
       assert.match(card[1], /SwimSim\.NAME/);
       assert.match(read('shared/swimSim.js'), new RegExp("const NAME = '" + p.name + "';"));
-    } else assert.strictEqual(card[1], "'" + p.name + "'", p.page);
+    } else ours(/^'(.*)'$/.exec(card[1])[1]);
     assert.ok(p.how.length >= 3 && p.how.length <= 5, p.page + ' how to play');
     assert.ok(p.about.length >= 1 && p.genre.length >= 1, p.page);
   }
@@ -70,9 +72,16 @@ test('the words: plain (no em dashes), honest (no hype), and nothing about money
     assert.ok(p.description.length >= 70 && p.description.length <= 170, 'a search snippet: ' + p.description.length + ' ' + p.description);
     assert.ok((p.title + ' | DuelSeries').length <= 70, 'a title that fits: ' + p.title);
   }
-  // Every page that names another publisher's game says "style" in its title; the footer says we are not them.
-  for (const page of ['pac-man', 'slither-io', 'agar-io', 'paper-io', 'head-soccer', 'rooftop-snipers', 'crossy-road']) {
-    assert.match(DATA.byPage(page).title, / Style /, page);
+  // Safe names: another publisher's game is named only in the lede, as "like X", never in a title, a search
+  // result, the name (the h1, link preview and JSON-LD) or the card line; the footer says we are not them.
+  const FAMOUS = /pac-?man|slither|agar|paper\.io|rooftop snipers|crossy road/i;
+  for (const p of DATA.PAGES.concat([DATA.INDEX])) {
+    for (const s of [p.title, p.description, p.h1, p.name, p.short].filter(Boolean)) assert.doesNotMatch(s, FAMOUS, s);
+  }
+  for (const page of ['pac-man', 'slither-io', 'agar-io', 'paper-io', 'rooftop-snipers', 'crossy-road']) {
+    const p = DATA.byPage(page);
+    assert.match(p.like, FAMOUS, page);
+    assert.ok(p.lede.includes('like ' + p.like), page + ' lede');
   }
   assert.match(DATA.DISCLAIMER, /not affiliated/);
 });
@@ -130,6 +139,10 @@ test('a game\'s page: one h1, its canonical, cards with absolute pictures, Video
     const ld = JSON.parse(/<script type="application\/ld\+json">([^<]+)<\/script>/.exec(html)[1]);
     const game = ld['@graph'].find((x) => x['@type'] === 'VideoGame');
     assert.strictEqual(game.name, p.name);
+    for (const m of [/<title>([^<]*)</, /property="og:title" content="([^"]*)"/, /name="twitter:title" content="([^"]*)"/]) {
+      assert.doesNotMatch(m.exec(html)[1], /pac-?man|slither|agar|paper\.io|rooftop snipers|crossy road/i, p.page);
+    }
+    assert.doesNotMatch(String(game.alternateName || ''), /pac-?man|slither|agar|paper\.io|rooftop snipers|crossy road/i);
     assert.strictEqual(game.url, url);
     assert.strictEqual(game.image, 'https://duelseries.com' + g.image);
     assert.strictEqual(game.offers.price, '0');
@@ -193,7 +206,7 @@ test('the routes: a live page, a page that is not live goes to the lobby, an unk
   const ok = page('Slither-IO');
   assert.strictEqual(ok.status_, 200);
   assert.strictEqual(ok.headers['Cache-Control'], 'no-cache');
-  assert.ok(ok.body.includes('<h1>Slither.io</h1>'));
+  assert.ok(ok.body.includes('<h1>Snake</h1>'));
   assert.deepStrictEqual([page('agar-io').status_, page('agar-io').redirected], [302, '/']);
   const nf = page('nope');
   assert.ok(nf.nf && nf.status_ === 404);
@@ -212,7 +225,8 @@ test('crawl basics: robots.txt names the sitemap and keeps the game pages and in
   assert.doesNotMatch(robots, /^Disallow: \/(?:$|games|play)/m);
   const v2 = read('public/v2.html');
   assert.match(v2, /<html lang="en">/);
-  assert.ok(v2.includes('<a href="/games">All games</a>'), 'the footer links the list');
+  // "Game guides", not "All games": the lobby has its own All games screen (review 2026-11-01)
+  assert.ok(v2.includes('<a href="/games">Game guides</a>'), 'the footer links the list');
   const ld = /<script type="application\/ld\+json">([^<]+)<\/script>/.exec(v2);
   assert.deepStrictEqual(JSON.parse(ld[1]), { '@context': 'https://schema.org', '@type': 'WebSite', name: 'DuelSeries', url: 'https://duelseries.com/' });
   assert.ok(read('server/index.js').includes("require('./gamePages').gamePageRoutes(app, {"));
