@@ -18,7 +18,7 @@
 
    Here each file runs as `node --test-force-exit <file>` with NODE_TEST_CONTEXT
    set to 'child', node:test's own child mode with the TAP reporter: the same
-   process per file, the same force exit (24 files keep a server or a timer alive
+   process per file, the same force exit (23 files keep a server or a timer alive
    after their last test and rely on it), and every result reaches this parent
    (60 of 60 in every run of that same file). NODE_TEST_CONTEXT is also what
    server/rpcDay.js reads to keep a test run's RPC day in memory, as under --test.
