@@ -125,7 +125,10 @@ function once(sock, ev, ms) {
   } finally {
     if (owner) owner.close();
     if (guest) guest.close();
-    srv.kill();
+    // SIGKILL, as br-sl-smoke does: the server settles on SIGTERM and keeps running until pm2's kill timeout (its
+    // leaderboard listens for the signal; server/ag/agShutdown.js), so a plain kill() left it up and this script,
+    // holding its output pipes, never ended after "all good".
+    srv.kill('SIGKILL');
     await wait(300);
   }
   if (fails.length) {
@@ -134,4 +137,5 @@ function once(sock, ev, ms) {
     process.exit(1);
   }
   console.log('\nall good');
+  process.exit(0);
 })();
