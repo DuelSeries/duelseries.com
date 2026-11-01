@@ -103,7 +103,7 @@ test('robots.txt names the sitemap; a Coming soon or unknown page does not answe
   assert.strictEqual(robots.status, 200);
   assert.match(robots.body, /^Sitemap: https:\/\/duelseries\.com\/sitemap\.xml$/m);
   assert.doesNotMatch(robots.body, /^Disallow: \/(?:games|play)\b/m, 'game pages and invites stay crawlable');
-  for (const p of ['/games/agar-io', '/games/battleship']) {
+  for (const p of ['/games/cells', '/games/battleship']) {
     const r = await get(p);
     assert.deepStrictEqual([r.status, r.location], [302, '/'], p);
   }
@@ -111,5 +111,7 @@ test('robots.txt names the sitemap; a Coming soon or unknown page does not answe
   assert.strictEqual(nope.status, 404);
   assert.match(nope.body, /Page not found/);
   const list = await get('/games');
-  assert.ok(!/href="\/games\/(?:agar-io|battleship)"/.test(list.body), 'the list leaves Coming soon out');
+  assert.ok(!/href="\/games\/(?:cells|battleship)"/.test(list.body), 'the list leaves Coming soon out');
+  const old = await get('/games/slither-io');
+  assert.deepStrictEqual([old.status, old.location], [301, '/games/snake'], 'an old address moves to ours');
 });

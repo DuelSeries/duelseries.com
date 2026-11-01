@@ -5,7 +5,8 @@
    Coming soon (server/comingSoon.js, today agar.io and Battleship) keeps its entry but has no page, no list card and
    no sitemap line until it is live again: that is a runtime switch, so its page comes back with the switch.
 
-   page    the address, /games/<page>: the words people search for, lower case and hyphens.
+   page    the address, /games/<page>: our own name for it (as name), lower case and hyphens. An old address is
+           in MOVED (a 301).
    share   its shared/shareGames.js slug: Play goes to /play/<share>, and its 1200 x 630 picture is the link preview.
    name    our own name for it: the h1, the title, the link preview and the JSON-LD name. The lobby card's name
            (public/v2.html GAMES, shared/chompName.js, SwimSim.NAME) where that is ours, else a plain word like
@@ -30,7 +31,7 @@ const CHOMP_NAME = require('../shared/chompName');
 
 const PAGES = Object.freeze([
   {
-    page: 'pac-man', share: 'chomp', name: 'Chomp', like: CHOMP_NAME, kind: 'arena',
+    page: 'chomp', share: 'chomp', name: 'Chomp', like: CHOMP_NAME, kind: 'arena',
     title: 'Chomp: Multiplayer Maze Game, Play Free Online',
     description: 'Play a multiplayer maze game free in your browser. Eat the dots, dodge the ghosts, and grab a power pellet to turn the tables on everyone. No download.',
     short: 'Eat the dots, dodge the ghosts, hunt other players.',
@@ -48,7 +49,7 @@ const PAGES = Object.freeze([
     genre: ['Arcade', 'Maze', 'Multiplayer'],
   },
   {
-    page: 'slither-io', share: 'snake', name: 'Snake', like: 'Slither.io', kind: 'arena',
+    page: 'snake', share: 'snake', name: 'Snake', like: 'Slither.io', kind: 'arena',
     title: 'Snake: Multiplayer Snake Game, Play Free Online',
     description: 'Play a multiplayer snake game free in your browser. Eat to grow, boost past rivals, and cut other snakes off before they cut you off. Phone and PC, no download.',
     short: 'Grow, boost, and cut other snakes off.',
@@ -66,7 +67,7 @@ const PAGES = Object.freeze([
     genre: ['Arcade', 'IO game', 'Snake', 'Multiplayer'],
   },
   {
-    page: 'agar-io', share: 'cells', name: 'Cells', like: 'Agar.io', kind: 'arena',
+    page: 'cells', share: 'cells', name: 'Cells', like: 'Agar.io', kind: 'arena',
     title: 'Cells: Multiplayer Cell Game, Play Free Online',
     description: 'Play a multiplayer cell game free in your browser. Eat anything smaller than you, split to chase, and stay clear of anything bigger. Phone and PC, no download.',
     short: 'Eat smaller cells, split to chase.',
@@ -84,7 +85,7 @@ const PAGES = Object.freeze([
     genre: ['Arcade', 'IO game', 'Multiplayer'],
   },
   {
-    page: 'paper-io', share: 'paper', name: 'Paper', like: 'Paper.io', kind: 'arena',
+    page: 'paper', share: 'paper', name: 'Paper', like: 'Paper.io', kind: 'arena',
     title: 'Paper: Multiplayer Territory Game, Play Free Online',
     description: 'Play a multiplayer territory game free in your browser. Leave your zone, draw a loop, and get home to claim the ground before anyone crosses your trail. No download.',
     short: 'Draw a loop, get home, claim the ground.',
@@ -205,7 +206,7 @@ const PAGES = Object.freeze([
     genre: ['Strategy', 'Board game'],
   },
   {
-    page: 'rooftop-snipers', share: 'rooftop', name: 'Rooftop Duel', like: 'Rooftop Snipers', kind: 'duel',
+    page: 'rooftop-duel', share: 'rooftop', name: 'Rooftop Duel', like: 'Rooftop Snipers', kind: 'duel',
     title: 'Rooftop Duel: 1v1 Sniper Game, Play Free Online',
     description: 'Play a 1v1 rooftop sniper game free in your browser. Jump, aim and fire to knock the other sniper off the roof. First to five. Phone and PC, no download.',
     short: 'Two snipers on one wobbly roof.',
@@ -222,7 +223,7 @@ const PAGES = Object.freeze([
     genre: ['Action', 'Shooter', 'Physics'],
   },
   {
-    page: 'crossy-road', share: 'crossy', name: 'Road Hop', like: 'Crossy Road', kind: 'duel',
+    page: 'road-hop', share: 'crossy', name: 'Road Hop', like: 'Crossy Road', kind: 'duel',
     title: 'Road Hop: 1v1 Road Crossing Race, Play Free Online',
     description: 'Play a 1v1 road crossing race free in your browser. Hop the same roads, rivers and rails as your rival; the first one hit loses. Phone and PC, no download.',
     short: 'Hop the same roads as your rival.',
@@ -274,7 +275,14 @@ const INDEX = Object.freeze({
 
 const DISCLAIMER = 'Where a game is said to be like another game, that name belongs to its owner. DuelSeries is independent and is not affiliated with or endorsed by the owners of those names.';
 
+/* The first addresses, named after other publishers' games (2026-11-01, live for an afternoon): each is a 301 to
+   our own (server/gamePages.js), so a link or a search result already out there still lands. Never reused. */
+const MOVED = Object.freeze({
+  'pac-man': 'chomp', 'slither-io': 'snake', 'agar-io': 'cells', 'paper-io': 'paper',
+  'rooftop-snipers': 'rooftop-duel', 'crossy-road': 'road-hop',
+});
+
 const byPage = (page) => PAGES.find((p) => p.page === page) || null;
 const byShare = (slug) => PAGES.find((p) => p.share === slug) || null;
 
-module.exports = { PAGES, KIND, INDEX, DISCLAIMER, byPage, byShare };
+module.exports = { PAGES, KIND, INDEX, DISCLAIMER, MOVED, byPage, byShare };

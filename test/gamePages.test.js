@@ -78,7 +78,7 @@ test('the words: plain (no em dashes), honest (no hype), and nothing about money
   for (const p of DATA.PAGES.concat([DATA.INDEX])) {
     for (const s of [p.title, p.description, p.h1, p.name, p.short].filter(Boolean)) assert.doesNotMatch(s, FAMOUS, s);
   }
-  for (const page of ['pac-man', 'slither-io', 'agar-io', 'paper-io', 'rooftop-snipers', 'crossy-road']) {
+  for (const page of ['chomp', 'snake', 'cells', 'paper', 'rooftop-duel', 'road-hop']) {
     const p = DATA.byPage(page);
     assert.match(p.like, FAMOUS, page);
     assert.ok(p.lede.includes('like ' + p.like), page + ' lede');
@@ -134,7 +134,9 @@ test('a game\'s page: one h1, its canonical, cards with absolute pictures, Video
     assert.ok(html.includes(DATA.DISCLAIMER));
     // the other live games, and never itself or a game that is not live
     for (const o of live) assert.strictEqual(html.includes('href="/games/' + o.page + '"'), o !== p, p.page + ' -> ' + o.page);
-    assert.ok(!/href="\/games\/(?:agar-io|battleship)"/.test(html));
+    assert.ok(!/href="\/games\/(?:cells|battleship)"/.test(html));
+    // the addresses are our own words too, never another publisher's name
+    assert.doesNotMatch(html, /(?:href="|duelseries\.com)\/games\/(?:pac-?man|slither|agar|paper-io|rooftop-snipers|crossy)/);
     // structured data
     const ld = JSON.parse(/<script type="application\/ld\+json">([^<]+)<\/script>/.exec(html)[1]);
     const game = ld['@graph'].find((x) => x['@type'] === 'VideoGame');
@@ -203,20 +205,35 @@ test('the routes: a live page, a page that is not live goes to the lobby, an unk
   GP.gamePageRoutes(app, { isSoon: (id) => soon && SOON.has(id), notFound: (_q, res) => { res.nf = true; res.status(404); } });
   assert.deepStrictEqual(Object.keys(app.routes).sort(), ['/games', '/games/:page', '/sitemap.xml']);
   const page = (slug) => { const r = fakeRes(); app.routes['/games/:page']({ params: { page: slug } }, r); return r; };
-  const ok = page('Slither-IO');
+  const ok = page('Snake');
   assert.strictEqual(ok.status_, 200);
   assert.strictEqual(ok.headers['Cache-Control'], 'no-cache');
   assert.ok(ok.body.includes('<h1>Snake</h1>'));
-  assert.deepStrictEqual([page('agar-io').status_, page('agar-io').redirected], [302, '/']);
+  assert.deepStrictEqual([page('cells').status_, page('cells').redirected], [302, '/']);
   const nf = page('nope');
   assert.ok(nf.nf && nf.status_ === 404);
+  // the first addresses (named after other publishers' games) are a 301 to ours, whatever the case
+  const moved = { 'pac-man': 'chomp', 'slither-io': 'snake', 'agar-io': 'cells', 'paper-io': 'paper',
+    'rooftop-snipers': 'rooftop-duel', 'crossy-road': 'road-hop' };
+  assert.deepStrictEqual(DATA.MOVED, moved);
+  for (const [from, to] of Object.entries(moved)) {
+    const r = page(from.toUpperCase());
+    assert.deepStrictEqual([r.status_, r.redirected], [301, '/games/' + to], from);
+    assert.ok(DATA.byPage(to), to + ' is a page');
+    assert.strictEqual(DATA.byPage(from), null, from + ' is not a page any more');
+  }
+  for (const odd of ['constructor', '__proto__', 'hasownproperty', 'tostring']) {
+    const r = page(odd);
+    assert.ok(r.nf && r.status_ === 404, odd + ' is just unknown');
+  }
   // the switch is asked on every request: agar.io switched Live has its page at once
   soon = false;
-  assert.strictEqual(page('agar-io').status_, 200);
+  assert.strictEqual(page('cells').status_, 200);
   const sm = fakeRes();
   app.routes['/sitemap.xml']({}, sm);
   assert.strictEqual(sm.headers['Content-Type'], 'application/xml');
-  assert.ok(sm.body.includes('<loc>https://duelseries.com/games/agar-io</loc>'));
+  assert.ok(sm.body.includes('<loc>https://duelseries.com/games/cells</loc>'));
+  for (const old of Object.keys(moved)) assert.ok(!sm.body.includes('/games/' + old + '<'), 'no old address: ' + old);
 });
 
 test('crawl basics: robots.txt names the sitemap and keeps the game pages and invites open; the lobby links /games', () => {

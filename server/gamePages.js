@@ -293,6 +293,7 @@ function gamePageRoutes(app, { isSoon = null, notFound = null } = {}) {
   app.get('/games/:page', (req, res) => {
     const want = String((req.params && req.params.page) || '').toLowerCase();
     const p = DATA.byPage(want);
+    if (!p && Object.hasOwn(DATA.MOVED, want)) return res.redirect(301, '/games/' + DATA.MOVED[want]);   // an old address
     if (!p) {
       if (typeof notFound === 'function') return notFound(req, res);
       return res.status(404).type('text').send('Not found');
