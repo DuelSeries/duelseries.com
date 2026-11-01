@@ -22,6 +22,7 @@
 //
 // Also here: the vm page copy is proven faithful (two gate goldens replay identically through it), and the 1 ulp
 // drift budget (Math.cos and Math.sin are not required to match across engines; the iPhone runs JavaScriptCore).
+require('./powPin'); // Math.pow as on the host that cut the goldens (two inputs; see test/powPin.js)
 const test = require('node:test');
 const assert = require('node:assert');
 
