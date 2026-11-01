@@ -207,7 +207,8 @@
      travel) and so is vertical scrolling (a mostly-vertical drag is let go at
      once). The name field keeps its gesture while it is open for typing, and
      nothing moves under the agar.io settings or any other sheet. */
-  const anyVeil = () => !!document.querySelector('.howveil.on, .apscreen.on, .veil.on');
+  // .dsd: a DSDialog card (Signing in, a stake in flight) is up, and the screen under it stays put
+  const anyVeil = () => !!document.querySelector('.howveil.on, .apscreen.on, .veil.on, .dsd');
 
   function gBegin(dir, src) {
     if (!window.V2Detail || !window.V2Detail.flip || anyVeil()) return false;

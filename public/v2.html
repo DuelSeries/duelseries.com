@@ -5693,7 +5693,11 @@ function startFromDetail(){
     const id=cur.id;
     const go=()=>{
       const d=document.getElementById('detail');   // Back during the round trip: not staked from home
-      if(cur&&cur.id===id&&Number(STEPS[si])===st&&d&&screenShown(d))V2Play.launch(id,{stake:st});
+      if(!(cur&&cur.id===id&&d&&screenShown(d)))return;
+      if(Number(STEPS[si])===st){V2Play.launch(id,{stake:st});return}
+      /* The fresh answer shut that rung while it came back (restep moved the
+         screen to Free): said, rather than a Play that silently did nothing. */
+      if(STEPS_OFF.has(st)&&window.V2Play&&V2Play.toast)V2Play.toast('Paid '+cur.name+' tables are not open right now. Pick one the card is offering.');
     };
     if(window.V2Board&&typeof V2Board.load==='function')Promise.resolve(V2Board.load()).then(go,go);else go();
     return;

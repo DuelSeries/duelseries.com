@@ -287,7 +287,9 @@
 
   /* The widget not ready yet in a browser with a session: up to WALLET_WAIT_MS with the Signing in card up, then
      then(). True while it waits (the caller stops there). Once per page: a wallet that never says ready leaves
-     Play as it was (a guest on Free, Sign in for the rest). Closing the card (Escape) drops the Play. */
+     Play as it was (a guest on Free, Sign in for the rest). The card cannot be dismissed, but the game screen
+     under it can still change (a swipe, a rung reached with Tab): then() runs only if the game and rung on
+     screen are still the ones Play was pressed on, so a stake is never taken for a choice they moved off. */
   const WALLET_WAIT_MS = 10000;
   let walletWaited = false, walletWaiting = false;
   function waitForWallet(then) {
@@ -295,18 +297,19 @@
     const boot = window.DSWalletBoot;
     if (walletWaited || (window.duelWallet && window.duelWallet.ready) || !boot || boot.session !== true) return false;
     walletWaiting = true;
+    const picked = () => (window.V2Detail ? V2Detail.game + '|' + V2Detail.stake : '');
+    const was = picked();
     const D = window.DSDialog;
     if (D) D.busy({ title: 'Signing in', line: 'Getting your wallet ready' });
     if (typeof boot.load === 'function') boot.load().catch(() => {});
     const end = Date.now() + WALLET_WAIT_MS;
     const tick = () => {
-      if (D && !D.isOpen()) { walletWaiting = false; return; }   // closed by the player: this Play is dropped
       const ready = !!(window.duelWallet && window.duelWallet.ready);
       if (!ready && Date.now() < end) { setTimeout(tick, 100); return; }
       walletWaiting = false;
       if (!ready) walletWaited = true;
       if (D) D.close();
-      then();
+      if (picked() === was) then();
     };
     setTimeout(tick, 100);
     return true;

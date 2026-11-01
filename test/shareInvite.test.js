@@ -283,3 +283,11 @@ test('a game screen opened before /api/live answered un-strikes its paid rungs w
   assert.strictEqual(ctx.draws, 1, 'and the row is redrawn');
   assert.strictEqual(ctx.si(), 0, 'still on Free: an open rung is never picked for them');
 });
+
+test('a paid Play whose rung the fresh board shut on the way back says so, instead of doing nothing', () => {
+  const html = read('public/v2.html').replace(/\r\n/g, '\n');
+  const fn = html.slice(html.indexOf('function startFromDetail(){'), html.indexOf('function spectateFromDetail(){'));
+  assert.match(fn, /if\(Number\(STEPS\[si\]\)===st\)\{V2Play\.launch\(id,\{stake:st\}\);return\}/);
+  assert.match(fn, /if\(STEPS_OFF\.has\(st\)&&window\.V2Play&&V2Play\.toast\)V2Play\.toast\('Paid '\+cur\.name\+' tables are not open right now\./);
+  assert.match(read('public/js/v2/swipe.js'), /\.veil\.on, \.dsd'\)/, 'no swipe to another game under a DSDialog card');
+});

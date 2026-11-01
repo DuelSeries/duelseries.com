@@ -130,7 +130,7 @@ function waiting(L, session) {
     }
     now = until;
   };
-  return { dialog, advance, loads: () => loads, escape: () => { up = false; } };
+  return { dialog, advance, loads: () => loads };
 }
 
 test('a returning player whose wallet is still starting: the Signing in card, then their own Play, never a guest seat', () => {
@@ -152,7 +152,7 @@ test('a returning player whose wallet is still starting: the Signing in card, th
   assert.ok(!shown(L, 'game-frame'));
 });
 
-test('waiting for the wallet: none at all without a session; a wallet that never comes leaves Play as it was; Escape drops it', () => {
+test('waiting for the wallet: none without a session; a wallet that never comes leaves Play as it was; a changed pick drops it', () => {
   const A = lobby();
   const a = waiting(A, false);
   A.win.V2Play.launch('paper', { stake: 0 });
@@ -170,12 +170,25 @@ test('waiting for the wallet: none at all without a session; a wallet that never
   assert.strictEqual(b.dialog.length, 2, 'it waits once a page, not on every Play');
   assert.ok(shown(B, 'game-frame'), 'Free then plays as a guest');
 
-  const C = lobby();
-  const c = waiting(C, true);
-  C.win.V2Play.launch('paper', { stake: 0 });
-  c.escape();
-  C.win.duelWallet = { ready: true, authenticated: true, address: 'Wa11et' };
-  c.advance(500);
-  assert.strictEqual(C.events.length, 0, 'closed by the player: that Play is dropped');
-  assert.ok(!shown(C, 'game-frame'));
+  // the screen under the card moved on (a swipe to another game, a rung reached with Tab): that Play is dropped
+  for (const moved of [{ game: 'agar', stake: 0.5 }, { game: 'paper', stake: 1 }]) {
+    const C = lobby();
+    const c = waiting(C, true);
+    C.win.V2Detail = { game: 'paper', stake: 0.5 };
+    C.win.V2Board = { lobbies: [{ game: 'paper', stake: 0.5, id: 'paper:na:s0.5', state: 'open' }], playableStakes: () => [0.5] };
+    C.win.V2Play.launch('paper', { stake: 0.5 });
+    C.win.V2Detail = moved;
+    C.win.duelWallet = { ready: true, authenticated: true, address: 'Wa11et' };
+    c.advance(500);
+    assert.deepStrictEqual(c.dialog, [['busy', 'Signing in'], ['close']], 'the card still goes');
+    assert.strictEqual(C.events.length, 0, JSON.stringify(moved) + ': no stake for the old pick');
+  }
+  // and the same pick still on screen plays it
+  const D = lobby();
+  const d = waiting(D, true);
+  D.win.V2Detail = { game: 'paper', stake: 0 };
+  D.win.V2Play.launch('paper', { stake: 0 });
+  D.win.duelWallet = { ready: true, authenticated: true, address: 'Wa11et' };
+  d.advance(500);
+  assert.strictEqual(D.events.length, 1);
 });
