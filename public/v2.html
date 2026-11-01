@@ -2457,6 +2457,13 @@ body.scr-anim { overflow-x:hidden }
      built underneath, and the fade out runs on the compositor. */
   contain:strict;will-change:opacity}
 #splash.out{opacity:0;pointer-events:none}
+/* Under the splash the lobby is laid out but not painted until its script has
+   built it (ds-building, the splash script). The build moves everything (the
+   rail grows from nothing, the tab bar comes in), and a page painted in its
+   unbuilt state counts that move as a layout shift even under an opaque cover:
+   Lighthouse put it at 0.17 CLS once the scripts stopped holding the parser.
+   Shown again the moment the build is done, under the still opaque splash. */
+html.ds-building body>:not(#splash){visibility:hidden}
 #splash svg{width:252px;height:auto;overflow:visible}
 @media(max-width:520px){#splash svg{width:208px}}
 @keyframes sp-draw{to{stroke-dashoffset:0}}
@@ -2501,13 +2508,18 @@ body.scr-anim { overflow-x:hidden }
    never stay up: a script error, DOMContentLoaded, or 30 s at the latest.
    The ceiling is that high because on slow 3G the lobby script finishes at
    about 22 s, and until then the page under it is an empty skeleton.
-   Never inside a frame: a page embedding the lobby has its own loading. */
+   Never inside a frame: a page embedding the lobby has its own loading.
+   ds-building keeps that skeleton unpainted (the CSS beside #splash.out), so
+   the build is not counted as a layout shift; hide() drops it first, so every
+   path that takes the splash down shows the lobby. */
 (function(){
   var el=document.getElementById('splash');if(!el)return;
   if(self!==top){el.remove();return}
+  var root=document.documentElement;root.classList.add('ds-building');
   var done=0;
   function hide(){
     if(done)return;done=1;
+    root.classList.remove('ds-building');
     setTimeout(function(){
       el.classList.add('out');
       setTimeout(function(){el.remove()},450);
@@ -2517,6 +2529,26 @@ body.scr-anim { overflow-x:hidden }
   addEventListener('error',hide);
   document.addEventListener('DOMContentLoaded',hide);
   setTimeout(hide,30000);
+})();
+</script>
+<!-- The wallet widget (Privy, about 1.2 MB compressed) is off the first load's
+     path (2026-11-01): the loader at the end of <body>, "Wallet widget", brings
+     it in once the lobby is up. This only looks for a sign that this browser is
+     already signed in (Privy's own tokens, the copy the widget keeps for game
+     pages, Privy's session cookie, or a Google or wallet-app sign-in coming
+     back) and, if there is one, starts the download now, as early as the old
+     script tag did, so a returning player's wallet is back as soon as before. -->
+<script>
+(function(){
+  var B=window.DSWalletBoot={src:'/wallet/widget.js',session:false};
+  function has(k){try{return !!localStorage.getItem(k)}catch(e){return false}}
+  var q=String(location.search),c='';
+  try{c=String(document.cookie||'')}catch(e){}
+  B.session=has('privy:refresh_token')||has('privy:token')||has('privy:id_token')||has('duel_admin_token')||has('duel_id_token')
+    ||/(^|;\s*)privy-(session|token)=/.test(c)||q.indexOf('privy_oauth_')>=0||/[?&]signin=wallet(&|$)/.test(q);
+  if(!B.session)return;
+  var l=document.createElement('link');l.rel='preload';l.as='script';l.href=B.src;
+  document.head.appendChild(l);
 })();
 </script>
 <!-- Product tracking (Owen 2026-10-29, "track absolutely everything"): PostHog,
@@ -3544,12 +3576,10 @@ function openSwimHow(){
 <script src="/shared/swimSim.js"></script>
 <script src="/shared/stakeLadder.js"></script>
 <script src="/shared/chompName.js"></script>
-<script src="/js/HexGrid.js"></script>
-<script src="/js/Camera.js"></script>
-<script src="/js/SnakeGL.js"></script>
-<script src="/js/FoodGL.js"></script>
-<script src="/js/shooterArt.js"></script>
-<script src="/js/Renderer.js"></script>
+<!-- slither's own renderer (HexGrid, Camera, SnakeGL, FoodGL, Renderer) and
+     Awesome Tanks' art (shooterArt) are no longer tags here: nothing reads them
+     while the page builds, so DSLater at the end of <body> fetches them once the
+     page has loaded. -->
 <script src="/js/dsSfx.js"></script>
 <script src="/js/v2/sounds.js"></script>
 <script src="/js/v2/countUp.js"></script>
@@ -3932,21 +3962,32 @@ const SKINS=['#c080ff','#80ff80','#ffa060','#65c8e8','#ff4040','#eeee70',
 const C_=(typeof CONSTANTS!=='undefined')?CONSTANTS:{SNAKE_SEGMENT_SPACING:3,
   SNAKE_MIN_SEGMENTS:10,SNAKE_SC_SEGS:106,SNAKE_HEAD_RADIUS:10,FOOD_RADIUS:3};
 
-let R=null;
-(()=>{
-  if(typeof Renderer==='undefined'||typeof HexGrid==='undefined'){
-    console.warn('[lobby-v2] Game modules did not load, so the cards are using '+
-      'the drawn fallback art. Serve this page from the app (npm start, then '+
-      '/lobby-v2.html) to see the real renderer.');
-    return;
-  }
+/* Made the first time a canvas that is really on screen needs it, not while the
+   page builds (lobby first load, 2026-11-01). Building it makes two WebGL
+   contexts and the food sprite atlas: about 0.8 s of a phone's main thread at
+   4x, every load, and since the card art (2026-10-27) and LIVE_BG off the only
+   canvas it painted was the Play screen's hidden backdrop. Its five files come
+   once the page has loaded (DSLater, the end of <body>), or at once when a
+   scene on screen asks for R first: until they are in, a paint asks again next
+   time (a moving scene asks every frame). needR(cv) is true once R is there; a
+   canvas with no box on screen never builds it, and with the files missing the
+   scene keeps its drawn fallback. */
+let R=null, R_tried=false;
+const cvOnScreen=cv=>!!(cv&&cv.clientWidth&&cv.getClientRects().length);
+function needR(cv){
+  if(R||R_tried)return !!R;
+  if(!cvOnScreen(cv))return false;
+  if(typeof Renderer==='undefined'||typeof HexGrid==='undefined'){if(window.DSLater)DSLater.now();return false}
+  R_tried=true;
   try{
     const d=document.createElement('canvas'); d.width=d.height=8;
     R=new Renderer(d);
     R.resize=function(){};            /* stop it sizing to the window */
     R._dpr=1;
   }catch(e){ console.warn('[lobby-v2] Renderer failed to start:',e); R=null }
-})();
+  if(R)bgReady();
+  return !!R;
+}
 
 /* Which money the server runs on, 'usdc' or 'sol' (/api/money-config). The games count in DOLLARS either way,
    so the renderer's worth label never depends on it; the lobby's own copy (the skin sheet) reads it to say
@@ -4222,7 +4263,7 @@ function paintScene(cv,dt){
     V2PaperBg.paint(cv.getContext('2d'),pw,cv.width,cv.height);
     return;
   }
-  if(!R)return;
+  if(!needR(cv))return;
   fit(cv);
   const wd=scene(cv), w=cv.width, h=cv.height;
   if(dt&&!wd.still)stepWorld(wd,dt);
@@ -4918,7 +4959,7 @@ document.getElementById('bsheet').addEventListener('click',e=>{if(e.target.id===
    at 34px a whole world reads as noise. slither gets a head filling the
    frame, agar gets a named cell cropped by the edge. Same backgrounds. */
 function paintSwatch(cv){
-  if(!R)return;
+  if(!needR(cv))return;
   const w=cv.width,h=cv.height,game=cv.dataset.game;
   R.canvas=cv; R.ctx=cv.getContext('2d');
   R._canvasW=w; R._canvasH=h; R._dpr=1;
@@ -5165,8 +5206,9 @@ window.V2_watchDots=watchDots;
    itself within one frame, but a still paints once, and under reduced motion
    the frame loop never repaints it either. Painting the card before the image
    was ready therefore left slither's background as a plain blue rectangle for
-   good. Repaint as soon as the tile is actually decodable. */
-(function bgReady(){
+   good. Repaint as soon as the tile is actually decodable. Asked by needR the
+   moment R is made, which is when the tile starts loading. */
+function bgReady(){
   const im=R&&R.hexGrid&&R.hexGrid._img;
   if(!im)return;
   const go=()=>{ try{repaintAll()}catch(_){} };
@@ -5174,7 +5216,7 @@ window.V2_watchDots=watchDots;
     im.decode?im.decode().then(go,go):go();
   else
     im.addEventListener('load',go,{once:true});
-})();
+}
 
 /* ── infinite rail: render one extra card each side, slide, then rotate the
       array and snap back with no transition, so it never reaches an end ── */
@@ -6008,7 +6050,9 @@ function tabViewed(tab){
    pull in an empty panel that populates after it lands. */
 function fillScreen(tab){
   const id=SCREEN_FOR[tab];
-  if(tab==='wallet')V2Wallet.render();
+  /* The Wallet tab before the widget is in (it comes once the page is idle, see "Wallet widget" at the end of the
+     page): asked for now, so "Starting your wallet" never waits on an idle moment. */
+  if(tab==='wallet'){if(!window.duelWallet&&window.DSWalletBoot&&DSWalletBoot.load)DSWalletBoot.load().catch(()=>{});V2Wallet.render();}
   else if(tab==='social')V2Social.load();
   else if(tab==='settings')drawSettings();
   else if(tab==='clips'&&window.V2Clips)V2Clips.render();
@@ -6426,15 +6470,140 @@ drawNav();V2Wallet.render();drawRail();drawTicker();loadRealWins();V2Board.start
 <iframe id="agar-frame" title="DuelSeries game" allow="autoplay; fullscreen"
         style="display:none;position:fixed;inset:0;width:100%;height:100%;box-sizing:border-box;border-style:solid;border-color:#000;border-width:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px);z-index:300;background:#000"></iframe>
 
+<!-- Scripts nothing reads while the page builds (lobby first load, 2026-11-01).
+     As tags they were fetched beside the lobby's own scripts on a first visit,
+     about 80 KB compressed of a phone's bandwidth before the lobby could show,
+     and slither's renderer then took about 0.8 s of the main thread to start.
+     DSLater fetches them once the page has loaded and the main thread is idle,
+     in this order (async=false keeps it), with the attributes their tags had:
+       slither's renderer   the canvas scenes behind a game (LIVE_BG in open_):
+                            needR makes R only when such a scene is on screen
+                            and, if these are not in yet, asks for them at once
+       shooterArt           Awesome Tanks' piece in Customize (shopArt.js reads
+                            ShooterArt when it paints, every frame)
+       the clip recorder    Settings > Clips > Record the whole screen. It
+                            records nothing until that switch is on and looks
+                            for nothing before; the switch reads window.DSClip
+                            when pressed. Each game page has its own recorder. -->
+<script>
+(function(){
+  var LATER=[['/js/HexGrid.js'],['/js/Camera.js'],['/js/SnakeGL.js'],['/js/FoodGL.js'],['/js/shooterArt.js'],['/js/Renderer.js'],
+    ['/js/clip/mp4mux.js'],['/js/clip/clipRec.js',{game:'other',top:'1'}]];
+  var sent=false;
+  function now(){
+    if(sent)return;sent=true;
+    LATER.forEach(function(t){
+      var s=document.createElement('script');
+      s.src=t[0];s.async=false;
+      if(t[1])for(var k in t[1])s.dataset[k]=t[1][k];
+      s.onerror=function(){console.warn('[lobby-v2] '+t[0]+' did not load (Serve this page from the app, npm start, to see the real renderer.)')};
+      document.body.appendChild(s);
+    });
+  }
+  window.DSLater={now:now};
+  function idle(){(window.requestIdleCallback||function(f){return setTimeout(f,200)})(now,{timeout:2000})}
+  if(document.readyState==='complete')idle();else addEventListener('load',idle,{once:true});
+  setTimeout(now,15000);   // a page whose load event never comes still gets them
+})();
+</script>
+<!-- The gold popup card. The wallet widget bundles the same file (its guard
+     keeps one copy a page); loading it here as well lets the lobby show the
+     widget's own "Signing in" card while the widget is still on its way. -->
+<script src="/js/shared/dsDialog.js" defer></script>
 <!-- Self-custody wallet widget (Privy embedded). React island; the lobby stays
      vanilla and only reads the globals it publishes. The node-global shims must
      run before widget.js, exactly as they do in index.html. -->
-<!-- The clip recorder's whole-screen mode (Settings > Clips). It records nothing
-     until that switch is on; each game page still has its own recorder. -->
-<script src="/js/clip/mp4mux.js"></script>
-<script src="/js/clip/clipRec.js" data-game="other" data-top="1"></script>
 <script>window.global=window.global||window;window.process=window.process||{env:{NODE_ENV:'production'}};</script>
 <div id="wallet-root"></div>
-<script src="/wallet/widget.js"></script>
+<!-- Wallet widget (lobby first load, 2026-11-01). The widget is 5 MB of script
+     (1.2 MB compressed) and took 1.4 s of a phone's main thread to start; as a
+     plain tag here it held DOMContentLoaded, the load event and the first taps
+     on the lobby until it had downloaded and run. It is the same file, loaded
+     the same way the owner console loads it (owner.html loadWidget), only
+     later:
+       a sign of a session (DSWalletBoot.session, set at the top of <body>)
+                     right after the loading screen starts to fade, from the
+                     download that began at the top of the page;
+       otherwise     once the page has loaded and the main thread is idle;
+       and at once   when someone presses Sign in (or opens the Wallet tab)
+                     before then: the same "Signing in" card the widget shows
+                     while Privy starts stays up until the widget takes over.
+     Nothing that moves money can run before it: Play, Add funds, Withdraw and
+     a skin buy all need a signed-in wallet, which only the widget reports. -->
+<script>
+(function(){
+  var B=window.DSWalletBoot||(window.DSWalletBoot={src:'/wallet/widget.js',session:false});
+  var loading=null;
+  B.load=function(){
+    if(loading)return loading;
+    loading=new Promise(function(ok,no){
+      var s=document.createElement('script');
+      s.src=B.src;
+      s.onload=function(){ok()};
+      s.onerror=function(){loading=null;s.remove();no(new Error('The wallet did not load'))};
+      document.body.appendChild(s);
+    });
+    return loading;
+  };
+  var quiet=function(){B.load().catch(function(){})};
+
+  /* Sign in pressed before the widget is here. The widget replaces this with
+     its own duelWalletLogin when it mounts; until then this fetches it, keeps
+     the widget's own "Signing in" card up, and hands over to it. One at a time:
+     the card covers the page, so a second press cannot reach a button. */
+  var busy=false;
+  function stub(where){
+    if(busy)return;
+    busy=true;
+    var D=window.DSDialog, end=Date.now()+20000;
+    if(D)D.busy({title:'Signing in',line:'Getting ready'});
+    function fail(){
+      busy=false;
+      try{if(window.DSTrack){DSTrack.event('signin_opened',{where:typeof where==='string'?where:undefined});
+        DSTrack.event('signin_failed',{step:'loading',error:'widget_not_loaded'})}}catch(e){}
+      if(D)D.alert({title:"Sign in didn't load",line:'Check your connection, or turn off blockers for this site, then try again.'});
+    }
+    function handOver(){
+      var real=window.duelWalletLogin;
+      if(typeof real==='function'&&real!==stub){
+        busy=false;
+        /* Privy already up: its window opens next, so this card goes first.
+           Still starting: the widget's sign in shows this same card and closes
+           it itself once Privy is ready. */
+        var w=window.duelWallet;
+        if(D&&w&&w.ready)D.close();
+        real(where);
+        return;
+      }
+      if(Date.now()>end)return fail();
+      setTimeout(handOver,50);
+    }
+    B.load().then(handOver,fail);
+  }
+  window.duelWalletLogin=stub;
+
+  if(B.session){
+    /* After the loading screen has begun to fade (its class 'out', or it is
+       gone) and one frame more, so the widget's start never holds the fade.
+       The timer is for a tab opened in the background, which draws no frames. */
+    var sp=document.getElementById('splash'), started=false;
+    var go=function(){if(started)return;started=true;requestAnimationFrame(function(){requestAnimationFrame(quiet)});setTimeout(quiet,250)};
+    if(!sp||sp.classList.contains('out'))go();
+    else{
+      new MutationObserver(function(_,mo){if(sp.classList.contains('out')||!sp.isConnected){mo.disconnect();go()}})
+        .observe(sp,{attributes:true,attributeFilter:['class']});
+      setTimeout(go,4000);
+    }
+    return;
+  }
+  var asked=false;
+  function idle(){
+    if(asked)return;asked=true;
+    (window.requestIdleCallback||function(f){return setTimeout(f,200)})(quiet,{timeout:3000});
+  }
+  if(document.readyState==='complete')idle();else addEventListener('load',idle,{once:true});
+  setTimeout(idle,15000);   // a page whose load event never comes (a request that hangs) still gets its wallet
+})();
+</script>
 </body>
 </html>

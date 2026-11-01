@@ -36,9 +36,12 @@ test('no stylesheet in <head> can hold back its first paint', () => {
 test('it removes itself once the lobby script has built the page', () => {
   const ready = body.indexOf('<script>window.dsSplashDone&&dsSplashDone()</script>');
   const built = body.indexOf('drawNav();V2Wallet.render();drawRail();drawTicker();loadRealWins();V2Board.start();\n</script>');
-  const widget = body.indexOf('<script src="/wallet/widget.js">');
+  const widget = body.indexOf('B.load=function(){');
   assert.ok(built > 0 && ready > built, 'ready signal comes right after the lobby script');
   assert.ok(ready < widget, 'and before the 5 MB wallet widget, so it never waits on it');
+  // The widget is no tag at all now (lobby first load, 2026-11-01): its loader fetches it after the splash has begun
+  // to fade (a returning player) or once the page is idle.
+  assert.ok(!/<script[^>]*src="\/wallet\/widget\.js"/.test(html), 'no parser-blocking widget tag');
 });
 
 test('it can never stay up', () => {
@@ -99,4 +102,36 @@ test('game pages have no splash: it is the lobby\'s only', () => {
   for (const f of fs.readdirSync(PUB).filter(f => f.endsWith('.html') && f !== 'v2.html')) {
     assert.doesNotMatch(fs.readFileSync(path.join(PUB, f), 'utf8'), /id="splash"/, f);
   }
+});
+
+/* Lobby first load (2026-11-01): the unbuilt lobby under the splash is laid out but not painted (ds-building), so the
+   build is no layout shift; every way the splash comes down shows it again, and a frame never hides it. */
+test('the lobby under the splash is shown again by every path that takes the splash down', () => {
+  const vm = require('vm');
+  assert.match(html, /html\.ds-building body>:not\(#splash\)\{visibility:hidden\}/, 'hidden, never display:none (the build still measures it)');
+  const code = body.slice(body.indexOf('<script>', body.indexOf('<div id="splash"')) + 8, body.indexOf('</script>', body.indexOf('<div id="splash"')));
+  function run(framed, fire) {
+    const cls = new Set(), on = {}, timers = [];
+    const ctx = {
+      performance: { now: () => 1000 },
+      setTimeout: (f, ms) => { timers.push([f, ms]); return timers.length; },
+      addEventListener: (t, f) => { (on[t] = on[t] || []).push(f); },
+      document: {
+        documentElement: { classList: { add: (c) => cls.add(c), remove: (c) => cls.delete(c) } },
+        getElementById: () => ({ classList: { add() {} }, remove() {} }),
+        addEventListener: (t, f) => { (on['doc:' + t] = on['doc:' + t] || []).push(f); },
+      },
+    };
+    ctx.self = framed ? {} : ctx; ctx.top = ctx; ctx.window = ctx;
+    vm.createContext(ctx);
+    vm.runInContext(code, ctx);
+    const building = cls.has('ds-building');
+    fire(ctx, on, timers);
+    return { building, after: cls.has('ds-building') };
+  }
+  assert.deepStrictEqual(run(false, (c) => c.dsSplashDone()), { building: true, after: false }, 'the lobby script\'s dsSplashDone');
+  assert.deepStrictEqual(run(false, (c, on) => on.error[0]()), { building: true, after: false }, 'a script error');
+  assert.deepStrictEqual(run(false, (c, on) => on['doc:DOMContentLoaded'][0]()), { building: true, after: false }, 'DOMContentLoaded');
+  assert.deepStrictEqual(run(false, (c, on, t) => t.find(([, ms]) => ms === 30000)[0]()), { building: true, after: false }, 'the 30 s ceiling');
+  assert.deepStrictEqual(run(true, () => {}), { building: false, after: false }, 'never inside a frame');
 });

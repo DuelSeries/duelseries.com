@@ -193,7 +193,11 @@ test('whole screen: off by default, PC only, asks at a click or P, this tab only
   assert.match(html, /id="set-tab" role="switch" aria-checked="false"/, 'off until chosen');
   assert.match(html, /<section class="panel set-pc" aria-labelledby="set-clip-h">[\s\S]*id="set-tab"[\s\S]*<\/section>/, 'in the PC-only Clips group');
   assert.match(html, /if\(C&&C\.top\)\{if\(on\)C\.start\(true\);else C\.stop\(\)\}/, 'the switch itself asks for the tab');
-  assert.ok(html.indexOf('<script src="/js/clip/mp4mux.js"></script>\n<script src="/js/clip/clipRec.js" data-game="other" data-top="1"></script>') > html.indexOf('id="agar-frame"'));
+  /* The lobby's copy comes after the page has loaded (DSLater, lobby first load 2026-11-01), mp4mux first, with the
+     attributes its tag had: data-game="other" data-top="1" (document.currentScript.dataset is read the same way). */
+  const later = html.indexOf("['/js/clip/mp4mux.js'],['/js/clip/clipRec.js',{game:'other',top:'1'}]");
+  assert.ok(later > html.indexOf('id="agar-frame"'), 'the lobby loads mp4mux then clipRec (data-game other, data-top 1)');
+  assert.ok(!/<script src="\/js\/clip\/(mp4mux|clipRec)\.js"/.test(html), 'and no tag of either holds up the lobby');
   assert.match(js, /const tabWanted = \(\) => ls\(LS_TAB\) === '1' && ls\(LS_ON\) !== '0' && !tabDeclined;/);
   assert.match(js, /preferCurrentTab: true, selfBrowserSurface: 'include', surfaceSwitching: 'exclude',/);
   assert.match(js, /if \(!vt \|\| \(surf && surf !== 'browser'\) \|\| running\)/, 'never a window or a whole screen');
