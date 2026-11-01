@@ -136,9 +136,13 @@ test('the wallet screen delegates to the Privy widget, not its own money code', 
 
 test('the v2 lobby mounts the same wallet widget as the live lobby', () => {
   const html = v2();
-  assert.ok(html.includes('/wallet/widget.js'), 'widget is mounted');
+  assert.ok(html.includes("src:'/wallet/widget.js'"), 'widget is mounted');
   assert.ok(html.includes('id="wallet-root"'), 'widget has its mount point');
-  assert.ok(html.indexOf('window.global=window.global') < html.indexOf('/wallet/widget.js'),
+  /* Loaded by the lobby's own loader now (lobby first load, 2026-11-01), which appends the one script tag: the shims
+     and the mount point come before it, so they are in place whenever it runs. */
+  const loader = html.indexOf('B.load=function(){');
+  assert.ok(loader > 0, 'the widget loader');
+  assert.ok(html.indexOf('window.global=window.global') < loader && html.indexOf('id="wallet-root"') < loader,
     'the node-global shims run before the bundle, as they must');
 });
 

@@ -21,7 +21,9 @@
   const BOARD_MS = 5000;   // the rungs come from the board: wait this long for it at most
   const say = (title, detail) => { if (window.DSToast) DSToast.show({ kind: 'info', title: title, detail: detail }); };
   const boardIn = () => !!(window.V2Board && Array.isArray(V2Board.lobbies) && V2Board.lobbies.length);
-  const walletReady = () => !!(window.duelWallet && (window.duelWallet.ready || window.duelWallet.authenticated));
+  /* Or no sign of a session in this browser at all (DSWalletBoot, the top of v2.html): nobody to wait for. */
+  const walletReady = () => !!(window.duelWallet && (window.duelWallet.ready || window.duelWallet.authenticated))
+    || !!(window.DSWalletBoot && window.DSWalletBoot.session === false);
 
   function when(test, ms, then) {
     const t0 = Date.now();

@@ -90,7 +90,11 @@
     const onFree = () => !!(window.V2Detail && V2Detail.game === g.game && V2Detail.stake === 0);
     /* Privy says whether this visitor is signed in (duelWallet.ready); until then a signed-in friend would be
        started as a guest, so Play waits for it, or for GUEST_MS when it is slow, then plays as a guest. */
-    const ready = () => !!(window.duelWallet && window.duelWallet.ready);
+    /* No sign of a session in this browser at all (DSWalletBoot.session, the top of v2.html): nobody can be signed
+       in, so there is nothing to wait for. The widget now comes in only once the page is idle, and this would
+       otherwise sit out the whole GUEST_MS before a new visitor's free table. */
+    const ready = () => !!(window.duelWallet && window.duelWallet.ready)
+      || !!(window.DSWalletBoot && window.DSWalletBoot.session === false);
     const start = () => {
       if (started || gaveUp || !onFree()) return;
       started = true;
