@@ -98,11 +98,12 @@ test('game_card_clicked names the game and where it was opened from', () => {
   assert.match(open, /typeof arguments\[1\]==='string'\?arguments\[1\]:\(from&&from\.id==='allgames'\)\?'all_games':'home'/);
   assert.match(fnBody(HTML, 'function flipGame(dir){'), /open_\(n\.id,'swipe'\)/);
   assert.match(HTML, /if\(g\)open_\(g\.dataset\.game,'sidebar'\);/);
-  assert.match(read('public/js/v2/invite.js'), /window\.open_\(g\.game, 'invite'\)/);
+  // an invite, or Play on a game's own page (/games/<page>, server/gamePages.js), which is not counted as an invite
+  assert.match(read('public/js/v2/invite.js'), /window\.open_\(g\.game, fromPage \? 'landing' : 'invite'\)/);
   // the lobby's ids fold into the plan's (snake is slither, omgshooter is shooter)
   assert.strictEqual(PLAN.game('snake'), 'slither');
   assert.strictEqual(PLAN.game('omgshooter'), 'shooter');
-  for (const where of ['home', 'all_games', 'sidebar', 'swipe', 'invite']) planned([{ name: 'game_card_clicked', props: { game: 'snake', where } }]);
+  for (const where of ['home', 'all_games', 'sidebar', 'swipe', 'invite', 'landing']) planned([{ name: 'game_card_clicked', props: { game: 'snake', where } }]);
 });
 
 test('Customize, the unlock sheet and the sign-in buttons say what they are', () => {

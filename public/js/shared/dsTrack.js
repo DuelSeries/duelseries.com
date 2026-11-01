@@ -21,7 +21,8 @@
 // DSTrack.watchSocket(socket)           game_disconnected / game_reconnected (dsPerfHud.js calls it for every game)
 // DSTrack.sample({ fps, ping })         one FPS or ping reading (dsPerfHud.js, twice a second at most)
 // DSTrack.identify(wallet)              the lobby does this by itself when the wallet signs in (duelwallet:change)
-// Also, in the lobby only: first-touch source (UTMs, ad click ids, referrer, /play/<game> invites) kept on this
+// Also, in the lobby and the games' own pages (/games/<page>, page 'landing'): first-touch source (UTMs, ad click
+// ids, referrer, /play/<game> invites) kept on this
 // device and on the person; the owner marked (is_owner) from his wallet or a device signed into Control; money that
 // arrives in the wallet soon after Add funds opened sent as funded; JS errors from game frames sent as exceptions.
 //
@@ -305,7 +306,9 @@
         var refHost = '';
         try { refHost = doc.referrer ? new URL(doc.referrer).hostname.replace(/^www\./, '') : ''; } catch (_) { refHost = ''; }
         if (refHost && refHost.replace(/^eu\./, '') === String(root.location.hostname).replace(/^www\./, '').replace(/^eu\./, '')) refHost = '';
-        var inv = /^\/play\/([a-z0-9-]+)\/?$/i.exec(root.location.pathname || '');
+        /* Play on a game's own page (/games/<page>) goes through /play/<game>?from=page: the visit started on that
+           page (counted there), so it is not an invite. */
+        var inv = q.get('from') === 'page' ? null : /^\/play\/([a-z0-9-]+)\/?$/i.exec(root.location.pathname || '');
         var click = '';
         for (var cid in CLICK_IDS) if (q.get(cid)) { click = cid; break; }
         var invite = inv ? ((PLAN && PLAN.game(inv[1])) || inv[1].toLowerCase()) : '';
@@ -323,9 +326,10 @@
       lsSet('ds_ft', JSON.stringify(ft));
     }
 
+    var LANDING = /^\/games(?:\/|$)/;   // a game's own page and the list of them (server/gamePages.js)
     var owner = lsGet('ds_owner') === '1';
     function supers() {
-      var s = { is_owner: owner, page: guessGame() ? 'game' : 'lobby', device: device() };
+      var s = { is_owner: owner, page: guessGame() ? 'game' : LANDING.test(root.location.pathname || '') ? 'landing' : 'lobby', device: device() };
       for (var k in ft) if (Object.prototype.hasOwnProperty.call(ft, k)) s[k] = ft[k];
       return s;
     }

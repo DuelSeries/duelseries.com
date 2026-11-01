@@ -20,7 +20,7 @@ test('the redesigned lobby is served at /v2', () => {
 
 test('the v2 shell is intact', () => {
   const html = v2();
-  assert.ok(html.includes('<title>DuelSeries</title>'), 'has the title');
+  assert.ok(html.includes('<title>DuelSeries: free multiplayer browser games</title>'), 'has the title');
   // The card art is the real game renderer, so these must keep loading.
   for (const src of ['/shared/constants.js', '/js/HexGrid.js', '/js/SnakeGL.js',
                      '/js/FoodGL.js', '/js/Renderer.js', '/js/Camera.js']) {

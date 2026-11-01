@@ -15,7 +15,16 @@
    free room with space first).
 
    Free only, always: the arriving half picks the stake 0 rung and nothing
-   else, and the link never carries a stake, a room id or any money word. */
+   else, and the link never carries a stake, a room id or any money word.
+
+   A game's own page (/games/<page>, server/gamePages.js) sends its Play
+   buttons here too, marked ?from=page: Play free arrives exactly like an
+   invite but is not counted as one (the page sent landing_play_clicked), and
+   Play for money adds &pick=1, which opens that game's screen on its cheapest
+   open paid rung and presses nothing: Play, signing in and the wallet's own
+   confirm are still the player's, exactly as from the lobby's own card (an
+   invite, which arrives without the mark, stays free only). Both marks are
+   taken off the address with the path. */
 (function () {
   const SHARE = window.DS_SHARE;
   if (!SHARE) return;
@@ -67,10 +76,19 @@
   /* ── arriving ── */
   const m = /^\/play\/([a-z]+)\/?$/.exec(location.pathname);
   const arrived = m ? SHARE.bySlug(m[1]) : null;
+  let fromPage = false, pick = false;
   if (m) {
+    let rest = location.search;
+    try {
+      const q = new URLSearchParams(location.search);
+      fromPage = q.get('from') === 'page';
+      pick = fromPage && q.get('pick') === '1';
+      q.delete('from'); q.delete('pick');
+      rest = q.toString() ? '?' + q.toString() : '';
+    } catch (_) {}
     /* The lobby is the lobby again: a reload or Back is home, not a second invite. */
-    try { history.replaceState(history.state, '', '/' + location.search + location.hash); } catch (_) {}
-    document.title = 'DuelSeries';   // the invite's own title was for the link preview
+    try { history.replaceState(history.state, '', '/' + rest + location.hash); } catch (_) {}
+    document.title = SHARE.HOME.title;   // the invite's own title was for the link preview
   }
 
   function signedIn() {
@@ -81,11 +99,18 @@
   function arrive(g) {
     if (typeof window.open_ !== 'function' || typeof window.pickStake !== 'function') return;
     if (window.V2_IS_SOON && window.V2_IS_SOON(g.game)) return;
-    try { window.open_(g.game, 'invite'); } catch (_) { return; }
+    try { window.open_(g.game, fromPage ? 'landing' : 'invite'); } catch (_) { return; }
+    /* Play for money from a game's page: its screen on the cheapest paid rung it offers, nothing pressed. */
+    if (pick) {
+      const off = typeof STEPS_OFF !== 'undefined' ? STEPS_OFF : new Set();
+      const paid = typeof STEPS !== 'undefined' ? STEPS.findIndex((v) => v > 0 && !off.has(v)) : -1;
+      if (paid >= 0) window.pickStake(paid);
+      return;
+    }
     /* Free, whatever this browser last played: an invite is to the free room. */
     const free = typeof STEPS !== 'undefined' ? STEPS.indexOf(0) : -1;
     if (free >= 0) window.pickStake(free);
-    if (window.DSTrack) window.DSTrack.event('invite_opened', { game: g.game });
+    if (window.DSTrack && !fromPage) window.DSTrack.event('invite_opened', { game: g.game });
     let started = false, gaveUp = false;
     const onFree = () => !!(window.V2Detail && V2Detail.game === g.game && V2Detail.stake === 0);
     /* Privy says whether this visitor is signed in (duelWallet.ready); until then a signed-in friend would be

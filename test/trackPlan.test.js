@@ -240,6 +240,24 @@ test('first touch is read once from UTMs, ad click ids and invite links, and rid
   assert.strictEqual(ip.ft_source, 'invite'); assert.strictEqual(ip.ft_invite, 'pool8');
 });
 
+test('a game\'s own page (/games/<page>) records first touch from a search, and its Play is not an invite', () => {
+  const w = makeWindow({ path: '/games/slither-io', referrer: 'https://www.google.com/' });
+  w.DSTrack.event('landing_play_clicked', { game: 'snake', paid: false, stake: 1 });
+  const p = find(w, 'landing_play_clicked')[0].props;
+  assert.strictEqual(p.ft_source, 'google.com'); assert.strictEqual(p.ft_medium, 'referral');
+  assert.strictEqual(p.ft_landing, '/games/slither-io'); assert.strictEqual(p.page, 'landing');
+  assert.strictEqual(p.game, 'slither'); assert.strictEqual(p.paid, false); assert.strictEqual(p.stake, undefined, 'game and paid only');
+  // the lobby that Play opens keeps it
+  const lobby = makeWindow({ path: '/play/snake', search: '?from=page', storage: { ds_ft: w._store.get('ds_ft') } });
+  lobby.DSTrack.event('lobby_tab_viewed', { tab: 'play' });
+  assert.strictEqual(find(lobby, 'lobby_tab_viewed')[0].props.ft_landing, '/games/slither-io');
+  // and with no first touch yet (storage blocked on the page), ?from=page is still not an invite
+  const fresh = makeWindow({ path: '/play/snake', search: '?from=page' });
+  fresh.DSTrack.event('lobby_tab_viewed', { tab: 'play' });
+  const fp = find(fresh, 'lobby_tab_viewed')[0].props;
+  assert.notStrictEqual(fp.ft_source, 'invite'); assert.strictEqual(fp.ft_invite, undefined);
+});
+
 test('signing in identifies by wallet with first touch set once; the owner is marked; signing out resets', async () => {
   const calls = [];
   const w = makeWindow({ search: '?utm_source=reddit', fetch: (url, opt) => {

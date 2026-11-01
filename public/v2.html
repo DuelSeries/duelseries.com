@@ -29,7 +29,7 @@
      the block between the share:meta marks swapped for that game's own
      (server/sharePreview.js), so keep the marks. -->
 <!-- share:meta -->
-<title>DuelSeries</title>
+<title>DuelSeries: free multiplayer browser games</title>
 <meta name="description" content="Snake, Paper, Cells, Chomp, 1v1 duels and a battle royale. Free in your browser, no download.">
 <meta property="og:site_name" content="DuelSeries">
 <meta property="og:type" content="website">
@@ -44,6 +44,8 @@
 <meta name="twitter:title" content="DuelSeries: free multiplayer browser games">
 <meta name="twitter:description" content="Snake, Paper, Cells, Chomp, 1v1 duels and a battle royale. Free in your browser, no download.">
 <meta name="twitter:image" content="https://duelseries.com/og/home.jpg">
+<meta name="twitter:image:alt" content="Snakes racing across the DuelSeries arena">
+<link rel="canonical" href="https://duelseries.com/">
 <!-- /share:meta -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -3523,11 +3525,16 @@ function openSwimHow(){
 <footer><div class="wrap ft">
   <span>&copy; 2026 DuelSeries</span>
   <span class="sp"></span>
+  <a href="/games">All games</a>
   <a href="/terms.html">Terms of service</a>
   <a href="/privacy.html">Privacy policy</a>
   <a href="/responsible-play.html">Responsible play</a>
   <a href="https://mail.google.com/mail/?view=cm&amp;to=playduelseries@gmail.com" target="_blank" rel="noopener noreferrer" data-support>Contact</a>
 </div></footer>
+<!-- The site's name for search results (Google's site name). Data, not a script: it runs nothing, and sits here
+     rather than in <head>, which loads no script tag at all. Each game's own page, with its words, how to play and
+     structured data, is /games/<page> (server/gamePages.js); the footer's All games links them. -->
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebSite","name":"DuelSeries","url":"https://duelseries.com/"}</script>
 
 <script src="/shared/constants.js"></script>
 <script src="/shared/lockedGames.js"></script>

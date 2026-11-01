@@ -52,6 +52,7 @@
     play_clicked:      { who: 'client', props: ['game', 'paid', 'stake', 'mode', 'guest', 'engine'], about: 'Play pressed on a game (before any stake or load)' },
     invite_copied:     { who: 'client', props: ['game'], about: 'An invite link copied' },
     invite_opened:     { who: 'client', props: ['game'], about: 'Someone arrived on a /play/<game> invite link' },
+    landing_play_clicked: { who: 'client', props: ['game', 'paid'], about: 'Play free (paid false) or Play for money (paid true) pressed on a game page, /games/<page>' },
     score_shared:      { who: 'client', props: ['game', 'how'], about: 'A score shared from an end card' },
     support:           { who: 'client', props: ['action'], about: 'The support panel used' },
     shop_viewed:       { who: 'client', props: ['tab', 'game'], about: 'The Shop opened (or a shop section)' },

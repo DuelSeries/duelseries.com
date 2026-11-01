@@ -8,11 +8,15 @@
    game's free room.
 
    Free play only: every word comes from shareGames.js, which never mentions money. A slug that is not there, or a
-   game that is locked (shared/lockedGames.js), goes to the lobby (302, like /agar). */
+   game that is locked (shared/lockedGames.js), goes to the lobby (302, like /agar).
+
+   Search (2026-11-01): an invite's canonical is that game's own page, /games/<page> (server/gamePages.js), so a
+   shared invite counts toward the page Google should show; the lobby's own block names https://duelseries.com/. */
 const fs = require('fs');
 const path = require('path');
 const SHARE = require('../shared/shareGames');
 const { isLocked } = require('../shared/lockedGames');
+const PAGES = require('./gamePageData');
 
 const MARK_OPEN = '<!-- share:meta -->';
 const MARK_CLOSE = '<!-- /share:meta -->';
@@ -30,10 +34,15 @@ function originOf(req) {
   return SHARE.SITE;
 }
 
-/* The <head> lines for one page: { title, blurb, image, url }. */
+/* The <head> lines for one page: { title, blurb, image, url, alt, canonical? }, between the marks. */
 function metaBlock(p) {
+  return [MARK_OPEN].concat(metaLines(p), [MARK_CLOSE]).join('\n');
+}
+
+/* The same lines with no marks (a game's own page, server/gamePages.js). canonical: the address search engines
+   should keep for this page, always on the main site. */
+function metaLines(p) {
   return [
-    MARK_OPEN,
     '<title>' + esc(p.title) + '</title>',
     '<meta name="description" content="' + esc(p.blurb) + '">',
     '<meta property="og:site_name" content="DuelSeries">',
@@ -49,8 +58,8 @@ function metaBlock(p) {
     '<meta name="twitter:title" content="' + esc(p.title) + '">',
     '<meta name="twitter:description" content="' + esc(p.blurb) + '">',
     '<meta name="twitter:image" content="' + esc(p.image) + '">',
-    MARK_CLOSE,
-  ].join('\n');
+    '<meta name="twitter:image:alt" content="' + esc(p.alt) + '">',
+  ].concat(p.canonical ? ['<link rel="canonical" href="' + esc(p.canonical) + '">'] : []);
 }
 
 function gameMeta(g, origin) {
@@ -60,7 +69,14 @@ function gameMeta(g, origin) {
     image: origin + g.image,
     url: origin + '/play/' + g.slug,
     alt: g.name + ' on DuelSeries',
+    canonical: canonicalFor(g),
   });
+}
+
+/* An invite's canonical: the game's own page when it has one, else the lobby. */
+function canonicalFor(g) {
+  const page = PAGES.byShare(g.slug);
+  return SHARE.SITE + (page ? '/games/' + page.page : '/');
 }
 
 /* Swaps the marked block for this one; the page unchanged when the marks are missing (never a broken page). */
@@ -84,4 +100,4 @@ function playRoute({ lobbyFile = path.join(__dirname, '../public/v2.html'), read
   };
 }
 
-module.exports = { playRoute, metaBlock, gameMeta, withMeta, originOf, MARK_OPEN, MARK_CLOSE };
+module.exports = { playRoute, metaBlock, metaLines, gameMeta, withMeta, originOf, esc, canonicalFor, MARK_OPEN, MARK_CLOSE };

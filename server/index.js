@@ -2786,6 +2786,12 @@ app.get('/v2', noindexPreview, (_req, res) => res.sendFile(path.join(__dirname, 
 /* An invite (/play/snake and the rest, shared/shareGames.js): the lobby with that game's link preview in its head;
    the lobby's invite.js then opens the game's free room. */
 app.get('/play/:slug', require('./sharePreview').playRoute({ isSoon: (id) => comingSoon.isSoon(id) }));
+/* Each live game's own page for search and shared links (/games/<page>), the list of them (/games) and
+   /sitemap.xml (server/gamePages.js). Plain HTML: no wallet, no game code. Play on them is the invite link above. */
+require('./gamePages').gamePageRoutes(app, {
+  isSoon: (id) => comingSoon.isSoon(id),
+  notFound: (_req, res) => res.status(404).sendFile(path.join(__dirname, '../public/404.html')),
+});
 /* The owner console, without the file extension. The page itself is not a
    secret and does not need to be — it shows nothing and does nothing until an
    owner wallet signs for it, and every route behind it checks that server-side.

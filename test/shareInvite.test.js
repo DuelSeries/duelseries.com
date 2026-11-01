@@ -58,7 +58,8 @@ test('the lobby head: the marked block is the free home preview, with a large ca
   assert.ok(a > 0 && b > a, 'both marks, in order');
   assert.strictEqual(html.indexOf(SP.MARK_OPEN, a + 1), -1, 'one block');
   const block = html.slice(a, b);
-  assert.ok(block.includes('<title>DuelSeries</title>'));
+  assert.ok(block.includes('<title>' + SHARE.HOME.title + '</title>'), 'the site\'s name and what it is, for search');
+  assert.ok(block.includes('<link rel="canonical" href="https://duelseries.com/">'), 'the lobby\'s one address');
   assert.ok(block.includes('<meta name="twitter:card" content="summary_large_image">'));
   assert.ok(block.includes('<meta property="og:image" content="https://duelseries.com/og/home.jpg">'));
   const content = [...block.matchAll(/content="([^"]*)"/g)].map((m) => m[1]);
@@ -101,6 +102,9 @@ test('/play/<slug>: the lobby with that game\'s preview; an unknown or locked ga
     assert.strictEqual((html.match(/<title>/g) || []).length, 1, 'one title');
     assert.strictEqual((html.match(/property="og:title"/g) || []).length, 1, 'one og:title');
     assert.ok(html.includes('<script src="/js/v2/invite.js"></script>'), 'the rest is the lobby');
+    // its canonical is the game's own page on the main site (server/gamePages.js), whichever server answered
+    assert.strictEqual((html.match(/rel="canonical"/g) || []).length, 1, 'one canonical');
+    assert.ok(html.includes('<link rel="canonical" href="https://duelseries.com/games/' + require('../server/gamePageData').byShare(g.slug).page + '">'), g.slug);
   }
   for (const slug of ['nope', '', 'SNAKE', '..']) {
     const res = fakeRes();

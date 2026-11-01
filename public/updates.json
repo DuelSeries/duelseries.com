@@ -2,6 +2,17 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-11-01-a-page-for-every-game",
+      "date": "2026-11-01",
+      "tag": "new",
+      "title": "A page for every game, with how to play",
+      "body": "Every game now has its own page: what the game is, the controls on a computer and on a phone, and how a match is decided. Open All games at the bottom of the lobby to find them.\n\nShare a game's page with a friend and it shows up as a picture card in Discord, iMessage and X. Its Play free button takes them straight into a free game.",
+      "image": {
+        "src": "/updates/game-pages.webp",
+        "alt": "The 8 Ball Pool page: the game's card art, a short description, a big Play free button and the start of About 8 Ball Pool"
+      }
+    },
+    {
       "id": "2026-10-31-back-button-and-reconnects",
       "date": "2026-10-31",
       "tag": "fix",

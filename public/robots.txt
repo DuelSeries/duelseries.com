@@ -2,3 +2,6 @@ User-agent: *
 Disallow: /owner
 Disallow: /admin.html
 Disallow: /api/
+Disallow: /ingest/
+
+Sitemap: https://duelseries.com/sitemap.xml
