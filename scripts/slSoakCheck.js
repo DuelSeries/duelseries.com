@@ -476,6 +476,12 @@ function createSeatMirror(laws, inserts, getSim, opts) {
   let msl = 42;
   let ownId = 0;
   const held = new Map(); // id -> { x, y, iang, seq, offX, offY, exact }
+  // Early own points (9923a11, turning smoothness): slRoom _earlyPoints sends the seat's own next point the moment its
+  // head reaches it, and only the next step places it (slSim commitPoint, s.commit), so the client holds one point
+  // more than the insert log until that step (test/slMirrorRig.js earlyOwn). Such a move is checked once the step that
+  // places it has run: id -> { want, x, y }. Its fam is not checked against the step's: the early grow carries the fam
+  // of the moment it was sent, and the view sends the own seat a snake_fam with the update's fam when they differ.
+  const early = new Map();
   // the decoded-stream client model (scripts/slLoad.js): ids, foods by cell, prey; its failures count here as stream.*
   const tracker = createTracker();
   const seen = {};
@@ -525,26 +531,21 @@ function createSeatMirror(laws, inserts, getSim, opts) {
         checkFam(ev, h, i, id);
       }
     } else {
+      settleEarly(id);
       const want = m.seq + 1;
-      if (want > h.n) {
+      const s = want === h.n + 1 ? getSim().snake(id) : null;
+      if (s && s.commit) {
+        // an early own point: the next step places it (see early above)
+        early.set(id, { want, x: c.x, y: c.y });
+        m.seq = want;
+        st.earlyMoves = (st.earlyMoves || 0) + 1;
+      } else if (want > h.n) {
         fails.add('mirrorAhead', 'snake ' + id + ': move ' + want + ' before the server made it (' + h.n + ')');
       } else if (want <= h.n - INSERT_CAP) {
         fails.add('mirrorOld', 'snake ' + id + ': move ' + want + ' older than the insert log');
       } else {
         const i = want % INSERT_CAP;
-        if (m.exact) {
-          if (!(Object.is(c.x, h.xs[i]) && Object.is(c.y, h.ys[i]))) {
-            fails.add('mirrorExact', 'snake ' + id + ' move ' + want + ': (' + c.x + ', ' + c.y + ') server (' + h.xs[i] + ', ' + h.ys[i] + ')');
-          }
-        } else {
-          const dx = c.x - h.xs[i] - m.offX;
-          const dy = c.y - h.ys[i] - m.offY;
-          const drift = Math.max(Math.abs(dx), Math.abs(dy));
-          if (drift > st.maxDrift) st.maxDrift = drift;
-          if (drift > ULP_BUDGET) {
-            fails.add('mirrorPoint', 'snake ' + id + ' move ' + want + ': offset moved by ' + drift);
-          }
-        }
+        checkPoint(id, m, c, h, want);
         m.seq = want;
         tally(m);
         checkFam(ev, h, i, id);
@@ -553,6 +554,48 @@ function createSeatMirror(laws, inserts, getSim, opts) {
     m.x = c.x;
     m.y = c.y;
     m.iang = c.iang;
+  }
+
+  // The client's point for move `want` against the server's insert of it: exact for a snake held since its spawn,
+  // else the constant offset of its first move within the ulp budget.
+  function checkPoint(id, m, c, h, want) {
+    const i = want % INSERT_CAP;
+    if (m.exact) {
+      if (!(Object.is(c.x, h.xs[i]) && Object.is(c.y, h.ys[i]))) {
+        fails.add('mirrorExact', 'snake ' + id + ' move ' + want + ': (' + c.x + ', ' + c.y + ') server (' + h.xs[i] + ', ' + h.ys[i] + ')');
+      }
+    } else {
+      const dx = c.x - h.xs[i] - m.offX;
+      const dy = c.y - h.ys[i] - m.offY;
+      const drift = Math.max(Math.abs(dx), Math.abs(dy));
+      if (drift > st.maxDrift) st.maxDrift = drift;
+      if (drift > ULP_BUDGET) {
+        fails.add('mirrorPoint', 'snake ' + id + ' move ' + want + ': offset moved by ' + drift);
+      }
+    }
+  }
+
+  // Early own points whose step has run: checked like any other move. One still waiting when its snake's next move
+  // arrives was never placed by that step, which is a failure.
+  function settleEarly(only) {
+    for (const [id, e] of early) {
+      if (only !== undefined && id !== only) continue;
+      const h = inserts.get(id);
+      const m = held.get(id);
+      if (!h || !m) {
+        early.delete(id);
+        continue;
+      }
+      if (h.n >= e.want) {
+        if (e.want <= h.n - INSERT_CAP) fails.add('mirrorOld', 'snake ' + id + ': early move ' + e.want + ' older than the insert log');
+        else checkPoint(id, m, e, h, e.want);
+        tally(m);
+        early.delete(id);
+      } else if (only !== undefined) {
+        fails.add('mirrorAhead', 'snake ' + id + ': early move ' + e.want + ' still not placed at the next move (' + h.n + ')');
+        early.delete(id);
+      }
+    }
   }
 
   function tally(m) {
@@ -594,6 +637,7 @@ function createSeatMirror(laws, inserts, getSim, opts) {
   // One sl:f bundle, in the order the seat was sent them.
   function onBundle(u8) {
     st.bundles++;
+    settleEarly();
     const events = tracker.onBundle(u8);
     for (const k of FAIL_KINDS) {
       if (tracker.fail[k] !== seen[k]) {
@@ -617,6 +661,7 @@ function createSeatMirror(laws, inserts, getSim, opts) {
           break;
         }
         case 'snake_remove':
+          early.delete(ev.id);
           if (!held.delete(ev.id)) fails.add('mirrorUnknown', 'remove of snake ' + ev.id);
           st.removes++;
           break;
