@@ -66,7 +66,8 @@ test('countUp: ONLY the podium, the leaderboards and the wallet balances count u
   const js = f => read('public/js/v2/' + f);
   const marks = s => (s.match(/data-cu(?!-)/g) || []).length;
   // The podium.
-  assert.ok(/class="pmoney" data-cu="ev-prize"/.test(html), 'Events podium prize');
+  // Site redo 2026-11-01 (layout 1): the prize sits on the Battle Royale card, over the podium.
+  assert.ok(/id="ev-std" data-cu="ev-prize"/.test(html), 'Events prize');
   // The leaderboards.
   assert.ok(/data-cu="soc-win" data-cu-rise/.test(js('social.js')), 'Global player winnings, drops shown as they are');
   assert.ok(/data-cu="lb-'/.test(js('leaders.js')), 'the top 10');

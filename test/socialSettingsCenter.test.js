@@ -15,16 +15,17 @@ const rule = (css, sel) => {
   return m ? m[2] : '';
 };
 
-test('Global player winnings: the label, LIVE and the figure all sit on the panel\'s middle line', () => {
+test('Player winnings (layout 1, site redo 2026-11-01): label and Live on one line, the figure under it, the +$X over the figure', () => {
+  /* Was centred on the panel (Owen, 2026-10-16); the redo's layout 1 mockup (site-redo/looks/ab/1/leaderboards.html)
+     sets it left, the period control at the right, like every other panel on the kit. */
   const html = v2();
-  assert.ok(/text-align:center/.test(rule(html, '#soc-win')), 'the panel centres its text');
-  const top = rule(html, '.win-top');
-  assert.ok(/justify-content:center/.test(top) && !/space-between/.test(top), 'label and LIVE are one centred line, not pushed to the two corners');
-  assert.ok(/display:inline-block/.test(rule(html, '.win-vw')), 'the figure is its own centred box');
+  const hd = rule(html, '.lb-sum-hd');
+  assert.ok(/display:flex/.test(hd) && /align-items:center/.test(hd), 'the label, Live and the update line are one line');
+  assert.ok(/display:inline-block/.test(rule(html, '.win-vw')), 'the figure is its own box');
   const up = rule(html, '.win-up');
-  assert.ok(/left:100%/.test(up) && !/right:18px/.test(up), 'the +$X hangs off the figure, not the panel corner');
+  assert.ok(/position:absolute/.test(up) && /bottom:100%/.test(up) && !/right:18px/.test(up), 'the +$X hangs off the figure, not the panel corner');
   const js = read('public/js/v2/social.js');
-  assert.ok(/<span class="win-vw"><span class="win-v num"[^>]*><\/span><span class="win-up num"[^>]*><\/span><\/span>/.test(js),
+  assert.ok(/<span class="win-vw"><b class="win-v num"[^>]*><\/b><span class="win-up num"[^>]*><\/span><\/span>/.test(js),
     'and the +$X is drawn inside the figure\'s box');
 });
 

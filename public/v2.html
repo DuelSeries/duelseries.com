@@ -337,8 +337,10 @@ header{position:sticky;top:0;z-index:50;background:rgba(0,0,0,.88);
 .stub p{font-size:14px;color:var(--tx3);margin-top:10px}
 
 /* ── your profile, in the header (public/js/v2/me.js) ──────────────────────
-   Owen's pick B (2026-10-16): the initial in a gold disc, ringed off the
-   header, and a card under it. The card is the one place the name changes. */
+   Owen's pick B (2026-10-16): your initial in a disc at the end of the header, and a card from it, the one place the
+   name changes. Site redo stage 3 (layout 1, mockup looks/ab/1/leaderboards.html?card): the card is a popover hung
+   under the initial on a PC and the kit's bottom sheet on a phone, built from kit parts (field, rows, buttons). It
+   sits outside the header, so its rules carry #mepop where they adjust a kit class linked after this block. */
 .hd{position:relative}
 .me{flex:none;width:44px;height:44px;display:grid;place-items:center;border-radius:50%;
   background:var(--s3);box-shadow:var(--ds-edge);transition:background-color var(--ds-dur-1),box-shadow var(--ds-dur-1)}
@@ -350,26 +352,49 @@ header{position:sticky;top:0;z-index:50;background:rgba(0,0,0,.88);
 .medisc.q{color:var(--tx2)}
 .me:focus-visible{outline:2px solid var(--bone);outline-offset:2px}
 body.signedout .me{display:none}
-.mepop{position:absolute;top:calc(100% - 4px);right:32px;width:340px;z-index:60;
-  background:var(--s1);border-radius:var(--r3);padding:16px;display:flex;flex-direction:column;gap:12px;
-  box-shadow:var(--ds-sh-pop);text-align:left}
+.mepop{position:fixed;top:calc(var(--ds-hdh) + 8px);right:24px;z-index:var(--ds-z-pop);width:360px;
+  max-height:calc(100dvh - var(--ds-hdh) - 24px);overflow:auto;overscroll-behavior:contain;
+  display:flex;flex-direction:column;gap:var(--ds-sp4);padding:var(--ds-sp5);text-align:left;
+  background:var(--ds-s1);border-radius:var(--ds-r3);box-shadow:var(--ds-sh-pop);
+  animation:me-in var(--ds-dur-2) var(--ds-ease)}
+@keyframes me-in{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
 .mepop[hidden]{display:none}
-.mehd{display:flex;align-items:center;gap:12px}
-.medisc.big{width:46px;height:46px;font-size:19px;flex:none;background:var(--bone);color:var(--ink)}
+#mepop>.ds-sheet-grab{display:none}
+.mehd{display:flex;align-items:center;gap:var(--ds-sp3);min-width:0}
+.medisc.big{width:52px;height:52px;font-size:22px;font-stretch:var(--ds-wide);flex:none;background:var(--bone);color:var(--ink)}
 .medisc.big.q{background:var(--s3);color:var(--tx2)}
-.meid{display:flex;flex-direction:column;gap:3px;min-width:0}
-.meid b{font-size:17px;font-weight:650;letter-spacing:-.3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.meid b.none{color:var(--tx3);padding:0;line-height:inherit}   /* not the empty-list .none's 26px padding */
-.meaddr{font-family:var(--ds-fm);font-size:12px;color:var(--tx2)}
+.meid{display:flex;flex-direction:column;min-width:0}
+.meid b{font-size:var(--ds-fs-4);font-weight:750;line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.meid b.none{color:var(--tx2)}
+.meaddrrow{display:flex;align-items:center;gap:2px;min-height:32px}
+.meaddr{font-family:var(--ds-fm);font-weight:500;font-size:var(--ds-fs-2);color:var(--tx2)}
 .meaddr:empty{display:none}
-.meacts{display:flex;gap:8px}
-.mebt{flex:1;min-height:42px;border-radius:var(--r2);background:var(--s2);color:var(--tx2);
-  font-weight:650;font-size:13.5px;transition:background .15s,color .15s}
-.mebt:hover{background:var(--s3);color:var(--tx)}
-.mebt:disabled{cursor:default;opacity:.6}
-.mewal{display:none}
+#mepop .mecopy{--h:32px;color:var(--tx2)}
+/* The name field: the kit's field look on play.js's own input and its four-state button. */
+#mepop .namerow{display:flex;gap:var(--ds-sp2);align-items:stretch}
+#mepop .pname{height:48px;margin:0;padding:0 var(--ds-sp4);border-radius:var(--ds-r2);background:var(--ds-ink);
+  border:1px solid var(--ds-line2);color:var(--ds-bone);font:600 16px/1 var(--ds-f);text-align:left}
+#mepop .pname[readonly]{cursor:pointer;background:var(--ds-s2);border-color:var(--ds-line);color:var(--ds-bone)}
+#mepop .pname[readonly]:hover{border-color:var(--ds-line2)}
+#mepop .pname:focus{border-color:var(--ds-bone);box-shadow:0 0 0 3px rgba(244,241,234,.12)}
+#mepop .pname[readonly]:focus{box-shadow:none}
+#mepop .nameact{width:48px;border-radius:var(--ds-r2);background:var(--ds-s3);color:var(--ds-bone);box-shadow:var(--ds-edge)}
+#mepop .nameact:hover{background:#332a1f}
+#mepop .nameact[data-state="editing"],#mepop .nameact[data-state="saving"]{background:var(--ds-bone);color:var(--ds-on-bone);box-shadow:none}
+#mepop .nameact[data-state="ok"]{background:var(--ds-green);color:var(--ds-on-bone);box-shadow:none}
+#mepop .nameact[data-state="bad"]{background:var(--ds-red);color:var(--ds-on-bone);box-shadow:none}
+.mebal{display:flex;align-items:center;justify-content:space-between;gap:var(--ds-sp3);
+  padding:var(--ds-sp3) var(--ds-sp3) var(--ds-sp3) var(--ds-sp4);border-radius:var(--ds-r2);background:var(--ds-ink);box-shadow:var(--ds-edge)}
+.mebal>div{display:flex;flex-direction:column;gap:2px;min-width:0}
+.mebal b{font-size:var(--ds-fs-5);font-weight:800;font-stretch:var(--ds-wide);line-height:1.1;font-variant-numeric:tabular-nums}
+.melinks{margin:0 calc(-1 * var(--ds-sp2))}
+#mepop .melinks .ds-row{min-height:56px;cursor:pointer}
+#mepop .melinks .ds-row:hover{background:var(--ds-s2)}
+.mechev{color:var(--tx2);display:grid}
+#mepop .meout{margin-top:calc(-1 * var(--ds-sp2))}
 .meveil{position:fixed;inset:0;z-index:49;display:none}
 .meveil.on{display:block}
+body.ingame>.mepop{visibility:hidden}   /* out of the header now, so the header's in-game rule no longer covers it */
 /* ── wallet card ────────────────────────────────────────────────────── */
 /* Hangs off the balance in the header rather than taking a slot on the
    page, so add funds, withdraw and the address are one click away without
@@ -666,113 +691,184 @@ body.ingame .win-live i,body.ingame .win-live i::before{animation-play-state:pau
 /* ── wallet ─────────────────────────────────────────────────────────── */
 #wallet-screen,#social-screen,#player-screen{display:none}
 
-/* ── social ─────────────────────────────────────────────────────────── */
-.search{display:flex;align-items:center;gap:10px;background:var(--s1);
-  border-radius:var(--r2);padding:0 14px;margin-bottom:6px}
-.search svg{width:16px;height:16px;flex:0 0 auto;stroke:var(--tx3);fill:none;
-  stroke-width:2;stroke-linecap:round}
-.search input{flex:1;background:none;border:none;outline:none;color:var(--tx);
-  font-family:inherit;font-size:14px;padding:13px 0}
-.search input::placeholder{color:var(--tx3)}
-.search:focus-within{background:var(--s2);box-shadow:inset 0 0 0 1.5px var(--tx3)}
-.search:focus-within svg{stroke:var(--tx2)}
-/* The rows' own padding hangs outside the column, so names and amounts line
-   up with the heading and the search box above them instead of 10px inside. */
-#soc-board{margin:0 -10px}
-/* Global player winnings, Owen's look A (2026-10-16): its own panel at the top
-   of Social, the figure big in money gold over a glow from below, LIVE with a
-   beating dot. When a real cash-out lands the figure counts up to the new
-   total and a small green +$X rises beside it (social.js drawWin).
-   All of it on the panel's middle line (Owen, 2026-10-16): the label and LIVE
-   as one centred line, the figure centred under them. */
-#soc-win{position:relative;overflow:hidden;border-radius:var(--r3);padding:16px 18px 18px;margin:56px 0 0;
-  text-align:center;background:radial-gradient(120% 140% at 50% 120%,rgba(240,168,48,.2),rgba(240,168,48,0) 60%),var(--s1)}
-#soc-win[hidden]{display:none}
-#soc-win+.head{margin-top:36px}   /* the panel takes the screen's first-heading gap; the heading follows it */
-.win-top{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:4px 14px}
-.win-k{font-size:13px;color:var(--tx2);font-weight:500}
-.win-live{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;
-  letter-spacing:.08em;color:var(--live)}
-.win-live i{width:7px;height:7px;border-radius:50%;background:var(--live);animation:lpulse 1.6s ease-in-out infinite}
-.win-note{font-size:12px;color:var(--tx2);margin-top:6px}
-.win-tag{font-size:12px;font-weight:600;color:var(--bg);background:var(--money);border-radius:var(--rf);
-  padding:2px 7px;margin-left:8px;vertical-align:1px}
-/* The figure's own box, so the +$X hangs off the number's right edge wherever
-   the centring puts it, instead of off the panel's far corner. */
-.win-vw{position:relative;display:inline-block;margin-top:8px;vertical-align:top}
-.win-v{display:block;font-size:44px;font-weight:600;letter-spacing:-2px;color:var(--money);
-  line-height:1;transition:text-shadow .3s}
+/* ── Leaderboards and a player's profile (site redo stage 3, layout 1; mockup looks/ab/1/leaderboards.html) ──────
+   PC: Player winnings and the top 10 on the left, Find a player and How the board works in a 340px column on the
+   right. Phone: one column, winnings, search, board, how it works (the search used to sit under all ten rows). The top
+   3 are tiles with each player's main game behind them; places 4 to 10 are the kit's rows. The profile is the same
+   width as the board. leaders.js draws the board, social.js the winnings, search and profiles. Rules that adjust a
+   kit class carry the screen's id, because the kit is linked after this block. */
+#social-screen.wrap,#player-screen.wrap{padding-top:var(--ds-sp5);padding-bottom:var(--ds-sp7)}
+#social-screen>.head{margin:0 0 var(--ds-sp5)}
+.lb,.pf{max-width:1180px}
+.lb{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:var(--ds-sp5);align-items:start}
+.lb-main,.lb-side{display:flex;flex-direction:column;gap:var(--ds-sp5);min-width:0}
+.lb-side{gap:var(--ds-sp4)}
+/* Player winnings: the figure counts up (countUp.js), and a rise shows the difference in green over it. */
+#social-screen .lb-sum{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:var(--ds-sp3) var(--ds-sp5);
+  padding:var(--ds-sp5) var(--ds-sp6) var(--ds-sp6)}
+.lb-sum-hd{display:flex;align-items:center;gap:var(--ds-sp3);flex-wrap:wrap;grid-column:1;grid-row:1;align-self:center;min-width:0}
+.lb-sum-t{font-size:var(--ds-fs-3);font-weight:700}
+.lb-upd{color:var(--ds-tx2)}
+.lb-per{grid-column:2;grid-row:1;justify-self:end}
+.lb-fig{grid-column:1/-1;display:flex;align-items:baseline;gap:var(--ds-sp2) var(--ds-sp4);flex-wrap:wrap;min-width:0}
+.win-vw{position:relative;display:inline-block;min-width:0}
+.win-v{display:block;font-size:56px;font-weight:800;font-stretch:var(--ds-wide);letter-spacing:-.02em;line-height:1;color:var(--ds-gold);
+  font-variant-numeric:tabular-nums;transition:text-shadow .3s}
 .win-v.hit{text-shadow:0 0 22px rgba(240,168,48,.55)}
-.win-up{position:absolute;left:100%;bottom:3px;margin-left:10px;font-size:14px;font-weight:600;color:var(--live);
-  white-space:nowrap;opacity:0;pointer-events:none}
+.win-up{position:absolute;right:0;bottom:100%;margin-bottom:4px;font-size:var(--ds-fs-3);font-weight:700;color:var(--ds-green);
+  white-space:nowrap;opacity:0;pointer-events:none;font-variant-numeric:tabular-nums}
 .win-up.rise{animation:winUp 1.6s ease-out forwards}   /* not .go: that is the Play button */
 @keyframes winUp{0%{opacity:0;transform:translateY(8px)}15%{opacity:1;transform:none}
   70%{opacity:1;transform:none}100%{opacity:0;transform:translateY(-10px)}}
-@media(min-width:761px){#soc-win{padding:20px 24px 22px}.win-v{font-size:54px;letter-spacing:-2.6px}}
-@media(max-width:760px){
-  #soc-win{margin-top:14px}            /* where a phone's first heading sits */
-  #soc-win+.head{margin-top:22px}
-  #soc-win[hidden]+.head{margin-top:14px}
-}
-@media(min-width:761px) and (max-height:500px) and (orientation:landscape){#soc-win{margin-top:24px}}
-/* For everyone, like the lobby's live dots: Owen's own Windows has animation
-   effects off, and a figure that is meant to look live then sat dead still. */
-@media(prefers-reduced-motion:reduce){
-  .win-live i,.win-live i::before{animation-duration:1.6s!important;animation-iteration-count:infinite!important}
-  .win-up.rise{animation-duration:1.6s!important}
-}
-/* Whole row is the control, so the target is the row and not just the name. */
-/* Four columns, not five: the avatar disc is gone and its 34px with it,
-   otherwise every row carries an empty gap where it used to be. */
-.prow{display:grid;grid-template-columns:34px 1fr 96px 110px;gap:14px;
-  align-items:center;width:100%;text-align:left;padding:13px 10px;font-size:14px;
-  border-radius:var(--r2);transition:.13s}
-.prow:hover{background:var(--s1)}
-.prow .rk{color:var(--tx3);font-size:12.5px;text-align:right}
-/* A long name ends in an ellipsis rather than pushing its amount off the row. */
-.prow .nm{font-weight:550;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.prow .gp{color:var(--tx3);font-size:12.5px;text-align:right}
-.prow .er{color:var(--money);font-weight:600;text-align:right}
-.none2{font-size:13.5px;color:var(--tx3);padding:26px 10px}
+@media(prefers-reduced-motion:reduce){.win-up.rise{animation-duration:1.6s!important}}
+.lb-figsub{font-size:var(--ds-fs-3);color:var(--ds-tx2);min-width:0}
+/* The top 10: three tiles, then places 4 to 10 in one panel. */
+#social-screen .lb-board-hd{margin:var(--ds-sp1) 0 var(--ds-sp3)}
+#social-screen .lb-board-hd h2{font-size:var(--ds-fs-5);letter-spacing:-.01em}
+.lb-pod{display:grid;grid-template-columns:1.3fr 1fr 1fr;gap:var(--ds-sp3)}
+#social-screen .lb-t{position:relative;overflow:hidden;isolation:isolate;min-width:0;min-height:168px;display:flex;flex-direction:column;
+  align-items:flex-start;justify-content:flex-end;gap:2px;padding:var(--ds-sp4) var(--ds-sp5) var(--ds-sp5);border:0;text-align:left;
+  color:var(--ds-bone);font:inherit;transition:background-color var(--ds-dur-1),box-shadow var(--ds-dur-1)}
+#social-screen button.lb-t{cursor:pointer}
+#social-screen button.lb-t:hover{background:var(--ds-s2);box-shadow:var(--ds-edge2)}
+#social-screen button.lb-t:active{transform:translateY(1px)}
+#social-screen button.lb-t:focus-visible{outline:2px solid var(--ds-bone);outline-offset:2px}
+.lb-t-art{position:absolute;z-index:-1;right:0;top:0;width:56%;height:100%;object-fit:cover;object-position:50% 28%;opacity:.5;
+  -webkit-mask-image:linear-gradient(90deg,transparent 8%,rgba(0,0,0,.45) 45%,#000 88%);mask-image:linear-gradient(90deg,transparent 8%,rgba(0,0,0,.45) 45%,#000 88%)}
+.lb-t.is-1 .lb-t-art{width:50%;opacity:.78}
+.lb-t-nm,.lb-t-v,.lb-t-sub{text-shadow:0 1px 2px #000,0 0 14px rgba(0,0,0,.9)}
+.lb-t-rk{position:absolute;top:var(--ds-sp4);left:var(--ds-sp5);display:inline-grid;place-items:center;min-width:40px;height:28px;padding:0 var(--ds-sp2);
+  border-radius:var(--ds-r1);background:rgba(0,0,0,.78);box-shadow:var(--ds-edge);font-size:var(--ds-fs-2);font-weight:750;color:var(--ds-tx2)}
+.lb-t.is-1 .lb-t-rk{background:var(--ds-bone);color:var(--ds-on-bone);box-shadow:none}
+.lb-t-nm{display:flex;align-items:center;gap:var(--ds-sp2);max-width:100%;min-width:0;font-size:var(--ds-fs-4);font-weight:750;line-height:1.25}
+.lb-t-nm>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lb-t-v{font-size:30px;font-weight:800;font-stretch:var(--ds-wide);letter-spacing:-.015em;line-height:1.05;font-variant-numeric:tabular-nums;
+  white-space:nowrap;color:var(--ds-gold)}
+.lb-t.is-1 .lb-t-v{font-size:40px}
+.lb-t-sub{font-size:var(--ds-fs-2);color:var(--ds-tx2);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px}
+#social-screen .lb-t.is-empty{background:var(--ds-ink);min-height:132px}
+.lb-t.is-empty .lb-t-nm{color:var(--ds-tx2);font-weight:650}
+.lb-you{height:20px;padding:0 6px;flex:none;background:var(--ds-s3);color:var(--ds-bone);text-shadow:none}
+.lb-sample{height:20px;padding:0 6px;flex:none;text-shadow:none}
+#social-screen .lb-rest{margin-top:var(--ds-sp3);padding:var(--ds-sp2)}
+#social-screen .lb-row{grid-template-columns:32px auto minmax(0,1fr) auto}
+.lb-rk{font-size:var(--ds-fs-3);font-weight:800;font-stretch:var(--ds-wide);color:var(--ds-tx2);text-align:center;font-variant-numeric:tabular-nums}
+#social-screen .lb-row .ds-row-end,#social-screen .lb-res .ds-row-end{font-size:var(--ds-fs-3)}
+#social-screen .lb-row .ds-row-main b,#social-screen .lb-res .ds-row-main b{display:flex;align-items:center;gap:var(--ds-sp2)}
+#social-screen .lb-row .ds-row-main b>span:first-child,#social-screen .lb-res .ds-row-main b>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis}
+/* A name and its marks inside a row's bold line: the kit's row line rule (13px, quiet) is for the second line only. */
+#social-screen .ds-row-main b>span:first-child{display:block;font-size:inherit;color:inherit;line-height:inherit}
+#social-screen .ds-row-main b>.ds-chip{display:inline-flex;font-size:var(--ds-fs-1);line-height:1;color:var(--ds-bone)}
+#social-screen .ds-row-main b>.lb-sample{color:var(--ds-tx2)}
+.lb-chev{color:var(--ds-tx2);display:grid}
+.lb-foot{display:flex;align-items:center;gap:var(--ds-sp3);flex-wrap:wrap;margin-top:var(--ds-sp3);padding:0 var(--ds-sp2);
+  font-size:var(--ds-fs-2);color:var(--ds-tx2);line-height:1.5}
+.lb-foot p{flex:1 1 260px}
+/* The board did not load, or is still loading. */
+#social-screen .lb-none{display:flex;flex-direction:column;align-items:flex-start;gap:var(--ds-sp2);padding:var(--ds-sp6)}
+.lb-none b{font-size:var(--ds-fs-4)}
+.lb-none .ds-btn{margin-top:var(--ds-sp2)}
+.lb-load{display:flex;align-items:center;gap:var(--ds-sp3);color:var(--ds-tx2)}
+/* The right column. */
+.lb-find,.lb-how{display:flex;flex-direction:column;gap:var(--ds-sp3)}
+#social-screen .lb-side-t{font-size:var(--ds-fs-4);font-weight:750;font-stretch:100%;letter-spacing:0;line-height:1.25}
+#social-screen .lb-q .ds-input-pre{display:grid;left:var(--ds-sp4)}
+#social-screen .lb-q .ds-input{padding-left:46px}
+.lb-res:empty{display:none}
+.lb-res .ds-list{margin:0 calc(-1 * var(--ds-sp2))}
+.lb-res .ds-hint{padding:var(--ds-sp1) 0}
+.lb-how ul{list-style:none;display:flex;flex-direction:column;gap:var(--ds-sp3)}
+.lb-how li{font-size:var(--ds-fs-2);color:var(--ds-tx2);line-height:1.5}
+.lb-how li b{color:var(--ds-bone);font-weight:650}
 
-.phead{display:flex;align-items:center;gap:16px;margin-top:26px}
-/* A long name wraps inside its own column instead of running under the total. */
-.phead > div:first-child{min-width:0}
-.phead h1{font-size:29px;font-weight:700;letter-spacing:-1px;overflow-wrap:anywhere}
-.psub{font-size:13px;color:var(--tx3);margin-top:4px}
-.pnet{text-align:right}
-.pnet .k{font-size:12px;color:var(--tx3)}
-.pnet .v{font-size:31px;font-weight:600;color:var(--money);letter-spacing:-1.2px}
-.psub .p-tag{top:-1px;margin-left:0;margin-right:4px}
-/* Win rate, with how it is counted one tap away (social.js winRateTile). */
-.tile.wr{position:relative}
-.tile.wr .k{display:flex;align-items:center;gap:7px}
-/* Three tiles on a phone's two columns: win rate takes the whole first row. */
-@media(max-width:760px){#p-tiles .tile.wr{grid-column:1/-1}}
-.wr-i{width:18px;height:18px;border-radius:50%;background:var(--s3);color:var(--tx2);
-  font:700 11px/18px var(--f);text-align:center;flex:none;position:relative}
-/* A bigger target than it looks: 18px is the mark, 36px is the finger. */
-.wr-i::after{content:'';position:absolute;inset:-9px}
-.wr-i:hover,.wr-i[aria-expanded="true"]{background:var(--bone);color:var(--ink)}
-.wr-i:focus-visible{outline:2px solid var(--money);outline-offset:2px}
-.wr-tip{position:absolute;left:12px;right:12px;top:calc(100% + 6px);z-index:6;background:var(--s3);
-  border-radius:var(--r2);padding:12px 14px;font-size:12.5px;line-height:1.5;color:var(--tx2);
-  box-shadow:0 14px 34px rgba(0,0,0,.55);max-width:340px}
-.wr-tip[hidden]{display:none}
-.wr-tip ul{list-style:none;margin:8px 0 0;padding:8px 0 0;border-top:1px solid var(--s2)}
-.wr-tip li{display:flex;justify-content:space-between;gap:12px;padding:2px 0}
-.wr-tip li b{color:var(--tx);font-weight:600;font-family:var(--fm)}
-@media(max-width:620px){
-  /* Three columns: the 34px one was the avatar disc's, and with the disc gone
-     it held the NAME, so every amount sat a column short of the right edge. */
-  .prow{grid-template-columns:26px 1fr 92px;gap:10px}
-  .prow .gp{display:none}
-  /* The total gets its own line, always on the left: wrapping it only when
-     the name was long put it left on one profile and right on the next. */
-  .phead{flex-wrap:wrap}
-  .phead .sp{display:none}
-  .pnet{flex-basis:100%;text-align:left}
+/* A player's profile: who they are and their total over their main game's art, three figures, then the earnings
+   graph beside their paid rounds by game. */
+#player-screen>.head{margin:0 0 var(--ds-sp3)}
+#player-screen .pf-back{margin-left:calc(-1 * var(--ds-sp3))}
+.pf{display:flex;flex-direction:column;gap:var(--ds-sp4)}
+#player-screen .pf-hd{overflow:hidden;isolation:isolate;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;
+  gap:var(--ds-sp4) var(--ds-sp6);min-height:196px;padding:var(--ds-sp6)}
+.pf-art{position:absolute;z-index:-1;left:34%;top:0;width:360px;height:100%;object-fit:cover;object-position:50% 26%;opacity:.5;
+  -webkit-mask-image:linear-gradient(90deg,transparent,#000 45%,#000 60%,transparent);mask-image:linear-gradient(90deg,transparent,#000 45%,#000 60%,transparent)}
+.pf-id{min-width:0}
+#player-screen #p-name{display:flex;align-items:center;flex-wrap:wrap;gap:var(--ds-sp2) var(--ds-sp3);font-size:40px;min-width:0}
+#p-name>span:first-child{overflow-wrap:anywhere;min-width:0}
+#p-name .ds-chip{height:24px;font-stretch:100%;letter-spacing:0}
+.pf-line{margin-top:var(--ds-sp2);font-size:var(--ds-fs-3);color:var(--ds-tx2);max-width:58ch}
+.pf-line:empty{display:none}
+.pf-mine{margin-top:var(--ds-sp2);font-size:var(--ds-fs-2);color:var(--ds-tx2);max-width:58ch}
+.pf-tot{display:flex;flex-direction:column;align-items:flex-end;gap:4px;text-align:right;padding:var(--ds-sp3) var(--ds-sp4);
+  margin:calc(-1 * var(--ds-sp3)) calc(-1 * var(--ds-sp4));border-radius:var(--ds-r2);background:rgba(0,0,0,.72)}
+#player-screen .pf-tot .ds-d2{font-size:48px;line-height:1}
+#player-screen .pf-stats .ds-stat{padding:var(--ds-sp4)}
+#player-screen .pf-stats .ds-stat b{font-size:26px}
+#player-screen .pf-stats .ds-stat b.pf-nil{font-size:var(--ds-fs-4);line-height:1.45}
+.pf-stats .ds-stat small{display:block;margin-top:4px;font-size:var(--ds-fs-1);color:var(--ds-tx2)}
+.pf-grid{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:var(--ds-sp4);align-items:start}
+#player-screen .pf-grid .ds-panel-head{margin-bottom:var(--ds-sp3)}
+.pf-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:var(--ds-sp1);min-height:240px;padding:var(--ds-sp5);
+  border-radius:var(--ds-r2);background:var(--ds-ink);box-shadow:var(--ds-edge);text-align:center}
+.pf-empty b{font-size:var(--ds-fs-4)}
+.pf-wr .ds-list{margin:0 calc(-1 * var(--ds-sp2))}
+#player-screen .pf-wr .ds-row-end{color:var(--ds-tx2);font-size:var(--ds-fs-2)}
+.pf-nowr{padding:var(--ds-sp2) 0}
+#player-screen .pf-how{margin:var(--ds-sp3) 0 0 calc(-1 * var(--ds-sp3))}
+
+@media(min-width:761px) and (max-width:1100px){
+  .lb{display:flex;flex-direction:column;align-items:stretch;gap:var(--ds-sp5)}
+  .lb-main,.lb-side{display:contents}
+  #soc-win{order:1} .lb-find{order:2} .lb-board{order:3} .lb-how{order:4}
+  .pf-grid{grid-template-columns:minmax(0,1fr)}
+  .pf-art{left:24%}
 }
+@media(max-width:760px){
+  #social-screen.wrap,#player-screen.wrap{padding-top:var(--ds-sp4)}
+  #social-screen>.head{margin:0 0 var(--ds-sp4)}
+  .lb{display:flex;flex-direction:column;align-items:stretch;gap:var(--ds-sp4)}
+  .lb-main,.lb-side{display:contents}
+  #soc-win{order:1} .lb-find{order:2} .lb-board{order:3} .lb-how{order:4}
+  #social-screen .lb-sum{grid-template-columns:minmax(0,1fr);gap:var(--ds-sp3);padding:var(--ds-sp4)}
+  .lb-per{grid-column:1;grid-row:3;justify-self:stretch}
+  #social-screen .lb-per{display:flex}
+  #social-screen .lb-per button{flex:1;padding:0 var(--ds-sp2)}
+  .lb-fig{grid-row:2;flex-direction:column;align-items:flex-start;gap:6px}
+  .win-v{font-size:44px}
+  .lb-figsub{font-size:var(--ds-fs-2)}
+  #social-screen .lb-board-hd{margin:0 0 var(--ds-sp3);flex-wrap:nowrap}
+  #social-screen .lb-board-hd h2{min-width:0}
+  .lb-pod{grid-template-columns:1fr 1fr;gap:var(--ds-sp2)}
+  #social-screen .lb-t{min-height:128px;padding:var(--ds-sp3)}
+  #social-screen .lb-t.is-1{grid-column:1/-1;min-height:140px;padding:var(--ds-sp4)}
+  .lb-t-rk{top:var(--ds-sp3);left:var(--ds-sp3);min-width:36px;height:26px;font-size:var(--ds-fs-1)}
+  .lb-t.is-1 .lb-t-rk{top:var(--ds-sp4);left:var(--ds-sp4)}
+  .lb-t-art{width:70%}
+  .lb-t.is-1 .lb-t-art{width:56%}
+  .lb-t-nm{font-size:var(--ds-fs-3)}
+  .lb-t.is-1 .lb-t-nm{font-size:var(--ds-fs-4)}
+  .lb-t-v{font-size:21px}
+  .lb-t.is-1 .lb-t-v{font-size:34px}
+  .lb-t-sub{font-size:var(--ds-fs-1)}
+  #social-screen .lb-rest{padding:var(--ds-sp1)}
+  #social-screen .lb-row{grid-template-columns:26px auto minmax(0,1fr) auto;gap:var(--ds-sp2)}
+  #social-screen .lb-row .ds-row-end,#social-screen .lb-res .ds-row-end{font-size:14px}
+  #social-screen .lb-none{padding:var(--ds-sp5) var(--ds-sp4)}
+  .lb-foot{padding:0 var(--ds-sp1)}
+
+  #player-screen .pf-back{margin-left:calc(-1 * var(--ds-sp2))}
+  #player-screen .pf-hd{grid-template-columns:minmax(0,1fr);min-height:0;padding:var(--ds-sp5) var(--ds-sp4) var(--ds-sp4);gap:var(--ds-sp4)}
+  .pf-art{left:auto;right:0;width:56%;height:112px;
+    -webkit-mask-image:linear-gradient(90deg,transparent,#000 60%);mask-image:linear-gradient(90deg,transparent,#000 60%)}
+  #player-screen #p-name{font-size:var(--ds-fs-6)}
+  .pf-tot{align-items:flex-start;text-align:left;margin:0;background:var(--ds-ink);box-shadow:var(--ds-edge)}
+  #player-screen .pf-tot .ds-d2{font-size:40px}
+  #player-screen .pf-stats .ds-stat:first-child{grid-column:1/-1}
+  #player-screen .pf-stats .ds-stat b{font-size:22px}
+  .pf-grid{grid-template-columns:minmax(0,1fr)}
+  #player-screen .pf-earn,#player-screen .pf-wr{padding:var(--ds-sp4) var(--ds-sp3)}
+  #player-screen .pf-grid .ds-panel-head{padding:0 var(--ds-sp1)}
+  #player-screen .pf-how{margin-left:0}
+}
+
 .panel{background:var(--s1);border-radius:var(--r3);padding:24px 26px}
 /* ── wallet (site redo stage 3, layout 1; mockup looks/ab/1/wallet.html) ───────────────────────────────────────
    Look B's wallet on the kit: on the left the balance, the one lit panel on the site (.ds-lit and the dot-matrix
@@ -782,7 +878,6 @@ body.ingame .win-live i,body.ingame .win-live i::before{animation-play-state:pau
    carry #wallet-screen, because the kit is linked after this block. */
 #wallet-screen.wrap{padding-top:var(--ds-sp5);padding-bottom:var(--ds-sp7)}
 #wallet-screen>.head{margin:0 0 var(--ds-sp5)}
-#player-screen.wrap{max-width:824px}   /* the profile: the same graph at the same size it always had */
 .wgrid2{max-width:1180px}
 .wgrid2.in{display:grid;grid-template-columns:minmax(0,400px) minmax(0,1fr);gap:var(--ds-sp5);align-items:start}
 /* The balance stays in view while History scrolls past it. */
@@ -950,232 +1045,120 @@ body.ingame .win-live i,body.ingame .win-live i::before{animation-play-state:pau
 .note{font-size:12px;color:var(--tx3);line-height:1.7;margin-top:16px}
 .panel>.note:first-child{margin-top:0}   /* a one-line panel sits centred in its padding */
 
-/* ── the nightly event ───────────────────────────────────────────────────
-   Owen's pick C, "Podium stage" (2026-10-16, from four layouts): the podium
-   leads and is the biggest thing on the screen, the countdown he loves sits
-   under it in the tote-board mono, and Join and Spectate ride a bar pinned
-   above the tab bar on a phone so the way in never scrolls away. */
-.evstage{position:relative;overflow:hidden;border-radius:var(--r3);padding:16px 14px 0;
-  background:radial-gradient(120% 80% at 50% 0%,rgba(240,168,48,.12),transparent 60%),var(--s1)}
-.evstage.live{background:radial-gradient(120% 80% at 50% 0%,rgba(142,208,129,.09),transparent 60%),var(--s1)}
-.evcap{display:flex;justify-content:space-between;align-items:center;gap:12px;
-  margin-bottom:18px;padding:0 2px;font-size:13px;font-weight:600;color:var(--tx3)}
-#ev-pcap{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#ev-pcap.gold{color:var(--money)}
-#ev-pcap.live{color:var(--live);display:inline-flex;align-items:center;gap:8px}
-/* The live dot. A pseudo-element, so the caption can stay textContent: it
-   carries a winner's name, which is player input. */
-#ev-pcap.live::before{content:"";width:8px;height:8px;border-radius:50%;flex:none;
-  background:var(--live);animation:evpulse 1.8s infinite}
-@keyframes evpulse{0%{box-shadow:0 0 0 0 rgba(142,208,129,.55)}
-  70%{box-shadow:0 0 0 8px rgba(142,208,129,0)}100%{box-shadow:0 0 0 0 rgba(142,208,129,0)}}
-.evstd{flex:none;font-family:var(--fm);font-size:14px;color:var(--money)}
-
-/* Tallest in the middle: the heights are the ranking, the medal says it
-   again for anyone who reads numbers before shapes. An empty seat is a dashed
-   medal holding a question mark, never a missing block. */
-.podium{display:grid;grid-template-columns:1fr 1.12fr 1fr;align-items:end;gap:0 8px}
-.plinth{text-align:center;min-width:0}
-.pmedal{width:46px;height:46px;border-radius:50%;margin:0 auto 8px;display:grid;place-items:center;
-  font-family:var(--fm);font-weight:600;font-size:19px;color:var(--tx2);background:var(--s3);
-  box-shadow:inset 0 0 0 1px rgba(255,255,255,.06)}
-.p1 .pmedal{width:58px;height:58px;font-size:24px;color:var(--ink);background:var(--money);
-  box-shadow:0 0 0 6px rgba(240,168,48,.13)}
-.plinth.empty .pmedal{background:none;box-shadow:none;border:1.5px dashed #3a3226;color:var(--tx3)}
-.p1.empty .pmedal{border-color:rgba(240,168,48,.5);color:var(--money)}
-.pwho{min-height:20px;margin-bottom:10px;font-size:15.5px;font-weight:650;color:var(--tx2);
+/* ── Events (site redo stage 3, layout 1; mockup looks/ab/1/events.html) ───────────────────────────────────────
+   The Battle Royale card leads: its state, the title, the prize in gold, the big clock (the kit's .ds-bigclock) and
+   the way in, with the game's art masked in on the right. Under it the podium (the kit's .ds-pod) beside the next four
+   starts, then the Swim Race as the same card. With the card first, Join is on the first screen of a phone too, so
+   the bar that was pinned over the tab bar (needed while the podium led) is gone. Rules that adjust a kit class carry
+   #events-screen, because the kit is linked after this block. */
+#events-screen.wrap{padding-top:var(--ds-sp5);padding-bottom:var(--ds-sp7)}
+#events-screen>.head{margin:0 0 var(--ds-sp5)}
+.ev{max-width:1180px;display:flex;flex-direction:column;gap:var(--ds-sp4)}
+#events-screen .evhero{padding:var(--ds-sp6)}
+#events-screen .evhero-art{width:46%;object-position:50% 30%;opacity:.55;
+  -webkit-mask-image:linear-gradient(90deg,transparent,#000 60%);mask-image:linear-gradient(90deg,transparent,#000 60%)}
+#events-screen .evhero.live .evhero-art{opacity:.66}
+#events-screen .swev .evhero-art{object-position:50% 45%}
+.ev-in{position:relative;min-width:0}
+.ev-tags{display:flex;gap:var(--ds-sp2);flex-wrap:wrap;margin-bottom:var(--ds-sp4)}
+.ev-title{font-size:var(--ds-fs-7);font-weight:800;font-stretch:var(--ds-wide);letter-spacing:-.012em;line-height:1.04}
+.ev-prize{display:flex;align-items:baseline;gap:var(--ds-sp3);margin-top:var(--ds-sp2);color:var(--ds-gold)}
+.ev-pz{font-size:60px;font-weight:800;font-stretch:var(--ds-wide);letter-spacing:-.02em;line-height:1.04;font-variant-numeric:tabular-nums}
+.ev-prize>span:last-child{font-size:var(--ds-fs-5);font-weight:800;font-stretch:var(--ds-wide)}
+/* Just after a match: the winner, big, and what they were paid. */
+.ev-champ{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:var(--ds-sp2) var(--ds-sp4);
+  margin-top:var(--ds-sp5);max-width:600px}
+.ev-champ-av{width:72px;height:72px;border-radius:var(--ds-rf);background:var(--ds-bone);color:var(--ds-on-bone);display:grid;
+  place-items:center;font-size:30px;font-weight:800;font-stretch:var(--ds-wide)}
+.ev-champ-av:empty{background:transparent;border:1.5px dashed var(--ds-line2)}
+.ev-champ-who{min-width:0}
+.ev-champ-who b{display:block;font-size:36px;font-weight:800;font-stretch:var(--ds-wide);letter-spacing:-.012em;line-height:1.05;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.p1 .pwho{min-height:24px;font-size:19px;color:var(--tx)}
-.pblock{display:flex;flex-direction:column;align-items:center;padding-top:18px;
-  border-radius:14px 14px 0 0;background:linear-gradient(var(--s2),var(--s1));
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}
-.p1 .pblock{height:182px}
-.p2 .pblock{height:128px}
-.p3 .pblock{height:98px}
-.p1 .pblock{background:linear-gradient(rgba(240,168,48,.24),rgba(240,168,48,.05));
-  box-shadow:inset 0 0 0 1px rgba(240,168,48,.38)}
-/* First place is the only paid placing, so it is the only block with money on it. */
-.pmoney{font-family:var(--fm);font-variant-numeric:tabular-nums;font-weight:600;
-  font-size:24px;color:var(--money)}
-.evfloor{height:2px;background:var(--s3);border-radius:2px}
-
-.evside{display:flex;flex-direction:column}
-.evnext{margin-top:20px;display:flex;flex-direction:column;align-items:center;text-align:center}
-.evname{font-size:22px;font-weight:650;letter-spacing:-.4px}
-.evwhen{margin-top:4px;font-size:13.5px;color:var(--tx2)}
-.evline{margin-top:16px;font-size:13px;font-weight:600;color:var(--tx3)}
-.evline:empty{display:none}
-.evclock{display:flex;align-items:flex-start;justify-content:center;gap:6px;margin-top:6px}
-.evline:empty+.evclock{margin-top:16px}
-.evu{display:flex;flex-direction:column;align-items:center}
-/* Tabular figures, or every ticking second shuffles the whole row sideways. */
-.evclock b{display:block;font-family:var(--fm);font-variant-numeric:tabular-nums;
-  font-size:52px;font-weight:600;line-height:1.05;color:var(--tx)}
-.evclock .evu span{display:block;margin-top:3px;font-size:11px;font-weight:600;color:var(--tx3)}
-.evclock i{font-family:var(--fm);font-size:36px;font-style:normal;line-height:1.35;
-  color:var(--tx3);opacity:.5}
-/* A running match counts down to when its circle is fully closed (Owen
-   2026-10-16: "how many minutes and seconds until it is over"), minutes and
-   seconds in the live green, the hours put away. The timer alone: no count
-   of who is left, no ring (Owen 2026-10-17: "just the timer"). */
-.evclock.live b{color:var(--live)}
-.evclock.live .evhr,.evclock.live #ev-c1{display:none}
-
-/* Join on the left and Spectate on the right, as Play and Spectate sit on
-   every game's card (Owen, 2026-10-16: "just like the rest of the games"). */
-.evbar{display:grid;grid-template-columns:1fr auto;gap:8px;margin-top:22px}
-.evbtn{display:flex;align-items:center;gap:12px;min-width:0;min-height:58px;border:none;
-  border-radius:14px;padding:9px 16px 9px 9px;text-align:left;cursor:pointer;font-family:inherit;
-  transition:transform .15s,background .15s,color .15s}
-.evbtn:hover{transform:translateY(-1px)}
-.evbtn:focus-visible{outline:2px solid var(--bone);outline-offset:2px}
-.evt{display:flex;flex-direction:column;gap:2px;min-width:0}
-.evt b{font-size:16px;font-weight:650;letter-spacing:-.2px;
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.evt small{font-size:12.5px;font-weight:600;opacity:.62;
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ev-champ-who span{display:block;margin-top:4px;font-size:var(--ds-fs-3);color:var(--ds-tx2)}
+.ev-champ-pz{grid-column:1/-1;display:flex;align-items:baseline;gap:var(--ds-sp3);color:var(--ds-gold)}
+.ev-champ-pz>span:last-child{font-size:var(--ds-fs-3);font-weight:600;color:var(--ds-tx2)}
+.ev-cl{margin:var(--ds-sp5) 0 var(--ds-sp2)}
+.ev-cl:empty{display:none}
+/* While a match runs: minutes and seconds in green. The last seconds before a start: the kit's green underline. */
+#events-screen .evclock.live .ds-bc b{color:var(--ds-green)}
+#events-screen .evclock.live .evhr,#events-screen .evclock.live #ev-c1{display:none}
+#events-screen .evclock.is-hot .ds-bc b{background:var(--ds-s3);box-shadow:var(--ds-edge2)}
+#events-screen .evclock.is-hot .ds-bc b::after{content:'';position:absolute;left:14px;right:14px;bottom:0;height:3px;
+  border-radius:3px 3px 0 0;background:var(--ds-green)}
+/* The way in: Join (the kit's primary, with the game's art at its left edge), Spectate, the owner's start when it is
+   theirs, and How it works, one row on a PC. Each button's second line says what is going on. */
+.ev-acts{display:flex;align-items:center;gap:var(--ds-sp3);flex-wrap:wrap;margin-top:var(--ds-sp5)}
+.evbar{display:flex;align-items:center;gap:var(--ds-sp3);flex-wrap:wrap;min-width:0}
+#events-screen .evgo{min-width:400px;padding:0 var(--ds-sp7)}
+#events-screen .evwatch{min-width:200px}
+#events-screen .evgo.hot:not(:disabled){box-shadow:0 0 0 4px rgba(244,241,234,.18)}
+#events-screen .evhero.live #ev-watch{order:-1;--h:64px;min-width:400px;font-size:18px}
+#events-screen .evhero.live #ev-join{--h:52px;min-width:200px;padding:0 var(--ds-sp5) 0 56px;font-size:16px}
+.evgo .evart{position:absolute;left:8px;top:8px;height:calc(100% - 16px);width:auto;aspect-ratio:2/3;border-radius:var(--ds-r1);
+  object-fit:cover;object-position:50% 30%}
+.evgo:disabled .evart{opacity:.4}
+.evt{display:flex;flex-direction:column;align-items:center;gap:4px;line-height:1.1;min-width:0}
+.evt b{font-weight:inherit;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.evt small{font-size:var(--ds-fs-1);font-weight:600;font-stretch:100%;opacity:.72}
 .evt small:empty{display:none}
-/* The slither.io art on Join says which game this is before a word is read
-   (Owen, 2026-10-15). The make is Play's on a game card (.go, Free): the
-   white metal, the glow under it, and the one sheen across it each time the
-   screen comes up (Owen, 2026-10-16: the same little animation as the other
-   games). The sheen is its own pseudo-element, so the art and words stay put. */
-.evgo{position:relative;overflow:hidden;color:var(--ink);
-  background:linear-gradient(180deg,#ffffff 0%,#f4f1ea 48%,#dcd4c5 100%);
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.95),inset 0 -1px 0 rgba(70,58,40,.3),
-    0 8px 24px -8px rgba(244,241,234,.38)}
-.evgo::after{content:"";position:absolute;top:0;bottom:0;left:-60%;width:45%;
-  background:linear-gradient(100deg,transparent,rgba(255,255,255,.7),transparent);
-  transform:skewX(-18deg);animation:gosheenw .75s cubic-bezier(.3,.6,.3,1) .05s 1 both;
-  pointer-events:none}
-.evgo:disabled::after{display:none}
-/* Re-stated for everyone, like the ticker: Owen's PC reports reduced motion, and this effect was invisible to him (site sweep 2026-10-28). */
-@media(prefers-reduced-motion:reduce){.evgo::after{animation-duration:.75s!important}}
-.evart{width:40px;height:40px;border-radius:10px;object-fit:cover;object-position:50% 20%;flex:none;
-  transition:filter .15s,opacity .15s}
-/* The last ten minutes: Join breathes. Nothing else on the screen does. */
-.evgo.hot{animation:evhot 2.2s infinite}
-@keyframes evhot{0%,100%{box-shadow:0 0 0 0 rgba(244,241,234,.35)}50%{box-shadow:0 0 0 6px rgba(244,241,234,0)}}
-/* The shut door: still legible, plainly not pressable. */
-.evgo:disabled{background:var(--s1);color:var(--tx3);box-shadow:inset 0 0 0 1px var(--s3);
-  cursor:not-allowed;animation:none}
-.evgo:disabled:hover{transform:none}
-.evgo:disabled .evart{filter:grayscale(1);opacity:.4}
-/* Spectate in the colours it has beside Play on every game's card (.spec). */
-.evwatch{background:var(--s2);color:var(--tx2);padding-left:10px}
-.evwatch:hover{background:var(--s3);color:var(--tx)}
-.evico{width:40px;height:40px;display:grid;place-items:center;flex:none}
-.evico svg{width:21px;height:21px}
-/* A match on: watching is the thing you can do, so Spectate takes the colour. */
-.evbar.live .evwatch{background:rgba(142,208,129,.13);color:var(--live);
-  box-shadow:inset 0 0 0 1px rgba(142,208,129,.42)}
-/* The owner's Start (Owen 2026-10-16: start a match without joining first). A
-   quiet row above Join and Spectate, drawn only for the owner's wallet while
-   the arena waits; the server checks his signature on every press. */
-.evown{grid-column:1/-1;min-height:44px;padding:0 16px;border-radius:12px;cursor:pointer;
-  font-family:inherit;font-size:14px;font-weight:650;letter-spacing:-.1px;
-  background:transparent;color:var(--tx2);border:1px dashed var(--s3);
-  transition:background .15s,color .15s,border-color .15s}
-.evown:hover{background:var(--s2);color:var(--tx);border-color:var(--tx3)}
-.evown:focus-visible{outline:2px solid var(--bone);outline-offset:2px}
-.evown:disabled{cursor:wait;opacity:.6}
-.evown small{font-weight:600;opacity:.62;margin-left:8px;font-size:12.5px}
-.evhow{display:inline-flex;align-items:center;gap:7px;margin:14px auto 0;
-  background:none;border:none;cursor:pointer;font-family:inherit;
-  font-size:13px;font-weight:600;color:var(--tx3);padding:11px 12px;min-height:40px;   /* 40px to tap (the padding alone made 36) */
-  transition:color .15s}
-.evhow:hover{color:var(--tx)}
-/* Re-stated for everyone, like the ticker: Owen's PC reports reduced motion, and this effect was invisible to him (site sweep 2026-10-28). */
-@media (prefers-reduced-motion:reduce){#ev-pcap.live::before{animation-duration:1.8s!important;animation-iteration-count:infinite!important}
-  .evgo.hot{animation-duration:2.2s!important;animation-iteration-count:infinite!important}}
-/* One column everywhere, the podium on top and the battle royale under it
-   (Owen, 2026-10-16: on a PC the card went below the podium, centred, the
-   same order as a phone). Join and Spectate are pinned to the bottom of the
-   screen, faded in over whatever passes under them, so the way in never
-   scrolls away on a short screen. */
-.evgrid{display:flex;flex-direction:column}
-.evbar{position:sticky;bottom:0;z-index:2;margin-top:16px;padding:14px 0 16px;
-  background:linear-gradient(rgba(16,14,11,0),var(--bg) 26%)}
-.evhow{margin-top:10px}
-/* A phone: the side column dissolves (display:contents) so the bar's sticky
-   range is the whole event, not just the bottom half of it, or on a short
-   phone it could not climb above the fold. Main scrolls here, and its 16px
-   bottom padding is covered; the bar runs edge to edge across the gutter. */
+#events-screen .evown{gap:var(--ds-sp2)}
+#events-screen .evown small{font-size:var(--ds-fs-1);font-weight:600;color:var(--ds-tx2)}
+.ev-why{margin-top:var(--ds-sp3);font-size:var(--ds-fs-2);color:var(--ds-tx2);max-width:84ch;line-height:1.5}
+.ev-why:empty{display:none}
+/* The podium beside the schedule. */
+.ev-low{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:var(--ds-sp4)}
+.ev-h3{margin-bottom:var(--ds-sp4);font-size:var(--ds-fs-4);font-weight:750;line-height:1.25}
+#events-screen .ds-pl .sc{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:2px 6px;min-height:20px;font-size:var(--ds-fs-1);
+  color:var(--ds-tx2);font-variant-numeric:tabular-nums}
+#events-screen .ds-pl .sc .ds-chip{height:20px;padding:0 6px}
+#events-screen .ds-pl .scv{white-space:nowrap}
+#events-screen .ds-pl.empty .av{background:transparent;border:1.5px dashed var(--ds-line2);box-shadow:none}
+#events-screen .ds-pl.empty .nm{color:var(--ds-tx2);font-weight:600}
+#events-screen .ds-pl .pz:empty{display:none}
+.ev-note{margin-top:var(--ds-sp3);font-size:var(--ds-fs-2);color:var(--ds-tx2);line-height:1.5}
+.ev-note:empty{display:none}
+#events-screen .ev-srow{min-height:52px}
+.ev-wait{padding:var(--ds-sp2) 0}
+/* The Swim Race's last top 3: three name pills, first in bone. */
+.swlast{display:flex;align-items:center;gap:var(--ds-sp2) var(--ds-sp3);flex-wrap:wrap;margin-top:var(--ds-sp4)}
+.swpod{list-style:none;display:flex;gap:var(--ds-sp2);flex-wrap:wrap;min-width:0}
+.swpod li{display:inline-flex;align-items:center;gap:var(--ds-sp2);height:36px;padding:0 var(--ds-sp3) 0 6px;border-radius:var(--ds-rf);
+  background:var(--ds-ink);box-shadow:var(--ds-edge);font-size:var(--ds-fs-2);font-weight:650;max-width:220px;min-width:0}
+.swpod li i{font-style:normal;flex:none;width:24px;height:24px;border-radius:var(--ds-rf);display:grid;place-items:center;
+  font-size:var(--ds-fs-1);font-weight:800;background:var(--ds-s3);color:var(--ds-tx2)}
+.swpod li:first-child i{background:var(--ds-bone);color:var(--ds-on-bone)}
+.swpod li span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+@media(min-width:761px) and (max-width:1100px){
+  #events-screen .evhero-art{width:40%}
+  #events-screen .evgo,#events-screen .evhero.live #ev-watch,#events-screen .evhero.live #ev-join{min-width:0}
+  .ev-low{grid-template-columns:minmax(0,1fr)}
+}
+/* A phone (mockup phone layout): the art is a band across the top of each card, the buttons stack full width. */
 @media(max-width:760px){
-  .evside{display:contents}
-  .evbar{bottom:-16px;margin:16px -20px -16px;padding:14px 20px 16px}
-}
-@media(max-width:400px){.evbar{margin-left:-14px;margin-right:-14px;padding-left:14px;padding-right:14px}}
-/* The narrowest phones keep Join's words whole; the arena count goes. */
-@media(max-width:359px){.evwatch small{display:none}}
-/* A PC: one centred column, the podium big, then the battle royale card with
-   the clock and both buttons in it. The bar fades into the card's own colour,
-   and sits on the card's bottom edge when it is not pinned. The podium is a
-   little shorter than it could be so that, on a 720px laptop, the card starts
-   inside the screen and the pinned bar has somewhere to stand. */
-@media(min-width:761px){
-  .evgrid{max-width:760px;margin:0 auto;padding-bottom:30px}
-  .evstage{padding:22px 26px 0}
-  .pmedal{width:52px;height:52px;font-size:21px}
-  .p1 .pmedal{width:64px;height:64px;font-size:27px}
-  .pwho{min-height:22px;font-size:17px}
-  .p1 .pwho{min-height:27px;font-size:21px}
-  .p1 .pblock{height:216px}
-  .p2 .pblock{height:154px}
-  .p3 .pblock{height:118px}
-  .pmoney{font-size:27px}
-  .evside{margin-top:16px;background:var(--s1);border-radius:var(--r3);padding:24px 28px}
-  .evnext{margin-top:0}
-  .evname{font-size:26px;letter-spacing:-.6px}
-  .evclock b{font-size:58px}
-  .evclock i{font-size:40px}
-  .evbar{margin:6px 0 -24px;background:linear-gradient(rgba(23,20,15,0),var(--s1) 26%)}
-}
-/* A 768-tall laptop (1366x768): at full height the pinned Join bar sat on top of
-   the countdown until you scrolled (site sweep 2026-10-28). Shorter plinths keep
-   the same order of heights and bring the whole clock above the bar. */
-@media(min-width:761px) and (max-height:820px){
-  .p1 .pblock{height:136px}
-  .p2 .pblock{height:96px}
-  .p3 .pblock{height:72px}
-}
-/* ── The Swim Race block (under the battle royale, outside its grid so the
-   battle royale's pinned Join bar scrolls away before this comes up). Owen's
-   pick "Stage" (2026-10-30, from three): the last race's top 3 on plinths
-   like the battle royale's, the clock big under them, Join and Spectate. ── */
-.swev{margin-top:18px;border-radius:var(--r3);padding:20px 16px 14px;display:flex;flex-direction:column;
-  background:radial-gradient(120% 70% at 50% 0%,rgba(79,195,217,.11),transparent 62%),var(--s1)}
-.swev[hidden]{display:none}
-.swhead{display:flex;flex-wrap:wrap;align-items:center;gap:12px;min-width:0}
-.swart{width:44px;height:44px;border-radius:11px;object-fit:cover;flex:none}
-.swtitle{min-width:0;flex:1}
-.swtitle .evname{font-size:20px}
-.swtitle .evwhen{margin-top:2px;font-size:12.5px}
-.swclock{order:3;flex-basis:100%;margin-top:4px;text-align:center;font-family:var(--fm);font-variant-numeric:tabular-nums;
-  font-size:46px;font-weight:600;color:var(--tx)}
-.swclock.live{color:var(--live)}
-.swline{margin-top:12px;text-align:center;font-size:13px;font-weight:600;color:var(--tx3)}
-.swline:empty{display:none}
-/* The plinths: first in the middle and tallest, gold; a name cut short keeps its whole self in its title. */
-.swpod{list-style:none;padding:0;display:grid;grid-template-columns:1fr 1.12fr 1fr;align-items:end;gap:0 8px;
-  margin:18px 0 6px;border-bottom:2px solid var(--s3)}
-.swpod:empty{display:none}
-.swpod li{display:flex;flex-direction:column;align-items:center;gap:6px;min-width:0;padding:12px 6px 0;
-  border-radius:12px 12px 0 0;background:linear-gradient(var(--s2),var(--s1));text-align:center;
-  font-size:13px;font-weight:600;color:var(--tx2)}
-.swpod li i{font-style:normal;flex:none;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;
-  font-family:var(--fm);font-size:11.5px;background:var(--s3);color:var(--tx2)}
-.swpod li span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.swpod li:nth-child(1){order:2;height:112px;color:var(--tx);
-  background:linear-gradient(rgba(240,168,48,.24),rgba(240,168,48,.05));box-shadow:inset 0 0 0 1px rgba(240,168,48,.36)}
-.swpod li:nth-child(1) i{width:34px;height:34px;font-size:16px;background:var(--money);color:var(--ink)}
-.swpod li:nth-child(2){order:1;height:84px}
-.swpod li:nth-child(3){order:3;height:66px}
-.swbar{display:grid;grid-template-columns:1fr auto;gap:8px;margin-top:16px}
-.swbar .evgo{padding-left:16px}
-.swev .evhow{margin-top:6px}
-@media(min-width:761px){
-  .swev{max-width:760px;width:100%;margin:6px auto 30px;padding:22px 26px 16px}
+  #events-screen.wrap{padding-top:var(--ds-sp4)}
+  #events-screen>.head{margin:0 0 var(--ds-sp4)}
+  #events-screen .evhero{padding:0 0 var(--ds-sp4)}
+  #events-screen .evhero-art{position:relative;z-index:0;display:block;width:100%;height:132px;opacity:.9;object-position:50% 70%;
+    border-radius:var(--ds-r3) var(--ds-r3) 0 0;
+    -webkit-mask-image:linear-gradient(180deg,#000 55%,transparent);mask-image:linear-gradient(180deg,#000 55%,transparent)}
+  #events-screen .swev .evhero-art{object-position:50% 40%}
+  .ev-in{padding:0 var(--ds-sp4);margin-top:-28px}
+  .ev-title{font-size:var(--ds-fs-6)}
+  .ev-pz{font-size:46px}
+  .ev-prize>span:last-child{font-size:var(--ds-fs-4)}
+  .ev-champ{margin-top:var(--ds-sp4);gap:var(--ds-sp1) var(--ds-sp3)}
+  .ev-champ-av{width:56px;height:56px;font-size:24px}
+  .ev-champ-who b{font-size:28px}
+  .ev-champ-who span{font-size:var(--ds-fs-2)}
+  .ev-cl{margin-top:var(--ds-sp4)}
+  .ev-acts,.evbar{flex-direction:column;align-items:stretch;gap:var(--ds-sp2)}
+  .ev-acts{margin-top:var(--ds-sp4)}
+  #events-screen .ev-acts .ds-btn,#events-screen .evhero.live #ev-watch,#events-screen .evhero.live #ev-join{width:100%;min-width:0}
+  #events-screen .evhero.live #ev-join{--h:56px;padding:0 60px}
+  #events-screen .evgo{--h:60px;padding:0 60px}
+  #events-screen .evwatch{--h:56px}
+  .ev-low{grid-template-columns:minmax(0,1fr)}
+  .swpod li{max-width:100%}
 }
 
 .note b{color:var(--tx2);font-weight:600}
@@ -2143,9 +2126,18 @@ footer{margin-top:var(--ds-sp7);padding:var(--ds-sp5) 0 var(--ds-sp6);box-shadow
      what the button does. */
   body.signedout .wbtn{width:auto;padding:0 16px}
   body.signedout .wbtn span{display:inline}
-  .mepop{left:10px;right:10px;width:auto;top:calc(100% + 6px)}
-  .mewal{display:block}
-  .meveil.on{background:rgba(0,0,0,.6)}
+  /* The profile card: the kit's bottom sheet, over the tab bar, with its grab handle and room for the home bar. */
+  .mepop{top:auto;left:0;right:0;bottom:0;width:auto;max-height:92dvh;z-index:var(--ds-z-sheet);gap:var(--ds-sp3);
+    padding:var(--ds-sp2) var(--ds-sp4) calc(var(--ds-sp5) + env(safe-area-inset-bottom));border-radius:var(--ds-r3) var(--ds-r3) 0 0;
+    animation-name:me-rise}
+  @keyframes me-rise{from{transform:translateY(48px);opacity:0}to{transform:none;opacity:1}}
+  #mepop>.ds-sheet-grab{display:block;width:40px;height:4px;border-radius:var(--ds-rf);background:var(--ds-line2);margin:0 auto var(--ds-sp1);flex:none}
+  #mepop .mecopy{--h:44px}
+  #mepop .pname{height:56px}
+  #mepop .nameact{width:56px}
+  #mepop .mewal{--h:44px}
+  #mepop .melinks .ds-row{min-height:60px}
+  .meveil.on{background:var(--ds-scrim);z-index:calc(var(--ds-z-sheet) - 1)}
 
   /* Navigation moves to the bottom, where a thumb actually reaches. Solid
      rather than translucent for the containing-block reason above: this one
@@ -2522,27 +2514,37 @@ html.ds-building body>:not(#splash){visibility:hidden}
           aria-label="Your profile" aria-haspopup="dialog" aria-expanded="false" aria-controls="mepop">
     <span class="medisc q" id="medisc" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg></span>
   </button>
-  <div class="mepop" id="mepop" role="dialog" aria-label="Your profile" hidden>
-    <div class="mehd">
-      <span class="medisc big q" id="medisc2" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg></span>
-      <span class="meid"><b id="mename">Your name</b><span class="meaddr num ph-no-capture" id="meaddr"></span></span>
-    </div>
+</div></header>
+<!-- Under the open card: a tap anywhere else closes it (dimmed on a phone).
+     Outside the header for the containing-block reason given for the nav. -->
+<div class="meveil" id="meveil" onclick="V2Me.close()"></div>
+<!-- Your profile card (me.js), opened from your initial in the header. Outside the header for the same reason as the
+     veil: the header's backdrop filter would trap a fixed card inside it. A popover under the initial on a PC, the
+     kit's bottom sheet on a phone (layout 1, mockup looks/ab/1/leaderboards.html?card). The one place a name is
+     changed: the #play-name / #name-act pair play.js saves, as it always has. -->
+<div class="mepop" id="mepop" role="dialog" aria-label="Your profile" hidden>
+  <span class="ds-sheet-grab" aria-hidden="true"></span>
+  <div class="mehd">
+    <span class="medisc big q" id="medisc2" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg></span>
+    <span class="meid"><b id="mename">Your name</b>
+      <span class="meaddrrow"><span class="meaddr ph-no-capture" id="meaddr"></span><button type="button" class="ds-btn ds-btn-quiet ds-btn-sm ds-btn-icon mecopy" id="me-copy" onclick="V2Me.copy()" aria-label="Copy wallet address" title="Copy wallet address" hidden><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg></button></span></span>
+  </div>
+  <div class="ds-field mefield">
+    <label for="play-name">Player name</label>
         <!-- The name is stored under the live lobby's key, so switching between
              the two does not ask for it twice, and it is saved to the account so
              it is the same name on every device you sign in from. -->
         <!-- One button, four states. Locked, the field cannot be typed in and the
              button is a pen; pressed, the field opens and the pen becomes a tick;
              pressed again it saves, and the tick either holds for a beat and falls
-             back to the pen, or turns into a cross if the name is spoken for. The
-             label that used to sit under here said "Change name", which is what
-             the pen says without taking a line to say it. -->
+             back to the pen, or turns into a cross if the name is spoken for. -->
         <div class="namerow">
           <!-- The field is the obvious thing to click, so it does what the pen does.
                Making the pen the ONLY way in meant tapping your own name did nothing
                at all, which reads as a broken input rather than a locked one. -->
           <input class="pname" id="play-name" maxlength="16" autocomplete="off" readonly
                  onclick="V2Play.nameEdit()" title="Click to change your name"
-                 placeholder="Your name" aria-label="Your player name">
+                 placeholder="Your name" aria-label="Your player name" aria-describedby="me-namemsg">
           <button type="button" class="nameact" id="name-act" data-state="idle"
                   onclick="V2Play.nameAction()" aria-label="Change name">
             <svg class="i-pen" viewBox="0 0 24 24" width="17" height="17" fill="none"
@@ -2562,17 +2564,22 @@ html.ds-building body>:not(#splash){visibility:hidden}
               <path d="M12 3a9 9 0 1 0 9 9"/></svg>
           </button>
         </div>
-    <div class="meacts">
-      <!-- Wallet on a phone only: on a wide screen the header's own Wallet
-           button is right beside this card. -->
-      <button type="button" class="mebt mewal" onclick="V2Me.close();go('wallet')">Wallet</button>
-      <button type="button" class="mebt" id="me-out" onclick="signOut(this)">Sign out</button>
-    </div>
+    <p class="ds-field-msg" id="me-namemsg">Shown on the leaderboards and in every game.</p>
   </div>
-</div></header>
-<!-- Under the open card: a tap anywhere else closes it (dimmed on a phone).
-     Outside the header for the containing-block reason given for the nav. -->
-<div class="meveil" id="meveil" onclick="V2Me.close()"></div>
+  <!-- The balance the header chip shows (copied from it, never worked out here), with the way to the Wallet tab. -->
+  <div class="mebal">
+    <div><span class="ds-t-label">Balance</span><b class="num ph-no-capture" id="mebal">…</b></div>
+    <button type="button" class="ds-btn ds-btn-secondary ds-btn-sm mewal" onclick="V2Me.close();go('wallet')"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2H5a2 2 0 0 1-2-2m14 6h.01"/></svg>Open wallet</button>
+  </div>
+  <div class="ds-list melinks" id="me-links" hidden>
+    <button type="button" class="ds-row" id="me-prof" onclick="V2Me.profile()">
+      <span class="ds-row-ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></span>
+      <span class="ds-row-main"><b>Your public profile</b><span>What other players see</span></span>
+      <span class="ds-row-end mechev"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></span>
+    </button>
+  </div>
+  <button type="button" class="ds-btn ds-btn-quiet ds-btn-block meout" id="me-out" onclick="signOut(this)">Sign out</button>
+</div>
 
 <!-- Outside the header on purpose. The header carries a backdrop-filter, which
      makes it the containing block for any fixed descendant, and this file already
@@ -2632,11 +2639,9 @@ html.ds-building body>:not(#splash){visibility:hidden}
 <script>
 /* The nightly event, driven by the MATCH rather than by a clock.
 
-   It used to keep its own schedule — START=20, END=21 right here — and call the
+   It used to keep its own schedule (START=20, END=21 right here) and call the
    event "Live now" between eight and nine whether or not a match existed. So it
-   could never say "in progress": it had no idea. Its Watch button appeared on
-   the hour rather than on a match, and dropped you into whatever was or was not
-   happening.
+   could never say "in progress": it had no idea.
 
    Now the server says. /api/live carries the real room state (waiting,
    countdown, running, over), the survivor count, and the schedule itself, so
@@ -2645,42 +2650,48 @@ html.ds-building body>:not(#splash){visibility:hidden}
 
    Eastern wall clock still comes from the server as an hour and a minute, never
    as a UTC offset: a hardcoded -5 is wrong for two thirds of the year and -4 for
-   the other third, and the failure is silent. */
+   the other third, and the failure is silent.
+
+   Site redo stage 3 (layout 1, mockup looks/ab/1/events.html): the card leads with the state, the prize, the
+   countdown and the way in; the podium and the next four starts sit under it. Nothing on it is a dash: a match that
+   paid nothing says No prize and why, and a server that does not answer says so. */
 (function(){
   var pad=function(n){ return n<10?'0'+n:''+n };
   var BR=null;          // last state from the server
   var BRAT=0;           // when we got it, so the clock can run on between polls
+  var ASKED=false;      // the server has answered: from then on no battle royale means it is not answering
   var pulling=false;
+  var $=function(id){ return document.getElementById(id) };
 
   function screenOn(){
-    var s=document.getElementById('events-screen');
+    var s=$('events-screen');
     return s && getComputedStyle(s).display!=='none';
   }
 
   /* One request every few seconds while the tab is actually open. The clock in
      between is extrapolated locally, so the countdown ticks every second
      without asking the server sixty times a minute. Off-screen it asks for
-     nothing at all — a lobby animation left running behind the game once cost a
+     nothing at all: a lobby animation left running behind the game once cost a
      day of hunting a frame-rate drop, and the rule is the rule. */
   function pull(force){
     if(pulling) return;
     if(!force && (!screenOn() || document.hidden)) return;
     pulling=true;
     fetch('/api/live').then(function(r){ return r.json() }).then(function(j){
-      BR=j&&j.br?j.br:null; BRAT=Date.now(); tick(true);
+      ASKED=true; BR=j&&j.br?j.br:null; BRAT=Date.now(); tick(true);
       if(window.V2BrCall) V2BrCall.feed(BR);
       if(window.V2SwimEvent) V2SwimEvent.feed(j&&j.swimEvent?j.swimEvent:null);
     }).catch(function(){}).then(function(){ pulling=false });
   }
 
-  /* Seconds until the next scheduled start, measured from the server's own
-     Eastern wall clock and advanced locally since we were told it. */
   /* The server's Eastern time of day in seconds, run on locally since the poll.
      The second matters: each poll re-anchors, so without it the clock went back
      to :00 every 3 s and stood still. */
   function nowS(){
     return BR.etHour*3600+BR.etMin*60+(BR.etSec||0)+Math.floor((Date.now()-BRAT)/1000);
   }
+  /* Seconds until the next scheduled start, measured from the server's own
+     Eastern wall clock and advanced locally since we were told it. */
   function untilStart(){
     if(!BR) return null;
     var now=nowS();
@@ -2689,61 +2700,105 @@ html.ds-building body>:not(#splash){visibility:hidden}
     if(left<0) left+=86400;
     return left;
   }
+  function at12(h,m){ return (h%12||12)+':'+pad(m||0)+' '+(h<12?'AM':'PM') }
 
   function setClock(secs){
-    var h=document.getElementById('ev-h'), m=document.getElementById('ev-m'),
-        sec=document.getElementById('ev-s');
+    var h=$('ev-h'), m=$('ev-m'), sec=$('ev-s');
     if(!h||!m||!sec) return;
     if(secs===null||secs===undefined){ h.textContent='--'; m.textContent='--'; sec.textContent='--'; return; }
-    h.textContent=pad(Math.floor(secs/3600));
-    m.textContent=pad(Math.floor(secs%3600/60));
-    sec.textContent=pad(Math.floor(secs%60));
+    setText('ev-h',pad(Math.floor(secs/3600)));
+    setText('ev-m',pad(Math.floor(secs%3600/60)));
+    setText('ev-s',pad(Math.floor(secs%60)));
   }
-
   /* The digits and their labels, together. Before the server has answered
-     there is no clock at all: a row of dashes under hrs/min/sec read as a
+     there is no clock at all: a row of dashes under hours, min and sec read as a
      broken timer rather than as an absent one. */
   function showClock(on){
-    var c=document.querySelector('.evclock');
+    var c=document.querySelector('#evhero .evclock');
     if(c) c.style.display = on ? '' : 'none';
   }
-  /* A running match: minutes and seconds to the circle fully closed, the
-     latest it can last (it ends sooner when one snake is left). */
-  function clockMode(live){
-    var c=document.querySelector('.evclock'); if(!c) return;
+  /* A running match: minutes and seconds to the circle fully closed, in green, the latest it can last (it ends
+     sooner when one snake is left). Hot: the last seconds before a start, the kit's green underline. */
+  function clockMode(live,hot){
+    var c=document.querySelector('#evhero .evclock'); if(!c) return;
     c.classList.toggle('live',!!live);
+    c.classList.toggle('is-hot',!!hot);
   }
   function setText(id,t){
-    var e=document.getElementById(id);
+    var e=$(id);
     if(e && e.textContent!==t) e.textContent=t;
     return e;
   }
-  /* The caption over the podium: what the seats are showing. textContent, as
-     it can carry a winner's name; the live dot is drawn by CSS. */
-  function caption(t,cls){
-    var c=document.getElementById('ev-pcap'); if(!c) return;
-    if(c.textContent!==t) c.textContent=t;
-    c.className=cls||'';
+  /* The state chip on the card. Green and beating only while something is happening now (the one live thing on
+     the screen); grey otherwise. */
+  function tag(t,live){
+    var c=setText('ev-tag',t); if(!c) return;
+    var cls='ds-chip'+(live?' ds-chip-live is-pulse':'');
+    if(c.className!==cls) c.className=cls;
+    if(live) c.setAttribute('data-pulse',''); else c.removeAttribute('data-pulse');
+  }
+  /* The caption over the podium: what the seats are showing. */
+  function caption(t){ setText('ev-pcap',t) }
+  function winnerName(b){
+    var w=b&&b.winner; if(!w) return '';
+    return String(typeof w==='string'?w:(w.name||''));
+  }
+  /* Just after a match the card names its winner, and what they were paid or why nothing was. textContent only. */
+  function champ(b){
+    var box=$('ev-champ'), pr=$('ev-prize'); if(!box||!pr) return;
+    if(!b){ if(!box.hidden) box.hidden=true; if(pr.hidden) pr.hidden=false; return; }
+    box.hidden=false; pr.hidden=true;
+    var w=winnerName(b), bot=!!(b.winner&&b.winner.bot), paid=b.prize>0&&!bot;
+    setText('ev-champ-av', w?w.charAt(0).toUpperCase():'');
+    setText('ev-champ-nm', !w?'Nobody survived':bot?'A bot won':w);
+    setText('ev-champ-sub', !w?'No prize this match'
+                          : bot?w+' was last alive. No prize is paid to a bot.'
+                          : paid?'Won the last match'
+                          : b.soloRun?'Won a solo run, so no prize'
+                          : b.prizeHeld?'Won. The prize is held for a manual check.'
+                          : 'Won the last match, no prize');
+    var pz=$('ev-champ-pz'); if(pz) pz.hidden=!paid;
+    if(paid) setText('ev-champ-v','$'+b.prize);
+  }
+  /* Under the podium, in words: how the places were decided and what was paid. */
+  function podNote(on,seated){
+    if(on) return 'Places fill in as players drop out. The last snake alive wins.';
+    if(!seated) return 'The top 3 of each match stand here until the next one starts.';
+    var w=winnerName(BR), tail=' Places go by who lasted longest.';
+    if(BR.prize>0) return (w?w+' was paid $'+BR.prize+'.':'The winner was paid $'+BR.prize+'.')+tail;
+    if(BR.winner&&BR.winner.bot) return 'A bot was last alive, so no prize was paid.'+tail;
+    if(BR.soloRun) return 'Only one person joined, so bots filled the room and no prize was paid.'+tail;
+    if(BR.prizeHeld) return 'Fewer than two players were in it, so the prize is held for a manual check.'+tail;
+    return 'No prize was paid for this match.'+tail;
   }
 
   function tick(force){
     if(!force && !screenOn()) return;
-    var line=document.getElementById('ev-line'),
-        hero=document.getElementById('evhero'),
-        bar=document.getElementById('ev-bar'),
-        watch=document.getElementById('ev-watch'),
-        join=document.getElementById('ev-join');
-    if(!line||!hero) return;
+    var hero=$('evhero'),
+        watch=$('ev-watch'),
+        join=$('ev-join');
+    if(!hero) return;
     /* The phone's bar holds both buttons side by side, so Join says less there. */
     var wide=!!(window.matchMedia && window.matchMedia('(min-width:761px)').matches);
     var stdPrize=(typeof CONSTANTS!=='undefined'&&CONSTANTS.BR_PRIZE_USDC)||20;
-    setText('ev-std','$'+stdPrize+' to 1st');
+    setText('ev-std','$'+stdPrize);
 
-    /* No answer from the server yet: no clock, and Spectate keeps its space,
-       invisible, so nothing jumps when the answer lands. */
-    if(!BR){ caption('Next match'); line.textContent=''; showClock(false); setClock(null);
-             if(watch) watch.style.visibility='hidden'; return; }
-    if(watch) watch.style.visibility='';
+    /* No answer from the server yet, or an answer with no battle royale in it: no clock, the doors shown shut, and
+       the card says which of the two it is. The podium keeps whatever it last held. */
+    if(!BR){
+      hero.classList.remove('live');
+      tag(ASKED?'Not answering':'Checking the schedule');
+      champ(null);
+      setText('ev-line',''); showClock(false); setClock(null);
+      if(join){ join.disabled=true; join.classList.remove('hot'); join.title='';
+                setText('ev-join-t','Join'); setText('ev-join-s', ASKED?'Not open right now':'One moment'); }
+      if(watch){ watch.disabled=true; setText('ev-watch-t','Spectate'); setText('ev-watch-s','');
+                 watch.classList.remove('ds-btn-primary'); watch.classList.add('ds-btn-secondary'); }
+      setText('ev-why', ASKED?'The Battle Royale is not answering right now. This page checks again every few seconds.':'');
+      ownButton(null);
+      return;
+    }
+    if(watch) watch.disabled=false;
 
     var st=BR.state;
     var live=st==='running', starting=st==='countdown', on=live||starting;
@@ -2752,63 +2807,72 @@ html.ds-building body>:not(#splash){visibility:hidden}
     var after=st==='over'||st==='reopening';
     var pod=BR.podium&&BR.podium.length?BR.podium:null;
     hero.classList.toggle('live', on);
-    if(bar) bar.classList.toggle('live', on);
+    /* While a match is on, watching it is the way in: Spectate takes the bright button and leads the row, and the
+       shut Join steps back beside it (looks only; both keep their ids and handlers). */
+    if(watch && watch.classList.contains('ds-btn-primary')!==on){
+      watch.classList.toggle('ds-btn-primary',on); watch.classList.toggle('ds-btn-secondary',!on);
+    }
 
-    /* The start time is the server's (startHour, startMin): the page printed
-       "8 to 9 PM" whatever the server said, and the match starts at 8:05. */
-    var at=BR.startHour!=null?((BR.startHour%12||12)+':'+('0'+(BR.startMin||0)).slice(-2)
-             +' '+(BR.startHour<12?'AM':'PM')):'';
-    if(at) setText('ev-when','Every 6 hours, next at '+at+' ET');
+    /* The start time is the server's (startHour, startMin), and so is the gap between starts. */
+    var at=BR.startHour!=null?at12(BR.startHour,BR.startMin):'';
+    var every='Every '+(BR.every||6)+' hours';
+    setText('ev-when',every); setText('ev-sch-t',every);
 
-    /* THE PODIUM. Tonight's empty seats while a match is on; otherwise the
+    /* Seconds to the next slot of the schedule (startHour/startMin are the next slot's, from the server). */
+    var left=untilStart();
+    /* The 30 s join window before a slot: the lobby is calling everyone in (brCall.js). */
+    var joinNow=!!BR.joinOpen && st==='waiting' && left>0 && left<=(BR.joinWindowSec||30);
+    var due=!!BR.autoPending && (st==='waiting'||after);
+
+    if(live) tag('Live now',true);
+    else if(starting) tag('Starting',true);
+    else if(joinNow) tag('Join now',true);
+    else if(due) tag('Starting now',true);
+    else if(after) tag('Just finished');
+    else tag(at?'Next match '+at+' ET':'Next match');
+
+    champ(after?BR:null);
+
+    /* THE PODIUM. This match's empty seats while one is on; otherwise the
        last match's top 3, which the server keeps until the next match starts. */
     var seated=on?null:pod;
-    podium(seated?seated.map(function(p){return p.name}):null);
+    podium(seated, on?'Still playing':pod?'No one':'Empty seat');
     /* The prize on first place. Only a match that has started knows its own
-       (BR.prize: nothing for a solo run, or with fewer than two signed-in
-       players), and the last match's stays with its podium, so a dash says a
-       winner was paid nothing. Only an empty podium before tonight's start
-       shows the standing prize. */
-    var pm=document.querySelector('.p1 .pmoney');
-    if(pm) pm.textContent = (st==='waiting' && !seated) ? '$'+stdPrize
-                          : (BR.prize>0 ? '$'+BR.prize : '—');
-
-    if(live) caption('Live now','live');
-    else if(starting) caption('Starting','live');
-    else if(after) caption(BR.winner ? BR.winner.name+(BR.prize>0?' won $'+BR.prize:' won')
-                                     : 'Nobody survived', BR.winner?'gold':'');
-    else caption(pod?'Last match':'Next match');
-
-    /* Seconds to the next slot of the 6 hour schedule (startHour/startMin
-       are the next slot's, from the server). */
-    var left=untilStart();
+       (BR.prize: nothing for a solo run, a bot's win, or a prize held for a check),
+       and the last match's stays with its podium, so No prize says a winner was
+       paid nothing. Only an empty podium before a start shows the standing prize. */
+    var pz=(st==='waiting' && !seated) ? ['$'+stdPrize,'ds-money']
+         : (BR.prize>0 ? ['$'+BR.prize,'ds-money'] : ['No prize','ds-quiet']);
+    var pm=setText('ev-1st-pz',pz[0]);
+    if(pm && pm.className!=='pz pmoney '+pz[1]) pm.className='pz pmoney '+pz[1];
+    caption(on?'This match':after?'Result':pod?'Last match':'No matches yet');
+    setText('ev-podnote',podNote(on,seated));
 
     if(starting){
-      clockMode(false); showClock(true);
-      line.textContent='Match begins in';
+      clockMode(false,true); showClock(true);
+      setText('ev-line','Match begins in');
       setClock(Math.max(0, Math.round((BR.countdownMs||0)/1000)
                           - Math.floor((Date.now()-BRAT)/1000)));
     } else if(live){
       /* endsMs is the server's, run on locally since the poll; 0 from the old
          engine, which has no such clock (the line alone then). */
       var ends=BR.endsMs>0 ? Math.max(0, Math.round(BR.endsMs/1000) - Math.floor((Date.now()-BRAT)/1000)) : null;
-      clockMode(true); showClock(ends!==null);
-      line.textContent = ends===null ? '' : ends>0 ? 'Ends in' : 'Final circle';
+      clockMode(true,false); showClock(ends!==null);
+      setText('ev-line', ends===null ? 'Match in progress' : ends>0 ? 'Ends in' : 'Final circle');
       if(ends!==null){ setText('ev-m',pad(Math.floor(ends/60))); setText('ev-s',pad(ends%60)); }
-    } else if(BR.joinOpen && st==='waiting' && left>0 && left<=(BR.joinWindowSec||30)){
-      /* The 30 s join window before a slot: the lobby is calling everyone in (brCall.js). */
-      clockMode(false); showClock(true);
-      line.textContent='Join now, starts in';
+    } else if(joinNow){
+      clockMode(false,true); showClock(true);
+      setText('ev-line','Join now, starts in');
       setClock(left);
-    } else if(BR.autoPending && (st==='waiting'||after)){
-      clockMode(false); showClock(true);
-      line.textContent='Starting now';
+    } else if(due){
+      clockMode(false,true); showClock(true);
+      setText('ev-line','Starting now');
       setClock(0);
     } else {
-      clockMode(false); showClock(true);
-      line.textContent = after ? 'Next match in'
-                       : BR.humans ? (BR.humans+' joined, starts in')
-                       : 'Next match in';
+      clockMode(false,false); showClock(true);
+      setText('ev-line', after ? 'Next match in'
+                       : BR.humans ? (BR.humans===1 ? '1 player in, starts in' : BR.humans+' players in, starts in')
+                       : 'Next match in');
       setClock(left);
     }
 
@@ -2818,20 +2882,27 @@ html.ds-building body>:not(#splash){visibility:hidden}
        reads as something broken. Three shut states, not one: a start in
        progress, a match in progress, and a finished match whose arena has
        not reopened, where "in progress" over a podium with a winner on it
-       would simply be wrong. */
+       would simply be wrong. The time is said once (it was in both lines). */
     if(join){
       join.disabled = !BR.joinable;
       join.classList.toggle('hot', !!BR.joinable && st==='waiting' && left!=null && left<=600);
-      (document.getElementById('ev-join-t')||join).textContent = BR.joinable ? (wide?'Join Battle Royale':'Join')
-                       : after ? (wide?'Next match at '+at:'Next match')
+      (document.getElementById('ev-join-t')||join).textContent = BR.joinable ? (wide?'Join the Battle Royale':'Join')
+                       : after ? 'Next match'
                        : 'Doors shut';
       setText('ev-join-s', BR.joinable ? 'Free entry'
-                         : after ? at
+                         : after ? (at ? 'At '+at+' ET' : 'The arena is reopening')
                          : starting ? 'Match starting' : 'Match in progress');
       join.title = BR.joinable ? ''
                  : after ? 'The arena reopens once the circle does.'
                  : 'The doors are shut until this match ends.';
     }
+    /* Under the buttons, why they say what they say. */
+    setText('ev-why', live ? 'The match is running, so nobody new can join. Watch it live, or join the next one'+(at?' at '+at+' ET':'')+'.'
+                    : starting ? 'The doors are shut. The match starts in a moment.'
+                    : after ? 'The arena reopens once the circle does. Then you can join for the next start.'
+                    : !BR.joinable ? 'The arena is not taking players right now.'
+                    : (BR.humans ? (BR.humans===1 ? '1 player has' : BR.humans+' players have')+' joined so far. ' : '')
+                      +'Join any time before '+(at?at+' ET':'the start')+'. The doors shut when the match begins.');
     /* Spectate: watching the match while one is on, the arena between them.
        Its small line counts the arena between matches; while a match runs the
        card shows the timer alone (Owen 2026-10-17), so no count of who is left. */
@@ -2842,20 +2913,68 @@ html.ds-building body>:not(#splash){visibility:hidden}
                           : starting ? 'Starting'
                           : st==='waiting' && BR.alive ? BR.alive+' in the arena' : '');
     }
+    schedule(joinNow);
   }
 
-  /* Names on the plinths, second and third either side of first. No name, an
-     empty seat: a dashed medal with a question mark. Kept as a function taking
-     an array so the page never has to be edited to fill it. */
-  function podium(names){
+  /* The seats, second and third either side of first. A seat holds a name, its score, and on first place a Bot
+     mark when the server says the winner was one; an empty seat is a dashed ring. Takes the server's podium rows
+     ({ name, score }) or plain names, so the page never has to be edited to fill it. textContent only. */
+  var podWas='';
+  function podium(rows,empty){
+    var list=Array.isArray(rows)?rows.slice(0,3).map(function(p){ return p&&typeof p==='object'?p:{name:p} }):[];
+    var bot=!!(BR&&BR.winner&&BR.winner.bot);
+    var key=JSON.stringify(list)+bot+empty;
+    if(key===podWas) return; podWas=key;
     ['ev-1st','ev-2nd','ev-3rd'].forEach(function(id,i){
-      var el=document.getElementById(id); if(!el) return;
-      var who=names&&names[i]?String(names[i]):'';
-      if(el.textContent!==who){ el.textContent=who; el.title=who; }   // the whole name, when the plinth cuts it short
+      var el=$(id); if(!el) return;
+      var p=list[i]||{}, who=p.name?String(p.name):'';
+      el.textContent=who||empty||'Empty seat';
+      el.title=who;                                   // the whole name, when the seat cuts it short
       var pl=el.parentNode;
       pl.classList.toggle('empty',!who);
-      var md=pl.querySelector('.pmedal');
-      if(md){ var n=who?String(i+1):'?'; if(md.textContent!==n) md.textContent=n; }
+      var av=pl.querySelector('.av'); if(av) av.textContent=who?who.charAt(0).toUpperCase():'';
+      var sc=$(id+'-sc');
+      if(sc){
+        sc.textContent='';
+        if(who&&i===0&&bot){ var c=document.createElement('span'); c.className='ds-chip'; c.textContent='Bot'; sc.appendChild(c); }
+        if(who&&p.score>0){ var v=document.createElement('span'); v.className='scv'; v.textContent='Score '+Number(p.score).toLocaleString('en-US'); sc.appendChild(v); }
+      }
+    });
+  }
+
+  /* The next four starts, from the server's schedule (the next slot, then every few hours after it), each with its
+     Eastern day. Built from nodes, redrawn only when a row changes. */
+  var schedWas='';
+  function clockIc(){
+    var ns='http://www.w3.org/2000/svg', s=document.createElementNS(ns,'svg');
+    s.setAttribute('viewBox','0 0 24 24'); s.setAttribute('width','18'); s.setAttribute('height','18');
+    s.setAttribute('fill','none'); s.setAttribute('stroke','currentColor'); s.setAttribute('stroke-width','2');
+    s.setAttribute('stroke-linecap','round'); s.setAttribute('aria-hidden','true');
+    var c=document.createElementNS(ns,'circle'); c.setAttribute('cx','12'); c.setAttribute('cy','12'); c.setAttribute('r','9');
+    var p=document.createElementNS(ns,'path'); p.setAttribute('d','M12 7v5l3 2');
+    s.appendChild(c); s.appendChild(p); return s;
+  }
+  function schedule(joinNow){
+    var box=$('ev-sched'); if(!box||!BR||BR.startHour==null) return;
+    var every=BR.every||6, first=untilStart(), now=nowS()%86400, rows=[];
+    for(var k=0;k<4;k++){
+      var day=Math.floor((now+first+k*every*3600)/86400);
+      rows.push([at12((BR.startHour+k*every)%24,BR.startMin)+' ET', day<=0?'Today':day===1?'Tomorrow':'In '+day+' days']);
+    }
+    var key=JSON.stringify(rows)+joinNow;
+    if(key===schedWas) return; schedWas=key;
+    box.textContent='';
+    rows.forEach(function(r,k){
+      var row=document.createElement('div'); row.className='ds-row ev-srow';
+      var ic=document.createElement('span'); ic.className='ds-row-ic'; ic.appendChild(clockIc());
+      var mid=document.createElement('div'); mid.className='ds-row-main';
+      var b=document.createElement('b'); b.textContent=r[0];
+      var s=document.createElement('span'); s.textContent=r[1];
+      mid.appendChild(b); mid.appendChild(s);
+      var end=document.createElement('div'); end.className='ds-row-end';
+      if(k===0){ var c=document.createElement('span'); c.className='ds-chip'+(joinNow?' ds-chip-live':''); c.textContent=joinNow?'Join now':'Next'; end.appendChild(c); }
+      row.appendChild(ic); row.appendChild(mid); row.appendChild(end);
+      box.appendChild(row);
     });
   }
 
@@ -2868,7 +2987,7 @@ html.ds-building body>:not(#splash){visibility:hidden}
   var OWN={wallet:'', is:false, asking:false, busy:false};
   function myWallet(){ var w=window.duelWallet||{}; return w.authenticated&&w.address?w.address:'' }
   function ownButton(st){
-    var b=document.getElementById('ev-own'); if(!b) return;
+    var b=$('ev-own'); if(!b) return;
     var w=myWallet();
     if(w!==OWN.wallet && !OWN.asking){
       OWN.wallet=w; OWN.is=false;
@@ -2887,7 +3006,7 @@ html.ds-building body>:not(#splash){visibility:hidden}
     if(window.DSToast) window.DSToast.show({kind:err?'err':'ok', title:t});
   }
   function ownerStart(){
-    var b=document.getElementById('ev-own');
+    var b=$('ev-own');
     if(OWN.busy) return;
     if(typeof window.duelWalletSignAction!=='function'){ say('Sign in with your wallet first.',true); return; }
     OWN.busy=true; if(b){ b.disabled=true; b.firstChild.textContent='Check your wallet' }
@@ -2908,7 +3027,7 @@ html.ds-building body>:not(#splash){visibility:hidden}
      sidebar's Battle Royale clock costs no request of its own. untilStart(): seconds to the next
      scheduled start, run on locally since the last answer. */
   window.V2Event={tick:tick, podium:podium, pull:pull, ownerStart:ownerStart,
-                  feed:function(br){ if(br){ BR=br; BRAT=Date.now(); } },
+                  feed:function(br){ if(br){ ASKED=true; BR=br; BRAT=Date.now(); } },
                   untilStart:untilStart,
                   engine:function(){ return BR&&BR.engine?BR.engine:null },
                   get state(){ return BR }};
@@ -2921,17 +3040,25 @@ html.ds-building body>:not(#splash){visibility:hidden}
 
 <script>
 /* THE SWIM RACE ON THE EVENTS TAB (server/swim/SwimEvent.js; /api/live
-   swimEvent, fed by the Events tab's own poll above). The clock counts to the
-   next start (every 6 hours, three off the battle royale); Join opens its page
-   and joins (V2Play.swimRace), open from 15 minutes before until zero; the
-   last race's top 3 stay up until the next one. Names by textContent. */
+   swimEvent, fed by the Events tab's own poll above). The same card as the
+   battle royale: its state, a labelled clock to the next start (every 6 hours,
+   three off the battle royale), Join (V2Play.swimRace, open from well before the
+   start until zero), Spectate, and the last race's top 3, which stay up until
+   the next one. Names by textContent. */
 function v2SwimEventInit(){
   var box=document.getElementById('swev'); if(!box) return;
   var SE=null, SEAT=0;
   var pad=function(n){ return n<10?'0'+n:''+n };
-  function setText(id,t){ var e=document.getElementById(id); if(e&&e.textContent!==t) e.textContent=t; }
+  function setText(id,t){ var e=document.getElementById(id); if(e&&e.textContent!==t) e.textContent=t; return e; }
   function left(){ return SE&&Number.isFinite(SE.nextInSec)?Math.max(0,SE.nextInSec-Math.floor((Date.now()-SEAT)/1000)):null; }
-  function clock(s){ if(s===null) return '--:--'; var h=Math.floor(s/3600), m=Math.floor(s%3600/60), x=s%60; return (h?h+':'+pad(m):String(m))+':'+pad(x); }
+  function clock(s){
+    if(s===null){ setText('sw-h','--'); setText('sw-m','--'); setText('sw-s','--'); return; }
+    setText('sw-h',pad(Math.floor(s/3600))); setText('sw-m',pad(Math.floor(s%3600/60))); setText('sw-s',pad(s%60));
+  }
+  function tag(t,live){
+    var c=setText('sw-tag',t); if(!c) return;
+    var cls='ds-chip'+(live?' ds-chip-live':''); if(c.className!==cls) c.className=cls;
+  }
   var podWas='';
   function pod(names){
     var ol=document.getElementById('sw-pod'); if(!ol) return;
@@ -2943,37 +3070,42 @@ function v2SwimEventInit(){
       m.textContent=String(i+1); s.textContent=nm; s.title=nm;
       li.appendChild(m); li.appendChild(s); ol.appendChild(li);
     });
+    var last=document.getElementById('sw-last'); if(last) last.hidden=!list.length;
   }
   function paint(){
     if(!SE){ box.hidden=true; return; }
     box.hidden=false;
     var st=SE.state, on=st==='countdown'||st==='racing';
-    if(Number.isInteger(SE.startHour)){
-      var h12=((SE.startHour+11)%12)+1, ap=SE.startHour<12?'AM':'PM';
-      setText('sw-when','Every '+(SE.every||6)+' hours, next at '+h12+':'+pad(SE.startMin||0)+' '+ap+' ET');
-    }
+    box.classList.toggle('live',on);
+    var at='';
+    if(Number.isInteger(SE.startHour)) at=(((SE.startHour+11)%12)+1)+':'+pad(SE.startMin||0)+' '+(SE.startHour<12?'AM':'PM');
+    setText('sw-when','Every '+(SE.every||6)+' hours');
+    tag(on?(st==='countdown'?'Starting':'Race on'):st==='over'?'Just finished':(at?'Next race '+at+' ET':'Next race'),on);
     var c=document.getElementById('sw-clock');
-    if(c) c.classList.toggle('live',on);
-    setText('sw-clock', on?(st==='countdown'?'Starting':'Live'):clock(left()));
-    var n=SE.entrants||0, min=SE.min||8, max=SE.max||50, line;
-    if(on) line=(SE.left||0)+' of '+(SE.lanes||0)+' cars still racing';
-    else if(st==='over') line='Race over. The next one opens 15 minutes before it starts.';
-    else if(SE.joinOpen) line=(n===1?'1 racer in':n+' racers in')+(SE.test?' for a test race':'')+'. Join any time: one lane per racer.';
-    else line='The game is updating. Back in a minute.';
+    if(c){ c.classList.toggle('live',on); c.style.display=on?'none':''; }
+    setText('sw-cl', on?(st==='countdown'?'Starting now':'Race on'):'Next race in');
+    if(!on) clock(left());
+    var n=SE.entrants||0, max=SE.max||50, line;
+    if(on) line=(SE.left||0)+' of '+(SE.lanes||0)+' cars still racing.';
+    else if(st==='over') line='Race over. Joining for the next race opens in a moment.';
+    else if(SE.joinOpen) line=(n ? (n===1?'1 racer is in':n+' racers are in')+(SE.test?' for a test race':'')+'. Join'
+                                  : 'Be the first in. Join')+' any time before the start: one lane per racer, up to '+max+'.';
+    else line='The race is updating. Joining opens again in a minute.';
     setText('sw-line',line);
     pod(SE.podium||(SE.last&&SE.last.podium)||null);
     var full=!on&&n>=max, open=!on&&!!SE.joinOpen&&!full;
     var join=document.getElementById('sw-join');
     if(join){ if(join.disabled===open) join.disabled=!open; join.classList.toggle('hot',open&&left()!==null&&left()<=600); }
-    setText('sw-join-t', on?'Race on':full?'Event full':'Join');
-    setText('sw-join-s', on?'Watch it live':full?'Watch it when it starts':open?'Free entry':'Back in a minute');
+    var wide=!!(window.matchMedia && window.matchMedia('(min-width:761px)').matches);
+    setText('sw-join-t', on?'Race on':full?'Event full':(wide?'Join the Swim Race':'Join'));
+    setText('sw-join-s', on?'Watch it live':full?'Watch it when it starts':open?'Free entry':st==='over'?'Opens in a moment':'Opens in a minute');
     setText('sw-watch-t', on?'Watch live':'Spectate');
     setText('sw-watch-s', on?(SE.left||0)+' still racing':'');
   }
   window.V2SwimEvent={ feed:function(s){ SE=s||null; SEAT=Date.now(); paint(); }, get state(){ return SE } };
   setInterval(function(){ if(SE) paint(); },1000);
 }
-/* The block is further down the page than this script: start once it is there. */
+/* The card is further down the page than this script: start once it is there. */
 if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',v2SwimEventInit); else v2SwimEventInit();
 function openSwimHow(){
   openHow('Swim Race',[
@@ -3186,151 +3318,185 @@ function openSwimHow(){
 
 <!-- ══ STATS ══ -->
 <!-- ══ EVENTS ══ -->
-<!-- Owen's pick C, "Podium stage" (2026-10-16). tick() fills every state. -->
+<!-- Layout 1 (site redo stage 3, mockup looks/ab/1/events.html): the Battle Royale card leads (its state, the prize,
+     the countdown and the way in), the podium and the schedule sit under it, and the Swim Race is the same card
+     again. V2Event's tick() fills every state from /api/live; names go in by textContent, as they are player input. -->
 <main id="events-screen" class="wrap">
-  <div class="head"><div><h2>Events</h2></div></div>
+  <div class="head"><div><h2 class="ds-t-page">Events</h2></div></div>
 
-  <div class="evgrid">
-  <!-- The podium leads. Tallest in the middle, the heights ARE the ranking.
-       It holds tonight's empty seats while a match runs, and the last match's
-       top 3 the rest of the day, so it is never three question marks all day
-       (Owen, 2026-10-16). Names go in by textContent: they are player input. -->
-  <section class="evstage" id="evhero" aria-label="Battle Royale podium">
-    <div class="evcap"><span id="ev-pcap">Tonight</span><span class="evstd" id="ev-std">$20 to 1st</span></div>
-    <div class="podium">
-      <div class="plinth p2 empty">
-        <div class="pmedal" aria-hidden="true">?</div>
-        <div class="pwho" id="ev-2nd"></div>
-        <div class="pblock"></div>
-      </div>
-      <div class="plinth p1 empty">
-        <div class="pmedal" aria-hidden="true">?</div>
-        <div class="pwho" id="ev-1st"></div>
-        <div class="pblock"><span class="pmoney" data-cu="ev-prize">$20</span></div>
-      </div>
-      <div class="plinth p3 empty">
-        <div class="pmedal" aria-hidden="true">?</div>
-        <div class="pwho" id="ev-3rd"></div>
-        <div class="pblock"></div>
-      </div>
-    </div>
-    <div class="evfloor"></div>
-  </section>
-
-  <div class="evside">
-    <div class="evnext">
+  <div class="ev">
+  <section class="ds-br-card evhero" id="evhero" aria-labelledby="ev-t">
+    <img class="ds-br-art evhero-art" src="/img/games/snake-card.webp?v=1" alt="" draggable="false">
+    <div class="ev-in">
+      <div class="ev-tags"><span class="ds-chip" id="ev-tag">Next match</span><span class="ds-chip ds-chip-money">Free entry</span><span class="ds-chip" id="ev-when">Every 6 hours</span></div>
       <!-- Battle Royale, the one name Join and How it works use too. -->
-      <h3 class="evname">Battle Royale</h3>
-      <p class="evwhen" id="ev-when">Nightly at 8:05 PM ET</p>
-      <p class="evline" id="ev-line"></p>
-      <!-- The countdown Owen loves, in the mono the money uses. Live, it
-           counts down to the circle fully closed. -->
-      <div class="evclock" role="timer" aria-live="off" style="display:none">
-        <div class="evu evhr"><b id="ev-h">--</b><span id="ev-hu">hrs</span></div>
-        <i aria-hidden="true" id="ev-c1">:</i>
-        <div class="evu"><b id="ev-m">--</b><span id="ev-mu">min</span></div>
-        <i aria-hidden="true" class="evsec">:</i>
-        <div class="evu evsec"><b id="ev-s">--</b><span>sec</span></div>
+      <h3 class="ev-title" id="ev-t">Battle Royale</h3>
+      <div class="ev-prize" id="ev-prize"><span class="ev-pz num" id="ev-std" data-cu="ev-prize">$20</span><span>to 1st</span></div>
+      <!-- Just after a match: who won it and what they were paid (or why nothing was). -->
+      <div class="ev-champ" id="ev-champ" hidden>
+        <span class="ev-champ-av" id="ev-champ-av" aria-hidden="true"></span>
+        <div class="ev-champ-who"><b id="ev-champ-nm"></b><span id="ev-champ-sub"></span></div>
+        <div class="ev-champ-pz" id="ev-champ-pz" hidden><span class="ev-pz num" id="ev-champ-v"></span><span>paid to their wallet</span></div>
       </div>
+      <!-- The countdown Owen loves. Live, it counts down to the circle fully closed, in green, minutes and seconds. -->
+      <div class="ds-t-label ev-cl" id="ev-line"></div>
+      <div class="ds-bigclock evclock" role="timer" aria-live="off" style="display:none">
+        <div class="ds-bc evhr"><b id="ev-h">--</b><span id="ev-hu">hours</span></div>
+        <i aria-hidden="true" id="ev-c1">:</i>
+        <div class="ds-bc"><b id="ev-m">--</b><span id="ev-mu">min</span></div>
+        <i aria-hidden="true" class="evsec">:</i>
+        <div class="ds-bc evsec"><b id="ev-s">--</b><span>sec</span></div>
+      </div>
+      <!-- The way in. Join holds the Slither.io art; tick() writes its words into #ev-join-t and #ev-join-s only, so
+           the art survives every state. A shut door is dimmed and says why, never hidden. On a phone #ev-bar is
+           pinned above the tab bar, so Join and Spectate never scroll away. -->
+      <div class="ev-acts">
+        <div class="evbar" id="ev-bar">
+          <button type="button" class="ds-btn ds-btn-primary ds-btn-xl evgo" id="ev-join" onclick="V2Play.launch('snake',{lobbyType:'br'})">
+            <img class="evart" src="/img/games/snake-card.webp?v=1" alt="Slither.io" draggable="false">
+            <span class="evt"><b id="ev-join-t">Join</b><small id="ev-join-s">Free entry</small></span>
+          </button>
+          <button type="button" class="ds-btn ds-btn-secondary ds-btn-lg evwatch" id="ev-watch" onclick="V2Play.spectateEvent()" disabled>
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+            <span class="evt"><b id="ev-watch-t">Spectate</b><small id="ev-watch-s"></small></span>
+          </button>
+        </div>
+        <button type="button" class="ds-btn ds-btn-secondary evown" id="ev-own" hidden onclick="V2Event.ownerStart()">Start match now<small>Owner</small></button>
+        <!-- The rules live behind this, where there is room to say all of them. -->
+        <button type="button" class="ds-btn ds-btn-quiet evhow" onclick="openEventHow()">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.2a2.5 2.5 0 1 1 3.2 2.4c-.5.2-.8.7-.8 1.2v.6"/><path d="M12 17h.01"/></svg>
+          How it works</button>
+      </div>
+      <p class="ev-why" id="ev-why"></p>
     </div>
-    <!-- The rules live behind this, where there is room to say all of them. -->
-    <button type="button" class="evhow" onclick="openEventHow()">
-      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor"
-           stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
-        <circle cx="12" cy="12" r="9"/><path d="M9.6 9.2a2.5 2.5 0 1 1 3.2 2.4c-.5.2-.8.7-.8 1.2v.6"/>
-        <path d="M12 17h.01"/></svg>
-      How it works</button>
-    <!-- Both ways in, always here. Spectate is for the person who has never
-         seen a battle royale as much as for a match in progress; only its
-         label changes. Join holds the slither.io card's art (the game, before
-         a word is read); tick() writes its words into #ev-join-t and
-         #ev-join-s only, so the art survives every state. -->
-    <div class="evbar" id="ev-bar">
-      <button type="button" class="evown" id="ev-own" hidden onclick="V2Event.ownerStart()">Start match now<small>Owner</small></button>
-      <button type="button" class="evbtn evgo" id="ev-join" onclick="V2Play.launch('snake',{lobbyType:'br'})">
-        <img class="evart" src="/img/games/snake-card.webp?v=1" alt="Slither.io" draggable="false">
-        <span class="evt"><b id="ev-join-t">Join</b><small id="ev-join-s">Free entry</small></span>
-      </button>
-      <button type="button" class="evbtn evwatch" id="ev-watch" onclick="V2Play.spectateEvent()" style="visibility:hidden">
-        <span class="evico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-          stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></span>
-        <span class="evt"><b id="ev-watch-t">Spectate</b><small id="ev-watch-s"></small></span>
-      </button>
-    </div>
-  </div>
+  </section>
+
+  <div class="ev-low">
+    <!-- The podium. Tallest in the middle: the heights ARE the ranking. It holds this match's empty seats while one
+         runs, and the last match's top 3 the rest of the time, so it is never three question marks all day. -->
+    <section class="ds-panel ev-podp" id="ev-podp" aria-labelledby="ev-pcap">
+      <h3 class="ev-h3" id="ev-pcap">Last match</h3>
+      <div class="ds-pod podium">
+        <div class="ds-pl p2 empty plinth"><span class="av" aria-hidden="true"></span><div class="nm pwho" id="ev-2nd"></div><div class="sc" id="ev-2nd-sc"></div><div class="blk pblock">2</div></div>
+        <div class="ds-pl p1 empty plinth"><span class="av" aria-hidden="true"></span><div class="nm pwho" id="ev-1st"></div><div class="sc" id="ev-1st-sc"></div><div class="pz pmoney" id="ev-1st-pz"></div><div class="blk pblock">1</div></div>
+        <div class="ds-pl p3 empty plinth"><span class="av" aria-hidden="true"></span><div class="nm pwho" id="ev-3rd"></div><div class="sc" id="ev-3rd-sc"></div><div class="blk pblock">3</div></div>
+      </div>
+      <p class="ev-note" id="ev-podnote"></p>
+    </section>
+    <!-- The next four starts, from the server's own schedule (startHour, startMin, every): never a copy kept here. -->
+    <section class="ds-panel ev-sch" aria-labelledby="ev-sch-t">
+      <h3 class="ev-h3" id="ev-sch-t">Every 6 hours</h3>
+      <div class="ds-list" id="ev-sched"><p class="ds-hint ev-wait">Getting the schedule</p></div>
+    </section>
   </div>
 
-  <!-- The Swim Race (server/swim/SwimEvent.js, every 6 hours, three off the
-       battle royale): its own block under the battle royale, never beside it.
-       Owen's pick "Stage" (2026-10-30). Names go in by textContent: they are
-       player input. -->
-  <section class="swev" id="swev" aria-label="Swim Race" hidden>
-    <div class="swhead">
-      <img class="swart" src="/img/games/swim-card.webp?v=1" alt="" draggable="false">
-      <div class="swtitle">
-        <h3 class="evname">Swim Race</h3>
-        <p class="evwhen" id="sw-when">Every 6 hours</p>
+  <!-- The Swim Race (server/swim/SwimEvent.js, every 6 hours, three off the battle royale): the same card as the
+       battle royale, under it. Names go in by textContent: they are player input. -->
+  <section class="ds-br-card evhero swev" id="swev" aria-labelledby="sw-t" hidden>
+    <img class="ds-br-art evhero-art" src="/img/games/swim-card.webp?v=1" alt="" draggable="false">
+    <div class="ev-in">
+      <div class="ev-tags"><span class="ds-chip" id="sw-tag">Next race</span><span class="ds-chip ds-chip-money">Free entry</span><span class="ds-chip" id="sw-when">Every 6 hours</span></div>
+      <h3 class="ev-title" id="sw-t">Swim Race</h3>
+      <div class="ds-t-label ev-cl" id="sw-cl">Next race in</div>
+      <div class="ds-bigclock evclock" id="sw-clock" role="timer" aria-live="off">
+        <div class="ds-bc"><b id="sw-h">--</b><span>hours</span></div>
+        <i aria-hidden="true">:</i>
+        <div class="ds-bc"><b id="sw-m">--</b><span>min</span></div>
+        <i aria-hidden="true">:</i>
+        <div class="ds-bc"><b id="sw-s">--</b><span>sec</span></div>
       </div>
-      <div class="swclock" id="sw-clock" role="timer" aria-live="off">--:--</div>
+      <div class="ev-acts">
+        <div class="evbar swbar">
+          <button type="button" class="ds-btn ds-btn-primary ds-btn-xl evgo" id="sw-join" onclick="V2Play.swimRace(true)">
+            <span class="evt"><b id="sw-join-t">Join</b><small id="sw-join-s">Free entry</small></span>
+          </button>
+          <button type="button" class="ds-btn ds-btn-secondary ds-btn-lg evwatch" id="sw-watch" onclick="V2Play.swimRace(false)">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+            <span class="evt"><b id="sw-watch-t">Spectate</b><small id="sw-watch-s"></small></span>
+          </button>
+        </div>
+        <button type="button" class="ds-btn ds-btn-quiet evhow" onclick="openSwimHow()">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.2a2.5 2.5 0 1 1 3.2 2.4c-.5.2-.8.7-.8 1.2v.6"/><path d="M12 17h.01"/></svg>
+          How it works</button>
+      </div>
+      <p class="ev-why" id="sw-line"></p>
+      <div class="swlast" id="sw-last" hidden><span class="ds-t-label">Last race</span><ol class="swpod" id="sw-pod" aria-label="Last race's top 3"></ol></div>
     </div>
-    <p class="swline" id="sw-line"></p>
-    <ol class="swpod" id="sw-pod" aria-label="Last race's top 3"></ol>
-    <div class="swbar">
-      <button type="button" class="evbtn evgo" id="sw-join" onclick="V2Play.swimRace(true)">
-        <span class="evt"><b id="sw-join-t">Join</b><small id="sw-join-s">Free entry</small></span>
-      </button>
-      <button type="button" class="evbtn evwatch" id="sw-watch" onclick="V2Play.swimRace(false)">
-        <span class="evico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-          stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></span>
-        <span class="evt"><b id="sw-watch-t">Spectate</b><small id="sw-watch-s"></small></span>
-      </button>
-    </div>
-    <button type="button" class="evhow" onclick="openSwimHow()">
-      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor"
-           stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
-        <circle cx="12" cy="12" r="9"/><path d="M9.6 9.2a2.5 2.5 0 1 1 3.2 2.4c-.5.2-.8.7-.8 1.2v.6"/>
-        <path d="M12 17h.01"/></svg>
-      How it works</button>
   </section>
+  </div>
 </main>
 
 <!-- ══ SOCIAL ══ -->
+<!-- Leaderboards (layout 1, mockup looks/ab/1/leaderboards.html). PC: player winnings and the top 10 on the left,
+     Find a player and How the board works in a column on the right. Phone: winnings, search, board, how it works. -->
 <main id="social-screen" class="wrap">
-  <!-- Global player winnings: real players only, the lobby strip's own total
-       (/api/earnings/total), live. Filled by social.js; hidden only while the
-       strip's off switch is on. -->
-  <section id="soc-win" aria-label="Global player winnings" hidden></section>
-  <!-- One heading (Owen, 2026-10-15). Under it the top 3, live, and "View full
-       leaderboard" for the top 10 (leaders.js, Owen 2026-10-16); search finds
-       anyone, on the board or not. -->
-  <div class="head"><div><h2>Top earners<span class="lb-live" id="soc-live" title="Updates every minute"><i></i>LIVE</span></h2></div></div>
-  <div id="soc-top"></div>
-  <label class="search">
-    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4.2-4.2"/></svg>
-    <input id="soc-q" type="search" placeholder="Search players by name" maxlength="24"
-      autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search"
-      oninput="V2Social.search(this.value)" aria-label="Search players by name" aria-controls="soc-board">
-  </label>
-  <div class="tbl" id="soc-board" aria-live="polite"></div>
+  <div class="head"><div><h2 class="ds-t-page">Leaderboards</h2></div></div>
+  <div class="lb">
+    <div class="lb-main">
+    <!-- Player winnings: real players only, the lobby strip's own totals (/api/earnings/total all time, and the
+         strip's /api/earnings for today and this week). Filled by social.js; hidden only while the strip's off switch
+         is on. The period it shows is the board's period too. -->
+    <section id="soc-win" class="ds-panel lb-sum" aria-label="Global player winnings" hidden></section>
+    <section class="lb-board" aria-labelledby="lb-top-t">
+      <div class="ds-sec-hd lb-board-hd"><h2 id="lb-top-t">Top 10 all time</h2></div>
+      <div id="soc-top"></div>
+    </section>
+    </div>
+    <div class="lb-side">
+    <section class="ds-panel lb-find" aria-labelledby="lb-find-t">
+      <h2 class="lb-side-t" id="lb-find-t">Find a player</h2>
+      <div class="ds-input-wrap lb-q">
+        <svg class="ds-input-pre" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4.2-4.2"/></svg>
+        <input class="ds-input" id="soc-q" type="search" placeholder="Search by name" maxlength="24"
+          autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search"
+          oninput="V2Social.search(this.value)" aria-label="Search players by name" aria-controls="soc-board">
+      </div>
+      <div class="lb-res" id="soc-board" aria-live="polite"></div>
+    </section>
+    <section class="ds-panel lb-how" aria-labelledby="lb-how-t">
+      <h2 class="lb-side-t" id="lb-how-t">How the board works</h2>
+      <ul>
+        <li><b>Money</b> is what landed in players' wallets from paid rooms, after the 10% cut.</li>
+        <li>Only real players count. Free games, bots and the house's own wallets never do.</li>
+        <li>The board updates every minute. Search finds anyone who has played, on the board or not.</li>
+      </ul>
+    </section>
+    </div>
+  </div>
 </main>
 
 <!-- ══ PLAYER PROFILE ══ -->
+<!-- A player's public profile (social.js openPlayer): the same width as the board, Back returns to it. -->
 <main id="player-screen" class="wrap">
-  <a class="back" href="#" onclick="go('social');return false">&#8592; &nbsp;Top earners</a>
-  <div class="phead">
-    <div>
-      <h1 id="p-name"></h1>
-      <div class="psub" id="p-sub"></div>
+  <div class="head pf-top"><button type="button" class="ds-btn ds-btn-quiet pf-back" onclick="go('social')"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>Leaderboards</button></div>
+  <div class="pf">
+    <section class="ds-panel pf-hd" aria-labelledby="p-name">
+      <img class="pf-art" id="p-art" alt="" hidden>
+      <div class="pf-id">
+        <h1 class="ds-t-page" id="p-name"></h1>
+        <p class="pf-line" id="p-sub"></p>
+        <p class="pf-mine" id="p-mine" hidden>This is what other players see. Change your name from your profile card in the header.</p>
+      </div>
+      <!-- accounts.total_earnings accumulates winnings only, so this is a cumulative total, not a net of buy-ins.
+           Labelled as what it is. -->
+      <div class="pf-tot"><span class="ds-t-label">Total earnings</span><b class="ds-d2 ds-money num" id="p-net" data-cu></b><span class="ds-t-meta" id="p-netsub"></span></div>
+    </section>
+    <div class="ds-stat-row pf-stats" id="p-tiles"></div>
+    <div class="pf-grid">
+      <section class="ds-panel pf-earn" aria-labelledby="p-earn-t">
+        <div class="ds-panel-head"><h2 id="p-earn-t">Earnings</h2><span class="ds-t-meta" id="p-chart-hint"></span></div>
+        <!-- chartbox, like the Wallet tab's: the same graph needs the same box. -->
+        <div class="chartbox" id="p-chart"></div>
+      </section>
+      <section class="ds-panel pf-wr" aria-labelledby="p-wr-t">
+        <div class="ds-panel-head"><h2 id="p-wr-t">Paid rounds</h2></div>
+        <div id="p-split"></div>
+        <button type="button" class="ds-btn ds-btn-quiet ds-btn-sm pf-how" id="p-wrhow" onclick="V2Social.winHow()">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.2a2.5 2.5 0 1 1 3.2 2.4c-.5.2-.8.7-.8 1.2v.6"/><path d="M12 17h.01"/></svg>
+          How a win is counted</button>
+      </section>
     </div>
-    <div class="sp"></div>
-    <!-- accounts.total_earnings accumulates winnings only, so this is a
-         cumulative total, not a net of buy-ins. Label it as what it is. -->
-    <div class="pnet"><div class="k">Total earnings</div><div class="v num" id="p-net" data-cu></div></div>
   </div>
-  <div class="tiles" id="p-tiles" style="margin-top:26px"></div>
-  <div class="head"><div><h2>Earnings</h2></div></div>
-  <!-- chartbox, like the Wallet tab's: the same graph needs the same box. -->
-  <div class="panel chartbox" id="p-chart"></div>
 </main>
 
 <!-- Locker and Settings are both placeholders, but they need one element each:
