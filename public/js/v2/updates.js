@@ -104,7 +104,8 @@
     const a = el('article', 'uppost' + (marks.has(p.id) ? ' fresh' : ''));
     const stop = el('i', 'upstop'); stop.setAttribute('aria-hidden', 'true'); a.appendChild(stop);
     const t = kindOf(p);
-    const tag = el('span', 'ds-chip uptag t-' + t); tag.appendChild(ic(t)); tag.appendChild(document.createTextNode(TAG[t]));
+    // A blinking green dot before the kind, like Join us's newest-update line (Owen 2026-11-02).
+    const tag = el('span', 'ds-chip uptag t-' + t); tag.appendChild(el('i', 'updot')); tag.appendChild(document.createTextNode(TAG[t]));
     a.appendChild(tag);
     const h = el('h3', 'uph');
     if (marks.has(p.id)) h.appendChild(el('span', 'ds-sr', 'Not seen yet: '));

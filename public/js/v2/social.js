@@ -265,7 +265,7 @@
   function drawResults(names) {
     const box = el('soc-board');
     if (!box) return;
-    if (names == null) { box.innerHTML = '<p class="ds-hint">Finds anyone who has played, on the board or not.</p>'; return; }
+    if (names == null) { box.innerHTML = ''; return; }
     if (!names.length) { box.innerHTML = '<p class="ds-hint lb-miss">No player by that name.</p>'; return; }
     box.innerHTML = '<div class="ds-list">' + names.map(rowHTML).join('') + '</div>';
   }

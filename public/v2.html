@@ -270,6 +270,20 @@ header{position:sticky;top:0;z-index:50;background:rgba(0,0,0,.88);
 @media(min-width:761px) and (min-height:501px) and (hover:none){.sb-eye{width:26px}}
 @media(min-width:761px) and (min-height:1000px){:root{--rh:36px;--gh:30px;--art:22px}}
 @media(min-width:761px) and (min-height:1060px){:root{--rh:38px;--gh:32px;--art:24px}}
+/* Dial-in (Owen 2026-11-02): no Live games list, so the tabs get the room: taller rows, bigger words and icons,
+   a gap after the money tabs, and the logo with more air. */
+@media(min-width:761px) and (min-height:501px){
+  :root{--rh:44px}
+  .nav{gap:4px;padding:0 14px 14px}
+  .ni,.sb-it{font-size:15px;padding:0 14px;gap:14px}
+  .ni svg,.sb-it svg{width:22px;height:22px}
+  .sb-logo{height:calc(var(--ds-hdh) + 12px);padding:0 14px;font-size:21px}
+  .nav>.ni[data-tab="clips"]{margin-top:var(--ds-sp4)}
+  .nav>.ni[data-tab="clips"]::before{content:"";position:absolute;left:14px;right:14px;top:calc(-1 * var(--ds-sp2) - 2px);height:1px;background:var(--line);pointer-events:none}
+  .sb-pin{gap:4px}
+  .ni.isnew::after{left:30px;top:calc(50% - 13px)}
+}
+@media(min-width:761px) and (max-height:760px) and (min-height:501px){:root{--rh:38px}}
 /* Narrow PC windows: a 216px sidebar. */
 @media(min-width:761px) and (max-width:1100px) and (min-height:501px){
   :root{--sbw:216px}
@@ -1009,7 +1023,9 @@ body.ingame .win-live i,body.ingame .win-live i::before{animation-play-state:pau
 /* Dial-in 2026-11-02: one centered column like the pre-redo board. */
 #social-screen .lb{display:flex;flex-direction:column;align-items:stretch;gap:var(--ds-sp5);max-width:720px;margin:0 auto}
 #social-screen .lb-sum{display:flex;flex-direction:column;align-items:center;text-align:center;gap:var(--ds-sp3);
-  padding:var(--ds-sp6) var(--ds-sp5)}
+  padding:var(--ds-sp7) var(--ds-sp5);
+  /* the pre-redo board's warm glow under the total (Owen 2026-11-02) */
+  background:radial-gradient(70% 120% at 50% 100%,rgba(240,168,48,.22),rgba(240,168,48,.06) 55%,transparent 80%),var(--ds-s1)}
 #social-screen .lb-sum-hd{justify-content:center}
 #social-screen .lb-fig{justify-content:center}
 #social-screen .lb-board-hd{display:flex;align-items:center;gap:var(--ds-sp3)}
@@ -1769,8 +1785,12 @@ svg.v2chart text{font-family:var(--ds-f);font-variant-numeric:tabular-nums;font-
   background:var(--ds-ink);box-shadow:inset 0 0 0 2px var(--ds-line2)}
 .uppost+.uppost .upstop{top:calc(var(--ds-sp6) + 6px)}
 .upstop.is-fresh,.uppost.fresh .upstop{background:var(--ds-bone);box-shadow:0 0 0 4px var(--ds-ink)}
-.uptag{display:inline-flex;align-items:center;gap:5px}
-.uptag svg{margin-left:-2px}
+.uptag{display:inline-flex;align-items:center;gap:7px}
+/* The green dot, blinking past the reduce rule like Home's Live wins dot (Owen asked for it to blink). */
+.updot{width:7px;height:7px;border-radius:50%;background:var(--ds-green);flex:none;animation:updot 1.6s ease-in-out infinite}
+@keyframes updot{0%,100%{opacity:1}50%{opacity:.25}}
+@media(prefers-reduced-motion:reduce){.updot{animation-duration:1.6s!important;animation-iteration-count:infinite!important}}
+body.ingame .updot{animation-play-state:paused!important}
 .uph{margin:var(--ds-sp3) 0 0;font-size:21px;font-weight:750;font-stretch:108%;letter-spacing:-.008em;line-height:1.22;text-wrap:balance}
 .upb{margin:var(--ds-sp3) 0 0;font-size:var(--ds-fs-3);line-height:1.6;color:var(--ds-tx2);max-width:64ch}
 /* pictures: the big one under the title, small ones under the words; any opens large */
@@ -6277,7 +6297,6 @@ function drawNav(){
   document.getElementById('nav').innerHTML=`<a class="logo sb-logo sbx" href="/" onclick="go('play');return false" aria-label="DuelSeries home">Duel<em>Series</em></a>`
     +NAV.filter(n=>!n.pin).map(navBtn).join('')
     +`<button class="sb-it sbx sb-soon" type="button" aria-disabled="true" aria-label="Shop, coming soon">${SBI(SB_P.shop)}<span>Shop</span><span class="sb-pill">Soon</span></button>`
-    +`<section class="sbx sb-live" aria-labelledby="sb-lh"><div class="sb-lhd"><span id="sb-lh">Live games</span><span class="sbx sb-stat" id="sb-stat" hidden></span></div><div class="sb-list" id="sb-list"></div></section>`
     +`<div class="sb-pin">`
     +`<button class="sbx sb-br" id="sb-br" type="button" onclick="go('events')" hidden><span class="sb-bri">${SBI(SB_P.trophy)}</span><b class="sb-brn">Battle Royale</b><span class="sb-m"></span><b class="sb-cd" id="sb-cd"></b><span class="sb-fr" id="sb-fr"></span><i class="sb-bar" aria-hidden="true"></i></button>`
     +`<button class="sb-it sbx" type="button" onclick="window.V2Invite&&V2Invite.home()">${SBI(SB_P.refer)}<span>Refer a friend</span></button>`

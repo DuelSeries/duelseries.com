@@ -31,7 +31,7 @@
      are (socialPreview.js liveLook is always false now). */
   const SAMPLE = () => !!P() && !P().liveLook;
   const PERIODS = ['today', 'week', 'all'];
-  const ROWS = 25;            // made-up players shown on the board (the real board is the server's top 10)
+  const ROWS = 10;            // the top 10 only (Owen 2026-11-02), made-up or real
   const WORD = { today: 'today', week: 'this week', all: 'all time' };
 
   let money = n => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
