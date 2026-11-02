@@ -1,9 +1,10 @@
 'use strict';
-/* ─── Join us: ways to get involved (Owen 2026-10-16, look 2 "Links") ──────────
-   The Discord and the Whop clip team as two equal rows, X / TikTok / YouTube,
-   then copy the site link, share a clip, report a bug, send an idea, and the
-   newest Updates post. Styles in public/css/join.css. PC only, like Clips and
-   Updates (v2.html's PC_ONLY and join.css), so a phone never builds it.
+/* ─── Join us: ways to get involved (Owen 2026-10-16; site redo stage 3, layout 1, mockup looks/ab/1/join.html) ──
+   A hand of playable games beside the Discord and the Whop clip team as two equal rows, then four ways to help
+   (invite a friend, share a clip, report a bug, send an idea), the newest Updates post, and the socials and the
+   email at the foot. A social shows only once its link is set: greyed circles that did nothing are gone (stage 3
+   audit). Styles in public/css/join.css. PC only, like Clips and Updates (v2.html's PC_ONLY and join.css), so a
+   phone never builds it.
 
    Whop is the clip team: people post DuelSeries clips and Whop's content
    rewards pay them for the views. No rate is stated anywhere until Owen sets
@@ -35,6 +36,9 @@
   };
   const ICON = {
     chev: 'm9 6 6 6-6 6',
+    ext: 'M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5',
+    upd: 'M4 5h16M4 12h16M4 19h10',
+    mail: 'M3 5h18v14H3zM3 7l9 6 9-6',
     link: 'M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7',
     ok: 'M5 12.5 10 17l9-10',
     clip: 'M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM10 9.2v5.6l4.6-2.8z',
@@ -84,11 +88,12 @@
     return n;
   }
 
+  /* One of the two big rows: the kit's option row. A set link opens in a new tab; an unset one says Opening soon. */
   function bigRow(key, art, title, line) {
-    const a = door(key, 'jn-lb');
+    const a = door(key, 'ds-opt jn-lb');
     const t = el('span', 'jn-t');
-    t.append(el('b', '', title), el('span', '', line));
-    a.append(art, t, link(key) ? svg(ICON.chev, 'st jn-go') : el('span', 'jn-soon', 'Opening soon'));
+    t.append(el('b', '', title), el('small', '', line));
+    a.append(art, t, link(key) ? svg(ICON.ext, 'st jn-go') : el('span', 'jn-soon', 'Opening soon'));
     return a;
   }
   function discordArt() {
@@ -115,7 +120,7 @@
     return a;
   }
   function small(icon, text, onClick) {
-    const b = el('button', 'jn-ls');
+    const b = el('button', 'ds-btn ds-btn-secondary jn-ls');
     b.type = 'button';
     b.append(svg(icon, 'st'), el('span', '', text));
     b.addEventListener('click', onClick);
@@ -164,59 +169,72 @@
     if (!root) return;
     const box = el('div', 'jn');
 
+    const hd = el('div', 'head');
+    const hw = el('div');
+    const h = el('h2', 'ds-t-page', 'Join us');
+    h.id = 'jn-title';
+    root.setAttribute('aria-labelledby', 'jn-title');
+    hw.append(h, el('p', 'pg-sub jn-sub', 'Play with the community, make clips for DuelSeries, and tell us what to build next.'));
+    hd.appendChild(hw);
+
+    /* The hand of games: five that can be played today, the middle one first (stage 3 audit: Agar.io and Battleship,
+       both Coming soon, were in it). join.css places them. */
+    const hero = el('section', 'ds-panel jn-hero');
+    hero.setAttribute('aria-label', 'The Discord and the clip team');
     const fan = el('div', 'jn-fan');
-    // Middle card first in the file, then out to the edges; join.css places them.
-    ['snake', 'agar', 'paper', 'knockout', 'battleship'].forEach((g, i) => {
+    fan.setAttribute('aria-hidden', 'true');
+    const soon = (g) => !!(window.V2_IS_SOON && window.V2_IS_SOON(g));
+    ['snake', 'chomp', 'paper', 'headsoccer', 'pool8', 'airhockey', 'crossy'].filter(g => !soon(g)).slice(0, 5).forEach((g, i) => {
       const img = el('img', 'jn-c' + i);
       img.src = cardArt(g); img.alt = ''; img.draggable = false; img.decoding = 'async';
       fan.appendChild(img);
     });
-    const icon = el('img', 'jn-icon');
-    icon.src = '/img/icon-192.png'; icon.alt = 'DuelSeries'; icon.draggable = false;
-    fan.appendChild(icon);
-
-    const h = el('h2', '', 'Join us');
-    h.id = 'jn-title';
-    root.setAttribute('aria-labelledby', 'jn-title');
-    const sub = el('p', 'jn-sub', 'Play with the community, make clips for DuelSeries, and tell us what to build next.');
-
     const big = el('div', 'jn-big');
     big.append(
       bigRow('discord', discordArt(), 'Join the Discord', 'Chat with players and hear about events first.'),
-      bigRow('whop', whopArt(), 'Join the clip team on Whop', 'Post DuelSeries clips and get paid for the views.'));
+      bigRow('whop', whopArt(), 'Join the clip team on Whop', 'Post DuelSeries clips through Whop content rewards. No pay rate is set yet.'));
+    hero.append(fan, big);
 
+    const ways = el('section', 'jn-ways');
+    ways.setAttribute('aria-labelledby', 'jn-ways-t');
+    const wh = el('h2', 'jn-h', 'More ways to help'); wh.id = 'jn-ways-t';
+    const sm = el('div', 'jn-small');
+    const copy = el('button', 'ds-btn ds-btn-secondary jn-ls');
+    copy.type = 'button';
+    copy.append(svg(ICON.link, 'st jn-cp'), svg(ICON.ok, 'st jn-ok'), el('span', 'jn-cp', 'Invite a friend'), el('span', 'jn-ok', 'Link copied'));
+    copy.setAttribute('aria-live', 'polite');
+    copy.addEventListener('click', () => copySite(copy));
+    const bug = support('ds-btn ds-btn-secondary jn-ls', '', { title: 'Report a bug', sub: 'Tell us which game, what happened and roughly when.',
+      subject: 'Bug report', body: 'Which game:\nWhat happened:\nRoughly when:\n' });
+    bug.append(svg(ICON.bug, 'st'), el('span', '', 'Report a bug'));
+    const idea = support('ds-btn ds-btn-secondary jn-ls', '', { title: 'Send an idea', sub: 'Tell us what you would add or change.', subject: 'Idea for DuelSeries' });
+    idea.append(svg(ICON.idea, 'st'), el('span', '', 'Send an idea'));
+    sm.append(copy, small(ICON.clip, 'Share a clip', () => window.go && go('clips')), bug, idea);
+    ways.append(wh, sm);
+
+    const upd = el('section', 'ds-panel ds-panel-tight jn-upd');
+    upd.id = 'jn-upd';
+    upd.setAttribute('aria-label', 'The newest update');
+    upd.hidden = true;
+
+    /* The foot: the socials that are set (none yet), the line that says what is really there, and the email. */
+    const foot = el('div', 'jn-foot');
     const soc = el('div', 'jn-soc');
-    const xm = svg(MARK.x), ym = svg(MARK.youtube);
-    soc.append(social('x', 'X', 'jn-x', xm), social('tiktok', 'TikTok', 'jn-tt', tiktok()), social('youtube', 'YouTube', 'jn-yt', ym));
-    // The line names what is really there: the set ones to follow, the rest opening soon.
     const NAMES = { x: 'X', tiktok: 'TikTok', youtube: 'YouTube' };
+    const MARKS = { x: () => svg(MARK.x), tiktok: tiktok, youtube: () => svg(MARK.youtube) };
+    Object.keys(NAMES).filter(link).forEach(k => soc.appendChild(social(k, NAMES[k], 'jn-' + k, MARKS[k]())));
+    // The line names what is really there: the set ones to follow, the rest opening soon.
     const list = (ks) => ks.map(k => NAMES[k]).join(', ').replace(/, ([^,]*)$/, (_, last) => ' and ' + last);
     const live = Object.keys(NAMES).filter(link), dead = Object.keys(NAMES).filter(k => !link(k));
     const socl = el('p', 'jn-soclbl', [
       live.length ? 'Follow DuelSeries on ' + list(live) + '.' : '',
       dead.length ? (live.length ? ' ' : 'Our ') + list(dead) + (dead.length > 1 ? ' are' : ' is') + ' opening soon.' : '',
     ].join(''));
+    const mail = support('ds-btn ds-btn-quiet jn-mail', '', {});
+    mail.append(svg(ICON.mail, 'st'), el('span', '', MAIL));
+    foot.append(socl, soc, mail);
 
-    const sm = el('div', 'jn-small');
-    const copy = el('button', 'jn-ls');
-    copy.type = 'button';
-    copy.append(svg(ICON.link, 'st jn-cp'), svg(ICON.ok, 'st jn-ok'), el('span', 'jn-cp', 'Invite a friend'), el('span', 'jn-ok', 'Link copied'));
-    copy.setAttribute('aria-live', 'polite');
-    copy.addEventListener('click', () => copySite(copy));
-    const bug = support('jn-ls', '', { title: 'Report a bug', sub: 'Tell us which game, what happened and roughly when.',
-      subject: 'Bug report', body: 'Which game:\nWhat happened:\nRoughly when:\n' });
-    bug.append(svg(ICON.bug, 'st'), el('span', '', 'Report a bug'));
-    const idea = support('jn-ls', '', { title: 'Send an idea', sub: 'Tell us what you would add or change.', subject: 'Idea for DuelSeries' });
-    idea.append(svg(ICON.idea, 'st'), el('span', '', 'Send an idea'));
-    sm.append(copy, small(ICON.clip, 'Share a clip', () => window.go && go('clips')), bug, idea);
-
-    const upd = el('p', 'jn-upd');
-    upd.id = 'jn-upd';
-    upd.hidden = true;
-
-    const mail = support('jn-mail', MAIL, {});
-
-    box.append(fan, h, sub, big, soc, socl, sm, upd, mail);
+    box.append(hd, hero, ways, upd, foot);
     root.appendChild(box);
     built = true;
   }
@@ -235,11 +253,20 @@
       for (const p of posts) if (!top || p.date > top.date) top = p;
       const line = $('jn-upd');
       if (!top || !line) return;
-      const tag = el('span', 'jn-tag' + (TAG[top.tag] ? ' t-' + top.tag : ''), TAG[top.tag] || 'New');
-      const see = el('button', '', 'See updates');
+      // One kit row: the post's title and its day, its tag, and See updates.
+      const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const row = el('div', 'ds-row jn-updrow');
+      const ic = el('span', 'ds-row-ic'); ic.appendChild(svg(ICON.upd, 'st'));
+      const main = el('span', 'ds-row-main');
+      main.append(el('b', '', top.title.trim()), el('span', '', 'Newest update, ' + MON[Number(top.date.slice(5, 7)) - 1] + ' ' + Number(top.date.slice(8, 10))));
+      const end = el('span', 'ds-row-end jn-upd-end');
+      const tag = el('span', 'ds-chip jn-tag' + (TAG[top.tag] ? ' t-' + top.tag : ''), TAG[top.tag] || 'New');
+      const see = el('button', 'ds-btn ds-btn-secondary ds-btn-sm', 'See updates');
       see.type = 'button';
       see.addEventListener('click', () => window.go && go('updates'));
-      line.replaceChildren(tag, el('span', '', top.title.trim()), see);
+      end.append(tag, see);
+      row.append(ic, main, end);
+      line.replaceChildren(row);
       line.hidden = false;
     }).catch(() => { asked = false; });
   }

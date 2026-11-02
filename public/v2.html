@@ -1541,161 +1541,207 @@ svg.v2chart text{font-family:var(--ds-f);font-variant-numeric:tabular-nums;font-
 @keyframes brcallring{0%{box-shadow:0 0 0 0 rgba(240,168,48,.7)}100%{box-shadow:0 0 0 10px rgba(240,168,48,0)}}
 @keyframes brcallicon{0%,100%{transform:scale(1)}40%{transform:scale(1.18)}}
 
-/* Clips, look A: a wall of clips, Top clippers on the right. The video plays
-   from X, YouTube or TikTok in a sheet (public/js/v2/clips.js). */
-#clips-screen.wrap{max-width:1180px}
-.clhead{gap:20px}
-.clsub{color:var(--tx2);font-size:14.5px;line-height:1.5;margin-top:8px;max-width:62ch}
-.clsend{flex:none;display:inline-flex;align-items:center;gap:8px;background:var(--bone);color:var(--ink);
-  font-weight:600;font-size:14px;padding:11px 17px;border-radius:var(--r2);transition:transform .15s}
-.clsend:hover{transform:translateY(-1px)}
-.clsend svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round}
-.clwall{display:grid;grid-template-columns:minmax(0,1fr) 250px;gap:28px;align-items:start;padding-bottom:64px}
-.clgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px 18px}
-@media(max-width:1180px){.clgrid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:920px){.clwall{grid-template-columns:minmax(0,1fr)}.cltop{order:-1}}
-.clpic{display:block;width:100%;position:relative;aspect-ratio:16/9;border-radius:12px;overflow:hidden;
-  background:#000 center/cover no-repeat;cursor:pointer}
-.clpic::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,transparent 55%,rgba(0,0,0,.5))}
-.clplay{position:absolute;left:50%;top:50%;width:52px;height:52px;margin:-26px 0 0 -26px;border-radius:50%;z-index:1;
-  background:rgba(16,14,11,.72);display:grid;place-items:center;backdrop-filter:blur(4px);transition:transform .15s}
-.clpic:hover .clplay{transform:scale(1.08)}
-.clplay::before{content:"";border-left:15px solid var(--bone);border-top:9px solid transparent;
-  border-bottom:9px solid transparent;margin-left:4px}
-.clsrc{position:absolute;right:9px;top:9px;z-index:1;background:rgba(16,14,11,.78);color:var(--tx);
-  font-size:11.5px;font-weight:650;padding:4px 8px;border-radius:var(--r1)}
-.cldur{position:absolute;right:9px;bottom:9px;z-index:1;font-size:12px;color:var(--tx)}
-.clcap{font-size:14.5px;font-weight:600;line-height:1.3;margin-top:10px;letter-spacing:-.15px;overflow-wrap:anywhere}
-.clby{display:flex;gap:8px;align-items:baseline;margin-top:6px;font-size:12.5px;min-width:0}
-.clname{font-weight:600;color:var(--tx2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
-.clgame{color:var(--tx3);white-space:nowrap}
-.clempty{grid-column:1/-1;background:var(--s1);border-radius:var(--r3);padding:44px 28px;text-align:center;
-  color:var(--tx2);font-size:14.5px;line-height:1.5;display:flex;flex-direction:column;gap:6px;align-items:center}
-.clempty b{color:var(--tx);font-size:17px;font-weight:650}
-.cltop{background:var(--s1);border-radius:var(--r3);padding:16px 16px 10px}
-.cltoph{font-size:15px;font-weight:650;letter-spacing:-.2px;margin-bottom:6px}
-.cltr{display:flex;gap:10px;align-items:center;padding:9px 0;font-size:13.5px;border-top:1px solid var(--s2)}
-.cltoph+.cltr{border-top:0}
-.cltn{color:var(--tx3);width:16px;font-size:12.5px}
-.cltnm{flex:1;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.cltc{color:var(--tx2);font-size:12.5px;white-space:nowrap}
-.cltopnone{color:var(--tx3);font-size:13px;line-height:1.5;padding:2px 0 8px}
-/* The owner's queue: only the owner wallet ever gets it (the server decides). */
-#cl-queue{background:var(--s1);border-radius:var(--r3);padding:18px 18px 20px;margin-bottom:28px}
-.clqh{font-size:15px;font-weight:650;display:flex;gap:10px;align-items:center}
-.clqn{font-size:12px;background:var(--bone);color:var(--ink);border-radius:var(--rf);padding:1px 8px;font-weight:600}
-.clqnone{color:var(--tx3);font-size:13.5px;margin-top:8px}
-.clqlist{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:20px 16px;margin-top:14px}
-@media(max-width:1180px){.clqlist{grid-template-columns:repeat(3,minmax(0,1fr))}}
-.clacts{display:flex;gap:6px;align-items:center;margin-top:10px;flex-wrap:wrap}
-.clok,.clno{font-size:13px;font-weight:650;padding:8px 13px;border-radius:var(--r2);transition:background .15s}
-.clok{background:var(--live);color:var(--ink)}
-.clno{background:var(--s3);color:var(--tx)}
-.clok:disabled,.clno:disabled{opacity:.5;cursor:default}
-.cllink{font-size:12.5px;color:var(--tx2);margin-left:auto;text-decoration:underline;text-underline-offset:3px;white-space:nowrap}
-.cllink:hover{color:var(--tx)}
-.clnote{font-size:12.5px;color:var(--tx3);margin-left:auto;white-space:nowrap}
-/* A shared clip's Download, Copy link and Post on X: small on a card, full size under the player. */
-.clsh{display:flex;gap:4px;margin-top:9px;flex-wrap:wrap}
-.clsh button{font-size:12px;font-weight:600;color:var(--tx2);padding:5px 8px;border-radius:var(--r1);background:var(--s2);transition:background .15s,color .15s}
-.clsh button:hover{color:var(--tx);background:var(--s3)}
-.clmsh{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-.clmsh button{font-size:13.5px;font-weight:650;padding:10px 14px;border-radius:var(--r2);background:var(--s3);color:var(--tx);transition:background .15s}
-.clmsh button:first-child{background:var(--bone);color:var(--ink)}
-.clmsh button:disabled,.clsh button:disabled{opacity:.6;cursor:default}
-/* Your clips: the upload box first, then the player's own clips with their state and Delete. */
-.clsend.sec{background:var(--s2);color:var(--tx)}
-#cl-mine{background:var(--s1);border-radius:var(--r3);padding:18px 18px 20px;margin-bottom:28px}
-.cldrop{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:8px;min-height:100%;padding:18px;
-  border:1.5px dashed var(--s3);border-radius:12px;color:var(--tx2);font-size:13px;line-height:1.45;transition:border-color .15s,background .15s}
-.cldrop b{color:var(--tx);font-size:15px;font-weight:650}
-.cldrop.over,body.cldragging .cldrop{border-color:var(--bone);background:var(--s2)}
-.clst{font-size:12.5px;color:var(--tx2);margin-right:auto}
-.clst.live{color:var(--live)}
-.clst.rejected{color:var(--tx3)}
-.clfile{display:flex;gap:12px;align-items:center;margin-bottom:6px}
-.clfile video{width:160px;aspect-ratio:16/9;border-radius:8px;background:#000;object-fit:contain}
-.clfmeta{display:flex;flex-direction:column;gap:4px;min-width:0;font-size:12.5px;color:var(--tx2)}
-.clfmeta b{color:var(--tx);font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-/* The player sheet: as big as the screen allows at the clip's own shape. */
-.clbox{width:min(1100px,100%,calc((100vh - 150px) * 1.7778));display:flex;flex-direction:column;gap:14px}
-.clbox.tall{width:min(420px,100%,calc((100vh - 150px) * .5625))}
-.clstage{position:relative;aspect-ratio:16/9;background:#000;border-radius:14px;overflow:hidden}
+/* ── Clips (site redo stage 3, layout 1; mockup looks/ab/1/clips.html) ───────────────────────────────────────
+   The wall takes the stage; the rail beside it holds Your clips (signed in), Top clippers and the clip team. The
+   video plays in the kit's sheet. Clips, Updates and Join us share one frame: the same page padding, the same 1180px
+   and the same left edge (stage 3 audit: three widths and alignments). Rules that adjust a kit class carry
+   #clips-screen, because the kit is linked after this block. */
+:is(#clips-screen,#updates-screen).wrap{padding-top:var(--ds-sp5);padding-bottom:var(--ds-sp7)}
+:is(#clips-screen,#updates-screen)>.head{margin:0 0 var(--ds-sp5)}
+.clhead{display:flex;align-items:flex-end;justify-content:space-between;gap:var(--ds-sp5);max-width:1180px}
+.cl-acts{flex:none;display:flex;gap:var(--ds-sp2);flex-wrap:wrap}
+.clsend svg,.cl-team svg,.cllink svg,.clsh svg,.clmsh svg,.cldrop svg,.clplay svg,.clx svg,.clslot svg,#clsubveil .howx svg{
+  fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.cl-cols{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:var(--ds-sp6);align-items:start;max-width:1180px}
+.cl-wallcol{min-width:0}
+.cl-rail{display:flex;flex-direction:column;gap:var(--ds-sp4)}
+.cl-rail h2,.cl-queue h2{margin:0;font-size:var(--ds-fs-4);font-weight:750;line-height:1.2}
+#clips-screen .cl-rail .ds-panel-head,#clips-screen .cl-queue .ds-panel-head{margin-bottom:var(--ds-sp3)}
+#clips-screen .cl-wall-hd{align-items:baseline}
+/* the wall */
+.clgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(228px,1fr));gap:var(--ds-sp5) var(--ds-sp4)}
+.clcard{min-width:0;display:flex;flex-direction:column;gap:10px}
+.clpic{position:relative;display:block;width:100%;aspect-ratio:16/9;padding:0;border:0;border-radius:var(--ds-r2);overflow:hidden;
+  background:var(--ds-s2) center 40%/cover no-repeat;box-shadow:var(--ds-edge);cursor:pointer;transition:box-shadow var(--ds-dur-1)}
+.clpic:hover{box-shadow:0 0 0 2px var(--ds-bone)}
+.clpic:focus-visible{outline:2px solid var(--ds-bone);outline-offset:3px}
+.clplay{position:absolute;left:50%;top:50%;width:48px;height:48px;margin:-24px 0 0 -24px;border-radius:var(--ds-rf);
+  display:grid;place-items:center;background:rgba(0,0,0,.8);color:var(--ds-bone);transition:background-color var(--ds-dur-1),color var(--ds-dur-1)}
+.clplay svg{margin-left:3px;fill:currentColor}
+.clpic:hover .clplay{background:var(--ds-bone);color:var(--ds-on-bone)}
+#clips-screen .clsrc{position:absolute;left:8px;top:8px}
+#clips-screen .cldur{position:absolute;right:8px;bottom:8px;font-variant-numeric:tabular-nums}
+.clcap{font-size:var(--ds-fs-3);font-weight:650;line-height:1.3;overflow-wrap:anywhere;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.clby{display:flex;align-items:baseline;gap:5px;margin-top:-6px;font-size:var(--ds-fs-2);color:var(--ds-tx2);min-width:0}
+.clname{color:var(--ds-bone);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.clgame{white-space:nowrap}
+.clwhen{margin-left:auto;padding-left:var(--ds-sp2);white-space:nowrap}
+.clacts,.clsh{display:flex;gap:var(--ds-sp2);align-items:center;flex-wrap:wrap}
+.clnote{margin-left:auto}
+#clips-screen .clno.is-sure{color:var(--ds-red)}
+/* nothing on the wall yet, or it did not load: three empty frames and one sentence */
+.clempty{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--ds-sp4)}
+.clslot{aspect-ratio:16/9;border-radius:var(--ds-r2);background:var(--ds-s1);box-shadow:var(--ds-edge);display:grid;place-items:center;color:var(--ds-line2)}
+.clempty-msg{grid-column:1/-1;display:flex;flex-direction:column;gap:6px;max-width:60ch}
+.clempty-msg b{font-size:var(--ds-fs-4);font-weight:750}
+.clempty-msg span{color:var(--ds-tx2)}
+/* the owner's review box: only the owner wallet ever gets it (the server decides; clips.js ownerVerdict) */
+#clips-screen .cl-queue{margin-bottom:var(--ds-sp6)}
+#clips-screen .cl-queue h2{display:inline-flex;align-items:center;gap:var(--ds-sp2)}
+.clqnone{margin:0;color:var(--ds-tx2)}
+.clqlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:var(--ds-sp5) var(--ds-sp4)}
+/* the rail: Your clips (the upload box, then each clip as a row with its state and Delete) */
+.cldrop{display:grid;grid-template-columns:44px minmax(0,1fr);gap:4px var(--ds-sp3);align-items:center;width:100%;padding:var(--ds-sp4);
+  border:0;border-radius:var(--ds-r2);background:var(--ds-ink);color:var(--ds-bone);text-align:left;cursor:pointer;
+  box-shadow:inset 0 0 0 1px var(--ds-line2);transition:background-color var(--ds-dur-1),box-shadow var(--ds-dur-1)}
+#clips-screen .cldrop .ds-opt-ic{grid-row:span 2;background:var(--ds-s3)}
+.cldrop b{font-weight:700}
+.cldrop span{font-size:var(--ds-fs-2);color:var(--ds-tx2);line-height:1.45}
+.cldrop:hover,.cldrop.over,body.cldragging .cldrop{background:var(--ds-s2);box-shadow:inset 0 0 0 2px var(--ds-bone)}
+#clips-screen .cldrop.over .ds-opt-ic,body.cldragging #clips-screen .cldrop .ds-opt-ic{background:var(--ds-bone);color:var(--ds-on-bone)}
+.clmine-list{margin-top:var(--ds-sp2)}
+#clips-screen .clmine{grid-template-columns:56px minmax(0,1fr) auto;padding:var(--ds-sp2) 0}
+#clips-screen .clmine-pic{width:56px;height:40px;border:0;padding:0;border-radius:var(--ds-r1);background:var(--ds-s2) center 40%/cover no-repeat;
+  box-shadow:var(--ds-edge);cursor:pointer}
+#clips-screen .clmine-pic:hover{box-shadow:0 0 0 2px var(--ds-bone)}
+.clst.live{color:var(--ds-green)}
+.clst.rejected{color:var(--ds-tx3)}
+.clmine-hint{margin:var(--ds-sp3) 0 0}
+/* Top clippers */
+#clips-screen .cltr{min-height:52px;padding:var(--ds-sp2) 0}
+#clips-screen .cltn{width:36px;height:36px;font-size:16px;font-weight:800;font-stretch:var(--ds-wide);color:var(--ds-bone);font-variant-numeric:tabular-nums}
+#clips-screen .cltc{font-weight:600;color:var(--ds-tx2);font-size:var(--ds-fs-2)}
+.cltopnone{margin:0;color:var(--ds-tx2);font-size:var(--ds-fs-2)}
+/* the clip team */
+.cl-team-hd{display:flex;align-items:center;gap:var(--ds-sp3)}
+#clips-screen .cl-team-hd .ds-opt-ic{width:40px;height:40px;background:var(--ds-s3)}
+.cl-team p{margin:6px 0 var(--ds-sp4);color:var(--ds-tx2);font-size:var(--ds-fs-2);line-height:1.5}
+/* the player: the kit's sheet, as big as the screen allows at the clip's own shape */
+#clveil{padding:var(--ds-sp5);background:var(--ds-scrim);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+#clveil.on{animation:wsh-in .18s ease-out}
+.clbox{width:min(980px,100%,calc((100vh - 190px) * 1.7778));display:flex;flex-direction:column;overflow:hidden;
+  background:var(--ds-s1);border-radius:var(--ds-r3);box-shadow:var(--ds-sh-pop);animation:wsh-up var(--ds-dur-2) var(--ds-ease)}
+.clbox.tall{width:min(420px,100%,calc((100vh - 190px) * .5625))}
+.clstage{position:relative;aspect-ratio:16/9;background:#000}
 .clbox.tall .clstage{aspect-ratio:9/16}
 .clstage iframe,.clstage video{position:absolute;inset:0;width:100%;height:100%;border:0;background:#000}
-.clnovid{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
-  gap:6px;color:var(--tx2);font-size:14px;text-align:center;padding:20px}
-.clnovid b{color:var(--tx);font-size:17px;font-weight:650}
-.clmeta{display:flex;gap:14px;align-items:flex-start}
-.clmw{flex:1;min-width:0}
-.clmcap{display:block;font-size:18px;font-weight:650;letter-spacing:-.3px;line-height:1.3;overflow-wrap:anywhere}
-.clmeta .cllink{margin:4px 0 0}
-.clx{flex:none;width:40px;height:40px;margin:-6px -8px 0 0;border-radius:var(--r2);color:var(--tx2);font-size:15px;
-  display:grid;place-items:center}
-.clx:hover{color:var(--tx);background:var(--s2)}
-/* Sending one: the same sheet as How to play. */
-#clsubveil .howcard{max-width:460px}
-.clsubp{color:var(--tx2);font-size:13.5px;line-height:1.5;margin:-6px 0 2px}
-#cl-form .slbl{margin-top:16px}
-.clin{display:block;width:100%;background:var(--bg);border:none;border-radius:var(--r2);color:var(--tx);
-  font:inherit;font-size:14.5px;padding:12px 13px;outline:none}
-.clin::placeholder{color:var(--tx3)}
-.clin:focus-visible{outline:2px solid var(--bone);outline-offset:2px}
-.clsegs{display:flex;gap:6px;flex-wrap:wrap}
-.clseg{background:var(--bg);color:var(--tx2);font-size:13px;font-weight:600;padding:8px 12px;border-radius:var(--r2)}
-.clseg.on{background:var(--s3);color:var(--tx)}
-.clerr{color:#f08b7f;font-size:13px;line-height:1.4;min-height:18px;margin:12px 0 6px}
-.clsubacts{display:flex;gap:8px}
+.clnovid{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;
+  color:var(--ds-tx2);font-size:var(--ds-fs-2);text-align:center;padding:var(--ds-sp5)}
+.clnovid b{color:var(--ds-bone);font-size:var(--ds-fs-4);font-weight:700}
+.clmeta{display:flex;align-items:center;gap:var(--ds-sp4);padding:var(--ds-sp4) var(--ds-sp4) var(--ds-sp4) var(--ds-sp5);flex-wrap:wrap}
+.clmw{flex:1;min-width:220px}
+.clmcap{display:block;font-size:var(--ds-fs-4);font-weight:700;line-height:1.3;overflow-wrap:anywhere}
+.clmw .clby{margin-top:2px}
+.clmw .clwhen{margin-left:var(--ds-sp2);padding-left:0}
+.clmsh{display:flex;gap:var(--ds-sp2);flex-wrap:wrap;align-items:center}
+.clmsh .ds-btn:first-child{background:var(--ds-bone);color:var(--ds-on-bone);box-shadow:none}
+.clx{flex:none;display:grid;place-items:center;width:44px;height:44px;border-radius:var(--ds-r2);color:var(--ds-tx2);
+  transition:background-color var(--ds-dur-1),color var(--ds-dur-1)}
+.clx:hover{background:var(--ds-s2);color:var(--ds-bone)}
+/* Send a link and Share a clip: the kit's sheet, as the wallet's are */
+#clsubveil{padding:var(--ds-sp5);background:var(--ds-scrim);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+#clsubveil.on{animation:wsh-in .18s ease-out}
+#clsubveil .howcard{position:relative;max-width:460px;padding:0;background:var(--ds-s1);border-radius:var(--ds-r3);
+  box-shadow:var(--ds-sh-pop);color:var(--ds-bone);max-height:calc(100dvh - 48px);animation:wsh-up var(--ds-dur-2) var(--ds-ease)}
+#clsubveil .howtop{display:flex;align-items:center;gap:var(--ds-sp3);margin:0;padding:var(--ds-sp4) var(--ds-sp4) 0 var(--ds-sp5)}
+#clsubveil .howtop h2{flex:1;font-size:var(--ds-fs-4);font-weight:700;letter-spacing:0;line-height:1.25}
+#clsubveil .howx{width:44px;height:44px;margin:0;border-radius:var(--ds-r2);color:var(--ds-tx2)}
+#clsubveil .howx:hover{background:var(--ds-s2);color:var(--ds-bone)}
+.clsub-bd{padding:var(--ds-sp3) var(--ds-sp5) var(--ds-sp5)}
+.clsubp{margin:0;color:var(--ds-tx2);font-size:var(--ds-fs-2);line-height:1.5}
+#cl-form .slbl{display:block;margin:var(--ds-sp4) 0 6px;font-size:var(--ds-fs-2);font-weight:600;line-height:1.3;color:var(--ds-tx2)}
+.cl-opt{font-weight:500;color:var(--ds-tx3)}
+#clsubveil .clin{display:block;width:100%}
+.clsegs{display:flex;gap:2px;flex-wrap:wrap;padding:4px;background:var(--ds-ink);border-radius:var(--ds-r2);box-shadow:var(--ds-edge)}
+.clseg{min-height:36px;padding:0 var(--ds-sp3);border-radius:var(--ds-r1);color:var(--ds-tx2);font-size:var(--ds-fs-2);font-weight:650;
+  transition:background-color var(--ds-dur-1),color var(--ds-dur-1)}
+.clseg:hover{color:var(--ds-bone)}
+.clseg.on{background:var(--ds-s3);color:var(--ds-bone);box-shadow:var(--ds-edge2)}
+.clerr{min-height:20px;margin:var(--ds-sp3) 0 var(--ds-sp2);color:var(--ds-red);font-size:var(--ds-fs-2);line-height:1.4}
+.clsubacts{display:flex;flex-direction:column;gap:var(--ds-sp2)}
+.clfile{display:grid;grid-template-columns:160px minmax(0,1fr);gap:var(--ds-sp3);align-items:center;margin-top:var(--ds-sp4);padding:var(--ds-sp3);
+  border-radius:var(--ds-r2);background:var(--ds-ink);box-shadow:var(--ds-edge)}
+.clfile video{width:100%;aspect-ratio:16/9;border-radius:var(--ds-r1);background:#000;object-fit:contain}
+.clfmeta{display:flex;flex-direction:column;gap:4px;min-width:0;font-size:var(--ds-fs-2);color:var(--ds-tx2)}
+.clfmeta b{color:var(--ds-bone);font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media(max-width:1180px){
+  .cl-cols{grid-template-columns:minmax(0,1fr)}
+  .cl-rail{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));align-items:start}
+}
 
-/* Updates, look A: a timeline, newest at the top (public/js/v2/updates.js,
-   posts in public/updates.json). A filled stop is a post not seen yet. */
-#updates-screen>.head,#up-list{max-width:680px;margin-left:auto;margin-right:auto}
-.upsub{color:var(--tx2);font-size:14.5px;margin-top:8px}
-#up-list{position:relative;padding:0 0 64px 120px}
-#up-list::before{content:"";position:absolute;left:101px;top:8px;bottom:72px;width:2px;background:var(--s2)}
-.uppost{position:relative;padding-bottom:32px}
-.uppost::before{content:"";position:absolute;left:-24px;top:7px;width:12px;height:12px;border-radius:50%;
-  background:var(--bg);border:2px solid var(--tx3)}
-.uppost.fresh::before{border-color:var(--live);background:var(--live)}
-.upd{position:absolute;left:-120px;top:4px;width:86px;text-align:right;font-size:13px;color:var(--tx2)}
-.uptag{display:inline-flex;gap:6px;align-items:center;font-size:12px;font-weight:650;background:var(--s2);
-  border-radius:var(--r1);padding:3px 8px 3px 7px}
-.uptag::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
-.uptag.t-new{color:var(--live)}
-.uptag.t-fix{color:#8fb3d9}
-.uptag.t-event{color:var(--money)}
-.uptag.t-heads-up{color:#e58a8a}
-.uph{font-size:17px;font-weight:650;letter-spacing:-.3px;line-height:1.3;margin-top:8px}
-.upb{color:var(--tx2);font-size:14.5px;line-height:1.6;margin-top:6px;max-width:60ch}
-.upnone{color:var(--tx2);font-size:14.5px;margin-left:-120px}
-/* Pictures in a post: the big one under the title, small ones under the
-   words, each opening large in the viewer (.upveil, built by updates.js). */
-.uphero,.upthumb{display:block;padding:0;border:1px solid var(--s2);background:var(--s1);
-  cursor:zoom-in;overflow:hidden;transition:border-color .15s}
-.uphero:hover,.upthumb:hover{border-color:var(--tx3)}
-.uphero:focus-visible,.upthumb:focus-visible{outline:2px solid var(--tx);outline-offset:2px}
-.uphero{width:100%;max-width:560px;aspect-ratio:16/10;margin-top:12px;border-radius:var(--r2)}
-.uphero img{display:block;width:100%;height:100%;object-fit:cover;object-position:center top}
-.upgal{display:flex;gap:8px;margin-top:12px}
-.upthumb{height:64px;border-radius:var(--r1)}
-.upthumb img{display:block;height:100%;width:auto;max-width:160px;object-fit:cover;object-position:center top}
-.upveil{position:fixed;inset:0;z-index:210;display:none;align-items:center;justify-content:center;
-  padding:48px 88px;background:rgba(6,5,4,.86);backdrop-filter:blur(6px)}
+/* ── Updates (site redo stage 3, layout 1; mockup looks/ab/1/updates.html) ─────────────────────────────────
+   The changelog as a timeline: one date per day on a spine, the posts beside it, eight at a time with Show older
+   posts (stage 3 audit: all 104 posts and their pictures at once, a 37,000px page). A rail beside it filters by kind,
+   says what the filled stops mean, and goes back to the top. The picture viewer is the kit's bare sheet. */
+.up-cols{display:grid;grid-template-columns:minmax(0,800px) 272px;gap:var(--ds-sp7);align-items:start;max-width:1180px}
+#updates-screen .up-rail{position:sticky;top:calc(var(--ds-hdh) + var(--ds-sp5))}
+#updates-screen .up-rail[hidden]{display:none}
+.up-rail h3{margin:0 0 var(--ds-sp3);font-size:var(--ds-fs-2);font-weight:650;color:var(--ds-tx2)}
+.up-key{display:flex;flex-direction:column;gap:var(--ds-sp2);margin:var(--ds-sp5) 0 var(--ds-sp4);padding-top:var(--ds-sp4);box-shadow:0 -1px 0 var(--ds-line);
+  font-size:var(--ds-fs-2);color:var(--ds-tx2)}
+.up-key span{display:flex;align-items:center;gap:var(--ds-sp3)}
+.up-key .upstop{position:static;flex:none}
+.up-rail svg,.up-more svg,.uptag svg,.upnav svg,.upx svg,.upnone svg{fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.uptl{list-style:none;margin:0;padding:0}
+.upday{display:grid;grid-template-columns:76px minmax(0,1fr)}
+.upday-d{position:sticky;top:calc(var(--ds-hdh) + var(--ds-sp4));align-self:start;display:flex;flex-direction:column;padding-top:2px}
+.upday-d b{font-size:34px;font-weight:800;font-stretch:var(--ds-wide);letter-spacing:-.02em;line-height:1;font-variant-numeric:tabular-nums}
+.upday-d span{margin-top:4px;font-size:var(--ds-fs-2);font-weight:650;color:var(--ds-tx2)}
+.upday-posts{position:relative;padding:0 0 var(--ds-sp4) var(--ds-sp6);box-shadow:inset 1px 0 0 var(--ds-line)}
+.upday:last-child .upday-posts{padding-bottom:0}
+.uppost{position:relative;padding-bottom:var(--ds-sp6)}
+.uppost+.uppost{padding-top:var(--ds-sp6);box-shadow:0 -1px 0 var(--ds-line)}
+.upstop{position:absolute;left:calc(-1 * var(--ds-sp6) - 6px);top:6px;width:13px;height:13px;border-radius:var(--ds-rf);
+  background:var(--ds-ink);box-shadow:inset 0 0 0 2px var(--ds-line2)}
+.uppost+.uppost .upstop{top:calc(var(--ds-sp6) + 6px)}
+.upstop.is-fresh,.uppost.fresh .upstop{background:var(--ds-bone);box-shadow:0 0 0 4px var(--ds-ink)}
+.uptag{display:inline-flex;align-items:center;gap:5px}
+.uptag svg{margin-left:-2px}
+.uph{margin:var(--ds-sp3) 0 0;font-size:21px;font-weight:750;font-stretch:108%;letter-spacing:-.008em;line-height:1.22;text-wrap:balance}
+.upb{margin:var(--ds-sp3) 0 0;font-size:var(--ds-fs-3);line-height:1.6;color:var(--ds-tx2);max-width:64ch}
+/* pictures: the big one under the title, small ones under the words; any opens large */
+.uphero{display:inline-block;margin-top:var(--ds-sp4);padding:0;border:0;border-radius:var(--ds-r2);overflow:hidden;background:var(--ds-s1);
+  box-shadow:var(--ds-edge);max-width:100%;vertical-align:top;cursor:zoom-in;transition:box-shadow var(--ds-dur-1)}
+.uphero img{display:block;width:auto;height:auto;max-width:100%;max-height:340px}
+.upgal{display:flex;gap:var(--ds-sp2);margin-top:var(--ds-sp4);flex-wrap:wrap}
+.upthumb{width:132px;height:88px;padding:0;border:0;border-radius:var(--ds-r1);overflow:hidden;background:var(--ds-s1);box-shadow:var(--ds-edge);
+  cursor:zoom-in;transition:box-shadow var(--ds-dur-1)}
+.upthumb img{width:100%;height:100%;object-fit:cover;object-position:center top}
+.uphero:hover,.upthumb:hover{box-shadow:0 0 0 2px var(--ds-bone)}
+.uphero:focus-visible,.upthumb:focus-visible{outline:2px solid var(--ds-bone);outline-offset:3px}
+.up-more{display:flex;align-items:center;gap:var(--ds-sp4);flex-wrap:wrap;margin:var(--ds-sp2) 0 0 76px;padding-left:var(--ds-sp6)}
+.up-more .ds-t-meta{font-size:var(--ds-fs-2)}
+/* empty, failed and filtered to nothing */
+.upnone{display:flex;flex-direction:column;align-items:flex-start;gap:var(--ds-sp2);max-width:800px;padding:var(--ds-sp6)}
+.upnone-ic{display:grid;place-items:center;width:56px;height:56px;margin-bottom:var(--ds-sp2);border-radius:var(--ds-r3);background:var(--ds-s2);color:var(--ds-bone);box-shadow:var(--ds-edge)}
+.upnone b{font-size:var(--ds-fs-4);font-weight:750}
+.upnone span{max-width:56ch;color:var(--ds-tx2)}
+.upnone .ds-btn{margin-top:var(--ds-sp3)}
+/* the picture viewer: the kit's sheet, bare (built by updates.js, .upveil.on shows it) */
+.upveil{position:fixed;inset:0;z-index:210;display:none;align-items:center;justify-content:center;padding:var(--ds-sp5);
+  background:var(--ds-scrim);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
 .upveil.on{display:flex}
-.upfig{display:flex;flex-direction:column;align-items:center;gap:12px;max-width:100%;max-height:100%;margin:0}
-.upfig img{display:block;max-width:100%;max-height:calc(100vh - 140px);border-radius:var(--r2);
-  box-shadow:0 24px 70px rgba(0,0,0,.5)}
-.upfig figcaption{color:var(--tx2);font-size:14px;text-align:center;max-width:60ch}
-.upfig figcaption:empty{display:none}
-.upnav,.upx{position:absolute;display:flex;align-items:center;justify-content:center;
-  width:44px;height:44px;border-radius:50%;border:none;background:var(--s2);color:var(--tx);
-  font-size:22px;cursor:pointer;transition:background .15s}
-.upnav:hover,.upx:hover{background:var(--s3)}
-.upnav{top:50%;margin-top:-22px;display:none}
-.upveil.many .upnav{display:flex}
-.upnav.prev{left:24px}.upnav.next{right:24px}
-.upx{top:20px;right:24px;font-size:15px}
-
+.upfig{position:relative;display:flex;flex-direction:column;width:min(1040px,100%);margin:0;overflow:hidden;background:var(--ds-s1);
+  border-radius:var(--ds-r3);box-shadow:var(--ds-sh-pop);animation:wsh-up var(--ds-dur-2) var(--ds-ease)}
+.upfig>img{display:block;max-width:100%;max-height:min(72vh,680px);width:auto;height:auto;margin:0 auto}
+.upstage{display:grid;place-items:center;min-height:240px;background:#000}
+.upcap{display:flex;align-items:center;gap:var(--ds-sp4);padding:var(--ds-sp4) var(--ds-sp5) var(--ds-sp5)}
+.upfig figcaption{flex:1;color:var(--ds-tx2);font-size:var(--ds-fs-2);line-height:1.5}
+.upnavs{display:none;align-items:center;gap:var(--ds-sp2);flex:none}
+.upveil.many .upnavs{display:flex}
+.upnavs .ds-t-meta{min-width:44px;text-align:center;font-variant-numeric:tabular-nums}
+.upnav.prev svg{transform:rotate(180deg)}
+.upx{position:absolute;top:10px;right:10px;z-index:3;display:grid;place-items:center;width:44px;height:44px;border:0;border-radius:var(--ds-r2);
+  background:rgba(0,0,0,.72);color:var(--ds-bone);cursor:pointer}
+.upx:hover{background:#000}
+@media(min-width:761px) and (max-width:1180px){
+  .up-cols{grid-template-columns:minmax(0,1fr);gap:var(--ds-sp5)}
+  #updates-screen .up-rail{position:static;order:-1;display:flex;align-items:center;gap:var(--ds-sp4);flex-wrap:wrap}
+  .up-rail h3{margin:0}
+  .up-key{margin:0;padding:0;box-shadow:none;flex-direction:row}
+  #updates-screen .up-rail .ds-btn-block{display:none}
+}
 .back{font-size:13px;color:var(--tx2);padding:26px 0 0;display:inline-block}
 .back:hover{color:var(--tx)}
 /* ── how to play ─────────────────────────────────────────────────────── */
@@ -2027,15 +2073,23 @@ body.no-foot footer{display:none}
    The one deviation is the backdrop. The live screen is transparent because
    the lobby behind it is already the game world; this page is not, so it
    paints the page background instead of showing the board through it. */
-.apscreen{position:fixed;inset:0;background:var(--bg);z-index:200;
+/* Site redo stage 3 (mockup looks/ab/1/customize.html): the page around the reel is the kit's. True black, the kit's
+   Back and page title on the left, the game these looks are for on the right, and Save as the kit's primary button
+   (Unlock as its money button). The reel, the arrows, the locked case and the unlock sheet are unchanged. */
+.apscreen{position:fixed;inset:0;background:var(--ds-ink);z-index:200;
   display:none;flex-direction:column;align-items:center}
 .apscreen.on{display:flex}
-.ap-header{width:100%;max-width:780px;display:flex;align-items:center;
-  justify-content:space-between;padding:20px 28px 14px;position:relative;z-index:55}
-.ap-back-btn{background:none;border:1.5px solid var(--s3);color:var(--tx2);
-  padding:8px 18px;border-radius:9px;font-size:.88rem;font-weight:600;cursor:pointer}
-.ap-back-btn:hover{border-color:var(--money);color:var(--money)}
-.ap-title{font-size:1.25rem;font-weight:900;color:var(--tx);letter-spacing:3px}
+.ap-header{width:100%;max-width:1180px;display:flex;align-items:center;gap:var(--ds-sp3);
+  padding:var(--ds-sp4) var(--ds-sp6) var(--ds-sp3);position:relative;z-index:55}
+.ap-back-btn{display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 var(--ds-sp3) 0 var(--ds-sp2);border:0;border-radius:var(--ds-r2);
+  background:transparent;color:var(--ds-tx2);font:650 var(--ds-fs-3)/1 var(--ds-f);cursor:pointer;transition:background-color var(--ds-dur-1),color var(--ds-dur-1)}
+.ap-back-btn svg{fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.ap-back-btn:hover{background:var(--ds-s2);color:var(--ds-bone)}
+.ap-title{font-size:var(--ds-fs-6);font-weight:800;font-stretch:var(--ds-wide);letter-spacing:-.012em;line-height:1.04;color:var(--ds-bone)}
+.ap-game{margin-left:auto;display:inline-flex;align-items:center;gap:10px;min-height:52px;padding:4px var(--ds-sp4) 4px 4px;border-radius:var(--ds-r2);
+  background:var(--ds-s1);box-shadow:var(--ds-edge);font-size:var(--ds-fs-3);font-weight:700;color:var(--ds-bone);white-space:nowrap}
+.ap-game:empty{display:none}
+.ap-game img{width:44px;height:44px;border-radius:var(--ds-r1);object-fit:cover;object-position:50% 30%;background:var(--ds-s2)}
 /* Every finger on this screen belongs to the reel (see the reel code): no
    page scroll, no pull to refresh, no text selection mid-drag. */
 #lookveil{touch-action:none;-webkit-user-select:none;user-select:none}
@@ -2053,23 +2107,19 @@ body.no-foot footer{display:none}
 #ap-next{left:calc(75% - 43.5px)}
 .ap-save-row{position:absolute;inset:0;padding:0;display:block;
   pointer-events:none;z-index:53}
+/* Save: the kit's primary button, large, centred under the reel. */
 .ap-save-btn{position:absolute;left:50%;top:auto;bottom:96px;transform:translateX(-50%);
-  min-width:93px;height:47px;padding:0 14px;border:none;border-radius:34px;color:#fff;
-  font:bold 20px/47px Arial,"Helvetica Neue",Helvetica,sans-serif;letter-spacing:0;
-  text-align:center;cursor:pointer;pointer-events:auto;
-  box-shadow:rgba(0,0,0,.75) 0 3px 20px;
-  background-image:linear-gradient(to bottom,rgb(86,172,129),rgb(69,139,104) 50%,rgb(54,108,81));
-  transition:none}
-/* slither's .sadu1 overlay: the same box at radius 35, faded in on hover */
-.ap-save-btn::before{content:'';position:absolute;inset:0;border-radius:35px;
-  background-image:linear-gradient(to bottom,rgb(117,255,214),rgb(94,216,172) 50%,rgb(72,171,132));
-  opacity:0;transition:opacity .12s}
-.ap-save-btn:hover::before{opacity:1}
+  min-width:180px;height:52px;padding:0 var(--ds-sp5);border:none;border-radius:var(--ds-r2);
+  background:var(--ds-bone);color:var(--ds-on-bone);font:700 16px/52px var(--ds-f);letter-spacing:0;
+  text-align:center;cursor:pointer;pointer-events:auto;box-shadow:var(--ds-sh-1);
+  transition:background-color var(--ds-dur-1),box-shadow var(--ds-dur-1)}
 .ap-save-btn>span{position:relative;z-index:1}
-.ap-save-btn:hover{transform:translateX(-50%)}
-.ap-save-btn:active{transform:translateX(-50%);opacity:.85}
+.ap-save-btn:hover{transform:translateX(-50%);background:#fff;box-shadow:var(--ds-sh-1),0 0 0 4px rgba(244,241,234,.14)}
+.ap-save-btn:active{transform:translateX(-50%) translateY(1px)}
+.ap-save-btn:focus-visible{outline:2px solid var(--ds-bone);outline-offset:3px}
+.ap-save-btn:disabled{background:var(--ds-s2);color:var(--ds-tx3);box-shadow:var(--ds-edge);cursor:not-allowed}
 .ap-name{position:absolute;left:50%;top:auto;bottom:56px;transform:translateX(-50%);
-  font-size:13px;color:var(--tx3);white-space:nowrap}
+  font-size:var(--ds-fs-2);font-weight:600;color:var(--ds-tx2);white-space:nowrap}
 /* The picker at every width, phone and desktop alike: a column of skins with
    the chosen one in the middle. NOT a scroll box any more. The slots sit
    stacked at the middle and the reel code moves each one with a transform,
@@ -2113,11 +2163,10 @@ body.no-foot footer{display:none}
 .ap-seal svg{width:17px;height:17px;flex:none;stroke:var(--bone)}
 .ap-seal b{font-size:18px;font-weight:700;line-height:1;color:var(--money);
   font-variant-numeric:tabular-nums;letter-spacing:-.01em}
-/* A paid skin you can buy: the Save button becomes Unlock, in the money gold,
-   so it never reads as a free Save. */
-.ap-save-btn.buy{color:var(--ink);
-  background-image:linear-gradient(to bottom,#f7c766,#f0a830 52%,#c98a22)}
-.ap-save-btn.buy::before{background-image:linear-gradient(to bottom,#ffe09a,#f7bd4e 52%,#dc9a2c)}
+/* A paid skin you can buy: the Save button becomes Unlock, the kit's money button in gold, so it never reads as a
+   free Save. */
+.ap-save-btn.buy{background:var(--ds-gold);color:var(--ds-on-bone)}
+.ap-save-btn.buy:hover{background:#f6b84d;box-shadow:var(--ds-sh-1),0 0 0 4px rgba(240,168,48,.18)}
 /* The unlock sheet: the locked skin's gold case again, now a card you act on.
    Centred on a PC, a bottom sheet on a phone. */
 .bsheet{position:fixed;inset:0;z-index:210;display:none;align-items:center;justify-content:center;
@@ -2170,7 +2219,7 @@ body.no-foot footer{display:none}
 /* Phones only: there the arrows are gone, and a gesture with nothing on
    screen to suggest it is a gesture nobody finds. */
 .ap-hint{display:none;position:absolute;left:50%;top:calc(64px + env(safe-area-inset-top));
-  transform:translateX(-50%);font-size:12px;color:var(--tx3);white-space:nowrap;
+  transform:translateX(-50%);font-size:var(--ds-fs-1);color:var(--ds-tx2);white-space:nowrap;
   pointer-events:none;z-index:54}
 /* A phone held sideways is wider than 520px, so its arrows came back and sat
    across both ends of a locked skin's case, and the case was taller than the
@@ -2384,6 +2433,11 @@ footer{margin-top:var(--ds-sp7);padding:var(--ds-sp5) 0 var(--ds-sp6);box-shadow
   .tile .v{font-size:25px}
   .panel{padding:18px 16px}
   .apscreen .ap-header{padding-top:calc(14px + env(safe-area-inset-top))}
+  .ap-header{padding-left:var(--ds-sp4);padding-right:var(--ds-sp3)}
+  .ap-title{font-size:26px}
+  .ap-game{min-height:48px;padding:4px}
+  .ap-game span{display:none}
+  .ap-game img{width:40px;height:40px}
   /* The arrows were 87px of artwork each on a 375px screen, sitting either
      side of a four-pixel snake. The gesture replaces them: drag up or down and
      the list turns, wrapping at both ends so it never dead-ends. */
@@ -3705,29 +3759,55 @@ function openSwimHow(){
   </div>
 </main>
 
-<!-- Clips (public/js/v2/clips.js): player clips that play from X, YouTube or
-     TikTok, approved by the owner. PC only. -->
+<!-- Clips (public/js/v2/clips.js; site redo stage 3, layout 1, mockup looks/ab/1/clips.html): player clips that play
+     from X, YouTube or TikTok, or uploaded from a game, approved by the owner. The wall takes the stage; the rail
+     beside it holds Your clips (signed in), Top clippers and the clip team. The review box is the owner's only.
+     PC only. -->
 <main id="clips-screen" class="wrap">
   <div class="head clhead">
-    <div><h2>Clips</h2>
-      <p class="clsub">The best DuelSeries moments, from players. Press P in any game to save the last 30 seconds, then Share to DuelSeries, and it goes on the wall once it is approved. Already posted it on X, YouTube or TikTok? Send the link instead.</p></div>
-    <span class="sp"></span>
-    <button type="button" class="clsend sec" onclick="V2Clips.openSubmit()">Send a link</button>
-    <button type="button" class="clsend" onclick="V2Clips.openUpload()"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>Upload a clip</button>
+    <div><h2 class="ds-t-page">Clips</h2>
+      <p class="pg-sub">Moments from DuelSeries games, shared by players and checked before they go up. Press P in any game to save the last 30 seconds, then Share to DuelSeries. Already posted it on X, YouTube or TikTok? Send the link instead.</p></div>
+    <div class="cl-acts">
+      <button type="button" class="ds-btn ds-btn-secondary clsend sec" onclick="V2Clips.openSubmit()"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>Send a link</button>
+      <button type="button" class="ds-btn ds-btn-primary clsend" onclick="V2Clips.openUpload()"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>Upload a clip</button>
+    </div>
     <input type="file" id="cl-file" accept="video/mp4,.mp4" hidden>
   </div>
-  <section id="cl-mine" aria-label="Your clips" hidden></section>
-  <section id="cl-queue" aria-label="Clips waiting for review" hidden></section>
-  <div class="clwall">
-    <div id="cl-grid" class="clgrid"></div>
-    <aside id="cl-top" class="cltop" aria-label="Top clippers"></aside>
+  <div class="cl-cols">
+    <div class="cl-wallcol">
+      <section id="cl-queue" class="ds-panel cl-queue" aria-label="Clips waiting for review" hidden></section>
+      <section class="cl-wall" aria-labelledby="cl-wall-t">
+        <div class="ds-sec-hd cl-wall-hd"><h2 id="cl-wall-t">On the wall</h2><span class="ds-t-meta" id="cl-wall-n"></span></div>
+        <div id="cl-grid" class="clgrid"></div>
+      </section>
+    </div>
+    <aside class="cl-rail" aria-label="Your clips, Top clippers and the clip team">
+      <section id="cl-mine" class="ds-panel cl-mine" aria-label="Your clips" hidden></section>
+      <section id="cl-top" class="ds-panel cltop" aria-label="Top clippers"></section>
+      <!-- The clip team (join.js LINKS.whop): free to join, its own page has the rules. No pay is stated here. -->
+      <section class="ds-panel cl-team" aria-labelledby="cl-team-t">
+        <div class="cl-team-hd"><span class="ds-opt-ic"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M3 8l3.5 9L10 9l2 5 2-5 3.5 8L21 8"/></svg></span><h2 id="cl-team-t">Clip team</h2></div>
+        <p>The DuelSeries clip team lives on Whop. It is free to join, and its page has the clip rules.</p>
+        <a class="ds-btn ds-btn-secondary ds-btn-block" href="https://whop.com/duelseries/clip-team-c9/" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>Open the clip team on Whop</a>
+      </section>
+    </aside>
   </div>
 </main>
 
-<!-- Updates (public/js/v2/updates.js, posts in public/updates.json). PC only. -->
+<!-- Updates (public/js/v2/updates.js, posts in public/updates.json; site redo stage 3, layout 1, mockup
+     looks/ab/1/updates.html): a timeline, one date per day on a spine, eight posts at a time with Show older posts;
+     a rail beside it filters by kind, says what the filled stops mean and goes back to the top. PC only. -->
 <main id="updates-screen" class="wrap">
-  <div class="head"><div><h2>Updates</h2><p class="upsub">What is new on DuelSeries, newest first.</p></div></div>
-  <div id="up-list"></div>
+  <div class="head"><div><h2 class="ds-t-page" id="up-t" tabindex="-1">Updates</h2><p class="pg-sub upsub">What changed on DuelSeries, newest first.</p></div></div>
+  <div class="up-cols">
+    <div id="up-list"></div>
+    <aside class="ds-panel up-rail" id="up-rail" aria-label="Filter posts" hidden>
+      <h3 id="up-show-t">Show</h3>
+      <div class="ds-fchips" id="up-filter" role="group" aria-labelledby="up-show-t"></div>
+      <div class="up-key" id="up-key"></div>
+      <button type="button" class="ds-btn ds-btn-secondary ds-btn-block" id="up-top"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>Back to top</button>
+    </aside>
+  </div>
 </main>
 
 <!-- Join us (public/js/v2/join.js, public/css/join.css): the Discord, the Whop clip team, socials. PC only. -->
@@ -3818,26 +3898,29 @@ function openSwimHow(){
 <div id="clveil" class="howveil" role="dialog" aria-modal="true" aria-label="Clip">
   <div id="clbox" class="clbox"></div>
 </div>
+<!-- Send a link and Share a clip (clips.js setMode): the kit's sheet, as the wallet's are. -->
 <div id="clsubveil" class="howveil" role="dialog" aria-modal="true" aria-labelledby="clsubtitle">
   <div class="howcard">
     <div class="howtop"><h2 id="clsubtitle">Send a link</h2>
-      <button type="button" class="howx" onclick="V2Clips.closeSubmit()" aria-label="Close">&#10005;</button>
+      <button type="button" class="howx" onclick="V2Clips.closeSubmit()" aria-label="Close"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
     </div>
+    <div class="clsub-bd">
     <p class="clsubp">Post your clip on X, YouTube or TikTok first, then paste the link. It shows on the wall once it is approved.</p>
     <form id="cl-form" novalidate>
       <label class="slbl" for="cl-url">Link to your post</label>
-      <input class="clin" id="cl-url" type="url" inputmode="url" autocomplete="off" spellcheck="false" maxlength="300"
+      <input class="clin ds-input" id="cl-url" type="url" inputmode="url" autocomplete="off" spellcheck="false" maxlength="300"
              placeholder="https://x.com/you/status/...">
-      <label class="slbl" for="cl-cap">Caption</label>
-      <input class="clin" id="cl-cap" maxlength="140" autocomplete="off" placeholder="Say what happens (optional)">
+      <label class="slbl" for="cl-cap">Caption <span class="cl-opt">(optional)</span></label>
+      <input class="clin ds-input" id="cl-cap" maxlength="140" autocomplete="off" placeholder="Say what happens">
       <span class="slbl" id="cl-gl">Game</span>
       <div class="clsegs" id="cl-games" role="group" aria-labelledby="cl-gl"></div>
       <p class="clerr" id="cl-err" role="alert"></p>
       <div class="clsubacts">
-        <button type="button" class="btn sec" onclick="V2Clips.closeSubmit()">Cancel</button>
-        <button type="submit" class="btn pri" id="cl-send">Send link</button>
+        <button type="submit" class="ds-btn ds-btn-primary ds-btn-lg ds-btn-block" id="cl-send">Send link</button>
+        <button type="button" class="ds-btn ds-btn-quiet ds-btn-block" onclick="V2Clips.closeSubmit()">Cancel</button>
       </div>
     </form>
+    </div>
   </div>
 </div>
 
@@ -3856,9 +3939,12 @@ function openSwimHow(){
      quarter and three-quarter marks, and one Save button. No cancel; Back is
      the way out, exactly as in the live lobby. -->
 <div id="lookveil" class="apscreen" role="dialog" aria-modal="true" aria-label="Customize">
+  <!-- Site redo stage 3 (mockup looks/ab/1/customize.html): the kit's Back and page title, and the game these
+       looks are for at the right. The reel, its previews and Save or Unlock below are as they were. -->
   <div class="ap-header">
-    <button class="ap-back-btn" onclick="closeLook(false)">&#8592; Back</button>
-    <span class="ap-title">CUSTOMIZE</span>
+    <button class="ap-back-btn" onclick="closeLook(false)"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>Back</button>
+    <span class="ap-title">Customize</span>
+    <span class="ap-game" id="ap-game" aria-live="polite"></span>
   </div>
   <!-- The list of skins, at every width. One snake alone gives a drag nothing
        to aim at; seeing the ones either side is what makes it read as a list
@@ -4941,6 +5027,10 @@ function openLook(){
   /* Swim's choice is a car (its paint and engine come with it), not a skin. */
   const hint=document.querySelector('#lookveil .ap-hint');
   if(hint)hint.textContent=cur.id==='swim'?'Scroll to change car':'Scroll to change skin';
+  /* The game these looks are for, in the header (its card art and name), so a Customize opened from Settings says
+     which game it is. */
+  const gm=document.getElementById('ap-game');
+  if(gm){gm.textContent='';const im=new Image();im.alt='';im.draggable=false;if(!cur.noart)im.src=artSrc(cur.id);const nm=document.createElement('span');nm.textContent=cur.name;gm.append(im,nm)}
   /* Always reopens on the skin actually being worn, which is also what makes
      Back safe: browsing moves lookIx, and only Save stores it. */
   const w=wornIn(cur);

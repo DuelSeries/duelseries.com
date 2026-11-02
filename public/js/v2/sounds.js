@@ -168,8 +168,8 @@
     ['.ap-arrow,.nb,.upnav,[onclick^="spin"],[onclick^="cycleLook"]', ['arrow', { rate: 1.06 }]],
     ['.ap-save-btn,.acctbtn:not(.out),.clsend:not(.sec),#cl-send', 'confirm'],
     ['.back,.howx,.upx,.lb-x,.earn-x,.sup-x,.bs-no,.ap-back-btn,[onclick^="close"],[onclick*=".close"],[onclick*="cancel"],[onclick*="backCash"],.acctbtn.out,#me-out', 'close'],
-    ['.waddr .cp,.jn-ls:has(.jn-cp),[data-copy],.cp,.sup-cp', 'copy'],
-    ['[onclick^="open"],[onclick*="headerTap"],[onclick*="openUpload"],[onclick*="openSubmit"],#wbtn,.wbtn,#mebtn,.lookrow,.lbrow,.lb-all,.evhow,.allbtn,.mebt,.upcard,.jn-big,[data-support]', 'open'],
+    ['.waddr .cp,.jn-ls:has(.jn-cp),[data-copy],.cp,.sup-cp,.ref-cp,.sup-pcp', 'copy'],
+    ['[onclick^="open"],[onclick*="headerTap"],[onclick*="openUpload"],[onclick*="openSubmit"],#wbtn,.wbtn,#mebtn,.lookrow,.lbrow,.lb-all,.evhow,.allbtn,.mebt,.upcard,.jn-big,[data-support],.set-link,.cldrop,[data-look]', 'open'],
     ['.czb,.maxbtn', 'select'],
   ];
   function pick(el) {

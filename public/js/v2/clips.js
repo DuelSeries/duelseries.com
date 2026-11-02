@@ -26,7 +26,11 @@
    in this browser only. */
 (function () {
   const $ = (id) => document.getElementById(id);
-  const GAME = { slither: 'slither.io', paper: 'Paper.io', agar: 'agar.io', br: 'Battle royale', other: 'Other' };
+  /* The games a clip can be filed under are the server's own list (server/clips.js GAMES); anything else is Other.
+     Written the way the lobby writes them (stage 3 audit: "slither.io", "agar.io" in lower case here only). */
+  const GAME = { slither: 'Slither.io', paper: 'Paper.io', agar: 'Agar.io', br: 'Battle Royale', other: 'Other' };
+  // The lobby's id for a clip's game, to ask whether it is Coming soon (v2.html V2_IS_SOON): a soon game is not offered.
+  const LOBBY_ID = { slither: 'snake', paper: 'paper', agar: 'agar' };
   const ART = { slither: 'snake', agar: 'agar', paper: 'paper', br: 'snake', other: 'snake' };
   const SRC = { x: 'X', youtube: 'YouTube', tiktok: 'TikTok', upload: '' };
   const ON_SITE = { x: 'Watch on X', youtube: 'Watch on YouTube', tiktok: 'Watch on TikTok' };
@@ -43,11 +47,23 @@
      what is drawn; the server checks the owner's signature on every decision. */
   const OWNER_KEY = 'dsClipsOwner';
   const addr = () => { const w = window.duelWallet || {}; return w.authenticated && w.address ? w.address : ''; };
+  /* Nobody signed in is never the owner, and the sample page's owner view lives in memory only: it once stored an
+     owner verdict for "no wallet", and every later signed-out visit showed the review box and Take down (stage 3
+     audit). A verdict stored for no wallet is dropped on sight. */
+  let previewOwner = false;
   function ownerVerdict() {
-    try { const v = JSON.parse(localStorage.getItem(OWNER_KEY) || 'null'); return v && v.w === addr() ? v.owner : null; } catch (_) { return null; }
+    if (PREVIEW) return previewOwner || null;
+    const a = addr();
+    try {
+      const v = JSON.parse(localStorage.getItem(OWNER_KEY) || 'null');
+      if (v && !v.w) { localStorage.removeItem(OWNER_KEY); return null; }
+      return a && v && v.w === a ? v.owner : null;
+    } catch (_) { return null; }
   }
   function keepVerdict(owner) {
-    try { localStorage.setItem(OWNER_KEY, JSON.stringify({ w: addr(), owner: !!owner })); } catch (_) {}
+    if (PREVIEW) { previewOwner = !!owner; return; }
+    const a = addr(); if (!a) return;
+    try { localStorage.setItem(OWNER_KEY, JSON.stringify({ w: a, owner: !!owner })); } catch (_) {}
   }
 
   const el = (tag, cls, text) => {
@@ -57,6 +73,37 @@
     return n;
   };
   const toast = (o) => { if (window.DSToast) window.DSToast.show(o); };
+  /* The kit's stroke marks, built as elements (nothing here is ever markup). */
+  const NS = 'http://www.w3.org/2000/svg';
+  const MARK = { play: 'M7 4l13 8-13 8z', down: 'M12 5v14M5 12l7 7 7-7', link: 'M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1',
+    x: 'M4 4l16 16M20 4L4 20', up: 'M12 19V5M5 12l7-7 7 7', film: 'M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM10 9.2v5.6l4.6-2.8z',
+    ext: 'M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5' };
+  function ic(name, size) {
+    const v = document.createElementNS(NS, 'svg');
+    v.setAttribute('viewBox', '0 0 24 24'); v.setAttribute('width', size || 16); v.setAttribute('height', size || 16); v.setAttribute('aria-hidden', 'true');
+    const p = document.createElementNS(NS, 'path'); p.setAttribute('d', MARK[name]); v.appendChild(p);
+    return v;
+  }
+  const btn = (cls, label, icon) => { const b = el('button', 'ds-btn ' + cls); b.type = 'button'; if (icon) b.appendChild(ic(icon)); b.appendChild(document.createTextNode(label)); return b; };
+  /* When it went up, the way the lobby says it: "5 h ago", "yesterday", "3 days ago". */
+  function ago(at) {
+    const m = Math.max(0, (Date.now() - Number(at || 0)) / 60000);
+    if (!(at > 0)) return '';
+    if (m < 1) return 'just now';
+    if (m < 60) return Math.floor(m) + ' min ago';
+    const h = m / 60;
+    if (h < 24) return Math.floor(h) + ' h ago';
+    const d = Math.floor(h / 24);
+    return d === 1 ? 'yesterday' : d + ' days ago';
+  }
+  const titleOf = (c) => c.caption || ((GAME[c.game] && c.game !== 'other' ? GAME[c.game] + ' clip' : 'DuelSeries clip'));
+  function byLine(c, withTime) {
+    const by = el('div', 'clby');
+    by.appendChild(el('b', 'clname', c.name));
+    if (GAME[c.game] && c.game !== 'other') by.appendChild(el('span', 'clgame', 'in ' + GAME[c.game]));
+    if (withTime && c.at) { const t = el('time', 'clwhen', ago(c.at)); t.dateTime = new Date(c.at).toISOString(); by.appendChild(t); }
+    return by;
+  }
 
   const isUp = (c) => c.provider === 'upload';
   const pageOf = (c) => location.origin + '/clip/' + encodeURIComponent(c.id);
@@ -72,44 +119,42 @@
     return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
   }
 
-  // One clip as a card: the picture, where it is from, its words and who sent it.
+  /* One clip as a card (layout 1, mockup looks/ab/1/clips.html): the picture with its source and length on it and a
+     play mark, its words (or the game's name when it has none), who sent it, where and when. */
   function card(c, opts) {
     const o = opts || {};
     const wrap = el('div', 'clcard');
     const pic = el('button', 'clpic');
     pic.type = 'button';
-    pic.setAttribute('aria-label', 'Play ' + (c.caption || 'clip') + ' by ' + c.name);
+    pic.setAttribute('aria-label', 'Play ' + titleOf(c) + ' by ' + c.name);
     pic.style.backgroundImage = 'url("' + poster(c) + '")';
-    pic.appendChild(el('span', 'clplay'));
-    if (SRC[c.provider]) pic.appendChild(el('span', 'clsrc', SRC[c.provider]));
-    if (c.media && c.media.ms) pic.appendChild(el('span', 'cldur num', clock(c.media.ms)));
+    const go = el('span', 'clplay'); go.appendChild(ic('play', 20)); pic.appendChild(go);
+    if (SRC[c.provider]) pic.appendChild(el('span', 'ds-chip ds-chip-glass clsrc', SRC[c.provider]));
+    if (c.media && c.media.ms) pic.appendChild(el('span', 'ds-chip ds-chip-glass cldur', clock(c.media.ms)));
     pic.onclick = () => openPlayer(c);
     wrap.appendChild(pic);
-    if (c.caption) wrap.appendChild(el('div', 'clcap', c.caption));
-    const by = el('div', 'clby');
-    by.appendChild(el('span', 'clname', c.name));
-    by.appendChild(el('span', 'clgame', GAME[c.game] || ''));
-    wrap.appendChild(by);
+    wrap.appendChild(el('div', 'clcap', titleOf(c)));
+    wrap.appendChild(byLine(c, true));
     if (isUp(c) && c.status === 'live' && c.media && c.media.video && o.share !== false) wrap.appendChild(shareRow(c, 'clsh'));
     if (o.owner) {
       const acts = el('div', 'clacts');
       if (c.status === 'waiting') {
-        const ok = el('button', 'clok', 'Approve'); ok.type = 'button';
+        const ok = btn('ds-btn-primary ds-btn-sm clok', 'Approve');
         ok.onclick = () => decide(c, 'live', ok);
-        const no = el('button', 'clno', 'Reject'); no.type = 'button';
+        const no = btn('ds-btn-danger ds-btn-sm clno', 'Reject');
         no.onclick = () => decide(c, 'rejected', no);
         acts.appendChild(ok); acts.appendChild(no);
       } else {
-        const rm = el('button', 'clno', 'Take down'); rm.type = 'button';
+        const rm = btn('ds-btn-danger ds-btn-sm clno', 'Take down');
         rm.onclick = () => decide(c, 'removed', rm);
         acts.appendChild(rm);
       }
       if (!isUp(c)) {
-        const open = el('a', 'cllink', ON_SITE[c.provider] || 'Open');
+        const open = el('a', 'ds-btn ds-btn-quiet ds-btn-sm cllink', ON_SITE[c.provider] || 'Open');
         open.href = c.url; open.target = '_blank'; open.rel = 'noopener noreferrer';
         acts.appendChild(open);
       } else if (c.status === 'waiting') {
-        acts.appendChild(el('span', 'clnote', c.media && c.media.ms ? 'Uploaded, ' + clock(c.media.ms) : 'Uploaded'));
+        acts.appendChild(el('span', 'ds-t-meta clnote', c.media && c.media.ms ? 'Uploaded, ' + clock(c.media.ms) : 'Uploaded'));
       }
       wrap.appendChild(acts);
     }
@@ -117,14 +162,14 @@
   }
 
   /* Download, Copy link, Post on X for a clip on the wall (public/js/clipPage.js does the work, the same
-     buttons as the clip's own page). */
+     buttons as the clip's own page). The kit's small buttons: 36px, they were 24px (stage 3 audit). */
   function shareRow(c, cls) {
     const row = el('div', cls);
     const share = window.DSClipShare;
-    const b = (label, fn) => { const x = el('button', '', label); x.type = 'button'; x.onclick = (e) => { e.stopPropagation(); fn(x); }; row.appendChild(x); return x; };
-    b('Download', (x) => share && share.download(c.media.video, c.id, x));
-    b('Copy link', (x) => share && share.copy(pageOf(c), x));
-    b('Post on X', () => share && share.postX(pageOf(c), c.caption || (c.name + ' on DuelSeries')));
+    const b = (label, icon, fn) => { const x = btn('ds-btn-secondary ds-btn-sm', label, icon); x.onclick = (e) => { e.stopPropagation(); fn(x); }; row.appendChild(x); return x; };
+    b('Download', 'down', (x) => share && share.download(c.media.video, c.id, x));
+    b('Copy link', 'link', (x) => share && share.copy(pageOf(c), x));
+    b('Post on X', 'x', () => share && share.postX(pageOf(c), c.caption || (c.name + ' on DuelSeries')));
     return row;
   }
 
@@ -133,30 +178,44 @@
     if (!grid || !top) return;
     grid.textContent = '';
     const owner = ownerVerdict() === true;
-    if (failed && !data.clips.length) {
-      grid.appendChild(el('p', 'clempty', 'Clips did not load. Check your connection and open the tab again.'));
-    } else if (!data.clips.length) {
+    const n = $('cl-wall-n');
+    if (n) n.textContent = data.clips.length ? data.clips.length + (data.clips.length === 1 ? ' clip' : ' clips') : '';
+    if ((failed && !data.clips.length) || !data.clips.length) {
+      // Three empty frames where the first clips go, and one sentence that says what to do (or what went wrong).
       const e = el('div', 'clempty');
-      e.appendChild(el('b', '', 'No clips yet'));
-      e.appendChild(el('span', '', 'Press P in any game to save the last 30 seconds, then Share to DuelSeries. The first one goes right here.'));
+      for (let i = 0; i < 3; i++) { const sl = el('span', 'clslot'); sl.setAttribute('aria-hidden', 'true'); sl.appendChild(ic('film', 26)); e.appendChild(sl); }
+      const m = el('div', 'clempty-msg');
+      if (failed) {
+        m.appendChild(el('b', '', 'Clips did not load'));
+        m.appendChild(el('span', '', 'Check your connection and open the tab again.'));
+      } else {
+        m.appendChild(el('b', '', 'No clips yet'));
+        m.appendChild(el('span', '', 'Press P in any game to save the last 30 seconds, then Share to DuelSeries. The first one goes right here.'));
+      }
+      e.appendChild(m);
       grid.appendChild(e);
     } else {
       data.clips.forEach(c => grid.appendChild(card(Object.assign({ status: 'live' }, c), { owner })));
     }
     top.textContent = '';
-    top.appendChild(el('h3', 'cltoph', 'Top clippers'));
+    const hd = el('div', 'ds-panel-head');
+    hd.appendChild(el('h2', 'cltoph', 'Top clippers'));
+    hd.appendChild(el('span', 'ds-t-meta', 'Clips on the wall'));
+    top.appendChild(hd);
     if (!data.top.length) top.appendChild(el('p', 'cltopnone', 'Nobody yet. Get a clip on the wall to lead this board.'));
+    const list = el('div', 'ds-list');
     data.top.forEach((t, i) => {
-      const r = el('div', 'cltr');
-      r.appendChild(el('span', 'cltn num', String(i + 1)));
-      r.appendChild(el('span', 'cltnm', t.name));
-      r.appendChild(el('span', 'cltc num', t.clips + (t.clips === 1 ? ' clip' : ' clips')));
-      top.appendChild(r);
+      const r = el('div', 'ds-row cltr');
+      r.appendChild(el('span', 'ds-row-ic cltn', String(i + 1)));
+      const m = el('span', 'ds-row-main'); m.appendChild(el('b', 'cltnm', t.name)); r.appendChild(m);
+      r.appendChild(el('span', 'ds-row-end cltc', t.clips + (t.clips === 1 ? ' clip' : ' clips')));
+      list.appendChild(r);
     });
+    if (data.top.length) top.appendChild(list);
   }
 
   /* ── Your clips: the upload box, then the player's own clips, each with Delete ──
-     Only for a logged-in player. Delete asks once more on the same button, then the clip and its file are gone,
+     Only for a signed-in player. Delete asks once more on the same button, then the clip and its file are gone,
      waiting or on the wall (Owen 2026-10-16). */
   const STATE = { uploading: 'Uploading', waiting: 'Waiting for review', live: 'On the wall', rejected: 'Not approved' };
   function drawMine() {
@@ -165,31 +224,40 @@
     m.hidden = !addr() && !PREVIEW;
     if (m.hidden) return;
     m.textContent = '';
-    const h = el('h3', 'clqh', 'Your clips');
-    if (mineList.length) h.appendChild(el('span', 'clqn num', String(mineList.length)));
-    m.appendChild(h);
-    const list = el('div', 'clqlist');
-    list.appendChild(dropBox());
+    const hd = el('div', 'ds-panel-head');
+    hd.appendChild(el('h2', 'clqh', 'Your clips'));
+    if (mineList.length) hd.appendChild(el('span', 'ds-t-meta clqn', String(mineList.length)));
+    m.appendChild(hd);
+    m.appendChild(dropBox());
+    const list = el('div', 'ds-list clmine-list');
     mineList.forEach(c => {
-      const w = card(c, { share: false });
-      const acts = el('div', 'clacts');
-      acts.appendChild(el('span', 'clst ' + c.status, STATE[c.status] || ''));
-      const del = el('button', 'clno', 'Delete'); del.type = 'button';
+      const r = el('div', 'ds-row clmine');
+      const th = el('button', 'ds-row-ic clmine-pic');
+      th.type = 'button';
+      th.setAttribute('aria-label', 'Play ' + titleOf(c));
+      th.style.backgroundImage = 'url("' + poster(c) + '")';
+      th.onclick = () => openPlayer(c);
+      r.appendChild(th);
+      const main = el('span', 'ds-row-main');
+      main.appendChild(el('b', '', titleOf(c)));
+      main.appendChild(el('span', 'clst ' + c.status, (STATE[c.status] || '') + (c.at ? ', ' + ago(c.at) : '')));
+      r.appendChild(main);
+      const del = btn('ds-btn-quiet ds-btn-sm clno', 'Delete');
       del.onclick = () => deleteMine(c, del);
-      acts.appendChild(del);
-      w.appendChild(acts);
-      list.appendChild(w);
+      const end = el('span', 'ds-row-end'); end.appendChild(del); r.appendChild(end);
+      list.appendChild(r);
     });
-    m.appendChild(list);
+    if (mineList.length) m.appendChild(list);
+    m.appendChild(el('p', 'ds-hint clmine-hint', 'Every clip is checked before anyone else can see it. You can delete yours any time, even once it is on the wall.'));
   }
   function dropBox() {
-    const b = el('div', 'cldrop');
+    const b = el('button', 'cldrop');
+    b.type = 'button';
     b.id = 'cl-drop';
+    const i = el('span', 'ds-opt-ic'); i.appendChild(ic('up', 20)); b.appendChild(i);
     b.appendChild(el('b', '', 'Upload a clip'));
-    b.appendChild(el('span', '', 'Drop an MP4 here, up to 30 seconds and 25 MB. It is reviewed before anyone else can see it.'));
-    const pick = el('button', 'clok', 'Choose file'); pick.type = 'button';
-    pick.onclick = () => openUpload();
-    b.appendChild(pick);
+    b.appendChild(el('span', '', 'Drop an MP4 here, or click to choose one. Up to 30 seconds and 25 MB.'));
+    b.onclick = () => openUpload();
     return b;
   }
   async function pullMine() {
@@ -203,7 +271,8 @@
     if (btn.dataset.sure !== '1') {
       btn.dataset.sure = '1';
       btn.textContent = 'Delete for good?';
-      setTimeout(() => { if (btn.isConnected) { btn.dataset.sure = ''; btn.textContent = 'Delete'; } }, 4000);
+      btn.classList.add('is-sure');
+      setTimeout(() => { if (btn.isConnected) { btn.dataset.sure = ''; btn.textContent = 'Delete'; btn.classList.remove('is-sure'); } }, 4000);
       return;
     }
     if (busy) return;
@@ -225,11 +294,14 @@
     if (!q) return;
     const owner = ownerVerdict() === true;
     q.hidden = !owner;
-    if (!owner) return;
+    if (!owner) { q.textContent = ''; return; }
     q.textContent = '';
-    const h = el('h3', 'clqh', 'Waiting for you');
-    h.appendChild(el('span', 'clqn num', String(queue.length)));
-    q.appendChild(h);
+    const hd = el('div', 'ds-panel-head');
+    const h = el('h2', 'clqh', 'Waiting for you');
+    h.appendChild(el('span', 'ds-chip ds-chip-new clqn', String(queue.length)));
+    hd.appendChild(h);
+    hd.appendChild(el('span', 'ds-t-meta', 'Only you see this'));
+    q.appendChild(hd);
     if (!queue.length) { q.appendChild(el('p', 'clqnone', 'Nothing to review. New clips show up here and you get a note when one arrives.')); return; }
     const list = el('div', 'clqlist');
     queue.forEach(c => list.appendChild(card(c, { owner: true })));
@@ -253,7 +325,7 @@
       window.duelWalletSignAction(action, args),
       new Promise((_, no) => setTimeout(() => no(new Error('The wallet did not answer. Try again.')), 10000)),
     ]);
-    if (!proof) throw new Error('Log in to do that.');
+    if (!proof) throw new Error('Sign in to do that.');
     return proof;
   }
   async function postSigned(path, action, args) {
@@ -267,7 +339,7 @@
 
   // Asked once per wallet per tab life; the answer decides whether the queue exists.
   async function pullQueue() {
-    if (PREVIEW) { keepVerdict(true); queue = sample().queue; return; }
+    if (PREVIEW) { keepVerdict(true); queue = sample().queue; return; }   // in memory only (keepVerdict)
     if (!addr()) return;
     const v = ownerVerdict();
     if (v === false) return;
@@ -353,20 +425,18 @@
     box.appendChild(stage);
     const meta = el('div', 'clmeta');
     const words = el('div', 'clmw');
-    if (c.caption) words.appendChild(el('b', 'clmcap', c.caption));
-    const by = el('div', 'clby');
-    by.appendChild(el('span', 'clname', c.name));
-    by.appendChild(el('span', 'clgame', GAME[c.game] || ''));
-    words.appendChild(by);
+    words.appendChild(el('b', 'clmcap', titleOf(c)));
+    words.appendChild(byLine(c, true));
     meta.appendChild(words);
     if (isUp(c)) {
       if (c.status === 'live' && c.media && c.media.video && !PREVIEW) meta.appendChild(shareRow(c, 'clmsh'));
     } else if (!PREVIEW) {
-      const a = el('a', 'cllink', ON_SITE[c.provider] || 'Open');
+      const a = el('a', 'ds-btn ds-btn-secondary ds-btn-sm cllink', ON_SITE[c.provider] || 'Open');
+      a.insertBefore(ic('ext'), a.firstChild);
       a.href = c.url; a.target = '_blank'; a.rel = 'noopener noreferrer';
       meta.appendChild(a);
     }
-    const x = el('button', 'clx'); x.type = 'button'; x.setAttribute('aria-label', 'Close'); x.textContent = '\u2715';
+    const x = el('button', 'clx'); x.type = 'button'; x.setAttribute('aria-label', 'Close'); x.appendChild(ic('x', 18));
     x.onclick = closePlayer;
     meta.appendChild(x);
     box.appendChild(meta);
@@ -387,7 +457,7 @@
   function needLogin() {
     if (addr() || PREVIEW) return false;
     if (typeof window.duelWalletLogin === 'function') window.duelWalletLogin('clips');
-    toast({ kind: 'info', title: 'Log in to share a clip', detail: 'Every clip on the wall has a player name on it.' });
+    toast({ kind: 'info', title: 'Sign in to share a clip', detail: 'Every clip on the wall has a player name on it.' });
     return true;
   }
   function openSubmit() {
@@ -430,7 +500,8 @@
       box.appendChild(v);
       const t = el('div', 'clfmeta');
       t.appendChild(el('b', '', fl.f.name));
-      t.appendChild(el('span', 'num', clock(fl.secs * 1000) + ', ' + (fl.f.size / 1048576).toFixed(1) + ' MB'));
+      const mb = fl.f.size / 1048576;
+      t.appendChild(el('span', 'num', clock(fl.secs * 1000) + ', ' + (mb >= 1 ? mb.toFixed(1) + ' MB' : Math.max(1, Math.round(fl.f.size / 1024)) + ' KB')));
       box.appendChild(t);
     } else if (box) box.remove();
   }
@@ -560,7 +631,10 @@
     const seg = $('cl-games');
     if (!seg) return;
     seg.textContent = '';
-    Object.keys(GAME).forEach(g => {
+    // A game that is Coming soon is not offered (stage 3 audit: Agar.io was, while nobody could play it).
+    const soon = (g) => !!(LOBBY_ID[g] && window.V2_IS_SOON && window.V2_IS_SOON(LOBBY_ID[g]));
+    if (soon(pick)) pick = 'other';
+    Object.keys(GAME).filter(g => !soon(g)).forEach(g => {
       const b = el('button', 'clseg' + (g === pick ? ' on' : ''), GAME[g]);
       b.type = 'button';
       b.setAttribute('aria-pressed', g === pick ? 'true' : 'false');
