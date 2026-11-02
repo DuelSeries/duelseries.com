@@ -3,13 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#100e0b">
+<meta name="theme-color" content="#000000">
 <meta name="robots" content="noindex">
 <title>Privacy policy · DuelSeries</title>
 <link rel="icon" type="image/png" sizes="32x32" href="/img/favicon-32.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;650;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/css/legal.css">
 <script src="/js/v2/support.js" defer></script>
 </head>
@@ -19,11 +19,32 @@
      that day (server/db.js accounts and history tables, the Privy widget,
      public/js/posthog-init.js, the localStorage keys in public/v2.html). The
      highlighted [brackets] wait for a lawyer's review, which this needs. -->
-<div class="doc">
-  <header class="top">
+<header class="top">
+  <div class="top-in">
     <a class="brand" href="/">Duel<span>Series</span></a>
     <a class="home" href="/">Back to games</a>
-  </header>
+  </div>
+</header>
+<div class="lg">
+  <aside class="side" aria-label="Legal pages">
+    <nav class="side-nav" aria-label="Legal">
+      <a href="/terms.html">Terms of service</a>
+      <a href="/privacy.html" aria-current="page">Privacy policy</a>
+      <a href="/responsible-play.html">Responsible play</a>
+    </nav>
+    <p class="side-hd">On this page</p>
+    <nav class="side-nav toc" aria-label="On this page">
+      <a href="#what-we-keep">What we keep</a>
+      <a href="#signing-in">Signing in</a>
+      <a href="#analytics">Analytics</a>
+      <a href="#what-is-public">What is public</a>
+      <a href="#on-your-device">On your device</a>
+      <a href="#who-else-handles-it">Who else handles it</a>
+      <a href="#how-long-we-keep-it">How long we keep it</a>
+      <a href="#your-choices">Your choices</a>
+    </nav>
+  </aside>
+<main class="doc">
 
   <h1>Privacy policy</h1>
   <p class="meta">Draft, last updated October 15, 2026</p>
@@ -31,7 +52,7 @@
   <div class="draft"><b>Draft.</b> This policy has not been reviewed by a lawyer and is
     not final. Highlighted parts are still to be confirmed.</div>
 
-  <h2>What we keep</h2>
+  <h2 id="what-we-keep">What we keep</h2>
   <ul>
     <li><strong>Your wallet address</strong>, which is your account.</li>
     <li><strong>The player name</strong> you choose, and names you used before it.</li>
@@ -41,32 +62,32 @@
       servers see on every request and use for security and to limit abuse.</li>
   </ul>
 
-  <h2>Signing in</h2>
+  <h2 id="signing-in">Signing in</h2>
   <p>Privy runs sign-in and creates your wallet. When you sign in with Google or an email
     address, Privy handles those details under its own privacy policy.</p>
 
-  <h2>Analytics</h2>
+  <h2 id="analytics">Analytics</h2>
   <p>Some game pages use PostHog to show us how the site is used, including recordings of
     sessions with anything you type hidden.</p>
 
-  <h2>What is public</h2>
+  <h2 id="what-is-public">What is public</h2>
   <p>Your player name, earnings, games played, time played and rank appear on the
     leaderboard and on your profile. Everything sent to or from your wallet is recorded on
     the Solana network, which anyone can read.</p>
 
-  <h2>On your device</h2>
+  <h2 id="on-your-device">On your device</h2>
   <p>Your browser stores your player name, your skin and a few display preferences so they
     are there next time. Clearing your browser's site data removes them.</p>
 
-  <h2>Who else handles it</h2>
+  <h2 id="who-else-handles-it">Who else handles it</h2>
   <p>Only the services that run the site: Privy (sign-in and wallets), Amazon Web Services
     (our servers), Helius (our connection to the Solana network) and PostHog (analytics).
     We do not sell your information.</p>
 
-  <h2>How long we keep it</h2>
+  <h2 id="how-long-we-keep-it">How long we keep it</h2>
   <p><mark class="todo">[retention period]</mark></p>
 
-  <h2>Your choices</h2>
+  <h2 id="your-choices">Your choices</h2>
   <p>You can change your player name in Settings and sign out at any time. To ask what we
     hold about you, or to have it deleted, write to
     <a href="https://mail.google.com/mail/?view=cm&amp;to=playduelseries@gmail.com" target="_blank" rel="noopener noreferrer" data-support>playduelseries@gmail.com</a>.
@@ -77,6 +98,7 @@
     <a href="/privacy.html" aria-current="page">Privacy policy</a>
     <a href="/responsible-play.html">Responsible play</a>
   </nav>
+</main>
 </div>
 </body>
 </html>
