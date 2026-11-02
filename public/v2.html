@@ -279,7 +279,10 @@ header{position:sticky;top:0;z-index:50;background:rgba(0,0,0,.88);
   .ni svg,.sb-it svg{width:22px;height:22px}
   .sb-logo{height:calc(var(--ds-hdh) + 12px);padding:0 14px;font-size:21px}
   .sb-gap{height:1px;margin:var(--ds-sp3) 14px;background:var(--line)}
-  .sb-pin{gap:4px}
+  /* One stack, top to bottom, one rhythm (Owen 2026-11-02): the last group follows the others instead of sitting
+     at the bottom of the window. */
+  .sb-pin{position:static;margin-top:0;padding:0;gap:4px;background:none}
+  .sb-pin::before{display:none}
   .ni.isnew::after{left:30px;top:calc(50% - 13px)}
 }
 @media(min-width:761px) and (max-height:760px) and (min-height:501px){:root{--rh:38px}}
@@ -6311,6 +6314,7 @@ function drawNav(){
     +`<button class="sb-it sbx" type="button" onclick="setLooks()">${SBI(SB_P.look)}<span>Customize</span></button>`
     +`<div class="sbx sb-gap" role="presentation"></div>`
     +['clips','updates'].map(id=>navBtn(pin(id))).join('')
+    +`<div class="sbx sb-gap" role="presentation"></div>`
     +`<div class="sb-pin">`
     +`<button class="sb-it sbx" type="button" onclick="window.V2Invite&&V2Invite.home()">${SBI(SB_P.refer)}<span>Refer a friend</span></button>`
     +navBtn(pin('join'))
