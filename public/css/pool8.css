@@ -6,12 +6,12 @@
 
 :root {
   --night: #1a2033;        /* the letterbox: the room behind the table (docs/pool8-reference.md) */
-  --ink:   #100e0b;
-  --s2:    #1f1b15;
-  --s3:    #282219;
-  --tx:    #f5f1e8;
-  --tx2:   #a89c8a;
-  --tx3:   #8d8171;
+  --ink:   #000000;
+  --s2:    #1a1611;
+  --s3:    #272018;
+  --tx:    #f4f1ea;
+  --tx2:   #b3a792;
+  --tx3:   #988b78;
   --gold:  #f0a830;
   --f:  'Archivo', ui-sans-serif, system-ui, 'Segoe UI', Arial, sans-serif;
   --fm: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
