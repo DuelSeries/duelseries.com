@@ -14,7 +14,7 @@ test('nav: Clips and Updates sit just above Settings, both marked PC only', () =
   const html = read('public/v2.html');
   const nav = html.slice(html.indexOf('const NAV=['), html.indexOf('];', html.indexOf('const NAV=[')));
   const ids = [...nav.matchAll(/\{id:'([a-z]+)'/g)].map(m => m[1]);
-  assert.deepStrictEqual(ids, ['play', 'wallet', 'events', 'social', 'clips', 'updates', 'join', 'settings']);   // no Shop, and a Join us tab, since 2026-10-16
+  assert.deepStrictEqual(ids, ['play', 'events', 'social', 'wallet', 'clips', 'updates', 'join', 'settings']);   // no Shop, and a Join us tab, since 2026-10-16
   assert.match(nav, /\{id:'clips',[^}]*pc:1/);
   assert.match(nav, /\{id:'updates',[^}]*pc:1/);
   assert.match(html, /\$\{n\.pc\?' pconly':''\}/, 'drawNav marks them');
@@ -33,7 +33,7 @@ test('PC only: hidden on a narrow or touch-only screen, and the router sends a s
 
 test('the phone keeps its tab bar and swipe order', () => {
   const swipe = read('public/js/v2/swipe.js');
-  assert.match(swipe, /const TABS = \['play', 'wallet', 'events', 'social', 'settings'\];/);
+  assert.match(swipe, /const TABS = \['play', 'events', 'social', 'wallet', 'settings'\];/);
 });
 
 test('the router knows both screens, and each fills itself on arrival', () => {

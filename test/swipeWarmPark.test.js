@@ -51,7 +51,7 @@ test('after load each tab screen is warmed once, nearest first, one per idle mom
     box.runIdle();
     order.push(box.warmed.slice(-1)[0]);
   }
-  assert.deepStrictEqual(box.warmed, ['wallet', 'events', 'social', 'settings'], 'every other tab once, nearest first');
+  assert.deepStrictEqual(box.warmed, ['events', 'social', 'wallet', 'settings'], 'every other tab once, nearest first');
   assert.strictEqual(box.parks, 1, 'and then it asks for the park (the page decides whether there is one)');
 });
 

@@ -54,7 +54,7 @@
      tab change. It used to be a marquee with no gesture of its own. */
   const EXEMPT = '.chartbox, .apscreen, #game-frame, .tickerwrap.top .ticker';
 
-  const TABS = ['play', 'wallet', 'events', 'social', 'settings'];
+  const TABS = ['play', 'events', 'social', 'wallet', 'settings'];
   const SCREEN_IDS = ['home', 'allgames', 'detail', 'settings-screen',
                       'wallet-screen', 'events-screen', 'social-screen', 'player-screen'];
 

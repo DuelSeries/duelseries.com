@@ -278,8 +278,7 @@ header{position:sticky;top:0;z-index:50;background:rgba(0,0,0,.88);
   .ni,.sb-it{font-size:15px;padding:0 14px;gap:14px}
   .ni svg,.sb-it svg{width:22px;height:22px}
   .sb-logo{height:calc(var(--ds-hdh) + 12px);padding:0 14px;font-size:21px}
-  .nav>.ni[data-tab="clips"]{margin-top:var(--ds-sp4)}
-  .nav>.ni[data-tab="clips"]::before{content:"";position:absolute;left:14px;right:14px;top:calc(-1 * var(--ds-sp2) - 2px);height:1px;background:var(--line);pointer-events:none}
+  .sb-gap{height:1px;margin:var(--ds-sp3) 14px;background:var(--line)}
   .sb-pin{gap:4px}
   .ni.isnew::after{left:30px;top:calc(50% - 13px)}
 }
@@ -6230,8 +6229,6 @@ Object.defineProperty(window,'route',{get:()=>route});
 const NAV=[
  {id:'play',   t:'Home',    d:'',
   p:'M3 10.2 12 3l9 7.2V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z'},
- {id:'wallet', t:'Wallet',  d:'Add funds, withdrawals and your transaction history.',
-  p:'M3 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2H5a2 2 0 0 1-2-2m14 6h.01'},
  {id:'events', t:'Events',  d:'Tournaments and one-off games with a prize on them.',
   call:()=>!!(window.V2BrCall&&V2BrCall.on()),
   p:'M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2'},
@@ -6239,6 +6236,8 @@ const NAV=[
     router, the swipe order and old links keep working. */
  {id:'social', t:'Leaderboards', d:'Top earners, player search and player profiles.',
   p:'M16 20v-1.5a3.5 3.5 0 0 0-3.5-3.5h-5A3.5 3.5 0 0 0 4 18.5V20M10 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7M20 20v-1.5a3.5 3.5 0 0 0-2.6-3.4M15.5 4.1a3.5 3.5 0 0 1 0 6.8'},
+ {id:'wallet', t:'Wallet',  d:'Add funds, withdrawals and your transaction history.',
+  p:'M3 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2H5a2 2 0 0 1-2-2m14 6h.01'},
  {id:'clips',  t:'Clips',   d:'Player clips from X, YouTube and TikTok.', pc:1,
   dot:()=>!!(window.V2Clips&&V2Clips.dot()),
   p:'M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM10 9.2v5.6l4.6-2.8z'},
@@ -6283,6 +6282,7 @@ const SB_P={
   shop:'M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4zM3 6h18M16 10a4 4 0 0 1-8 0',
   live:'M4.9 19.1a10 10 0 0 1 0-14.2M7.8 16.2a6 6 0 0 1 0-8.4M16.2 7.8a6 6 0 0 1 0 8.4M19.1 4.9a10 10 0 0 1 0 14.2M12 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2',
   refer:'M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7',
+  look:'M12 22a10 10 0 1 1 10-10c0 2.2-1.8 3-3.5 3H16a2 2 0 0 0-1.4 3.4c.4.5.4 1.3-.2 1.8-.6.5-1.5.8-2.4.8zM7.5 11.5h.01M10.5 7.5h.01M15.5 7.5h.01',
   support:'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01',
   trophy:'M6 9H4.5a2.5 2.5 0 0 1 0-5H6M18 9h1.5a2.5 2.5 0 0 0 0-5H18M4 22h16M10 14.7V17c0 .6-.5 1-1 1.2C7.9 18.8 7 20.2 7 22M14 14.7V17c0 .6.5 1 1 1.2 1.2.5 2 2 2 3.8M18 2H6v7a6 6 0 0 0 12 0z',
   eye:'M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6',
@@ -6295,10 +6295,15 @@ function drawNav(){
        </button>`;
   const pin=id=>NAV.find(n=>n.id===id);
   document.getElementById('nav').innerHTML=`<a class="logo sb-logo sbx" href="/" onclick="go('play');return false" aria-label="DuelSeries home">Duel<em>Series</em></a>`
-    +NAV.filter(n=>!n.pin).map(navBtn).join('')
+    /* Dial-in (Owen 2026-11-02: "super simple"): only the tabs, in groups with a quiet line between them. Play and
+       compete, your money; then your look; then what is new; then the foot: growth, help and Settings. */
+    +['play','events','social','wallet'].map(id=>navBtn(pin(id))).join('')
+    +`<div class="sbx sb-gap" role="presentation"></div>`
     +`<button class="sb-it sbx sb-soon" type="button" aria-disabled="true" aria-label="Shop, coming soon">${SBI(SB_P.shop)}<span>Shop</span><span class="sb-pill">Soon</span></button>`
+    +`<button class="sb-it sbx" type="button" onclick="setLooks()">${SBI(SB_P.look)}<span>Customize</span></button>`
+    +`<div class="sbx sb-gap" role="presentation"></div>`
+    +['clips','updates'].map(id=>navBtn(pin(id))).join('')
     +`<div class="sb-pin">`
-    +`<button class="sbx sb-br" id="sb-br" type="button" onclick="go('events')" hidden><span class="sb-bri">${SBI(SB_P.trophy)}</span><b class="sb-brn">Battle Royale</b><span class="sb-m"></span><b class="sb-cd" id="sb-cd"></b><span class="sb-fr" id="sb-fr"></span><i class="sb-bar" aria-hidden="true"></i></button>`
     +`<button class="sb-it sbx" type="button" onclick="window.V2Invite&&V2Invite.home()">${SBI(SB_P.refer)}<span>Refer a friend</span></button>`
     +navBtn(pin('join'))
     +`<a class="sb-it sbx" href="https://mail.google.com/mail/?view=cm&amp;to=playduelseries@gmail.com" target="_blank" rel="noopener noreferrer" data-support>${SBI(SB_P.support)}<span>Support</span></a>`

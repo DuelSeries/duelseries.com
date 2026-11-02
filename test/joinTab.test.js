@@ -31,7 +31,7 @@ test('PC only: hidden until routed to, and never on a narrow or touch-only scree
   assert.match(css, /^#join-screen\{display:none\}/m);
   assert.match(css, /@media\(max-width:760px\),\(hover:none\) and \(pointer:coarse\)\{#join-screen\{display:none!important\}\}/,
     'the same question v2.html asks for Clips and Updates');
-  assert.match(read('public/js/v2/swipe.js'), /const TABS = \['play', 'wallet', 'events', 'social', 'settings'\];/,
+  assert.match(read('public/js/v2/swipe.js'), /const TABS = \['play', 'events', 'social', 'wallet', 'settings'\];/,
     'the phone swipe order is untouched');
 });
 

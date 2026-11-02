@@ -2150,10 +2150,10 @@ test('the Shop tab is gone: skins are bought in Customize, and an old Shop route
   const html = v2();
   const nav = html.slice(html.indexOf('const NAV=['), html.indexOf('];', html.indexOf('const NAV=[')));
   assert.ok(!/id:'shop'/.test(nav), 'no Shop in the nav');
-  assert.deepEqual([...nav.matchAll(/\{id:'(\w+)'/g)].map(m => m[1]), ['play', 'wallet', 'events', 'social', 'clips', 'updates', 'join', 'settings']);
+  assert.deepEqual([...nav.matchAll(/\{id:'(\w+)'/g)].map(m => m[1]), ['play', 'events', 'social', 'wallet', 'clips', 'updates', 'join', 'settings']);
   assert.ok(!/shop-screen|id="shop"|V2ShopTab|tab==='shop'/.test(html), 'no Shop screen, mount or route');
   const sw = fs.readFileSync(path.join(ROOT, 'public/js/v2/swipe.js'), 'utf8');
-  assert.ok(sw.includes("const TABS = ['play', 'wallet', 'events', 'social', 'settings'];"), 'the swipe order matches the nav');
+  assert.ok(sw.includes("const TABS = ['play', 'events', 'social', 'wallet', 'settings'];"), 'the swipe order matches the nav');
   assert.ok(!sw.includes('shop-screen'), 'and the swipe knows no Shop screen');
   // A stale go('shop') (an old page, a cached handler) is sent Home, never to a nav with nothing lit.
   assert.match(html, /function go\(id,dir\)\{[\s\S]{0,400}if\(!SCREEN_FOR\[id\]\)id='play';[^;]{0,40};?\s*route=id;/);
