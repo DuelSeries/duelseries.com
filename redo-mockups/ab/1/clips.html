@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Clips | DuelSeries</title>
+<meta name="theme-color" content="#000000">
+<link rel="icon" href="../../assets/img/favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=IBM+Plex+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="../kit.css">
+<link rel="stylesheet" href="layout.css">
+<link rel="stylesheet" href="mecard.css">
+<link rel="stylesheet" href="clips.css">
+</head>
+<body>
+<!-- Mockup switches: ?owner (owner review and Take down; never shown to anyone else), ?empty (no clips yet),
+     ?error (the wall did not load), ?signedout (no Your clips; sharing asks to sign in), ?link and ?file open the two share sheets. -->
+<main class="main" id="main">
+  <section class="panel pcn" aria-labelledby="pcn-t">
+    <div class="pcn-ic" id="pcn-ic"></div>
+    <h1 class="t-page" id="pcn-t">Clips is on PC only</h1>
+    <p class="t-body">Watching and sharing clips needs a bigger screen. Open duelseries.com on a computer to see the wall. A clip link someone sends you still plays on your phone.</p>
+    <a class="btn btn-primary btn-lg btn-block" href="home.html">Back to Home</a>
+  </section>
+
+  <div class="cl">
+    <div class="page-hd cl-hd">
+      <div>
+        <h1 class="t-page">Clips</h1>
+        <p class="t-body">Moments from DuelSeries games, shared by players and checked before they go up. Press P in any game to save the last 30 seconds, then Share to DuelSeries.</p>
+      </div>
+      <div class="cl-acts">
+        <button type="button" class="btn btn-secondary" id="send-link"></button>
+        <button type="button" class="btn btn-primary" id="upload"></button>
+      </div>
+    </div>
+
+    <div class="cl-cols">
+      <div class="cl-wallcol">
+        <section class="panel cl-queue" id="queue" aria-labelledby="q-t" hidden></section>
+        <section aria-labelledby="wall-t">
+          <div class="sec-hd wall-hd"><h2 id="wall-t">On the wall</h2><span class="t-meta" id="wall-n"></span></div>
+          <div class="wall" id="wall"></div>
+        </section>
+      </div>
+      <aside class="cl-rail" aria-label="Your clips and the clip team">
+        <section class="panel cl-mine" id="mine" aria-labelledby="mine-t" hidden></section>
+        <section class="panel top" aria-labelledby="top-t">
+          <div class="panel-head"><h2 id="top-t">Top clippers</h2><span class="t-meta">Clips on the wall</span></div>
+          <div id="top"></div>
+        </section>
+        <section class="panel team" aria-labelledby="team-t">
+          <div class="team-hd"><span class="opt-ic" id="team-ic"></span><h2 id="team-t">Clip team</h2></div>
+          <p>The DuelSeries clip team lives on Whop. It is free to join and has the clip rules: record your Free games and keep duelseries.com on screen.</p>
+          <a class="btn btn-secondary btn-block" id="team-go" href="https://whop.com/duelseries/clip-team-c9/" target="_blank" rel="noopener noreferrer"></a>
+        </section>
+      </aside>
+    </div>
+  </div>
+  <input type="file" id="file" accept="video/mp4,.mp4" hidden>
+</main>
+
+<script src="../../assets/data.js"></script>
+<script src="../chart.js"></script>
+<script src="../kit.js"></script>
+<script src="layout.js"></script>
+<script src="mecard.js"></script>
+<script>
+(function () {
+  const K = DSKit, D = K.data, F = K.fmt, I = K.icon, esc = K.esc, U = DSUI, Q = U.Q;
+  L1.chrome('clips');
+
+  /* ---------- mockup switches ---------- */
+  const EMPTY = Q.has('empty'), FAILED = Q.has('error');
+  /* the owner review only for a signed-in owner (here: ?owner). Anyone else never sees Approve, Reject or Take down. */
+  const OWNER = Q.has('owner') && U.signedIn;
+
+  /* ---------- data, in the shape of /api/clips ---------- */
+  const PICK = D.games.filter(g => g.kind !== 'soon').map(g => [g.id, g.name]).concat([['br', 'Battle Royale'], ['other', 'Other']]);
+  const SRC = { x: ['X', 'xlogo'], youtube: ['YouTube', 'youtube'], tiktok: ['TikTok', 'tiktok'] };
+  const label = c => c.br ? 'Battle Royale' : ((PICK.find(p => p[0] === c.game) || [0, 'Other'])[1]);
+  const title = c => c.caption || label(c) + ' clip';
+  const clock = ms => { const s = Math.round(ms / 1000); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+  const size = n => n < 1048576 ? Math.max(1, Math.round(n / 1024)) + ' KB' : (n / 1048576).toFixed(1) + ' MB';
+  const byName = n => (D.games.find(g => g.name === n) || D.games[1]);
+
+  let wall = [], mine = [], queue = [];
+  function load() {
+    /* the wall never shows a game that cannot be played right now */
+    wall = EMPTY ? [] : D.clips.filter(c => D.game(c.game).kind !== 'soon').map(c => Object.assign({ status: 'live' }, c));
+    mine = !U.signedIn || EMPTY ? [] : D.myClips.map(c => { const g = byName(c.game);
+      return { id: c.id, name: D.me.name, game: g.id, poster: c.poster, at: c.at, ms: c.ms, provider: 'upload', caption: '', status: c.state }; });
+    mine.filter(c => c.status === 'live').forEach(c => wall.push(c));
+    wall.sort((a, b) => b.at - a.at);
+    queue = !OWNER || EMPTY ? [] : [
+      { id: 'q1', name: 'zigzag', game: 'snake', provider: 'x', caption: 'Boosted through a gap I should not fit', poster: D.game('snake').img, at: D.NOW - 25 * 60e3, vertical: false, status: 'waiting' },
+      { id: 'q2', name: 'blobby', game: 'agar', provider: 'upload', caption: 'Fed the virus into a cell twice my size', poster: D.game('agar').img, at: D.NOW - 70 * 60e3, ms: 27000, status: 'waiting' }];
+  }
+  const find = id => wall.concat(queue, mine).find(c => c.id === id);
+
+  /* ---------- one clip ---------- */
+  function card(c, acts) {
+    const s = SRC[c.provider];
+    return '<article class="clip" data-id="' + c.id + '">' +
+      '<button type="button" class="clip-pic" data-play="' + c.id + '" aria-label="Play ' + esc(title(c)) + ', by ' + esc(c.name) + '">' +
+        '<img src="' + c.poster + '" alt="" loading="lazy" decoding="async">' +
+        '<span class="clip-go" aria-hidden="true">' + I('play', 20) + '</span>' +
+        (s ? '<span class="chip chip-glass clip-src">' + I(s[1], 13) + s[0] + '</span>' : '') +
+        (c.ms ? '<span class="chip chip-glass clip-dur">' + clock(c.ms) + '</span>' : '') +
+      '</button>' +
+      '<div><b class="clip-t">' + esc(title(c)) + '</b>' + byline(c) + '</div>' +
+      (acts ? '<div class="clip-acts">' + acts + '</div>' : '') + '</article>';
+  }
+  const byline = c => '<div class="clip-by"><b>' + esc(c.name) + '</b><span>in ' + esc(label(c)) + '</span><time datetime="' + new Date(c.at).toISOString() + '">' + F.ago(c.at) + '</time></div>';
+
+  /* ---------- draw ---------- */
+  const $ = id => document.getElementById(id);
+  function drawWall() {
+    const w = $('wall');
+    $('wall-n').textContent = wall.length ? wall.length + (wall.length === 1 ? ' clip' : ' clips') : '';
+    if (FAILED) {
+      w.innerHTML = emptyWall('Clips did not load', 'Check your connection, then try again.', '<button type="button" class="btn btn-secondary" id="retry">Try again</button>');
+      return;
+    }
+    if (!wall.length) {
+      w.innerHTML = emptyWall('No clips yet', 'Press P in any game to save the last 30 seconds, then Share to DuelSeries. The first one goes right here.', '');
+      return;
+    }
+    w.innerHTML = wall.map(c => card(c, OWNER ? '<button type="button" class="btn btn-secondary btn-sm" data-act="down" data-id="' + c.id + '">Take down</button>' : '')).join('');
+  }
+  const emptyWall = (b, s, btn) => '<div class="wall-none">' + [0, 1, 2].map(() => '<div class="slot" aria-hidden="true">' + I('clips', 28) + '</div>').join('') +
+    '<div class="wall-msg"><b>' + b + '</b><span>' + s + '</span>' + btn + '</div></div>';
+
+  function drawQueue() {
+    const q = $('queue');
+    q.hidden = !OWNER;
+    if (!OWNER) return;
+    q.innerHTML = '<div class="panel-head"><h2 id="q-t">Waiting for you<span class="chip">' + queue.length + '</span></h2><span class="t-meta">Only you see this. Approve puts a clip on the wall.</span></div>' +
+      (queue.length ? '<div class="wall">' + queue.map(c => card(c,
+        '<button type="button" class="btn btn-primary btn-sm" data-act="ok" data-id="' + c.id + '">Approve</button>' +
+        '<button type="button" class="btn btn-secondary btn-sm" data-act="no" data-id="' + c.id + '">Reject</button>' +
+        (SRC[c.provider] ? '<button type="button" class="btn btn-quiet btn-sm" data-act="watch" data-id="' + c.id + '">Watch on ' + SRC[c.provider][0] + I('ext', 14) + '</button>'
+          : '<span class="t-meta">Uploaded, ' + clock(c.ms) + '</span>'))).join('') + '</div>'
+        : '<p class="q-none">Nothing to review. New clips show up here and you get a note when one arrives.</p>');
+  }
+
+  const STATE = { waiting: 'Waiting for review', live: 'On the wall', rejected: 'Not approved' };
+  function drawMine() {
+    const m = $('mine');
+    m.hidden = !U.signedIn;
+    if (m.hidden) return;
+    m.innerHTML = '<div class="panel-head"><h2 id="mine-t">Your clips</h2>' + (mine.length ? '<span class="t-meta">' + mine.length + '</span>' : '') + '</div>' +
+      '<button type="button" class="drop" id="drop"><span class="opt-ic" aria-hidden="true">' + I('upload', 20) + '</span><b>Upload a clip</b>' +
+        '<span>Drop an MP4 here, or click to choose one. Up to 30 seconds and 25 MB.</span></button>' +
+      (mine.length ? '<div class="list mine-list">' + mine.map(c =>
+        '<div class="row"><button type="button" class="row-ic" data-play="' + c.id + '" aria-label="Play your ' + esc(label(c)) + ' clip"><img src="' + c.poster + '" alt=""></button>' +
+        '<div class="row-main"><b>' + esc(title(c)) + '</b><span>' + STATE[c.status] + ', ' + F.ago(c.at) + '</span></div>' +
+        '<button type="button" class="btn btn-quiet btn-sm" data-act="del" data-id="' + c.id + '">Delete</button></div>').join('') + '</div>'
+        : '<p class="t-meta mine-none">You have not shared a clip yet.</p>') +
+      '<p class="hint">Every clip is checked before anyone else can see it. You can delete yours any time, even once it is on the wall.</p>';
+  }
+
+  function drawTop() {
+    const n = new Map(); wall.forEach(c => n.set(c.name, (n.get(c.name) || 0) + 1));
+    const top = [...n].sort((a, b) => b[1] - a[1]).slice(0, 5);
+    $('top').innerHTML = FAILED ? '<p class="top-none">Shows once the clips load.</p>'
+      : !top.length ? '<p class="top-none">Nobody yet. Get a clip on the wall to lead this board.</p>'
+      : '<div class="list">' + top.map(([name, k], i) => '<div class="row"><span class="row-ic" aria-label="Rank ' + (i + 1) + '">' + (i + 1) + '</span>' +
+        '<div class="row-main"><b>' + esc(name) + '</b></div><span class="row-end">' + k + (k === 1 ? ' clip' : ' clips') + '</span></div>').join('') + '</div>';
+  }
+  function drawAll() { drawQueue(); drawWall(); drawMine(); drawTop(); }
+
+  /* ---------- the player ---------- */
+  function play(c) {
+    const up = c.provider === 'upload', s = SRC[c.provider], ready = c.status === 'live';
+    const stage = !ready ? '<div class="clp-off"><b>This clip cannot play yet</b><span>' + (c.status === 'rejected' ? 'It was not approved.' : 'It is still being checked.') + '</span></div>'
+      : !up ? '<div class="clp-off"><b>This clip plays on ' + s[0] + '</b><span>Open the post to watch it.</span></div>'
+      : '<button type="button" class="clp-go" data-vid aria-label="Play the clip">' + I('play', 30) + '</button>' +
+        '<div class="clp-bar" aria-hidden="true"><span class="chip chip-glass">0:00 / ' + clock(c.ms) + '</span><i></i></div>';
+    const acts = !ready ? '' : up
+      ? '<button type="button" class="btn btn-secondary" data-dl>' + I('download', 18) + 'Download</button>' +
+        '<button type="button" class="btn btn-secondary" data-cp>' + I('link', 18) + 'Copy link</button>' +
+        '<button type="button" class="btn btn-secondary" data-px>' + I('xlogo', 16) + 'Post on X</button>'
+      : '<button type="button" class="btn btn-secondary" data-act="watch" data-id="' + c.id + '">Watch on ' + s[0] + I('ext', 16) + '</button>';
+    U.sheet({ bare: true, wide: true, cls: 'clp' + (c.vertical ? ' is-tall' : ''), title: title(c),
+      html: '<div class="clp-stage"><img src="' + c.poster + '" alt="">' + stage + '</div>' +
+        '<div class="clp-meta"><div class="clp-w"><h2 class="t-title">' + esc(title(c)) + '</h2>' + byline(c) + '</div><div class="clp-acts">' + acts + '</div></div>',
+      onOpen(el) {
+        const on = (sel, fn) => { const b = el.querySelector(sel); if (b) b.addEventListener('click', () => fn(b)); };
+        on('[data-vid]', () => U.toast('The clip plays here', 'info', 'Mockup: there are no video files in this mockup.'));
+        on('[data-dl]', b => U.busy(b, 600, () => U.toast('Download started', 'ok', title(c) + '.mp4')));
+        on('[data-cp]', () => copy('duelseries.com/clip/' + c.id));
+        on('[data-px]', () => U.toast('X opens with the link', 'info', 'Mockup: nothing is posted from here.'));
+      } });
+  }
+  function copy(txt) {
+    try { navigator.clipboard.writeText('https://' + txt).catch(() => {}); } catch (_) {}
+    U.toast('Link copied', 'ok', txt);
+  }
+
+  /* ---------- sharing: a link, or an MP4 from this computer ---------- */
+  function signFirst() {
+    U.sheet({ title: 'Sign in to share a clip',
+      html: '<p class="hint">Every clip on the wall has a player name on it, so sharing one needs you signed in. Watching clips does not.</p>',
+      foot: '<button type="button" class="btn btn-primary btn-lg btn-block" data-signin>Sign in</button>' });
+  }
+  const LINK = /^(https?:\/\/)?((www|m|mobile)\.)?((x|twitter)\.com\/[A-Za-z0-9_]{1,15}\/status\/\d{5,25}|youtu\.be\/[A-Za-z0-9_-]{11}|youtube\.com\/(watch\?(.*&)?v=|shorts\/|embed\/|live\/)[A-Za-z0-9_-]{11}|tiktok\.com\/@[A-Za-z0-9._]{1,30}\/video\/\d{8,25})/i;
+  function share(file) {
+    if (!U.signedIn) return signFirst();
+    let pick = file ? 'other' : 'snake';
+    const chips = PICK.map(([id, n]) => '<button type="button" class="fchip" data-v="' + id + '" aria-pressed="' + (id === pick) + '">' + esc(n) + '</button>').join('');
+    U.sheet({ wide: true, title: file ? 'Share a clip' : 'Send a link',
+      html: (file ? '<div class="cls-file">' + (file.url ? '<video src="' + file.url + '" muted playsinline controls preload="metadata"></video>' : '<img src="' + file.poster + '" alt="">') +
+          '<div><b>' + esc(file.name) + '</b><span>' + clock(file.secs * 1000) + ', ' + size(file.size) + '</span></div></div>' : '') +
+        '<p class="hint">' + (file ? 'It is checked before anyone else can see it. You can delete it any time under Your clips.'
+          : 'Post your clip on X, YouTube or TikTok first, then paste the link here. It shows on the wall once it is approved.') + '</p>' +
+        (file ? '' : '<div class="field" id="f-url"><label for="cl-url">Link to your post</label><div class="input-wrap"><input class="input" id="cl-url" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="x.com/you/status/123"></div><div class="field-msg" id="url-msg">From X, YouTube or TikTok</div></div>') +
+        '<div class="field"><label for="cl-cap">Caption <span class="field-opt">(optional)</span></label><div class="input-wrap"><input class="input" id="cl-cap" maxlength="140" autocomplete="off" placeholder="What happened in the clip"></div>' +
+          '<div class="field-msg"><span class="cap-n" id="cap-n">0 of 140</span></div></div>' +
+        '<div class="field"><span class="t-label" id="g-lbl">Game</span><div class="fchips" id="g-pick" role="group" aria-labelledby="g-lbl">' + chips + '</div></div>',
+      foot: '<button type="button" class="btn btn-primary btn-lg btn-block" data-send>' + (file ? 'Share clip' : 'Send link') + '</button>',
+      focus: file ? '#cl-cap' : '#cl-url',
+      onClose() { if (file && file.url) URL.revokeObjectURL(file.url); },
+      onOpen(el, close) {
+        U.seg(el.querySelector('#g-pick'), v => { pick = v; });
+        const cap = el.querySelector('#cl-cap'), n = el.querySelector('#cap-n');
+        cap.addEventListener('input', () => { n.textContent = cap.value.length + ' of 140'; });
+        const url = el.querySelector('#cl-url'), f = el.querySelector('#f-url'), msg = el.querySelector('#url-msg');
+        if (url) url.addEventListener('input', () => { f.classList.remove('is-err'); msg.textContent = 'From X, YouTube or TikTok'; });
+        el.querySelector('[data-send]').addEventListener('click', e => {
+          const btn = e.currentTarget;
+          if (url && !LINK.test(url.value.trim())) {
+            f.classList.add('is-err');
+            msg.textContent = /vm\.tiktok|vt\.tiktok/i.test(url.value) ? 'Open the TikTok in a browser and copy the full link, like tiktok.com/@you/video/123.'
+              : 'Paste the link to your post on X, YouTube or TikTok, like x.com/you/status/123.';
+            url.focus(); return;
+          }
+          U.busy(btn, 1000, () => {
+            const art = D.game(pick === 'br' || pick === 'other' ? 'snake' : pick).img;
+            mine.unshift({ id: 'n' + Date.now(), name: D.me.name, game: pick, br: pick === 'br', poster: file && file.poster ? file.poster : art,
+              at: D.NOW, ms: file ? file.secs * 1000 : 0, provider: file ? 'upload' : 'x', caption: cap.value.trim(), status: 'waiting' });
+            close(); drawMine();
+            U.toast(file ? 'Sent for review' : 'Clip sent', 'ok', 'It shows on the wall once it is approved.');
+          });
+        });
+      } });
+  }
+
+  const fileIn = $('file');
+  function choose() { if (!U.signedIn) return signFirst(); fileIn.value = ''; fileIn.click(); }
+  fileIn.addEventListener('change', () => take(fileIn.files && fileIn.files[0]));
+  /* checked here first so a wrong file says why at once (the server checks again) */
+  function take(f) {
+    if (!f) return;
+    const bad = why => U.toast('Could not use that file', 'err', why);
+    if (!(f.type === 'video/mp4' || /\.mp4$/i.test(f.name))) return bad('Clips have to be MP4 videos.');
+    if (f.size > 25 * 1048576) return bad('That file is ' + Math.round(f.size / 1048576) + ' MB. Clips can be up to 25 MB.');
+    if (f.size < 1024) return bad('That file is empty.');
+    const url = URL.createObjectURL(f), v = document.createElement('video');
+    let done = false;
+    const fail = () => { if (done) return; done = true; URL.revokeObjectURL(url); bad('That file does not play as a video here.'); };
+    v.muted = true; v.preload = 'metadata'; v.onerror = fail; setTimeout(fail, 10000);
+    v.onloadedmetadata = () => {
+      if (done) return; done = true;
+      if (!(v.duration > 0) || v.duration > 31.5) { URL.revokeObjectURL(url); return bad('Clips can be up to 30 seconds. That one is ' + Math.round(v.duration || 0) + '.'); }
+      share({ name: f.name, size: f.size, secs: v.duration, url });
+    };
+    v.src = url;
+  }
+  /* drag a file anywhere on the page: the drop box lights up */
+  let depth = 0;
+  const hasFiles = e => e.dataTransfer && [...(e.dataTransfer.types || [])].includes('Files');
+  const lit = on => { const d = $('drop'); if (d) d.classList.toggle('is-over', on); };
+  document.addEventListener('dragenter', e => { if (!hasFiles(e) || U.PHONE.matches) return; e.preventDefault(); depth++; lit(true); });
+  document.addEventListener('dragover', e => { if (hasFiles(e) && !U.PHONE.matches) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
+  document.addEventListener('dragleave', e => { if (!hasFiles(e)) return; if (--depth > 0) return; depth = 0; lit(false); });
+  document.addEventListener('drop', e => {
+    if (!hasFiles(e) || U.PHONE.matches) return; e.preventDefault(); depth = 0; lit(false);
+    if (!U.signedIn) return signFirst();
+    take(e.dataTransfer.files && e.dataTransfer.files[0]);
+  });
+
+  /* ---------- two-step confirm in place: Delete, Take down ---------- */
+  function sure(btn, ask, then) {
+    if (btn.dataset.sure !== '1') {
+      const was = btn.textContent, cls = btn.className;
+      btn.dataset.sure = '1'; btn.textContent = ask; btn.className = 'btn btn-danger btn-sm';
+      setTimeout(() => { if (btn.isConnected && btn.dataset.sure === '1') { btn.dataset.sure = ''; btn.textContent = was; btn.className = cls; } }, 4000);
+      return;
+    }
+    U.busy(btn, 700, then);
+  }
+  const drop = (list, id) => list.filter(x => x.id !== id);
+
+  /* ---------- clicks ---------- */
+  document.addEventListener('click', e => {
+    const p = e.target.closest('[data-play]');
+    if (p) { const c = find(p.dataset.play); if (c) play(c); return; }
+    const b = e.target.closest('[data-act]');
+    if (b) {
+      const c = find(b.dataset.id), act = b.dataset.act;
+      if (!c) return;
+      if (act === 'watch') return U.toast('Opens the post on ' + SRC[c.provider][0], 'info', 'Mockup: the link is not in this mockup.');
+      if (act === 'del') return sure(b, 'Delete for good?', () => {
+        mine = drop(mine, c.id); wall = drop(wall, c.id); drawAll();
+        U.toast('Clip deleted', 'ok', c.status === 'live' ? 'It is off the wall.' : 'Nobody will see it.');
+      });
+      if (act === 'down') return sure(b, 'Take it down?', () => { wall = drop(wall, c.id); drawAll(); U.toast('Clip taken down', 'ok', title(c)); });
+      if (act === 'ok' || act === 'no') return U.busy(b, 700, () => {
+        queue = drop(queue, c.id);
+        if (act === 'ok') wall.unshift(Object.assign({}, c, { status: 'live', at: D.NOW }));
+        drawAll(); tabDot();
+        U.toast(act === 'ok' ? 'Clip approved' : 'Clip rejected', 'ok', title(c));
+      });
+      return;
+    }
+    if (e.target.closest('#drop')) return choose();
+    const r = e.target.closest('#retry');
+    if (r) U.busy(r, 900, () => U.toast('Still not loading', 'err', 'Mockup: open the page without ?error to see the wall.'));
+  });
+  function tabDot() {
+    const a = document.querySelector('.sb a.nav-a[aria-current="page"]');
+    if (a && !queue.length) a.querySelectorAll('.nav-new, .sr').forEach(x => x.remove());
+  }
+
+  /* ---------- go ---------- */
+  load(); tabDot(); drawAll();
+  $('pcn-ic').innerHTML = I('clips', 28);
+  $('team-ic').innerHTML = I('whop', 20);
+  $('send-link').innerHTML = I('link', 18) + 'Send a link';
+  $('upload').innerHTML = I('upload', 18) + 'Upload a clip';
+  $('send-link').addEventListener('click', () => share(null));
+  $('upload').addEventListener('click', choose);
+  $('team-go').innerHTML = 'Open the clip team on Whop' + I('ext', 16);
+  if (!U.PHONE.matches) {
+    if (Q.has('link')) share(null);
+    else if (Q.has('file')) share({ name: 'slither-cutoff.mp4', size: 6.4 * 1048576, secs: 24, poster: D.game('snake').img });
+  }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,1713 @@
+{
+ "area": "games-b",
+ "screens": [
+  {
+   "id": "airhockey-botnote-pc",
+   "title": "Air Hockey: Bot found",
+   "device": "pc",
+   "shot": "games-b-airhockey-botnote-pc",
+   "state": "botnote",
+   "note": "Match start against the free-table bot with the \"Playing a bot\" pill."
+  },
+  {
+   "id": "airhockey-botnote-phone",
+   "title": "Air Hockey: Bot found",
+   "device": "phone",
+   "shot": "games-b-airhockey-botnote-phone",
+   "state": "botnote",
+   "note": "Match start against the free-table bot with the \"Playing a bot\" pill."
+  },
+  {
+   "id": "airhockey-chat-pc",
+   "title": "Air Hockey: Chat open",
+   "device": "pc",
+   "shot": "games-b-airhockey-chat-pc",
+   "state": "chat",
+   "note": "Chat box opened (input focused). Nothing sent."
+  },
+  {
+   "id": "airhockey-chat-phone-landscape",
+   "title": "Air Hockey: Chat open (landscape)",
+   "device": "phone",
+   "shot": "games-b-airhockey-chat-phone-landscape",
+   "state": "chat landscape",
+   "note": "Phone held sideways (832x384). Chat box opened (input focused). Nothing sent."
+  },
+  {
+   "id": "airhockey-chat-phone",
+   "title": "Air Hockey: Chat open",
+   "device": "phone",
+   "shot": "games-b-airhockey-chat-phone",
+   "state": "chat",
+   "note": "Chat box opened (input focused). Nothing sent."
+  },
+  {
+   "id": "airhockey-end-pc",
+   "title": "Air Hockey: Result card",
+   "device": "pc",
+   "shot": "games-b-airhockey-end-pc",
+   "state": "end",
+   "note": "Shared dsEnd card. MOCKED: a result fed into the page's own socket over-listener during a live bot match (matches run 2-4 min)."
+  },
+  {
+   "id": "airhockey-end-phone-landscape",
+   "title": "Air Hockey: Result card (landscape)",
+   "device": "phone",
+   "shot": "games-b-airhockey-end-phone-landscape",
+   "state": "end landscape",
+   "note": "Phone held sideways (832x384). Shared dsEnd card. MOCKED: a result fed into the page's own socket over-listener during a live bot match (matches run 2-4 min)."
+  },
+  {
+   "id": "airhockey-end-phone",
+   "title": "Air Hockey: Result card",
+   "device": "phone",
+   "shot": "games-b-airhockey-end-phone",
+   "state": "end",
+   "note": "Shared dsEnd card. MOCKED: a result fed into the page's own socket over-listener during a live bot match (matches run 2-4 min)."
+  },
+  {
+   "id": "airhockey-endspectate-phone",
+   "title": "Air Hockey: Spectate from the result card",
+   "device": "phone",
+   "shot": "games-b-airhockey-endspectate-phone",
+   "state": "endspectate",
+   "note": "Result card Spectate opens the watch view (empty table after our match)."
+  },
+  {
+   "id": "airhockey-hud-pc",
+   "title": "Air Hockey: In-game HUD",
+   "device": "pc",
+   "shot": "games-b-airhockey-hud-pc",
+   "state": "hud",
+   "note": "Free room, guest, against the bot, a few seconds in."
+  },
+  {
+   "id": "airhockey-hud-phone-landscape",
+   "title": "Air Hockey: In-game HUD (landscape)",
+   "device": "phone",
+   "shot": "games-b-airhockey-hud-phone-landscape",
+   "state": "hud landscape",
+   "note": "Phone held sideways (832x384). Free room, guest, against the bot, a few seconds in."
+  },
+  {
+   "id": "airhockey-hud-phone",
+   "title": "Air Hockey: In-game HUD",
+   "device": "phone",
+   "shot": "games-b-airhockey-hud-phone",
+   "state": "hud",
+   "note": "Free room, guest, against the bot, a few seconds in."
+  },
+  {
+   "id": "airhockey-leave-pc",
+   "title": "Air Hockey: Leave the match? dialog",
+   "device": "pc",
+   "shot": "games-b-airhockey-leave-pc",
+   "state": "leave",
+   "note": "Pause/leave control pressed (Escape on PC, the game's own pause on phone)."
+  },
+  {
+   "id": "airhockey-leave-phone",
+   "title": "Air Hockey: Leave the match? dialog",
+   "device": "phone",
+   "shot": "games-b-airhockey-leave-phone",
+   "state": "leave",
+   "note": "Pause/leave control pressed (Escape on PC, the game's own pause on phone)."
+  },
+  {
+   "id": "airhockey-queue-pc",
+   "title": "Air Hockey: Duel queue card",
+   "device": "pc",
+   "shot": "games-b-airhockey-queue-pc",
+   "state": "queue",
+   "note": "Looking for a player with a 10 s countdown, \"If nobody joins, you'll play a bot\", Back to the lobby (tested: returns to the game screen)."
+  },
+  {
+   "id": "airhockey-queue-phone-landscape",
+   "title": "Air Hockey: Duel queue card (landscape)",
+   "device": "phone",
+   "shot": "games-b-airhockey-queue-phone-landscape",
+   "state": "queue landscape",
+   "note": "Phone held sideways (832x384). Looking for a player with a 10 s countdown, \"If nobody joins, you'll play a bot\", Back to the lobby (tested: returns to the game screen)."
+  },
+  {
+   "id": "airhockey-queue-phone",
+   "title": "Air Hockey: Duel queue card",
+   "device": "phone",
+   "shot": "games-b-airhockey-queue-phone",
+   "state": "queue",
+   "note": "Looking for a player with a 10 s countdown, \"If nobody joins, you'll play a bot\", Back to the lobby (tested: returns to the game screen)."
+  },
+  {
+   "id": "airhockey-spectate-empty-pc",
+   "title": "Air Hockey: Spectate, empty table",
+   "device": "pc",
+   "shot": "games-b-airhockey-spectate-empty-pc",
+   "state": "spectate-empty",
+   "note": "Lobby game screen > Spectate with nobody playing: empty pitch/table (Knockout: blurred card art) and the shared Spectate bar, arrows off."
+  },
+  {
+   "id": "airhockey-spectate-empty-phone",
+   "title": "Air Hockey: Spectate, empty table",
+   "device": "phone",
+   "shot": "games-b-airhockey-spectate-empty-phone",
+   "state": "spectate-empty",
+   "note": "Lobby game screen > Spectate with nobody playing: empty pitch/table (Knockout: blurred card art) and the shared Spectate bar, arrows off."
+  },
+  {
+   "id": "airhockey-spectate-live-pc",
+   "title": "Air Hockey: Spectate, live match",
+   "device": "pc",
+   "shot": "games-b-airhockey-spectate-live-pc",
+   "state": "spectate-live",
+   "note": "Our own bot match watched from a second frame the way the lobby opens Spectate (dsWatch): Spectate bar with names."
+  },
+  {
+   "id": "airhockey-spectate-live-phone",
+   "title": "Air Hockey: Spectate, live match",
+   "device": "phone",
+   "shot": "games-b-airhockey-spectate-live-phone",
+   "state": "spectate-live",
+   "note": "Our own bot match watched from a second frame the way the lobby opens Spectate (dsWatch): Spectate bar with names."
+  },
+  {
+   "id": "crossy-botnote-pc",
+   "title": "Crossy Road: Bot found",
+   "device": "pc",
+   "shot": "games-b-crossy-botnote-pc",
+   "state": "botnote",
+   "note": "Match start against the free-table bot with the \"Playing a bot\" pill."
+  },
+  {
+   "id": "crossy-botnote-phone",
+   "title": "Crossy Road: Bot found",
+   "device": "phone",
+   "shot": "games-b-crossy-botnote-phone",
+   "state": "botnote",
+   "note": "Match start against the free-table bot with the \"Playing a bot\" pill."
+  },
+  {
+   "id": "crossy-chat-pc",
+   "title": "Crossy Road: Chat open",
+   "device": "pc",
+   "shot": "games-b-crossy-chat-pc",
+   "state": "chat",
+   "note": "Chat box opened (input focused). Nothing sent."
+  },
+  {
+   "id": "crossy-chat-phone-landscape",
+   "title": "Crossy Road: Chat open (landscape)",
+   "device": "phone",
+   "shot": "games-b-crossy-chat-phone-landscape",
+   "state": "chat landscape",
+   "note": "Phone held sideways (832x384). Chat box opened (input focused). Nothing sent."
+  },
+  {
+   "id": "crossy-chat-phone",
+   "title": "Crossy Road: Chat open",
+   "device": "phone",
+   "shot": "games-b-crossy-chat-phone",
+   "state": "chat",
+   "note": "Chat box opened (input focused). Nothing sent."
+  },
+  {
+   "id": "crossy-end-pc",
+   "title": "Crossy Road: Result card",
+   "device": "pc",
+   "shot": "games-b-crossy-end-pc",
+   "state": "end",
+   "note": "Shared dsEnd card. Real result (taken by the eagle)."
+  },
+  {
+   "id": "crossy-end-phone-landscape",
+   "title": "Crossy Road: Result card (landscape)",
+   "device": "phone",
+   "shot": "games-b-crossy-end-phone-landscape",
+   "state": "end landscape",
+   "note": "Phone held sideways (832x384). Shared dsEnd card. Real result (taken by the eagle)."
+  },
+  {
+   "id": "crossy-end-phone",
+   "title": "Crossy Road: Result card",
+   "device": "phone",
+   "shot": "games-b-crossy-end-phone",
+   "state": "end",
+   "note": "Shared dsEnd card. Real result (taken by the eagle)."
+  },
+  {
+   "id": "crossy-hud-pc",
+   "title": "Crossy Road: In-game HUD",
+   "device": "pc",
+   "shot": "games-b-crossy-hud-pc",
+   "state": "hud",
+   "note": "Free room, guest, against the bot, a few seconds in."
+  },
+  {
+   "id": "crossy-hud-phone-landscape",
+   "title": "Crossy Road: In-game HUD (landscape)",
+   "device": "phone",
+   "shot": "games-b-crossy-hud-phone-landscape",
+   "state": "hud landscape",
+   "note": "Phone held sideways (832x384). Free room, guest, against the bot, a few seconds in."
+  },
+  {
+   "id": "crossy-hud-phone",
+   "title": "Crossy Road: In-game HUD",
+   "device": "phone",
+   "shot": "games-b-crossy-hud-phone",
+   "state": "hud",
+   "note": "Free room, guest, against the bot, a few seconds in."
+  },
+  {
+   "id": "crossy-leave-pc",
+   "title": "Crossy Road: Leave the match? dialog",
+   "device": "pc",
+   "shot": "games-b-crossy-leave-pc",
+   "state": "leave",
+   "note": "Crossy pause button > Leave the match? (then Leave: back to the lobby)."
+  },
+  {
+   "id": "crossy-leave-phone",
+   "title": "Crossy Road: Leave the match? dialog",
+   "device": "phone",
+   "shot": "games-b-crossy-leave-phone",
+   "state": "leave",
+   "note": "Crossy pause button > Leave the match? (then Leave: back to the lobby)."
+  },
+  {
+   "id": "crossy-queue-pc",
+   "title": "Crossy Road: Duel queue card",
+   "device": "pc",
+   "shot": "games-b-crossy-queue-pc",
+   "state": "queue",
+   "note": "Looking for a player with a 10 s countdown, \"If nobody joins, you'll play a bot\", Back to the lobby (tested: returns to the game screen)."
+  },
+  {
+   "id": "crossy-queue-phone-landscape",
+   "title": "Crossy Road: Duel queue card (landscape)",
+   "device": "phone",
+   "shot": "games-b-crossy-queue-phone-landscape",
+   "state": "queue landscape",
+   "note": "Phone held sideways (832x384). Looking for a player with a 10 s countdown, \"If nobody joins, you'll play a bot\", Back to the lobby (tested: returns to the game screen)."
+  },
+  {
+   "id": "crossy-queue-phone",
+   "title": "Crossy Road: Duel queue card",
+   "device": "phone",
+   "shot": "games-b-crossy-queue-phone",
+   "state": "queue",
+   "note": "Looking for a player with a 10 s countdown, \"If nobody joins, you'll play a bot\", Back to the lobby (tested: returns to the game screen)."
+  },
+  {
+   "id": "crossy-spectate-empty-pc",
+   "title": "Crossy Road: Spectate, empty table",
+   "device": "pc",
+   "shot": "games-b-crossy-spectate-empty-pc",
+   "state": "spectate-empty",
+   "note": "Lobby game screen > Spectate with nobody playing: empty pitch/table (Knockout: blurred card art) and the shared Spectate bar, arrows off."
+  },
+  {
+   "id": "crossy-spectate-empty-phone",
+   "title": "Crossy Road: Spectate, empty table",
+   "device": "phone",
+   "shot": "games-b-crossy-spectate-empty-phone",
+   "state": "spectate-empty",
+   "note": "Lobby game screen > Spectate with nobody playing: empty pitch/table (Knockout: blurred card art) and the shared Spectate bar, arrows off."
+  },
+  {
+   "id": "crossy-spectate-live-pc",
+   "title": "Crossy Road: Spectate, live match",
+   "device": "pc",
+   "shot": "games-b-crossy-spectate-live-pc",
+   "state": "spectate-live",
+   "note": "Our match had already ended (crash / eagle) before the watcher loaded, so this shows the empty table."
+  },
+  {
+   "id": "crossy-spectate-live-phone",
+   "title": "Crossy Road: Spectate, live match",
+   "device": "phone",
+   "shot": "games-b-crossy-spectate-live-phone",
+   "state": "spectate-live",
+   "note": "Our match had already ended (crash / eagle) before the watcher loaded, so this shows the empty table."
+  },
+  {
+   "id": "headsoccer-backlobby-pc",
+   "title": "Head Soccer: Back in the lobby",
+   "device": "pc",
+   "shot": "games-b-headsoccer-backlobby-pc",
+   "state": "backlobby",
+   "note": "After the result card's Lobby button."
+  },
+  {
+   "id": "headsoccer-backlobby-phone",
+   "title": "Head Soccer: Back in the lobby",
+   "device": "phone",
+   "shot": "games-b-headsoccer-backlobby-phone",
+   "state": "backlobby",
+   "note": "After the result card's Lobby button."
+  },
+  {
+   "id": "headsoccer-botnote-pc",
+   "title": "Head Soccer: Bot found",
+   "device": "pc",
+   "shot": "games-b-headsoccer-botnote-pc",
+   "state": "botnote",
+   "note": "Match start against the free-table bot with the \"Playing a bot\" pill."
+  },
+  {
+   "id": "headsoccer-botnote-phone",
+   "title": "Head Soccer: Bot found",
+   "device": "phone",
+   "shot": "games-b-headsoccer-botnote-phone",
+   "state": "botnote",
+   "note": "Match start against the free-table bot with the \"Playing a bot\" pill."
+  },
+  {
+   "id": "headsoccer-chat-pc",
+   "title": "Head Soccer: Chat open",
+   "device": "pc",
+   "shot": "games-b-headsoccer-chat-pc",
+   "state": "chat",
+   "note": "Chat box opened (input focused). Nothing sent."
+  },
+  {
+   "id": "headsoccer-chat-phone-landscape",
+   "title": "Head Soccer: Chat open (landscape)",
+   "device": "phone",
+   "shot": "games-b-headsoccer-chat-phone-landscape",
+   "state": "chat landscape",
+   "note": "Phone held sideways (832x384). Chat box opened (input focused). Nothing sent."
+  },
+  {
+   "id": "headsoccer-chat-phone",
+   "title": "Head Soccer: Chat open",
+   "device": "phone",
+   "shot": "games-b-headsoccer-chat-phone",
+   "state": "chat",
+   "note": "Chat box opened (input focused). Nothing sent."
+  },
+  {
+   "id": "headsoccer-end-pc-motion",
+   "title": "Head Soccer: Result card entrance, motion on",
+   "device": "pc",
+   "shot": "games-b-headsoccer-end-pc-motion",
+   "state": "end-pc-motion",
+   "note": "prefers-reduced-motion: no-preference, shot mid-entrance."
+  },
+  {
+   "id": "headsoccer-end-pc",
+   "title": "Head Soccer: Result card",
+   "device": "pc",
+   "shot": "games-b-headsoccer-end-pc",
+   "state": "end",
+   "note": "Shared dsEnd card. MOCKED: a result fed into the page's own socket over-listener during a live bot match (matches run 2-4 min)."
+  },
+  {
+   "id": "headsoccer-end-phone-landscape",
+   "title": "Head Soccer: Result card (landscape)",
+   "device": "phone",
+   "shot": "games-b-headsoccer-end-phone-landscape",
+   "state": "end landscape",
+   "note": "Phone held sideways (832x384). Shared dsEnd card. MOCKED: a result fed into the page's own socket over-listener during a live bot match (matches run 2-4 min)."
+  },
+  {
+   "id": "headsoccer-end-phone",
+   "title": "Head Soccer: Result card",
+   "device": "phone",
+   "shot": "games-b-headsoccer-end-phone",
+   "state": "end",
+   "note": "Shared dsEnd card. MOCKED: a result fed into the page's own socket over-listener during a live bot match (matches run 2-4 min)."
+  },
+  {
+   "id": "headsoccer-endwin-pc",
+   "title": "Head Soccer: Result card, free win",
+   "device": "pc",
+   "shot": "games-b-headsoccer-endwin-pc",
+   "state": "endwin",
+   "note": "Mocked win through the page's own hs:over listener."
+  },
+  {
+   "id": "headsoccer-hud-pc",
+   "title": "Head Soccer: In-game HUD",
+   "device": "pc",
+   "shot": "games-b-headsoccer-hud-pc",
+   "state": "hud",
+   "note": "Free room, guest, against the bot, a few seconds in."
+  },
+  {
+   "id": "headsoccer-hud-phone-landscape",
+   "title": "Head Soccer: In-game HUD (landscape)",
+   "device": "phone",
+   "shot": "games-b-headsoccer-hud-phone-landscape",
+   "state": "hud landscape",
+   "note": "Phone held sideways (832x384). Free room, guest, against the bot, a few seconds in."
+  },
+  {
+   "id": "headsoccer-hud-phone",
+   "title": "Head Soccer: In-game HUD",
+   "device": "phone",
+   "shot": "games-b-headsoccer-hud-phone",
+   "state": "hud",
+   "note": "Free room, guest, against the bot, a few seconds in."
+  },
+  {
+   "id": "headsoccer-leave-pc",
+   "title": "Head Soccer: Leave the match? dialog",
+   "device": "pc",
+   "shot": "games-b-headsoccer-leave-pc",
+   "state": "leave",
+   "note": "Pause/leave control pressed (Escape on PC, the game's own pause on phone)."
+  },
+  {
+   "id": "headsoccer-leave-phone",
+   "title": "Head Soccer: Leave the match? dialog",
+   "device": "phone",
+   "shot": "games-b-headsoccer-leave-phone",
+   "state": "leave",
+   "note": "Pause/leave control pressed (Escape on PC, the game's own pause on phone)."
+  },
+  {
+   "id": "headsoccer-playagain-pc",
+   "title": "Head Soccer: Play again",
+   "device": "pc",
+   "shot": "games-b-headsoccer-playagain-pc",
+   "state": "playagain",
+   "note": "Result card Play again goes back to the queue card."
+  },
+  {
+   "id": "headsoccer-queue-pc",
+   "title": "Head Soccer: Duel queue card",
+   "device": "pc",
+   "shot": "games-b-headsoccer-queue-pc",
+   "state": "queue",
+   "note": "Looking for a player with a 10 s countdown, \"If nobody joins, you'll play a bot\", Back to the lobby (tested: returns to the game screen)."
+  },
+  {
+   "id": "headsoccer-queue-phone-landscape",
+   "title": "Head Soccer: Duel queue card (landscape)",
+   "device": "phone",
+   "shot": "games-b-headsoccer-queue-phone-landscape",
+   "state": "queue landscape",
+   "note": "Phone held sideways (832x384). Looking for a player with a 10 s countdown, \"If nobody joins, you'll play a bot\", Back to the lobby (tested: returns to the game screen)."
+  },
+  {
+   "id": "headsoccer-queue-phone",
+   "title": "Head Soccer: Duel queue card",
+   "device": "phone",
+   "shot": "games-b-headsoccer-queue-phone",
+   "state": "queue",
+   "note": "Looking for a player with a 10 s countdown, \"If nobody joins, you'll play a bot\", Back to the lobby (tested: returns to the game screen)."
+  },
+  {
+   "id": "headsoccer-spectate-empty-pc",
+   "title": "Head Soccer: Spectate, empty table",
+   "device": "pc",
+   "shot": "games-b-headsoccer-spectate-empty-pc",
+   "state": "spectate-empty",
+   "note": "Lobby game screen > Spectate with nobody playing: empty pitch/table (Knockout: blurred card art) and the shared Spectate bar, arrows off."
+  },
+  {
+   "id": "headsoccer-spectate-empty-phone",
+   "title": "Head Soccer: Spectate, empty table",
+   "device": "phone",
+   "shot": "games-b-headsoccer-spectate-empty-phone",
+   "state": "spectate-empty",
+   "note": "Lobby game screen > Spectate with nobody playing: empty pitch/table (Knockout: blurred card art) and the shared Spectate bar, arrows off."
+  },
+  {
+   "id": "headsoccer-spectate-live-pc",
+   "title": "Head Soccer: Spectate, live match",
+   "device": "pc",
+   "shot": "games-b-headsoccer-spectate-live-pc",
+   "state": "spectate-live",
+   "note": "Our own bot match watched from a second frame the way the lobby opens Spectate (dsWatch): Spectate bar with names."
+  },
+  {
+   "id": "headsoccer-spectate-live-phone",
+   "title": "Head Soccer: Spectate, live match",
+   "device": "phone",
+   "shot": "games-b-headsoccer-spectate-live-phone",
+   "state": "spectate-live",
+   "note": "Our own bot match watched from a second frame the way the lobby opens Spectate (dsWatch): Spectate bar with names."
+  },
+  {
+   "id": "knockout-botnote-pc",
+   "title": "Knockout: Bot found",
+   "device": "pc",
+   "shot": "games-b-knockout-botnote-pc",
+   "state": "botnote",
+   "note": "Match start against the free-table bot with the \"Playing a bot\" pill."
+  },
+  {
+   "id": "knockout-botnote-phone",
+   "title": "Knockout: Bot found",
+   "device": "phone",
+   "shot": "games-b-knockout-botnote-phone",
+   "state": "botnote",
+   "note": "Match start against the free-table bot with the \"Playing a bot\" pill."
+  },
+  {
+   "id": "knockout-chat-pc",
+   "title": "Knockout: Chat open",
+   "device": "pc",
+   "shot": "games-b-knockout-chat-pc",
+   "state": "chat",
+   "note": "Chat box opened (input focused). Nothing sent."
+  },
+  {
+   "id": "knockout-chat-phone-landscape",
+   "title": "Knockout: Chat open (landscape)",
+   "device": "phone",
+   "shot": "games-b-knockout-chat-phone-landscape",
+   "state": "chat landscape",
+   "note": "Phone held sideways (832x384). Chat box opened (input focused). Nothing sent."
+  },
+  {
+   "id": "knockout-chat-phone",
+   "title": "Knockout: Chat open",
+   "device": "phone",
+   "shot": "games-b-knockout-chat-phone",
+   "state": "chat",
+   "note": "Chat box opened (input focused). Nothing sent."
+  },
+  {
+   "id": "knockout-end-pc",
+   "title": "Knockout: Result card",
+   "device": "pc",
+   "shot": "games-b-knockout-end-pc",
+   "state": "end",
+   "note": "Shared dsEnd card. MOCKED: a result fed into the page's own socket over-listener during a live bot match (matches run 2-4 min)."
+  },
+  {
+   "id": "knockout-end-phone-landscape",
+   "title": "Knockout: Result card (landscape)",
+   "device": "phone",
+   "shot": "games-b-knockout-end-phone-landscape",
+   "state": "end landscape",
+   "note": "Phone held sideways (832x384). Shared dsEnd card. MOCKED: a result fed into the page's own socket over-listener during a live bot match (matches run 2-4 min)."
+  },
+  {
+   "id": "knockout-end-phone",
+   "title": "Knockout: Result card",
+   "device": "phone",
+   "shot": "games-b-knockout-end-phone",
+   "state": "end",
+   "note": "Shared dsEnd card. MOCKED: a result fed into the page's own socket over-listener during a live bot match (matches run 2-4 min)."
+  },
+  {
+   "id": "knockout-hud-pc",
+   "title": "Knockout: In-game HUD",
+   "device": "pc",
+   "shot": "games-b-knockout-hud-pc",
+   "state": "hud",
+   "note": "Free room, guest, against the bot, a few seconds in."
+  },
+  {
+   "id": "knockout-hud-phone-landscape",
+   "title": "Knockout: In-game HUD (landscape)",
+   "device": "phone",
+   "shot": "games-b-knockout-hud-phone-landscape",
+   "state": "hud landscape",
+   "note": "Phone held sideways (832x384). Free room, guest, against the bot, a few seconds in."
+  },
+  {
+   "id": "knockout-hud-phone",
+   "title": "Knockout: In-game HUD",
+   "device": "phone",
+   "shot": "games-b-knockout-hud-phone",
+   "state": "hud",
+   "note": "Free room, guest, against the bot, a few seconds in."
+  },
+  {
+   "id": "knockout-leave-pc",
+   "title": "Knockout: Leave the match? dialog",
+   "device": "pc",
+   "shot": "games-b-knockout-leave-pc",
+   "state": "leave",
+   "note": "Knockout has no pause or leave control: Escape and the screen show nothing."
+  },
+  {
+   "id": "knockout-leave-phone",
+   "title": "Knockout: Leave the match? dialog",
+   "device": "phone",
+   "shot": "games-b-knockout-leave-phone",
+   "state": "leave",
+   "note": "Knockout has no pause or leave control: Escape and the screen show nothing."
+  },
+  {
+   "id": "knockout-queue-pc",
+   "title": "Knockout: Duel queue card",
+   "device": "pc",
+   "shot": "games-b-knockout-queue-pc",
+   "state": "queue",
+   "note": "Looking for a player with a 10 s countdown, \"If nobody joins, you'll play a bot\", Back to the lobby (tested: returns to the game screen)."
+  },
+  {
+   "id": "knockout-queue-phone-landscape",
+   "title": "Knockout: Duel queue card (landscape)",
+   "device": "phone",
+   "shot": "games-b-knockout-queue-phone-landscape",
+   "state": "queue landscape",
+   "note": "Phone held sideways (832x384). Looking for a player with a 10 s countdown, \"If nobody joins, you'll play a bot\", Back to the lobby (tested: returns to the game screen)."
+  },
+  {
+   "id": "knockout-queue-phone",
+   "title": "Knockout: Duel queue card",
+   "device": "phone",
+   "shot": "games-b-knockout-queue-phone",
+   "state": "queue",
+   "note": "Looking for a player with a 10 s countdown, \"If nobody joins, you'll play a bot\", Back to the lobby (tested: returns to the game screen)."
+  },
+  {
+   "id": "knockout-spectate-empty-pc",
+   "title": "Knockout: Spectate, empty table",
+   "device": "pc",
+   "shot": "games-b-knockout-spectate-empty-pc",
+   "state": "spectate-empty",
+   "note": "Lobby game screen > Spectate with nobody playing: empty pitch/table (Knockout: blurred card art) and the shared Spectate bar, arrows off."
+  },
+  {
+   "id": "knockout-spectate-empty-phone",
+   "title": "Knockout: Spectate, empty table",
+   "device": "phone",
+   "shot": "games-b-knockout-spectate-empty-phone",
+   "state": "spectate-empty",
+   "note": "Lobby game screen > Spectate with nobody playing: empty pitch/table (Knockout: blurred card art) and the shared Spectate bar, arrows off."
+  },
+  {
+   "id": "knockout-spectate-live-pc",
+   "title": "Knockout: Spectate, live match",
+   "device": "pc",
+   "shot": "games-b-knockout-spectate-live-pc",
+   "state": "spectate-live",
+   "note": "Our own bot match watched from a second frame the way the lobby opens Spectate (dsWatch): Spectate bar with names."
+  },
+  {
+   "id": "knockout-spectate-live-phone",
+   "title": "Knockout: Spectate, live match",
+   "device": "phone",
+   "shot": "games-b-knockout-spectate-live-phone",
+   "state": "spectate-live",
+   "note": "Our own bot match watched from a second frame the way the lobby opens Spectate (dsWatch): Spectate bar with names."
+  },
+  {
+   "id": "pool8-botnote-pc",
+   "title": "8 Ball Pool: Bot found",
+   "device": "pc",
+   "shot": "games-b-pool8-botnote-pc",
+   "state": "botnote",
+   "note": "Match start against the free-table bot with the \"Playing a bot\" pill."
+  },
+  {
+   "id": "pool8-botnote-phone",
+   "title": "8 Ball Pool: Bot found",
+   "device": "phone",
+   "shot": "games-b-pool8-botnote-phone",
+   "state": "botnote",
+   "note": "Match start against the free-table bot with the \"Playing a bot\" pill."
+  },
+  {
+   "id": "pool8-chat-pc",
+   "title": "8 Ball Pool: Chat open",
+   "device": "pc",
+   "shot": "games-b-pool8-chat-pc",
+   "state": "chat",
+   "note": "Chat box opened (input focused). Nothing sent."
+  },
+  {
+   "id": "pool8-chat-phone-landscape",
+   "title": "8 Ball Pool: Chat open (landscape)",
+   "device": "phone",
+   "shot": "games-b-pool8-chat-phone-landscape",
+   "state": "chat landscape",
+   "note": "Phone held sideways (832x384). Chat box opened (input focused). Nothing sent."
+  },
+  {
+   "id": "pool8-chat-phone",
+   "title": "8 Ball Pool: Chat open",
+   "device": "phone",
+   "shot": "games-b-pool8-chat-phone",
+   "state": "chat",
+   "note": "Chat box opened (input focused). Nothing sent."
+  },
+  {
+   "id": "pool8-end-pc",
+   "title": "8 Ball Pool: Result card",
+   "device": "pc",
+   "shot": "games-b-pool8-end-pc",
+   "state": "end",
+   "note": "Shared dsEnd card. MOCKED: a result fed into the page's own socket over-listener during a live bot match (matches run 2-4 min)."
+  },
+  {
+   "id": "pool8-end-phone-landscape",
+   "title": "8 Ball Pool: Result card (landscape)",
+   "device": "phone",
+   "shot": "games-b-pool8-end-phone-landscape",
+   "state": "end landscape",
+   "note": "Phone held sideways (832x384). Shared dsEnd card. MOCKED: a result fed into the page's own socket over-listener during a live bot match (matches run 2-4 min)."
+  },
+  {
+   "id": "pool8-end-phone",
+   "title": "8 Ball Pool: Result card",
+   "device": "phone",
+   "shot": "games-b-pool8-end-phone",
+   "state": "end",
+   "note": "Shared dsEnd card. MOCKED: a result fed into the page's own socket over-listener during a live bot match (matches run 2-4 min)."
+  },
+  {
+   "id": "pool8-hud-pc",
+   "title": "8 Ball Pool: In-game HUD",
+   "device": "pc",
+   "shot": "games-b-pool8-hud-pc",
+   "state": "hud",
+   "note": "Free room, guest, against the bot, a few seconds in."
+  },
+  {
+   "id": "pool8-hud-phone-landscape",
+   "title": "8 Ball Pool: In-game HUD (landscape)",
+   "device": "phone",
+   "shot": "games-b-pool8-hud-phone-landscape",
+   "state": "hud landscape",
+   "note": "Phone held sideways (832x384). Free room, guest, against the bot, a few seconds in."
+  },
+  {
+   "id": "pool8-hud-phone",
+   "title": "8 Ball Pool: In-game HUD",
+   "device": "phone",
+   "shot": "games-b-pool8-hud-phone",
+   "state": "hud",
+   "note": "Free room, guest, against the bot, a few seconds in."
+  },
+  {
+   "id": "pool8-leave-pc",
+   "title": "8 Ball Pool: Leave the match? dialog",
+   "device": "pc",
+   "shot": "games-b-pool8-leave-pc",
+   "state": "leave",
+   "note": "Pause/leave control pressed (Escape on PC, the game's own pause on phone)."
+  },
+  {
+   "id": "pool8-leave-phone",
+   "title": "8 Ball Pool: Leave the match? dialog",
+   "device": "phone",
+   "shot": "games-b-pool8-leave-phone",
+   "state": "leave",
+   "note": "Pause/leave control pressed (Escape on PC, the game's own pause on phone)."
+  },
+  {
+   "id": "pool8-queue-pc",
+   "title": "8 Ball Pool: Duel queue card",
+   "device": "pc",
+   "shot": "games-b-pool8-queue-pc",
+   "state": "queue",
+   "note": "Looking for a player with a 10 s countdown, \"If nobody joins, you'll play a bot\", Back to the lobby (tested: returns to the game screen)."
+  },
+  {
+   "id": "pool8-queue-phone-landscape",
+   "title": "8 Ball Pool: Duel queue card (landscape)",
+   "device": "phone",
+   "shot": "games-b-pool8-queue-phone-landscape",
+   "state": "queue landscape",
+   "note": "Phone held sideways (832x384). Looking for a player with a 10 s countdown, \"If nobody joins, you'll play a bot\", Back to the lobby (tested: returns to the game screen)."
+  },
+  {
+   "id": "pool8-queue-phone",
+   "title": "8 Ball Pool: Duel queue card",
+   "device": "phone",
+   "shot": "games-b-pool8-queue-phone",
+   "state": "queue",
+   "note": "Looking for a player with a 10 s countdown, \"If nobody joins, you'll play a bot\", Back to the lobby (tested: returns to the game screen)."
+  },
+  {
+   "id": "pool8-spectate-empty-pc",
+   "title": "8 Ball Pool: Spectate, empty table",
+   "device": "pc",
+   "shot": "games-b-pool8-spectate-empty-pc",
+   "state": "spectate-empty",
+   "note": "Lobby game screen > Spectate with nobody playing: empty pitch/table (Knockout: blurred card art) and the shared Spectate bar, arrows off."
+  },
+  {
+   "id": "pool8-spectate-empty-phone",
+   "title": "8 Ball Pool: Spectate, empty table",
+   "device": "phone",
+   "shot": "games-b-pool8-spectate-empty-phone",
+   "state": "spectate-empty",
+   "note": "Lobby game screen > Spectate with nobody playing: empty pitch/table (Knockout: blurred card art) and the shared Spectate bar, arrows off."
+  },
+  {
+   "id": "pool8-spectate-live-pc",
+   "title": "8 Ball Pool: Spectate, live match",
+   "device": "pc",
+   "shot": "games-b-pool8-spectate-live-pc",
+   "state": "spectate-live",
+   "note": "Our own bot match watched from a second frame the way the lobby opens Spectate (dsWatch): Spectate bar with names."
+  },
+  {
+   "id": "pool8-spectate-live-phone",
+   "title": "8 Ball Pool: Spectate, live match",
+   "device": "phone",
+   "shot": "games-b-pool8-spectate-live-phone",
+   "state": "spectate-live",
+   "note": "Our own bot match watched from a second frame the way the lobby opens Spectate (dsWatch): Spectate bar with names."
+  },
+  {
+   "id": "rooftop-botnote-pc",
+   "title": "Rooftop Snipers: Bot found",
+   "device": "pc",
+   "shot": "games-b-rooftop-botnote-pc",
+   "state": "botnote",
+   "note": "Match start against the free-table bot with the \"Playing a bot\" pill."
+  },
+  {
+   "id": "rooftop-botnote-phone",
+   "title": "Rooftop Snipers: Bot found",
+   "device": "phone",
+   "shot": "games-b-rooftop-botnote-phone",
+   "state": "botnote",
+   "note": "Match start against the free-table bot with the \"Playing a bot\" pill."
+  },
+  {
+   "id": "rooftop-chat-pc",
+   "title": "Rooftop Snipers: Chat open",
+   "device": "pc",
+   "shot": "games-b-rooftop-chat-pc",
+   "state": "chat",
+   "note": "Chat box opened (input focused). Nothing sent."
+  },
+  {
+   "id": "rooftop-chat-phone-landscape",
+   "title": "Rooftop Snipers: Chat open (landscape)",
+   "device": "phone",
+   "shot": "games-b-rooftop-chat-phone-landscape",
+   "state": "chat landscape",
+   "note": "Phone held sideways (832x384). Chat box opened (input focused). Nothing sent."
+  },
+  {
+   "id": "rooftop-chat-phone",
+   "title": "Rooftop Snipers: Chat open",
+   "device": "phone",
+   "shot": "games-b-rooftop-chat-phone",
+   "state": "chat",
+   "note": "Chat box opened (input focused). Nothing sent."
+  },
+  {
+   "id": "rooftop-end-pc",
+   "title": "Rooftop Snipers: Result card",
+   "device": "pc",
+   "shot": "games-b-rooftop-end-pc",
+   "state": "end",
+   "note": "Shared dsEnd card. MOCKED: a result fed into the page's own socket over-listener during a live bot match (matches run 2-4 min)."
+  },
+  {
+   "id": "rooftop-end-phone-landscape",
+   "title": "Rooftop Snipers: Result card (landscape)",
+   "device": "phone",
+   "shot": "games-b-rooftop-end-phone-landscape",
+   "state": "end landscape",
+   "note": "Phone held sideways (832x384). Shared dsEnd card. MOCKED: a result fed into the page's own socket over-listener during a live bot match (matches run 2-4 min)."
+  },
+  {
+   "id": "rooftop-end-phone",
+   "title": "Rooftop Snipers: Result card",
+   "device": "phone",
+   "shot": "games-b-rooftop-end-phone",
+   "state": "end",
+   "note": "Shared dsEnd card. MOCKED: a result fed into the page's own socket over-listener during a live bot match (matches run 2-4 min)."
+  },
+  {
+   "id": "rooftop-hud-pc",
+   "title": "Rooftop Snipers: In-game HUD",
+   "device": "pc",
+   "shot": "games-b-rooftop-hud-pc",
+   "state": "hud",
+   "note": "Free room, guest, against the bot, a few seconds in."
+  },
+  {
+   "id": "rooftop-hud-phone-landscape",
+   "title": "Rooftop Snipers: In-game HUD (landscape)",
+   "device": "phone",
+   "shot": "games-b-rooftop-hud-phone-landscape",
+   "state": "hud landscape",
+   "note": "Phone held sideways (832x384). Free room, guest, against the bot, a few seconds in."
+  },
+  {
+   "id": "rooftop-hud-phone",
+   "title": "Rooftop Snipers: In-game HUD",
+   "device": "phone",
+   "shot": "games-b-rooftop-hud-phone",
+   "state": "hud",
+   "note": "Free room, guest, against the bot, a few seconds in."
+  },
+  {
+   "id": "rooftop-leave-pc",
+   "title": "Rooftop Snipers: Leave the match? dialog",
+   "device": "pc",
+   "shot": "games-b-rooftop-leave-pc",
+   "state": "leave",
+   "note": "Pause/leave control pressed (Escape on PC, the game's own pause on phone)."
+  },
+  {
+   "id": "rooftop-leave-phone",
+   "title": "Rooftop Snipers: Leave the match? dialog",
+   "device": "phone",
+   "shot": "games-b-rooftop-leave-phone",
+   "state": "leave",
+   "note": "Pause/leave control pressed (Escape on PC, the game's own pause on phone)."
+  },
+  {
+   "id": "rooftop-queue-pc",
+   "title": "Rooftop Snipers: Duel queue card",
+   "device": "pc",
+   "shot": "games-b-rooftop-queue-pc",
+   "state": "queue",
+   "note": "Looking for a player with a 10 s countdown, \"If nobody joins, you'll play a bot\", Back to the lobby (tested: returns to the game screen)."
+  },
+  {
+   "id": "rooftop-queue-phone-landscape",
+   "title": "Rooftop Snipers: Duel queue card (landscape)",
+   "device": "phone",
+   "shot": "games-b-rooftop-queue-phone-landscape",
+   "state": "queue landscape",
+   "note": "Phone held sideways (832x384). Looking for a player with a 10 s countdown, \"If nobody joins, you'll play a bot\", Back to the lobby (tested: returns to the game screen)."
+  },
+  {
+   "id": "rooftop-queue-phone",
+   "title": "Rooftop Snipers: Duel queue card",
+   "device": "phone",
+   "shot": "games-b-rooftop-queue-phone",
+   "state": "queue",
+   "note": "Looking for a player with a 10 s countdown, \"If nobody joins, you'll play a bot\", Back to the lobby (tested: returns to the game screen)."
+  },
+  {
+   "id": "rooftop-spectate-empty-pc",
+   "title": "Rooftop Snipers: Spectate, empty table",
+   "device": "pc",
+   "shot": "games-b-rooftop-spectate-empty-pc",
+   "state": "spectate-empty",
+   "note": "Lobby game screen > Spectate with nobody playing: empty pitch/table (Knockout: blurred card art) and the shared Spectate bar, arrows off."
+  },
+  {
+   "id": "rooftop-spectate-empty-phone",
+   "title": "Rooftop Snipers: Spectate, empty table",
+   "device": "phone",
+   "shot": "games-b-rooftop-spectate-empty-phone",
+   "state": "spectate-empty",
+   "note": "Lobby game screen > Spectate with nobody playing: empty pitch/table (Knockout: blurred card art) and the shared Spectate bar, arrows off."
+  },
+  {
+   "id": "rooftop-spectate-live-pc",
+   "title": "Rooftop Snipers: Spectate, live match",
+   "device": "pc",
+   "shot": "games-b-rooftop-spectate-live-pc",
+   "state": "spectate-live",
+   "note": "Our own bot match watched from a second frame the way the lobby opens Spectate (dsWatch): Spectate bar with names."
+  },
+  {
+   "id": "rooftop-spectate-live-phone",
+   "title": "Rooftop Snipers: Spectate, live match",
+   "device": "phone",
+   "shot": "games-b-rooftop-spectate-live-phone",
+   "state": "spectate-live",
+   "note": "Our own bot match watched from a second frame the way the lobby opens Spectate (dsWatch): Spectate bar with names."
+  },
+  {
+   "id": "swim-botnote-pc",
+   "title": "Swim: Bot found",
+   "device": "pc",
+   "shot": "games-b-swim-botnote-pc",
+   "state": "botnote",
+   "note": "Match start against the free-table bot with the \"Playing a bot\" pill."
+  },
+  {
+   "id": "swim-botnote-phone",
+   "title": "Swim: Bot found",
+   "device": "phone",
+   "shot": "games-b-swim-botnote-phone",
+   "state": "botnote",
+   "note": "Match start against the free-table bot with the \"Playing a bot\" pill."
+  },
+  {
+   "id": "swim-chat-pc",
+   "title": "Swim: Chat open",
+   "device": "pc",
+   "shot": "games-b-swim-chat-pc",
+   "state": "chat",
+   "note": "Chat box opened (input focused). Nothing sent."
+  },
+  {
+   "id": "swim-chat-phone-landscape",
+   "title": "Swim: Chat open (landscape)",
+   "device": "phone",
+   "shot": "games-b-swim-chat-phone-landscape",
+   "state": "chat landscape",
+   "note": "Phone held sideways (832x384). Chat box opened (input focused). Nothing sent."
+  },
+  {
+   "id": "swim-chat-phone",
+   "title": "Swim: Chat open",
+   "device": "phone",
+   "shot": "games-b-swim-chat-phone",
+   "state": "chat",
+   "note": "Chat box opened (input focused). Nothing sent."
+  },
+  {
+   "id": "swim-end-pc",
+   "title": "Swim: Result card",
+   "device": "pc",
+   "shot": "games-b-swim-end-pc",
+   "state": "end",
+   "note": "Shared dsEnd card. Real result (crashed into traffic)."
+  },
+  {
+   "id": "swim-end-phone-landscape",
+   "title": "Swim: Result card (landscape)",
+   "device": "phone",
+   "shot": "games-b-swim-end-phone-landscape",
+   "state": "end landscape",
+   "note": "Phone held sideways. No crash happened and the mock could not reach the page's private race state, so no result card here."
+  },
+  {
+   "id": "swim-end-phone",
+   "title": "Swim: Result card",
+   "device": "phone",
+   "shot": "games-b-swim-end-phone",
+   "state": "end",
+   "note": "Shared dsEnd card. Real result (crashed into traffic)."
+  },
+  {
+   "id": "swim-hud-pc",
+   "title": "Swim: In-game HUD",
+   "device": "pc",
+   "shot": "games-b-swim-hud-pc",
+   "state": "hud",
+   "note": "Free room, guest, against the bot, a few seconds in."
+  },
+  {
+   "id": "swim-hud-phone-landscape",
+   "title": "Swim: In-game HUD (landscape)",
+   "device": "phone",
+   "shot": "games-b-swim-hud-phone-landscape",
+   "state": "hud landscape",
+   "note": "Phone held sideways (832x384). Free room, guest, against the bot, a few seconds in."
+  },
+  {
+   "id": "swim-hud-phone",
+   "title": "Swim: In-game HUD",
+   "device": "phone",
+   "shot": "games-b-swim-hud-phone",
+   "state": "hud",
+   "note": "Free room, guest, against the bot, a few seconds in."
+  },
+  {
+   "id": "swim-leave-pc",
+   "title": "Swim: Leave the match? dialog",
+   "device": "pc",
+   "shot": "games-b-swim-leave-pc",
+   "state": "leave",
+   "note": "Swim has no pause or leave control; the race had already ended in a crash, so the shot shows the result card."
+  },
+  {
+   "id": "swim-leave-phone",
+   "title": "Swim: Leave the match? dialog",
+   "device": "phone",
+   "shot": "games-b-swim-leave-phone",
+   "state": "leave",
+   "note": "Swim has no pause or leave control; the race had already ended in a crash, so the shot shows the result card."
+  },
+  {
+   "id": "swim-queue-pc",
+   "title": "Swim: Duel queue card",
+   "device": "pc",
+   "shot": "games-b-swim-queue-pc",
+   "state": "queue",
+   "note": "Looking for a player with a 10 s countdown, \"If nobody joins, you'll play a bot\", Back to the lobby (tested: returns to the game screen)."
+  },
+  {
+   "id": "swim-queue-phone-landscape",
+   "title": "Swim: Duel queue card (landscape)",
+   "device": "phone",
+   "shot": "games-b-swim-queue-phone-landscape",
+   "state": "queue landscape",
+   "note": "Phone held sideways (832x384). Looking for a player with a 10 s countdown, \"If nobody joins, you'll play a bot\", Back to the lobby (tested: returns to the game screen)."
+  },
+  {
+   "id": "swim-queue-phone",
+   "title": "Swim: Duel queue card",
+   "device": "phone",
+   "shot": "games-b-swim-queue-phone",
+   "state": "queue",
+   "note": "Looking for a player with a 10 s countdown, \"If nobody joins, you'll play a bot\", Back to the lobby (tested: returns to the game screen)."
+  },
+  {
+   "id": "swim-spectate-empty-pc",
+   "title": "Swim: Spectate, empty table",
+   "device": "pc",
+   "shot": "games-b-swim-spectate-empty-pc",
+   "state": "spectate-empty",
+   "note": "Lobby game screen > Spectate with nobody playing: empty pitch/table (Knockout: blurred card art) and the shared Spectate bar, arrows off."
+  },
+  {
+   "id": "swim-spectate-empty-phone",
+   "title": "Swim: Spectate, empty table",
+   "device": "phone",
+   "shot": "games-b-swim-spectate-empty-phone",
+   "state": "spectate-empty",
+   "note": "Lobby game screen > Spectate with nobody playing: empty pitch/table (Knockout: blurred card art) and the shared Spectate bar, arrows off."
+  },
+  {
+   "id": "swim-spectate-live-pc",
+   "title": "Swim: Spectate, live match",
+   "device": "pc",
+   "shot": "games-b-swim-spectate-live-pc",
+   "state": "spectate-live",
+   "note": "Our match had already ended (crash / eagle) before the watcher loaded, so this shows the empty table."
+  },
+  {
+   "id": "swim-spectate-live-phone",
+   "title": "Swim: Spectate, live match",
+   "device": "phone",
+   "shot": "games-b-swim-spectate-live-phone",
+   "state": "spectate-live",
+   "note": "Our match had already ended (crash / eagle) before the watcher loaded, so this shows the empty table."
+  },
+  {
+   "id": "swimrace-chat-pc",
+   "title": "Swim Race event: Chat open",
+   "device": "pc",
+   "shot": "games-b-swimrace-chat-pc",
+   "state": "chat",
+   "note": "Swim Race has no chat: T and the screen open nothing."
+  },
+  {
+   "id": "swimrace-chat-phone",
+   "title": "Swim Race event: Chat open",
+   "device": "phone",
+   "shot": "games-b-swimrace-chat-phone",
+   "state": "chat",
+   "note": "Swim Race has no chat: T and the screen open nothing."
+  },
+  {
+   "id": "swimrace-end-pc",
+   "title": "Swim Race event: Result card",
+   "device": "pc",
+   "shot": "games-b-swimrace-end-pc",
+   "state": "end",
+   "note": "Final card with podium, MOCKED via DSEnd.show with the page's own shape (no race running)."
+  },
+  {
+   "id": "swimrace-end-phone",
+   "title": "Swim Race event: Result card",
+   "device": "phone",
+   "shot": "games-b-swimrace-end-phone",
+   "state": "end",
+   "note": "Final card with podium, MOCKED via DSEnd.show with the page's own shape (no race running)."
+  },
+  {
+   "id": "swimrace-eventcard-pc",
+   "title": "Swim Race event: Events tab Swim Race card",
+   "device": "pc",
+   "shot": "games-b-swimrace-eventcard-pc",
+   "state": "eventcard",
+   "note": "Entry point: Join / Spectate / How it works, next race 5:00 PM ET."
+  },
+  {
+   "id": "swimrace-eventcard-phone",
+   "title": "Swim Race event: Events tab Swim Race card",
+   "device": "phone",
+   "shot": "games-b-swimrace-eventcard-phone",
+   "state": "eventcard",
+   "note": "Entry point: Join / Spectate / How it works, next race 5:00 PM ET."
+  },
+  {
+   "id": "swimrace-joined-pc",
+   "title": "Swim Race event: Swim Race, joined lobby",
+   "device": "pc",
+   "shot": "games-b-swimrace-joined-pc",
+   "state": "joined",
+   "note": "\"Waiting for players to join\" banner over our parked car."
+  },
+  {
+   "id": "swimrace-joined-phone",
+   "title": "Swim Race event: Swim Race, joined lobby",
+   "device": "phone",
+   "shot": "games-b-swimrace-joined-phone",
+   "state": "joined",
+   "note": "\"Waiting for players to join\" banner over our parked car."
+  },
+  {
+   "id": "swimrace-lobbycard-pc",
+   "title": "Swim Race event: Swim Race pre-race card",
+   "device": "pc",
+   "shot": "games-b-swimrace-lobbycard-pc",
+   "state": "lobbycard",
+   "note": "After Leave: back on the join card (full page)."
+  },
+  {
+   "id": "swimrace-lobbycard-phone",
+   "title": "Swim Race event: Swim Race pre-race card",
+   "device": "phone",
+   "shot": "games-b-swimrace-lobbycard-phone",
+   "state": "lobbycard",
+   "note": "After Leave: back on the join card (full page)."
+  },
+  {
+   "id": "swimrace-out-pc",
+   "title": "Swim Race event: Swim Race knocked-out card",
+   "device": "pc",
+   "shot": "games-b-swimrace-out-pc",
+   "state": "out",
+   "note": "MOCKED via DSEnd.show with the page's own card shape (no race running)."
+  },
+  {
+   "id": "swimrace-out-phone",
+   "title": "Swim Race event: Swim Race knocked-out card",
+   "device": "phone",
+   "shot": "games-b-swimrace-out-phone",
+   "state": "out",
+   "note": "MOCKED via DSEnd.show with the page's own card shape (no race running)."
+  },
+  {
+   "id": "swimrace-watch-pc",
+   "title": "Swim Race event: Swim Race, Spectate between races",
+   "device": "pc",
+   "shot": "games-b-swimrace-watch-pc",
+   "state": "watch",
+   "note": "Opens the pre-race card (rules, countdown, Join the race, Back to the lobby)."
+  },
+  {
+   "id": "swimrace-watch-phone",
+   "title": "Swim Race event: Swim Race, Spectate between races",
+   "device": "phone",
+   "shot": "games-b-swimrace-watch-phone",
+   "state": "watch",
+   "note": "Opens the pre-race card (rules, countdown, Join the race, Back to the lobby)."
+  }
+ ],
+ "findings": [
+  {
+   "screen": "In-game (Knockout, Swim)",
+   "device": "both",
+   "severity": "major",
+   "kind": "broken",
+   "what": "Knockout and Swim have no pause or leave control during a match (no button, Escape does nothing), so the only way back to the lobby is to finish the match or use the browser Back, while the other five games all offer \"Leave the match?\".",
+   "where": "public/js/knockout.js and public/js/swim/swimMain.js have no pauseMenu/DSDialog (compare public/js/headsoccer.js:343 pauseMenu); knockout.html and swim.html have no leave button",
+   "shots": [
+    "games-b-knockout-hud-pc",
+    "games-b-knockout-hud-phone",
+    "games-b-knockout-leave-pc",
+    "games-b-swim-hud-pc",
+    "games-b-swim-hud-phone"
+   ]
+  },
+  {
+   "screen": "Head Soccer in-game (phone upright)",
+   "device": "phone",
+   "severity": "major",
+   "kind": "cramped",
+   "what": "On a phone held upright Head Soccer squeezes the pitch into the top 40% of the screen with tiny players and leaves a big empty navy gap above the buttons that only says \"Turn your phone sideways for a bigger pitch\".",
+   "where": "public/js/headsoccer.js:255-263 fit() portrait (HS.VIEW_W_MIN), :751 the note",
+   "shots": [
+    "games-b-headsoccer-hud-phone"
+   ]
+  },
+  {
+   "screen": "8 Ball Pool in-game (phone upright)",
+   "device": "phone",
+   "severity": "major",
+   "kind": "cramped",
+   "what": "On a phone held upright 8 Ball Pool turns the whole table sideways, so the player names, the VS splash, \"FREE GAME\" and the aiming hints all have to be read with your head tilted, and wide empty bands sit above and below the table.",
+   "where": "public/js/pool8.js:143 (VIEW.rot), public/js/pool8/p8Art.js",
+   "shots": [
+    "games-b-pool8-botnote-phone",
+    "games-b-pool8-hud-phone"
+   ]
+  },
+  {
+   "screen": "Swim Race joined lobby",
+   "device": "phone",
+   "severity": "major",
+   "kind": "cramped",
+   "what": "On the phone the \"Waiting for players to join\" banner sits on top of the speed readout, so \"Leave\" is drawn over \"0 km/h\", the gear \"N\" and \"on the start line\" and is hard to see or tap.",
+   "where": "public/css/swimrace.css:37-47 #lobbyBar (top 16px) over public/css/swim.css #dash; #lbLeave",
+   "shots": [
+    "games-b-swimrace-joined-phone"
+   ]
+  },
+  {
+   "screen": "Swim Race joined lobby",
+   "device": "both",
+   "severity": "minor",
+   "kind": "cramped",
+   "what": "The Swim Race \"Leave\" button is a 65 x 26 px text button, far under the 44 px touch size.",
+   "where": "public/swimrace.html #lbLeave, public/css/swimrace.css (#lobbyBar button)",
+   "shots": [
+    "games-b-swimrace-joined-pc",
+    "games-b-swimrace-joined-phone"
+   ]
+  },
+  {
+   "screen": "Head Soccer in-game (phone upright)",
+   "device": "phone",
+   "severity": "minor",
+   "kind": "cramped",
+   "what": "Head Soccer's pause button on an upright phone is drawn about 30 px wide with a 35 px tap area, smaller than the 44 px minimum.",
+   "where": "public/js/headsoccer.js:325-328 onPause (art.pauseAt r x VIEW.s x 1.15)",
+   "shots": [
+    "games-b-headsoccer-hud-phone"
+   ]
+  },
+  {
+   "screen": "In-game pause/leave control (all games)",
+   "device": "both",
+   "severity": "minor",
+   "kind": "mismatch",
+   "what": "Every game puts its leave button somewhere different with a different look: a green round pause top right (Head Soccer), a pixel \"II\" top left (Rooftop), a green hamburger top left (Pool), a small dark circle beside the rink (Air Hockey), a white \"II\" top right (Crossy), and none at all in Knockout and Swim.",
+   "where": "public/js/headsoccer/hsArt.js pauseAt; public/js/rooftop.js:210-233; public/js/pool8/p8Art.js:27 menu; public/js/airhockey.js:253-276 PAUSE; public/crossy.html #leave",
+   "shots": [
+    "games-b-headsoccer-hud-pc",
+    "games-b-rooftop-leave-pc",
+    "games-b-pool8-hud-pc",
+    "games-b-airhockey-hud-pc",
+    "games-b-crossy-hud-pc",
+    "games-b-knockout-hud-pc"
+   ]
+  },
+  {
+   "screen": "Crossy Road in-game",
+   "device": "pc",
+   "severity": "minor",
+   "kind": "mismatch",
+   "what": "In Crossy Road, Escape does not open \"Leave the match?\" on PC, while Head Soccer, Rooftop, Pool and Air Hockey all do.",
+   "where": "public/js/crossy/crossyMain.js:144 keydown handler only handles the hop keys",
+   "shots": [
+    "games-b-crossy-hud-pc",
+    "games-b-crossy-leave-pc"
+   ]
+  },
+  {
+   "screen": "Leave the match? dialog",
+   "device": "both",
+   "severity": "minor",
+   "kind": "mismatch",
+   "what": "The leave dialog's main button is a gold gradient pill while every other game button (result card, queue card, lobby Play) is a bone or outlined button with 10 px corners, and gold is the site's money colour.",
+   "where": "public/js/shared/dsDialog.js:40-41 .dsd-go (border-radius 999px, gold gradient)",
+   "shots": [
+    "games-b-rooftop-leave-pc",
+    "games-b-headsoccer-leave-phone",
+    "games-b-headsoccer-end-pc"
+   ]
+  },
+  {
+   "screen": "Leave the match? dialog",
+   "device": "phone",
+   "severity": "minor",
+   "kind": "cramped",
+   "what": "\"Keep playing\" in the leave dialog is a small text link 111 x 31 px, under the 44 px touch size.",
+   "where": "public/js/shared/dsDialog.js:43-44 .dsd-no",
+   "shots": [
+    "games-b-headsoccer-leave-phone",
+    "games-b-pool8-leave-phone"
+   ]
+  },
+  {
+   "screen": "Chat (all games)",
+   "device": "both",
+   "severity": "minor",
+   "kind": "mismatch",
+   "what": "The in-game chat uses Segoe UI and cold blue-black boxes with blue-white text, unlike the lobby and every other game overlay, which use Archivo on warm ink.",
+   "where": "public/js/shared/dsChat.js:44 (.dsc font), :74 (.dsc-in), :96-99 (.dsc-hint kbd), rgba(14,16,22) backgrounds",
+   "shots": [
+    "games-b-headsoccer-chat-pc",
+    "games-b-knockout-chat-phone",
+    "games-b-swim-chat-pc"
+   ]
+  },
+  {
+   "screen": "Chat (all games)",
+   "device": "phone",
+   "severity": "minor",
+   "kind": "cramped",
+   "what": "On phones the chat button is 40 x 40 px and the \"Hide chat\" button inside the open box is 24 x 24 px, both under 44 px.",
+   "where": "public/js/shared/dsChat.js:88 .dsc-btn, .dsc-mute",
+   "shots": [
+    "games-b-headsoccer-chat-phone",
+    "games-b-airhockey-chat-phone"
+   ]
+  },
+  {
+   "screen": "Ping/FPS readout (all games)",
+   "device": "both",
+   "severity": "minor",
+   "kind": "mismatch",
+   "what": "The ping and FPS readout is set in the system monospace at 11 px instead of the lobby's IBM Plex Mono, so it is the one figure on screen in a different typeface.",
+   "where": "public/js/shared/dsPerfHud.js:43",
+   "shots": [
+    "games-b-knockout-hud-pc",
+    "games-b-swim-hud-phone"
+   ]
+  },
+  {
+   "screen": "Result card (phone)",
+   "device": "phone",
+   "severity": "minor",
+   "kind": "cramped",
+   "what": "On phones the ping/FPS readout sits on the bottom edge of the result card (6 px overlap), half hidden behind it.",
+   "where": "public/js/shared/dsPerfHud.js (bottom right) vs public/js/shared/dsEnd.js .dse padding-bottom 14px",
+   "shots": [
+    "games-b-rooftop-end-phone",
+    "games-b-headsoccer-end-phone"
+   ]
+  },
+  {
+   "screen": "Result card, free table",
+   "device": "both",
+   "severity": "minor",
+   "kind": "mismatch",
+   "what": "Free result cards do not match: six games show the word \"Free\" as the big figure on a plain coin, while Swim shows the metres driven in big red or green, and the stat labels differ (\"Score 1-3\", Crossy's \"Your score / Theirs\", Pool's \"Balls potted\", Knockout's \"Turns\").",
+   "where": "public/js/swim/swimMain.js:752-754 (tone win/loss, hero metres) vs public/js/headsoccer.js:1028-1064; public/js/crossy/crossyMain.js:482-484; public/js/pool8.js:1005-1007",
+   "shots": [
+    "games-b-swim-end-pc",
+    "games-b-headsoccer-end-pc",
+    "games-b-crossy-end-pc",
+    "games-b-pool8-end-pc"
+   ]
+  },
+  {
+   "screen": "Result card, free win",
+   "device": "both",
+   "severity": "minor",
+   "kind": "copy",
+   "what": "On a free win the card's headline is just the word \"Free\" with the actual score in small print, so \"You win\" reads like a non-event.",
+   "where": "public/js/shared/dsEnd.js:394 freeCard",
+   "shots": [
+    "games-b-rooftop-end-phone",
+    "games-b-headsoccer-endwin-pc"
+   ]
+  },
+  {
+   "screen": "Spectate bar and Swim HUD",
+   "device": "both",
+   "severity": "minor",
+   "kind": "copy",
+   "what": "The bot is not called a bot in the Spectate name plate in any game (\"Guest9385 vs ahmed\") or in Swim's HUD, while the in-game HUDs of Head Soccer, Knockout, Rooftop, Crossy, Pool and Air Hockey add \"(bot)\".",
+   "where": "each game's watch names (window.__watch.names, e.g. public/js/headsoccer.js:1344) fed to public/js/shared/dsWatchBar.js; public/swim.html #themName",
+   "shots": [
+    "games-b-pool8-spectate-live-pc",
+    "games-b-headsoccer-spectate-live-pc",
+    "games-b-swim-hud-pc"
+   ]
+  },
+  {
+   "screen": "In-game HUD names",
+   "device": "both",
+   "severity": "minor",
+   "kind": "mismatch",
+   "what": "Your own name is shown as \"You\" in Knockout and Air Hockey but as your guest name (for example \"Guest4513\") in Head Soccer, Swim, Rooftop and Pool.",
+   "where": "public/knockout.html #youName; public/js/airhockey.js HUD strip; public/js/headsoccer/hsArt.js score plate",
+   "shots": [
+    "games-b-knockout-hud-pc",
+    "games-b-airhockey-hud-pc",
+    "games-b-headsoccer-hud-pc",
+    "games-b-pool8-hud-pc"
+   ]
+  },
+  {
+   "screen": "Spectate bar (phone)",
+   "device": "phone",
+   "severity": "minor",
+   "kind": "cramped",
+   "what": "On phones the Spectate name plate cuts the match name (\"Guest6836 vs NoScope73\" ends in \"…\"), so the second player's name is lost.",
+   "where": "public/js/shared/dsWatchBar.js:65 .dsw-name ellipsis, :71 plate between two 64 px buttons",
+   "shots": [
+    "games-b-knockout-spectate-live-phone",
+    "games-b-pool8-spectate-live-phone"
+   ]
+  },
+  {
+   "screen": "Spectate bar",
+   "device": "both",
+   "severity": "minor",
+   "kind": "cramped",
+   "what": "The Spectate \"Lobby\" chip is 40 px tall on PC and 42 px on phones, under the 44 px touch size.",
+   "where": "public/js/shared/dsWatchBar.js:51 (.dsw-lobby height 40px), :72 (phone 64 x .66)",
+   "shots": [
+    "games-b-headsoccer-spectate-empty-phone",
+    "games-b-pool8-spectate-live-phone"
+   ]
+  },
+  {
+   "screen": "8 Ball Pool spectate",
+   "device": "both",
+   "severity": "minor",
+   "kind": "mismatch",
+   "what": "Watching 8 Ball Pool, the Lobby chip sits on top of the game's green menu button on PC, and on phones the round \"next\" button covers the cue-ball spin control, because the game keeps drawing its player controls for watchers.",
+   "where": "public/js/shared/dsWatchBar.js .dsw-lobby (left/top 16px), .dsw-switch; public/js/pool8/p8Art.js:27 menu",
+   "shots": [
+    "games-b-pool8-spectate-live-pc",
+    "games-b-pool8-spectate-live-phone"
+   ]
+  },
+  {
+   "screen": "Rooftop Snipers (phone upright)",
+   "device": "phone",
+   "severity": "minor",
+   "kind": "mismatch",
+   "what": "On an upright phone the chat button, the \"Playing a bot\" pill, the leave dialog and the result card all float on top of Rooftop's full-screen coral \"Turn your phone sideways\" card, whose flat coral red is unlike any other screen on the site.",
+   "where": "public/css/rooftop.css:92 (#botNote z 31), :104 (#rotate z 30), dsChat z 30",
+   "shots": [
+    "games-b-rooftop-botnote-phone",
+    "games-b-rooftop-end-phone",
+    "games-b-rooftop-leave-phone"
+   ]
+  },
+  {
+   "screen": "Phone orientation (all games)",
+   "device": "phone",
+   "severity": "minor",
+   "kind": "mismatch",
+   "what": "The games treat an upright phone four different ways: Rooftop blocks play until you turn it, Head Soccer plays a small version with a \"turn sideways\" note, Pool turns the table and its text sideways, and Air Hockey, Crossy, Knockout and Swim are built upright.",
+   "where": "public/js/rooftop.js:200-201; public/js/headsoccer.js:255; public/js/pool8.js:143",
+   "shots": [
+    "games-b-rooftop-hud-phone",
+    "games-b-headsoccer-hud-phone",
+    "games-b-pool8-hud-phone",
+    "games-b-airhockey-hud-phone"
+   ]
+  },
+  {
+   "screen": "Air Hockey in-game (phone)",
+   "device": "phone",
+   "severity": "minor",
+   "kind": "cramped",
+   "what": "Air Hockey's phone score strip still cuts the bot's name to four letters (\"brun… (bot)\").",
+   "where": "public/js/airhockey.js:726-727 (cutTo shrinks the name to fit the strip)",
+   "shots": [
+    "games-b-airhockey-hud-phone"
+   ]
+  },
+  {
+   "screen": "Swim in-game (phone sideways)",
+   "device": "phone",
+   "severity": "minor",
+   "kind": "cramped",
+   "what": "With the phone held sideways Swim's big speed readout sits on top of your own car and runs into the Brake pad.",
+   "where": "public/css/swim.css #dash vs #pads (overlap 149 x 84 px at 832x384)",
+   "shots": [
+    "games-b-swim-hud-phone-landscape"
+   ]
+  },
+  {
+   "screen": "Bot note (phone sideways)",
+   "device": "phone",
+   "severity": "minor",
+   "kind": "cramped",
+   "what": "With the phone held sideways the \"Playing a bot\" pill lands on the play area for its first seconds: over the opponent's half of the Air Hockey rink and on the rim of the Knockout disc.",
+   "where": "public/css/airhockey.css and public/css/knockout.css #botNote (top 72px)",
+   "shots": [
+    "games-b-airhockey-hud-phone-landscape",
+    "games-b-knockout-hud-phone-landscape"
+   ]
+  },
+  {
+   "screen": "Knockout HUD",
+   "device": "both",
+   "severity": "minor",
+   "kind": "copy",
+   "what": "Knockout's clock shows an em dash as a placeholder while a turn starts or resolves, against the no-em-dash rule.",
+   "where": "public/js/knockout.js:481, 486, 491, 495 setText(num, '—')",
+   "shots": [
+    "games-b-knockout-botnote-pc",
+    "games-b-knockout-botnote-phone"
+   ]
+  },
+  {
+   "screen": "Knockout HUD",
+   "device": "both",
+   "severity": "minor",
+   "kind": "mismatch",
+   "what": "Knockout's \"Lock in\" button is solid money gold although nothing is paid, while the lobby keeps gold for money and uses bone for its main Play button.",
+   "where": "public/css/knockout.css:113-122 #lock",
+   "shots": [
+    "games-b-knockout-hud-pc",
+    "games-b-knockout-hud-phone"
+   ]
+  },
+  {
+   "screen": "Swim Race page",
+   "device": "both",
+   "severity": "minor",
+   "kind": "mismatch",
+   "what": "The Swim Race page has no chat at all, while every duel page has one.",
+   "where": "public/swimrace.html and public/js/swim/swimEventMain.js load no dsChat.js",
+   "shots": [
+    "games-b-swimrace-chat-pc",
+    "games-b-swimrace-chat-phone"
+   ]
+  },
+  {
+   "screen": "Swim Race, Spectate between races",
+   "device": "both",
+   "severity": "minor",
+   "kind": "dead",
+   "what": "Spectate on the Swim Race card opens the same pre-race join card as Join (with \"Join the race\"), with nothing to watch and no Spectate bar until a race starts hours later.",
+   "where": "public/js/v2/play.js:853 swimRace(false); public/js/swim/swimEventMain.js:629 paintLobby",
+   "shots": [
+    "games-b-swimrace-watch-pc",
+    "games-b-swimrace-watch-phone"
+   ]
+  },
+  {
+   "screen": "Crossy Road result (phone)",
+   "device": "phone",
+   "severity": "minor",
+   "kind": "cramped",
+   "what": "After Crossy Road ends on a phone, the bot's name tag hangs off the left edge of the screen next to the result card.",
+   "where": "public/crossy.html #tag position (measured -15 to 77 px)",
+   "shots": [
+    "games-b-crossy-end-phone"
+   ]
+  },
+  {
+   "screen": "Spectate (all games)",
+   "device": "both",
+   "severity": "minor",
+   "kind": "broken",
+   "what": "Every Spectate logs a tracking warning and drops the watch mode from the spectate_started event, so analytics loses which mode was watched (not visible to players).",
+   "where": "public/js/shared/dsTrack.js:186 sends base() with mode; shared/trackPlan.js:60 allows only game, paid, stake",
+   "shots": [
+    "games-b-headsoccer-spectate-empty-pc"
+   ]
+  }
+ ],
+ "styleNotes": [
+  "Lobby chrome to match: Archivo (400-700) with IBM Plex Mono for every figure, warm ink #100e0b / #1f1b15 / #282219, cream text #f5f1e8 / #a89c8a / #8d8171, bone #f4f1ea main buttons, gold #f0a830 only for money, radii 6 / 10 / 18 / pill (public/v2.html:74-85).",
+  "Game chrome that already matches: the queue card, \"Playing a bot\" pill, result card, Spectate bar, Leave dialog text, Knockout's whole HUD and Swim's DOM HUD.",
+  "Game chrome that does not: chat (Segoe UI 14 px, blue-black rgba(14,16,22) boxes), the ping/FPS box (system mono 11 px), the Leave dialog's gold pill button, Rooftop's flat coral rotate card (Archivo 800 white on coral).",
+  "Canvas HUDs follow each reference game and differ on purpose: Head Soccer (Heads Arena look, Sofia Sans Extra Condensed, Archivo heavy italics), Rooftop (pixel font, rtFont.js), 8 Ball Pool (glossy green/blue panels, Archivo 900), Air Hockey (neon cyan/magenta, Archivo), Crossy (blocky pixel numerals). Keep the art; unify what sits on top of it (leave control, names, chat, ping).",
+  "Leave control placement today: top right (Head Soccer, Crossy), top left (Rooftop, Pool), beside the rink (Air Hockey), none (Knockout, Swim). Own name: \"You\" (Knockout, Air Hockey) vs the guest name elsewhere.",
+  "Free result card: \"Free\" as the big figure everywhere except Swim (metres in red/green); facts \"Score 1-3\", \"Your score / Theirs\" (Crossy), \"Balls potted\" (Pool), \"Turns\" (Knockout).",
+  "Phone upright: Rooftop blocks, Head Soccer shrinks, Pool rotates sideways, the rest are portrait-native. Held sideways, Head Soccer, Rooftop, Knockout, Crossy and Pool look right; Air Hockey becomes a narrow column in the middle; Swim's speed readout lands on the car."
+ ],
+ "keep": [
+  "One duel queue card in all seven games: same warm-ink card, same words (\"Looking for a player… 0:09\", \"Free table. If nobody joins, you'll play a bot.\"), same 44 px Back to the lobby that returns to the game's lobby screen every time, PC and phone.",
+  "The free bot arrives after 10 s with the identical \"Playing a bot\" pill in every game (same style in every game CSS).",
+  "The shared result card (dsEnd): Lobby | Spectate | Play again in the same order in every game, 52-54 px buttons, low on the phone under the thumb, still fits a phone held sideways (384 px high); Lobby returns to the game screen, Play again re-queues, Spectate opens the watch view.",
+  "The shared Spectate bar: same Lobby chip, round previous/next and name plate in every game; an empty table shows the game's own empty pitch, rink, road or table (Knockout: blurred card art) instead of a blank page, with the arrows switched off.",
+  "\"Leave the match?\" now uses the same title, line and buttons in all five games that have it, and Leave goes straight back to the lobby.",
+  "Knockout's HUD is built from the lobby's own tokens (Archivo, IBM Plex Mono figures, warm ink, gold rim): the model for game chrome in the redo.",
+  "Swim's DOM HUD (names, gap rope, Plex Mono speed and gear) and phone controls (steer zone, big Gas and Brake pads, one-line hint); the crash result card appears with the wreck still visible behind it.",
+  "Head Soccer held sideways on a phone: full stadium, big touch buttons, clear score plate.",
+  "Air Hockey upright on a phone: rink fills the screen, score strip on top, pause and music buttons within reach (48-50 px tap areas).",
+  "No horizontal overflow, no low-contrast text, no console errors, exceptions or failed requests on any game screen at pc1440, phone or phone sideways.",
+  "Earlier sweep bugs re-checked and fixed: Pool's result card no longer throws, Pool's Escape opens Leave, Crossy's pause button hides on the result card, Rooftop draws \"(bot)\" under the sniper, Rooftop no longer stacks \"Point\" on \"Wins!\"."
+ ],
+ "notReached": [
+  "A real person-vs-person match: nobody else was queuing, so every match was against the free-table bot.",
+  "Real results for Head Soccer, Knockout, Rooftop, 8 Ball Pool and Air Hockey: matches last 2-4 minutes or many turns, so those cards were mocked by feeding a result into each page's own socket \"over\" listener during a live bot match. Swim (crash) and Crossy (eagle) results were real.",
+  "Swim Race live race HUD, real knocked-out card and real podium: no race was running (next one 5:00 PM ET, about 3 h 52 min away) and the owner's test race needs an owner session. The two cards were mocked with DSEnd.show using the page's own card shapes.",
+  "Swim's result card with the phone held sideways: no crash happened in that run and the mock cannot reach the page's private race state.",
+  "Watching a live Swim or Crossy match: our match had already ended (crash, eagle) when the watcher loaded, so those shots show the empty table.",
+  "Paid tables ($0.50 / $1) and their wait, refund and restake cards: not allowed in this audit.",
+  "The phone's own Back gesture as the way out of Knockout or Swim: not emulated by the probe.",
+  "Sending a chat message: not allowed; chat was only opened."
+ ]
+}

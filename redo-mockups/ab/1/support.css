@@ -1,0 +1,47 @@
+/* Layout 1 "Sidebar": Support (support.html). The address set large with Open in Gmail, Copy and Ask on Discord;
+   beside it the three ways in that open the Support sheet prefilled (more.js); the footer's other pages under them.
+   Arrangement only: every component comes from ../kit.css, the Copied state and the sheet's email line from more.css. */
+
+.sup { max-width: 1180px; }
+.sup-hd .t-body { margin-top: var(--sp2); }
+
+.sup-grid { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: var(--sp4); align-items: stretch; }
+
+/* the address: the point of the page */
+.sup-mail { display: flex; flex-direction: column; align-items: flex-start; padding: var(--sp6) 40px; }
+.sup-addr { margin: var(--sp3) 0 var(--sp5); font-size: 36px; font-weight: 800; font-stretch: 112%; letter-spacing: -.025em; line-height: 1.1;
+  color: var(--bone); max-width: 100%; -webkit-user-select: all; user-select: all; }
+.sup-acts { display: flex; flex-wrap: wrap; gap: var(--sp2); }
+.sup-acts .cp { min-width: 176px; }
+.sup-note { margin-top: auto; padding-top: var(--sp4); font-size: var(--fs-2); max-width: 56ch; }
+
+/* what it is about: each opens the sheet with its own subject */
+.sup-top { display: flex; flex-direction: column; }
+.sup-opts { display: flex; flex-direction: column; gap: var(--sp2); }
+.sup-opts .opt + .opt { margin-top: 0; }
+.sup-opts .opt-ic { color: var(--tx2); }
+
+/* the footer's other pages */
+.sup-more { display: flex; align-items: center; gap: var(--sp2) var(--sp4); flex-wrap: wrap; margin-top: var(--sp5); padding: var(--sp3) var(--sp3) 0; }
+.sup-links { display: flex; flex-wrap: wrap; gap: var(--sp1); }
+.sup-links .btn { font-size: var(--fs-2); }
+
+/* ---------- in between ---------- */
+@media (min-width: 761px) and (max-width: 1100px) {
+  .sup-grid { grid-template-columns: 1fr; }
+  .sup-mail { padding: var(--sp5); }
+}
+
+/* ---------- phone ---------- */
+@media (max-width: 760px) {
+  .sup-grid { grid-template-columns: 1fr; }
+  .sup-mail { padding: var(--sp5) var(--sp4) var(--sp4); }
+  .sup-addr { font-size: 25px; margin: var(--sp2) 0 var(--sp4); }
+  .sup-acts { flex-direction: column; align-self: stretch; }
+  .sup-acts .btn { width: 100%; }
+  .sup-note { padding-top: var(--sp3); }
+  .sup-more { flex-direction: column; align-items: stretch; gap: var(--sp1); padding: var(--sp2) 0 0; }
+  .sup-more .t-label { padding: 0 var(--sp3); }
+  .sup-links { flex-direction: column; }
+  .sup-links .btn { justify-content: flex-start; width: 100%; font-size: var(--fs-3); }
+}

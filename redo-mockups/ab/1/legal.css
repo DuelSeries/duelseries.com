@@ -1,0 +1,51 @@
+/* Legal page (Terms of service): one reading column under 70 characters, set for reading, with the three legal pages
+   and the headings in a side column on PC. The [bracket] placeholders are red "Owen to fill" marks: red is the kit's
+   colour for something wrong, and an unfilled clause is wrong until a lawyer fills it. */
+
+.lg { max-width: 1180px; margin: 0 auto; padding: var(--sp7) var(--sp6) 0; display: grid; grid-template-columns: 220px minmax(0, 680px); gap: var(--sp7); justify-content: center; }
+.lg-side { position: sticky; top: calc(var(--hdh) + var(--sp5)); align-self: start; padding-top: 6px; }
+.lg-side .nav-hd { padding-top: var(--sp5); color: var(--tx2); }
+.lg-toc .nav-a { min-height: 34px; font-size: var(--fs-2); font-weight: 550; }
+
+.lg-doc { min-width: 0; font-size: 16px; line-height: 1.7; color: var(--tx2); padding-bottom: var(--sp7); }
+.lg-doc h1 { font-size: 46px; font-weight: 800; font-stretch: var(--wide); letter-spacing: -.02em; line-height: 1.04; color: var(--bone); }
+.lg-meta { margin-top: var(--sp2); font-size: var(--fs-2); color: var(--tx2); }
+.lg-doc h2 { margin: 44px 0 10px; font-size: 21px; font-weight: 750; font-stretch: 108%; letter-spacing: -.01em; line-height: 1.3; color: var(--bone); scroll-margin-top: calc(var(--hdh) + var(--sp4)); }
+.lg-doc p { max-width: 66ch; }
+.lg-doc p + p { margin-top: 12px; }
+.lg-doc ul { margin: 10px 0 0; padding-left: 20px; max-width: 66ch; }
+.lg-doc li + li { margin-top: 8px; }
+.lg-doc li::marker { color: var(--tx3); }
+
+/* the draft notice: the first thing read, a bone rule on a raised panel so it cannot pass for body copy */
+.lg-draft { margin-top: var(--sp5); padding: var(--sp4) var(--sp5); border-radius: var(--r3); background: var(--s1); box-shadow: inset 3px 0 0 var(--bone), var(--edge); color: var(--bone); font-size: var(--fs-3); line-height: 1.6; }
+.lg-draft .chip { margin-bottom: var(--sp2); background: var(--bone); color: var(--ink); }
+.lg-left { margin-top: var(--sp2); color: var(--tx2); }
+.lg-left b { color: var(--bone); font-weight: 650; }
+
+/* an unfilled clause */
+.fill {
+  padding: 3px 8px; border-radius: var(--r1); background: var(--red-t); box-shadow: inset 0 0 0 1px rgba(239, 116, 97, .45);
+  color: var(--bone); font-weight: 550; -webkit-box-decoration-break: clone; box-decoration-break: clone; scroll-margin-top: calc(var(--hdh) + 80px);
+}
+.fill b { color: var(--red); font-weight: 750; margin-right: 4px; }
+.fill:target { background: rgba(239, 116, 97, .28); }
+
+.lg-ft { margin-top: var(--sp7); padding-top: var(--sp4); box-shadow: inset 0 1px 0 var(--line); }
+.lg-ft nav { display: flex; flex-wrap: wrap; gap: 2px var(--sp1); margin-left: calc(-1 * var(--sp3)); }
+.lg-ft nav [aria-current='page'] { color: var(--bone); }
+.lg-ft .mk-note { margin-top: var(--sp5); }
+
+@media (max-width: 1100px) {
+  .lg { grid-template-columns: minmax(0, 680px); padding-top: var(--sp6); }
+  .lg-side { display: none; }
+}
+@media (max-width: 760px) {
+  .lg { padding: var(--sp5) var(--sp4) 0; }
+  .lg-doc { font-size: 15.5px; padding-bottom: calc(var(--sp6) + env(safe-area-inset-bottom)); }
+  .lg-doc h1 { font-size: 34px; }
+  .lg-doc h2 { margin-top: 36px; font-size: 19px; }
+  .lg-draft { padding: var(--sp4); }
+  .lg-ft nav { margin-left: calc(-1 * var(--sp2)); }
+  .lg-ft nav .btn { padding: 0 var(--sp2); }
+}

@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Free Multiplayer Browser Games | DuelSeries</title>
+<meta name="description" content="Snake, maze and territory arenas, plus 1v1 games like 8 ball pool, air hockey and head soccer. Free in your browser on phone and PC, no download.">
+<meta name="theme-color" content="#000000">
+<link rel="icon" href="../../assets/img/favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=IBM+Plex+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="../kit.css">
+<link rel="stylesheet" href="standalone.css">
+<link rel="stylesheet" href="games.css">
+</head>
+<body class="sa">
+<!-- /games (server/gamePages.js renderIndex): every live game's page as a list, the crawl path from the lobby footer.
+     Same words, same order, same links; Coming soon games have no card. -->
+<header class="sa-hd"><div class="sa-in">
+  <a class="logo" href="home.html">Duel<span>Series</span></a><span class="sa-sp"></span>
+  <a class="btn btn-secondary" href="home.html">Open the lobby</a>
+</div></header>
+
+<main class="sa-main" id="main">
+  <section class="gx-hero" aria-labelledby="gx-h1">
+    <div class="gx-txt">
+      <h1 id="gx-h1">Free multiplayer games in your browser</h1>
+      <p class="gx-lede" id="gx-lede"></p>
+      <div class="gx-cta"><a class="btn btn-primary btn-xl" href="home.html">Open the lobby</a></div>
+    </div>
+    <div class="gx-fan" id="fan" aria-hidden="true"></div>
+  </section>
+
+  <section class="gx-list" aria-labelledby="gx-pick">
+    <div class="sec-hd"><h2 id="gx-pick">Pick a game</h2><span class="t-label" id="gx-n"></span></div>
+    <div class="gx-grid" id="grid"></div>
+  </section>
+</main>
+
+<footer class="sa-ft"><div class="sa-ft-in">
+  <nav aria-label="Site">
+    <a class="btn btn-quiet btn-sm" href="home.html">Lobby</a>
+    <a class="btn btn-quiet btn-sm" href="games.html" aria-current="page">All games</a>
+    <a class="btn btn-quiet btn-sm" href="legal.html">Terms of service</a>
+    <a class="btn btn-quiet btn-sm" href="#" data-stub="Privacy policy">Privacy policy</a>
+    <a class="btn btn-quiet btn-sm" href="#" data-stub="Responsible play">Responsible play</a>
+  </nav>
+  <p id="disc"></p>
+</div></footer>
+
+<script src="../../assets/data.js"></script>
+<script src="../kit.js"></script>
+<script src="game-pages-data.js"></script>
+<script src="games.js"></script>
+<script>
+(function () {
+  const esc = DSKit.esc, live = GP.live(), D = DSKit.data;
+  document.getElementById('gx-lede').textContent = GP.P.INDEX.lede;
+  document.getElementById('disc').textContent = '© 2026 DuelSeries. ' + GP.P.DISCLAIMER;
+
+  /* three live games fanned beside the heading: the busiest first */
+  const players = p => (D.games.find(g => g.id === p.game) || {}).players || 0;
+  const top = live.slice().sort((a, b) => players(b) - players(a)).slice(0, 3);
+  const fanOrder = top.length === 3 ? [top[1], top[0], top[2]] : top;
+  document.getElementById('fan').innerHTML = fanOrder.map(p => '<span class="gcard"><img src="' + GP.art(p) + '" alt=""></span>').join('');
+
+  const grid = document.getElementById('grid');
+  document.getElementById('gx-n').textContent = live.length ? live.length + (live.length === 1 ? ' game' : ' games') : '';
+  grid.innerHTML = live.length ? live.map(GP.card).join('')
+    : '<div class="gx-empty"><b>No games are open right now.</b><p class="t-body">Each game gets its page back here as soon as it opens again. The lobby shows what is on.</p></div>';
+  grid.classList.toggle('is-empty', !live.length);
+})();
+</script>
+</body>
+</html>

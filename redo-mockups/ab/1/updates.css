@@ -1,0 +1,94 @@
+/* Layout 1 "Sidebar": the Updates tab (PC only). Page CSS only; every component comes from ../kit.css.
+   PC: the changelog as a timeline, one date per day on a spine, posts beside it; a right rail filters by kind
+   and takes you back to the top. Phone: Updates is PC only, so the page shows one short note with the way back to Home. */
+
+/* ---------- phone note (PC-only tab opened on a phone) ---------- */
+.pcn { display: none; }
+.pcn-ic { width: 56px; height: 56px; border-radius: var(--r3); display: grid; place-items: center; background: var(--s2); color: var(--bone); box-shadow: var(--edge); }
+
+/* ---------- page head ---------- */
+.up-hd .t-body { margin-top: var(--sp2); }
+.up-hd h1:focus { outline: none; }
+
+/* ---------- two columns: the timeline, then the rail ---------- */
+.up-cols { display: grid; grid-template-columns: minmax(0, 800px) 272px; gap: var(--sp7); align-items: start; }
+.up-rail { position: sticky; top: calc(var(--hdh) + var(--sp5)); }
+.up-rail h2 { font-size: var(--fs-2); font-weight: 650; color: var(--tx2); margin-bottom: var(--sp3); }
+.up-key { display: flex; flex-direction: column; gap: var(--sp2); margin: var(--sp5) 0 var(--sp4); padding-top: var(--sp4); box-shadow: 0 -1px 0 var(--line); font-size: var(--fs-2); color: var(--tx2); }
+.up-key span { display: flex; align-items: center; gap: var(--sp3); }
+.up-key .stop { position: static; flex: none; }
+
+/* ---------- the timeline: a date per day on the spine ---------- */
+.tl { list-style: none; margin: 0; padding: 0; }
+.day { display: grid; grid-template-columns: 76px minmax(0, 1fr); }
+.day-d { position: sticky; top: calc(var(--hdh) + var(--sp4)); align-self: start; display: flex; flex-direction: column; padding-top: 2px; }
+.day-d b { font-size: 34px; font-weight: 800; font-stretch: var(--wide); letter-spacing: -.02em; line-height: 1; font-variant-numeric: tabular-nums; }
+.day-d span { font-size: var(--fs-2); font-weight: 650; color: var(--tx2); margin-top: 4px; }
+.day-posts { position: relative; padding: 0 0 var(--sp4) var(--sp6); box-shadow: inset 1px 0 0 var(--line); }
+.day:last-child .day-posts { padding-bottom: 0; }
+
+.post { position: relative; padding-bottom: var(--sp6); }
+.post + .post { padding-top: var(--sp6); box-shadow: 0 -1px 0 var(--line); }
+.stop {
+  position: absolute; left: calc(-1 * var(--sp6) - 6px); top: 6px; width: 13px; height: 13px; border-radius: var(--rf);
+  background: var(--ink); box-shadow: inset 0 0 0 2px var(--line2);
+}
+.post + .post .stop { top: calc(var(--sp6) + 6px); }
+.stop.is-fresh, .post.is-fresh .stop { background: var(--bone); box-shadow: 0 0 0 4px var(--ink); }
+.post-tag { display: flex; align-items: center; gap: var(--sp2); }
+.post-tag .chip svg { margin-left: -2px; }
+.post-t { margin-top: var(--sp3); font-size: 21px; font-weight: 750; font-stretch: 108%; letter-spacing: -.008em; line-height: 1.22; text-wrap: balance; }
+.post-b { margin-top: var(--sp3); display: flex; flex-direction: column; gap: var(--sp3); }
+.post-b p { font-size: var(--fs-3); line-height: 1.6; color: var(--tx2); max-width: 64ch; }
+
+/* pictures: the big one under the title, small ones under the words; any opens large */
+.post-pic {
+  display: inline-block; margin-top: var(--sp4); padding: 0; border: 0; border-radius: var(--r2); overflow: hidden; background: var(--s1);
+  box-shadow: var(--edge); max-width: 100%; vertical-align: top; transition: box-shadow .14s; cursor: zoom-in;
+}
+.post-pic img { display: block; width: auto; height: auto; max-width: 100%; max-height: 340px; }
+.post-pic:hover { box-shadow: 0 0 0 2px var(--bone); }
+.post-pic:focus-visible, .post-th:focus-visible { outline: 2px solid var(--bone); outline-offset: 3px; }
+.post-gal { display: flex; gap: var(--sp2); margin-top: var(--sp4); flex-wrap: wrap; }
+.post-th { width: 132px; height: 88px; padding: 0; border: 0; border-radius: var(--r1); overflow: hidden; background: var(--s1); box-shadow: var(--edge); cursor: zoom-in; transition: box-shadow .14s; }
+.post-th img { width: 100%; height: 100%; object-fit: cover; }
+.post-th:hover { box-shadow: 0 0 0 2px var(--bone); }
+
+.up-more { display: flex; align-items: center; gap: var(--sp4); flex-wrap: wrap; margin: var(--sp2) 0 0 76px; padding-left: var(--sp6); }
+.up-more .t-meta { font-size: var(--fs-2); }
+
+/* empty, failed and filtered-to-nothing */
+.up-none { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp2); max-width: 800px; padding: var(--sp6); }
+.up-none span { max-width: 56ch; }
+.up-none .pcn-ic { margin-bottom: var(--sp2); }
+.up-none b { font-size: var(--fs-4); font-weight: 750; }
+.up-none span { color: var(--tx2); }
+.up-none .btn { margin-top: var(--sp3); }
+
+/* ---------- the picture viewer (the kit sheet, bare) ---------- */
+.upv.sheet { width: min(1040px, 100%); }
+.upv-fig { margin: 0; }
+.upv-stage { display: grid; place-items: center; background: #000; border-radius: var(--r3) var(--r3) 0 0; overflow: hidden; min-height: 240px; }
+.upv-stage img { max-width: 100%; max-height: min(72vh, 680px); width: auto; height: auto; }
+.upv-cap { display: flex; align-items: center; gap: var(--sp4); padding: var(--sp4) var(--sp5) var(--sp5); }
+.upv-cap p { flex: 1; color: var(--tx2); font-size: var(--fs-2); line-height: 1.5; }
+.upv-nav { display: flex; align-items: center; gap: var(--sp2); flex: none; }
+.upv-nav .t-meta { min-width: 44px; text-align: center; font-variant-numeric: tabular-nums; }
+.upv-nav [data-prev] svg { transform: rotate(180deg); }
+
+/* ---------- in between ---------- */
+@media (min-width: 761px) and (max-width: 1180px) {
+  .up-cols { grid-template-columns: minmax(0, 1fr); gap: var(--sp5); }
+  .up-rail { position: static; order: -1; display: flex; align-items: center; gap: var(--sp4); flex-wrap: wrap; }
+  .up-rail h2 { margin: 0; }
+  .up-key { margin: 0; padding: 0; box-shadow: none; flex-direction: row; }
+  .up-rail .btn-block { display: none; }
+}
+
+/* ---------- phone: Updates is PC only ---------- */
+@media (max-width: 760px) {
+  .up { display: none; }
+  .pcn { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp3); max-width: 420px; margin: var(--sp6) auto 0; padding: var(--sp5); }
+  .pcn .t-page { margin-top: var(--sp2); }
+  .pcn .btn { margin-top: var(--sp3); }
+}

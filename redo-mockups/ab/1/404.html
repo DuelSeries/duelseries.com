@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Page not found | DuelSeries</title>
+<meta name="theme-color" content="#000000">
+<link rel="icon" href="../../assets/img/favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=IBM+Plex+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="../kit.css">
+<link rel="stylesheet" href="standalone.css">
+<link rel="stylesheet" href="404.css">
+</head>
+<body class="sa nf-page">
+<!-- Today's public/404.html (served for any page path nothing else answers) in the kit: the same words and the one
+     clear way back, set over the lineup's own card art, dimmed like the Coming soon cards. -->
+<header class="sa-hd"><div class="sa-in">
+  <a class="logo" href="home.html">Duel<span>Series</span></a><span class="sa-sp"></span>
+</div></header>
+
+<div class="nf-wall" id="wall" aria-hidden="true"></div>
+<main class="nf" id="main">
+  <h1>Page not found</h1>
+  <p>There is nothing at this address.</p>
+  <div class="nf-acts">
+    <a class="btn btn-primary btn-lg" href="home.html">Back to games</a>
+    <a class="btn btn-quiet btn-lg" href="games.html">See every game</a>
+  </div>
+</main>
+
+<script src="../../assets/data.js"></script>
+<script src="../kit.js"></script>
+<script>
+(function () {
+  /* the wall: every card in the lineup, twice over so it fills a wide screen */
+  const g = DSKit.data.games;
+  document.getElementById('wall').innerHTML = g.concat(g).map(x => '<img src="' + x.img + '" alt="" decoding="async">').join('');
+})();
+</script>
+</body>
+</html>

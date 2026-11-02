@@ -1,0 +1,47 @@
+/* Layout 1, standalone pages (legal, 404, /games, a game page, owner Control). Today these pages have no lobby
+   sidebar and no bottom bar, so they get a slim header in the lobby header's style instead: the same height, black
+   glass and wordmark, one action on the right. Only page frame CSS lives here; every component is ../kit.css. */
+
+.sa { --sa-w: 1180px; }
+.sa-hd {
+  position: sticky; top: 0; z-index: var(--z-hd); height: var(--hdh);
+  background: rgba(0, 0, 0, .88); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); box-shadow: inset 0 -1px 0 var(--line);
+}
+.sa-in { max-width: var(--sa-w); height: 100%; margin: 0 auto; padding: 0 var(--sp6); display: flex; align-items: center; gap: var(--sp3); }
+.sa-hd .logo { display: inline-flex; align-items: center; height: 44px; }
+.sa-sp { flex: 1; }
+.sa-main { display: block; max-width: var(--sa-w); margin: 0 auto; padding: var(--sp6) var(--sp6) var(--sp7); min-width: 0; }
+
+/* footer: the crawl links and the small print */
+.sa-ft { max-width: var(--sa-w); margin: 0 auto; padding: 0 var(--sp6) var(--sp7); }
+.sa-ft-in { padding-top: var(--sp4); box-shadow: inset 0 1px 0 var(--line); }
+.sa-ft nav { display: flex; flex-wrap: wrap; gap: 2px var(--sp1); margin: 0 0 var(--sp3) calc(-1 * var(--sp3)); }
+.sa-ft nav [aria-current='page'] { color: var(--bone); }
+.sa-ft p { font-size: var(--fs-2); color: var(--tx2); line-height: 1.55; max-width: 80ch; }
+
+/* a mockup note: the same dashed, hatched, mono treatment as the kit's mockup state switcher, so it never reads as
+   product copy (sample numbers, words changed from today's page) */
+.mk-note {
+  display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border: 1px dashed var(--line2); border-radius: var(--r1);
+  background: var(--ink) repeating-linear-gradient(-45deg, rgba(244, 241, 234, .035) 0 5px, transparent 5px 10px);
+  font-family: var(--fm); font-size: var(--fs-1); font-weight: 500; color: var(--tx2); line-height: 1.45;
+}
+p.mk-note, div.mk-note { display: block; }
+
+/* inline text links: underlined, and a tall invisible hit area so a finger can land on them (44px) */
+.inl { color: var(--bone); text-decoration: underline; text-decoration-color: var(--tx3); text-underline-offset: 3px;
+  padding: 14px 4px; margin: 0 -4px; border: 0; background: none; font: inherit; cursor: pointer; }
+.inl:hover { text-decoration-color: var(--bone); }
+
+@media (min-width: 761px) and (max-width: 1100px) {
+  .sa-in, .sa-main { padding-left: var(--sp5); padding-right: var(--sp5); }
+  .sa-ft { padding-left: var(--sp5); padding-right: var(--sp5); }
+}
+@media (max-width: 760px) {
+  .sa-in { padding: 0 var(--sp3) 0 var(--sp4); gap: var(--sp2); }
+  .sa-hd .logo { font-size: 19px; }
+  .sa-main { padding: var(--sp5) var(--sp4) var(--sp6); }
+  .sa-ft { padding: 0 var(--sp4) calc(var(--sp6) + env(safe-area-inset-bottom)); }
+  .sa-ft nav { margin-left: calc(-1 * var(--sp2)); }
+  .sa-ft nav .btn { padding: 0 var(--sp2); }
+}

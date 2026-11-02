@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Refer a friend | DuelSeries</title>
+<meta name="theme-color" content="#000000">
+<link rel="icon" href="../../assets/img/favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=IBM+Plex+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="../kit.css">
+<link rel="stylesheet" href="layout.css">
+<link rel="stylesheet" href="mecard.css">
+<link rel="stylesheet" href="more.css">
+<link rel="stylesheet" href="refer.css">
+</head>
+<body>
+<!-- Refer a friend. Today (public/js/v2/invite.js) the sidebar row copies the lobby link and shows "Invite link copied";
+     each free game also has its own /play/<slug> link (shared/shareGames.js) that opens that game on Free and presses Play,
+     signed in or as a guest. Free only, always: a link never carries a stake, and nothing is promised for inviting.
+     The preview picture is the site's own link image (public/og/home.jpg, copied). ?empty: nobody in any room (the counts go, the rows stay). -->
+<main class="main" id="main">
+  <div class="ref">
+    <div class="page-hd ref-hd"><div>
+      <h1 class="t-page">Refer a friend</h1>
+      <p class="t-body">Send a friend a link to a free game. It opens in their browser, with nothing to download and no sign up.</p>
+    </div></div>
+
+    <section class="panel ref-hero" aria-labelledby="ref-t">
+      <div class="ref-main">
+        <h2 class="t-label" id="ref-t">The lobby link</h2>
+        <p class="ref-url">duelseries.com</p>
+        <button type="button" class="btn btn-primary btn-lg cp" id="ref-copy" data-done="Link copied"><span class="ref-ic"></span><span data-lbl>Copy link</span></button>
+        <p class="t-meta">Opens the lobby, where they pick any free game. There is no referral reward: it is just a link to play together.</p>
+      </div>
+      <figure class="ref-msg">
+        <figcaption class="t-label">What your friend sees</figcaption>
+        <span class="ref-bub">https://duelseries.com/</span>
+        <div class="ref-embed" aria-hidden="true">
+          <img class="ref-art" src="og-home.jpg" alt="" width="1200" height="630">
+          <div class="ref-embed-txt"><small>duelseries.com</small><b>DuelSeries: free multiplayer browser games</b>
+            <span>Big rooms, 1 v 1 duels and a Battle Royale every 6 hours. Free in your browser, no download.</span></div>
+        </div>
+      </figure>
+    </section>
+
+    <div class="ref-low">
+      <section class="panel ref-games" aria-labelledby="ref-g-t">
+        <div class="panel-head"><h2 id="ref-g-t">Invite to one game</h2></div>
+        <p class="t-meta ref-lead">Each link opens that game on Free.</p>
+        <div class="list" id="ref-list"></div>
+        <p class="t-meta ref-none" id="ref-none"></p>
+      </section>
+      <section class="panel ref-how" aria-labelledby="ref-h-t">
+        <div class="panel-head"><h2 id="ref-h-t">When they open a game link</h2></div>
+        <ol class="steps">
+          <li><b>1</b><div>They open it on any phone or PC<span>In the browser they already have. Nothing to download.</span></div></li>
+          <li><b>2</b><div>The free game starts<span>It opens on Free and starts by itself, signed in or as a guest.</span></div></li>
+          <li><b>3</b><div>Paid stays their choice<span>A link never picks a paid room and never carries money. Paying to play is always something they choose.</span></div></li>
+        </ol>
+      </section>
+    </div>
+  </div>
+</main>
+
+<script src="../../assets/data.js"></script>
+<script src="../chart.js"></script>
+<script src="../kit.js"></script>
+<script src="layout.js"></script>
+<script src="mecard.js"></script>
+<script src="more.js"></script>
+<script>
+(function () {
+  const K = DSKit, D = K.data, esc = K.esc, U = DSUI, M = L1More;
+  L1.chrome('refer');
+  const EMPTY = U.Q.has('empty');
+
+  /* shared/shareGames.js: the games with a /play/<slug> link, in the lobby's order. Agar.io's link is /play/cells and
+     8 Ball Pool's is /play/pool (the audit found /play/agar and /play/pool8 bounce to Home). Coming soon games get none. */
+  const SLUG = { chomp: 'chomp', snake: 'snake', agar: 'cells', paper: 'paper', headsoccer: 'headsoccer', swim: 'swim',
+    pool8: 'pool', airhockey: 'airhockey', knockout: 'knockout', rooftop: 'rooftop', crossy: 'crossy' };
+  const SITE = 'https://duelseries.com';
+  const games = D.games.filter(g => SLUG[g.id] && g.kind !== 'soon');
+  const without = D.games.filter(g => !SLUG[g.id] && g.kind !== 'soon').map(g => g.name);
+
+  const copyBtn = document.getElementById('ref-copy');
+  copyBtn.querySelector('.ref-ic').outerHTML = M.copyIcons().replace(/width="16" height="16"/g, 'width="18" height="18"');
+  copyBtn.addEventListener('click', () => M.copy(copyBtn, SITE + '/', 'Invite link copied', 'Send it to a friend'));
+
+  function row(g) {
+    const n = EMPTY ? 0 : g.players, slug = SLUG[g.id];
+    return '<div class="row">' +
+      '<span class="row-ic"><img src="' + g.img + '" alt="" loading="lazy"></span>' +
+      '<div class="row-main"><b>' + esc(g.name) + '</b>' +
+        '<span class="ref-u">duelseries.com/play/' + slug + '</span>' +
+        '<span class="ref-k">' + U.KIND_LABEL[U.kindOf(g)] + (n ? ', ' + n + ' playing' : '') + '</span></div>' +
+      '<div class="row-end ref-end">' + (n ? '<span class="ref-n"><i class="dot"></i>' + n + ' playing</span>' : '') +
+        '<button type="button" class="btn btn-secondary btn-sm cp" data-inv="' + g.id + '" aria-label="Copy the invite link for ' + esc(g.name) + '">' +
+        M.copyIcons() + '<span data-lbl>Copy</span></button></div></div>';
+  }
+  const list = document.getElementById('ref-list');
+  list.innerHTML = games.map(row).join('');
+  list.addEventListener('click', e => {
+    const b = e.target.closest('[data-inv]'); if (!b) return;
+    const g = D.game(b.dataset.inv);
+    M.copy(b, SITE + '/play/' + SLUG[g.id], 'Invite link copied', 'Send it to a friend to play ' + g.name + ' together');
+  });
+  const and = a => a.length > 1 ? a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1] : a[0];
+  document.getElementById('ref-none').textContent = without.length ? and(without) + (without.length > 1 ? ' have' : ' has') + ' no invite link yet.' : '';
+})();
+</script>
+</body>
+</html>

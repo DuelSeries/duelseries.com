@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Join us | DuelSeries</title>
+<meta name="theme-color" content="#000000">
+<link rel="icon" href="../../assets/img/favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=IBM+Plex+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="../kit.css">
+<link rel="stylesheet" href="layout.css">
+<link rel="stylesheet" href="mecard.css">
+<link rel="stylesheet" href="more.css">
+<link rel="stylesheet" href="join.css">
+</head>
+<body>
+<!-- Join us, PC only (today: public/js/v2/join.js + public/css/join.css). A hand of games, the Discord and the Whop clip
+     team as two equal rows, then Invite a friend (copies the site link in place), Share a clip, Report a bug and Send an
+     idea (the Support sheet, prefilled), the newest Updates post and the email. Socials show only once a link is set;
+     until then one plain line says so (the audit found three dead circles). On a phone: a short note and a way home.
+     ?empty: no Updates post to show (the line stays away, as today when updates.json cannot be read). -->
+<main class="main" id="main">
+  <div class="jn pc-only">
+    <div class="page-hd jn-hd"><div>
+      <h1 class="t-page">Join us</h1>
+      <p class="t-body">Play with the community, make clips for DuelSeries, and tell us what to build next.</p>
+    </div></div>
+
+    <section class="panel jn-hero" aria-label="The Discord and the clip team">
+      <div class="jn-fan" id="jn-fan" aria-hidden="true"></div>
+      <div class="jn-big" id="jn-big"></div>
+    </section>
+
+    <section class="jn-ways" aria-labelledby="jn-ways-t">
+      <h2 class="jn-h" id="jn-ways-t">More ways to help</h2>
+      <div class="jn-acts" id="jn-acts"></div>
+    </section>
+
+    <section class="panel panel-tight jn-upd" id="jn-upd" aria-labelledby="jn-upd-t" hidden></section>
+
+    <div class="jn-foot">
+      <p class="t-meta" id="jn-soc"></p>
+      <div class="jn-socs" id="jn-socs"></div>
+      <a class="btn btn-quiet jn-mail" id="jn-mail" target="_blank" rel="noopener noreferrer" data-help="help"></a>
+    </div>
+  </div>
+
+  <section class="panel pc-note" aria-labelledby="pcn-t">
+    <span class="pc-note-ic" id="pcn-ic"></span>
+    <h1 class="t-page" id="pcn-t">Join us is on PC</h1>
+    <p>Open DuelSeries on a computer to see the clip team, the ways to help and the newest update.</p>
+    <a class="btn btn-primary btn-lg" id="pcn-home" href="home.html">Back to Home</a>
+    <a class="btn btn-secondary btn-lg" id="pcn-dc" target="_blank" rel="noopener noreferrer">Join the Discord</a>
+  </section>
+</main>
+
+<script src="../../assets/data.js"></script>
+<script src="../../assets/updates-data.js"></script>
+<script src="../chart.js"></script>
+<script src="../kit.js"></script>
+<script src="layout.js"></script>
+<script src="mecard.js"></script>
+<script src="more.js"></script>
+<script>
+(function () {
+  const K = DSKit, D = K.data, F = K.fmt, I = K.icon, esc = K.esc, U = DSUI, M = L1More;
+  L1.chrome('join');
+  const EMPTY = U.Q.has('empty');
+
+  /* join.js LINKS: the one place Owen fills in. Only https links count; an unset one never draws a dead button. */
+  const LINKS = { discord: M.DISCORD, whop: M.WHOP, x: '', tiktok: '', youtube: '' };
+  const link = k => { const v = String(LINKS[k] || '').trim(); try { return v && new URL(v).protocol === 'https:' ? v : null; } catch (_) { return null; } };
+  const ext = h => ' href="' + esc(h) + '" target="_blank" rel="noopener noreferrer"';
+
+  /* the hand of games: playable ones only (today's fan showed Battleship, which is Coming soon) */
+  document.getElementById('jn-fan').innerHTML = ['snake', 'chomp', 'paper', 'headsoccer', 'pool8']
+    .map((id, i) => '<img class="jn-c' + i + '" src="' + D.game(id).img + '" alt="" draggable="false">').join('');
+
+  /* the Discord and the clip team: two equal rows. Whop's line promises no money (the audit flagged "get paid for the views") */
+  function big(k, art, title, line) {
+    const h = link(k);
+    return (h ? '<a class="opt jn-lb"' + ext(h) + '>' : '<div class="opt jn-lb is-off">') + art +
+      '<span><b>' + title + '</b><small>' + line + '</small></span>' +
+      (h ? I('ext', 20) + '</a>' : '<span class="chip chip-soon">Opening soon</span></div>');
+  }
+  document.getElementById('jn-big').innerHTML =
+    big('discord', '<span class="opt-ic jn-m">' + I('discord', 30) + '</span>', 'Join the Discord', 'Chat with players and hear about events first.') +
+    big('whop', '<span class="opt-ic jn-m"><span class="jn-phone"><img src="' + D.game('snake').img + '" alt=""></span></span>', 'Join the clip team on Whop',
+      'Post DuelSeries clips through Whop content rewards. No pay rate is set yet.');
+
+  /* four small actions, each the size of a real button now (the audit measured 23 px and 21 px links) */
+  document.getElementById('jn-acts').innerHTML =
+    '<button type="button" class="btn btn-secondary btn-lg cp" id="jn-inv" data-done="Link copied">' + I('link', 18, 'class="i-cp"') + I('check', 18, 'class="i-ok"') + '<span data-lbl>Invite a friend</span></button>' +
+    '<a class="btn btn-secondary btn-lg" href="' + U.href('clips.html') + '">' + I('clips', 18) + 'Share a clip</a>' +
+    '<a class="btn btn-secondary btn-lg"' + ext(M.gmail('Bug report', 'Which game:\nWhat happened:\nRoughly when:\n')) + ' data-help="bug">' + I('bug', 18) + 'Report a bug</a>' +
+    '<a class="btn btn-secondary btn-lg"' + ext(M.gmail('Idea for DuelSeries')) + ' data-help="idea">' + I('idea', 18) + 'Send an idea</a>';
+  const inv = document.getElementById('jn-inv');
+  inv.addEventListener('click', () => M.copy(inv, 'https://duelseries.com', null));
+
+  /* the newest Updates post (the same file and order the Updates tab uses: newest date first, then the top of the file) */
+  const TAG = { 'new': ['New', 'chip-new'], fix: ['Fix', ''], event: ['Event', ''], 'heads-up': ['Heads up', ''] };
+  const posts = (window.DS_UPDATES || []).filter(p => p && p.title && /^\d{4}-\d{2}-\d{2}$/.test(p.date || ''));
+  let top = null; posts.forEach(p => { if (!top || p.date > top.date) top = p; });
+  if (top && !EMPTY) {
+    const t = TAG[top.tag] || TAG['new'], box = document.getElementById('jn-upd');
+    box.innerHTML = '<div class="row"><span class="row-ic">' + I('updates', 20) + '</span>' +
+      '<div class="row-main"><b id="jn-upd-t">' + esc(top.title) + '</b><span>Newest update, ' + F.date(Date.parse(top.date + 'T12:00:00')) + '</span></div>' +
+      '<div class="row-end jn-upd-end"><span class="chip ' + t[1] + '">' + t[0] + '</span><a class="btn btn-secondary btn-sm" href="' + U.href('updates.html') + '">See updates</a></div></div>';
+    box.hidden = false;
+  }
+
+  /* socials: a button for each link that is set, one plain line for the rest */
+  const NAMES = { x: ['X', 'xlogo'], tiktok: ['TikTok', 'tiktok'], youtube: ['YouTube', 'youtube'] };
+  const and = a => a.length > 1 ? a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1] : a[0];
+  const live = Object.keys(NAMES).filter(link), dead = Object.keys(NAMES).filter(k => !link(k));
+  document.getElementById('jn-socs').innerHTML = live.map(k => '<a class="btn btn-secondary btn-icon"' + ext(link(k)) + ' aria-label="DuelSeries on ' + NAMES[k][0] + '" title="' + NAMES[k][0] + '">' + I(NAMES[k][1], 20) + '</a>').join('');
+  document.getElementById('jn-soc').textContent = (live.length ? 'Follow DuelSeries on ' + and(live.map(k => NAMES[k][0])) + '.' : '') +
+    (dead.length ? (live.length ? ' ' : 'Our ') + and(dead.map(k => NAMES[k][0])) + (dead.length > 1 ? ' accounts are' : ' account is') + ' not open yet.' : '');
+
+  const mail = document.getElementById('jn-mail');
+  mail.href = M.gmail(); mail.innerHTML = I('mail', 18) + M.MAIL;
+
+  /* phone: the note */
+  document.getElementById('pcn-ic').innerHTML = I('join', 28);
+  document.getElementById('pcn-home').href = U.href('home.html');
+  document.getElementById('pcn-dc').href = M.DISCORD;
+  document.getElementById('pcn-dc').insertAdjacentHTML('afterbegin', I('discord', 18));
+})();
+</script>
+</body>
+</html>

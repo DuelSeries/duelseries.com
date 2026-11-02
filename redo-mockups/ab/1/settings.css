@@ -1,0 +1,97 @@
+/* Layout 1 "Sidebar": Settings. Page CSS only; every component (panel, list rows, seg, buttons, chips, sheet, toast)
+   comes from ../kit.css. Same two columns as the Wallet (400px left, the rest right, 1180px max), so switching
+   between the two tabs never changes the page width (audit: Settings was 560px, Wallet 824px). */
+
+.set-grid { display: grid; grid-template-columns: minmax(0, 400px) minmax(0, 1fr); gap: var(--sp5); align-items: start; max-width: 1180px; }
+.set-left { display: flex; flex-direction: column; gap: var(--sp4); position: sticky; top: calc(var(--hdh) + var(--sp5)); }
+.set-right { display: flex; flex-direction: column; gap: var(--sp4); min-width: 0; }
+
+/* ---------- account: who you are here ---------- */
+.who { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: var(--sp4); }
+.who-av { width: 72px; height: 72px; border-radius: var(--rf); background: var(--bone); color: var(--ink); display: grid; place-items: center;
+  font-size: 32px; font-weight: 800; font-stretch: var(--wide); line-height: 1; }
+.who-av.is-q { background: var(--s3); color: var(--tx2); box-shadow: var(--edge); }
+.who-nm { font-size: 30px; font-weight: 800; font-stretch: var(--wide); letter-spacing: -.015em; line-height: 1.05; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.who-nm.is-q { color: var(--tx2); font-size: 24px; }
+.who-sub { margin-top: 6px; font-size: var(--fs-2); color: var(--tx2); line-height: 1.45; }
+.who-edit { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: var(--sp3);
+  padding: var(--sp3) var(--sp3) var(--sp3) var(--sp4); border-radius: var(--r2); background: var(--ink); box-shadow: var(--edge); }
+.who-edit p { font-size: var(--fs-2); color: var(--tx2); line-height: 1.45; }
+.set-acct .list { margin: var(--sp4) calc(-1 * var(--sp3)) 0; }
+.set-acct .row-main .mono { font-size: 14px; color: var(--bone); }
+.set-acct .btn-danger { margin-top: var(--sp4); }
+.set-acct .bye { margin-top: var(--sp2); text-align: center; }
+.set-out h2 { font-size: var(--fs-5); font-weight: 800; font-stretch: var(--wide); letter-spacing: -.01em; line-height: 1.15; }
+.set-out .t-body { margin-top: var(--sp2); }
+.set-out .btn-primary { margin-top: var(--sp4); }
+.row-end .chev { color: var(--tx3); }
+
+/* ---------- preference groups: one panel, three groups, rows like a phone's own settings ---------- */
+.prefs { padding-top: var(--sp4); padding-bottom: var(--sp3); }
+.grp + .grp { margin-top: var(--sp4); padding-top: var(--sp4); box-shadow: 0 -1px 0 var(--line); }
+.grp-h { display: flex; align-items: baseline; gap: var(--sp3); font-size: var(--fs-4); font-weight: 750; line-height: 1.25; padding: 0 var(--sp3); margin-bottom: var(--sp1); }
+.grp-h small { font-size: var(--fs-1); font-weight: 600; color: var(--tx2); }
+.prefs .list { margin: 0 calc(-1 * var(--sp2)); }
+.set-row { grid-template-columns: minmax(0, 1fr) auto; min-height: 68px; gap: var(--sp4); }
+.set-row .row-main b { white-space: normal; }
+.set-row .row-main span { margin-top: 2px; max-width: 56ch; }
+.set-row.is-off .row-main b, .set-row.is-off .row-main span { color: var(--tx3); }
+.set-row .row-end { font-weight: 600; }
+.set-row .seg button { min-width: 58px; }
+
+/* volume: a range drawn in the kit's colours, 44px tall to the touch (audit: the old slider was 26px) */
+.vol-wrap { display: inline-flex; align-items: center; gap: var(--sp3); }
+.vol { -webkit-appearance: none; appearance: none; width: 180px; height: 44px; margin: 0; background: transparent; cursor: pointer; --v: 70%; }
+.vol::-webkit-slider-runnable-track { height: 6px; border-radius: var(--rf); background: linear-gradient(90deg, var(--bone) var(--v), var(--s3) var(--v)); box-shadow: var(--edge); }
+.vol::-moz-range-track { height: 6px; border-radius: var(--rf); background: linear-gradient(90deg, var(--bone) var(--v), var(--s3) var(--v)); }
+.vol::-webkit-slider-thumb { -webkit-appearance: none; width: 22px; height: 22px; margin-top: -8px; border-radius: var(--rf); background: var(--bone); border: 0; box-shadow: 0 0 0 4px rgba(0, 0, 0, .6); }
+.vol::-moz-range-thumb { width: 22px; height: 22px; border-radius: var(--rf); background: var(--bone); border: 0; }
+.vol:hover::-webkit-slider-thumb { box-shadow: 0 0 0 4px rgba(244, 241, 234, .16); }
+.vol:focus-visible { outline: none; }
+.vol:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 2px var(--ink), 0 0 0 4px var(--bone); }
+.vol:disabled { cursor: not-allowed; }
+.vol:disabled::-webkit-slider-runnable-track { background: var(--s2); }
+.vol:disabled::-webkit-slider-thumb { background: var(--tx3); }
+.vol-n { min-width: 4ch; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--bone); }
+.is-off .vol-n { color: var(--tx3); }
+
+/* About: rows that leave for a page, with a chevron */
+.about { padding: var(--sp4) var(--sp3) var(--sp3); }
+.about .grp-h { margin-bottom: var(--sp2); }
+.about .row { min-height: 56px; }
+.about .row-main b { font-weight: 550; }
+
+/* the mockup switcher sits at the foot of the page, so it never covers the screen being judged */
+.set-mock { margin-top: var(--sp6); display: flex; }
+
+/* in between */
+@media (min-width: 761px) and (max-width: 1100px) {
+  .set-grid { grid-template-columns: 1fr; }
+  .set-left { position: static; }
+}
+
+/* phone: one column, the PC-only rows go (hover sounds, Clips) */
+@media (max-width: 760px) {
+  .set-grid { grid-template-columns: 1fr; gap: var(--sp3); }
+  .set-left, .set-right { gap: var(--sp3); position: static; }
+  .set-pc { display: none !important; }
+  .who { gap: var(--sp3); }
+  .who-av { width: 60px; height: 60px; font-size: 26px; }
+  .who-nm { font-size: 26px; }
+  .who-nm.is-q { font-size: 21px; }
+  .who-edit { flex-direction: column; align-items: stretch; padding: var(--sp3); }
+  .who-edit .btn { width: 100%; }
+  .set-acct .list { margin: var(--sp3) calc(-1 * var(--sp2)) 0; }
+  .prefs { padding: var(--sp3) var(--sp2) var(--sp2); }
+  .prefs .list { margin: 0; }
+  .grp-h { padding: 0 var(--sp2); }
+  .set-row { gap: var(--sp3); min-height: 72px; }
+  .set-row .seg button { min-width: 52px; padding: 0 var(--sp3); }
+  .set-row.is-vol { grid-template-columns: 1fr; gap: 0; }
+  .set-row.is-vol .row-end { text-align: left; }
+  .vol-wrap { display: flex; width: 100%; }
+  .vol { flex: 1; width: auto; }
+  .about { padding: var(--sp3) var(--sp2) var(--sp2); }
+  .about .grp-h { padding: 0 var(--sp2); }
+  .set-mock { margin-top: var(--sp5); }
+}

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Wallet | DuelSeries</title>
+<meta name="theme-color" content="#000000">
+<link rel="icon" href="../../assets/img/favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=IBM+Plex+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="../kit.css">
+<link rel="stylesheet" href="layout.css">
+<link rel="stylesheet" href="mecard.css">
+</head>
+<body>
+<main class="main" id="main">
+  <div class="page-hd"><h1 class="t-page">Wallet</h1></div>
+  <div id="view"></div>
+</main>
+
+<script src="../../assets/data.js"></script>
+<script src="../chart.js"></script>
+<script src="../kit.js"></script>
+<script src="layout.js"></script>
+<script src="mecard.js"></script>
+<script>
+(function () {
+  const K = DSKit, D = K.data, F = K.fmt, I = K.icon, U = DSUI, me = D.me;
+  L1.chrome('wallet');
+  const view = document.getElementById('view');
+
+  if (!U.signedIn) { view.innerHTML = U.signedOutWallet(); return; }
+
+  /* Look B's wallet: the lit balance with Add funds and Withdraw, the address under it, History beside them */
+  const shortAddr = me.wallet.slice(0, 6) + '…' + me.wallet.slice(-6);
+  view.innerHTML = '<div class="w-grid"><div class="w-left">' +
+    '<section class="panel lit balp" aria-labelledby="bal-t"><span class="t-label" id="bal-t">Your balance</span>' +
+      '<span class="led" id="bal">$0.00</span>' +
+      '<span class="t-meta">' + me.sol + ' SOL at ' + F.usd(me.solUsd, 0) + ' per SOL</span>' +
+      '<div class="balp-acts"><button type="button" class="btn btn-primary btn-lg" data-addfunds>' + I('plus', 18) + 'Add funds</button>' +
+      '<button type="button" class="btn btn-secondary btn-lg" data-withdraw>' + I('withdraw', 18) + 'Withdraw</button></div></section>' +
+    '<section class="panel addrp" aria-labelledby="addr-t"><span class="t-label" id="addr-t">Your wallet address</span>' +
+      '<div class="addr-line"><span class="mono" title="' + me.wallet + '">' + shortAddr + '</span>' +
+      '<button type="button" class="btn btn-secondary btn-sm" data-copy>' + I('copy', 16) + 'Copy</button></div>' +
+      '<p class="t-meta">Send only SOL on the Solana network to this address. Anything else sent here is lost.</p></section>' +
+    '</div><section class="panel histp" id="hist" aria-labelledby="hist-t"></section></div>';
+
+  K.countUp(document.getElementById('bal'), me.balanceUsd);
+  U.history(document.getElementById('hist'), { start: U.Q.has('earn') ? 'earn' : 'tx' });
+
+  if (U.Q.has('add')) U.addFunds();
+  if (U.Q.has('withdraw')) U.withdraw();
+})();
+</script>
+</body>
+</html>

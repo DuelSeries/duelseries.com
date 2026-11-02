@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<title>Control | DuelSeries</title>
+<meta name="theme-color" content="#000000">
+<link rel="icon" href="../../assets/img/favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=IBM+Plex+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="../kit.css">
+<link rel="stylesheet" href="standalone.css">
+<link rel="stylesheet" href="owner.css">
+</head>
+<body class="sa">
+<!-- Today's public/owner.html (Owen's "The sheet") and public/js/ownerLive.js, restyled in the kit with sample numbers.
+     PC: one sheet, games down the side, Free / $0.50 / $1 across, the paid door per game, the Battle Royale row, then
+     Site, Alerts and Done today. Phone: each game its own block. Tabs: Control, Live, Today; Devices is a kit sheet.
+     Fixed from the audit: "bot joins after 10 s" (shared/duelWait.js), lobby names (Slither.io, Agar.io, Pac-Man),
+     the Coming soon switch fits on one line, Done today has a time column, escrow alerts in dollars ("-$1.82", never
+     "$-1.82"), 44px controls on the phone, every confirm is the kit sheet and every message the kit toast. -->
+<header class="sa-hd oc-bar"><div class="sa-in">
+  <a class="logo" href="home.html">Duel<span>Series</span></a>
+  <nav class="tabs oc-tabs" id="tabs" aria-label="Owner"></nav>
+  <span class="sa-sp"></span>
+  <span class="oc-who t-meta" id="who">Signed in on this PC</span>
+  <button type="button" class="btn btn-quiet btn-sm" data-act="devices" id="devbtn">Devices</button>
+</div></header>
+
+<main class="oc" id="main">
+  <div class="seg seg-block oc-ptabs" id="ptabs" aria-label="Owner tabs"></div>
+  <div class="page-hd oc-head" id="head">
+    <div><h1 class="t-page" id="oc-title">Control</h1><p class="t-meta" id="oc-sub"></p></div>
+    <span class="mk-note">Sample numbers, not live</span>
+  </div>
+  <div id="body"></div>
+</main>
+
+<script src="../../assets/data.js"></script>
+<script src="../kit.js"></script>
+<script>
+(function () {
+  'use strict';
+  const K = DSKit, F = K.fmt, esc = K.esc, I = K.icon, U = DSUI, D = K.data;
+  const COLS = [0, 0.5, 1], COL = ['Free', '$0.50', '$1'], DEF = [6, 2, 2];
+  const ppl = n => n === 1 ? 'person' : 'people';
+  const t0 = Date.now(), nowAt = () => F.time(D.NOW + (Date.now() - t0));
+  const BANK_ADDR = 'Bb7kQ2mXv9TnR4sLp8WcHf3JdYe6uNa5Gz1oKiVt', ESC_ADDR = 'Es9pW3rTq6LmZ2vXc8NbHk4JfYd7uRa1Gs5oPeVy';
+
+  /* ---------- sample state, one per mockup state ---------- */
+  const room = (people, bots, o) => Object.assign({ people, bots, room: true, held: false, money: 0 }, o);
+  const none = () => ({ people: 0, room: false, money: 0 });
+  const duel = (f, h, o) => ({ id: f, name: h, duel: true, rungs: [{ people: 0 }, { people: 0, money: 0 }, { people: 0, money: 0 }], door: 'open', ...o });
+  function sample(st) {
+    const quiet = st === 'quiet';
+    const g = [
+      { id: 'snake', name: 'Slither.io', rungs: [room(quiet ? 0 : 2, 8, { held: true }), room(st === 'updating' ? 1 : 0, 2, { money: st === 'updating' ? 0.62 : 0 }), room(0, 2)], door: 'open' },
+      { id: 'paper', name: 'Paper.io', rungs: [room(quiet ? 0 : 1, 6), room(0, 2), none()], door: 'open' },
+      { id: 'agar', name: 'Agar.io', soon: false, rungs: [room(0, 6), room(0, 2), none()], door: 'open' },
+      { id: 'chomp', name: 'Pac-Man', rungs: [room(0, 6), room(0, 2), none()], door: 'open' },
+      duel('knockout', 'Knockout'),
+      duel('battleship', 'Battleship', { soon: true }),
+      duel('swim', 'Swim'), duel('headsoccer', 'Head Soccer'), duel('pool8', '8 Ball Pool'), duel('airhockey', 'Air Hockey'),
+      duel('rooftop', 'Rooftop Snipers', { door: 'off' }), duel('crossy', 'Crossy Road')
+    ];
+    if (!quiet) g[4].rungs[0].people = 1;
+    const alert = st === 'alert';
+    return {
+      st, tab: S ? S.tab : (U.Q.get('tab') || 'control'), day: 'today',
+      maint: st === 'updating', open: st !== 'updating', strip: true, smooth: true, engine: 'new', sound: true,
+      games: g,
+      br: { state: 'waiting', humans: 0, bots: 12, held: false, prize: 20, startsAt: '2:00 AM' },
+      escrow: alert ? { held: 40.10, parts: { bank: 18.40, inPlay: 0, owed: 23.52, spare: -1.82 }, short: 1.82 }
+        : { held: 58.31, parts: { bank: 18.40, inPlay: st === 'updating' ? 0.62 : 0, owed: 3.20, spare: st === 'updating' ? 36.09 : 36.71 } },
+      bank: { balance: 18.40, today: 1.25, cap: 10, sol: 0.0210 },
+      alerts: alert ? [{ title: 'Escrow is short', at: '11:38 PM', text: 'Escrow $40.10 is below the live stakes $41.92 (short $1.82).' }] : [],
+      log: quiet ? [] : st === 'updating'
+        ? [{ at: '11:31 PM', text: 'Maintenance on for an update' }, { at: '11:12 PM', text: 'Slither.io Free: bots set to 8' }]
+        : [{ at: '11:12 PM', text: 'Slither.io Free: bots set to 8' }, { at: '9:05 PM', text: 'Clip approved' }, { at: '6:30 PM', text: 'Games reopened' }],
+      live: quiet ? { today: { uniq: 0, peak: 0 } } : { today: { uniq: 9, peak: 4 } },
+      tests: quiet ? [] : [{ name: 'MrPeanutK', where: 'Slither.io Free', kind: 'you' }, { name: 'probe-eu-1', where: 'Paper.io Free', kind: 'our tool' }],
+      devices: [{ id: 'pc', name: 'This PC', what: 'Edge on Windows, signed in Oct 12', me: true }, { id: 'ph', name: 'Samsung phone', what: 'Chrome on Android, signed in Oct 20', until: 'Oct 20, 2027' }]
+    };
+  }
+  let S = null;
+  const realNames = { snake: [['mossy_t', 'Kestrel'], [], []], paper: [['zinc'], [], []], knockout: [['Calloway'], [], []] };
+
+  /* ---------- small builders ---------- */
+  const people = s => s.games.reduce((a, g) => a + g.rungs.reduce((b, r) => b + (r.people || 0), 0), 0) + s.br.humans;
+  const bots = s => s.games.reduce((a, g) => a + g.rungs.reduce((b, r) => b + (r.room ? r.bots : 0), 0), 0) + s.br.bots;
+  const inPlay = s => s.games.reduce((a, g) => a + g.rungs.reduce((b, r) => b + (r.money || 0), 0), 0);
+  const paidPeople = s => s.games.reduce((a, g) => a + g.rungs.slice(1).reduce((b, r) => b + (r.people || 0), 0), 0);
+  function tg(act, label, opts, cur, extra) {
+    return '<div class="seg oc-tg" role="group" aria-label="' + esc(label) + '">' + opts.map(([v, l, yes]) =>
+      '<button type="button" data-act="' + act + '" data-v="' + v + '"' + (extra || '') + (yes ? ' class="is-yes"' : '') + ' aria-pressed="' + (v === cur) + '">' + l + '</button>').join('') + '</div>';
+  }
+  const doorTg = g => g.door === 'off' ? '<span class="oc-na">Off on this server</span>'
+    : tg('door', 'Paid ' + g.name, [['open', 'Open', 1], ['closed', 'Closed']], g.door, ' data-g="' + g.id + '"');
+  const soonTg = g => g.soon === undefined ? '' : tg('soon', g.name + ' in the lobby', [['live', 'Live', 1], ['soon', 'Coming soon']], g.soon ? 'soon' : 'live', ' data-g="' + g.id + '"');
+  function stepper(gid, c, r, label) {
+    const a = ' data-g="' + gid + '" data-c="' + c + '"';
+    return '<span class="oc-step"><button type="button" class="btn btn-secondary btn-sm btn-icon" data-act="bot" data-d="-1"' + a + (r.bots <= 0 ? ' disabled' : '') + ' aria-label="One bot fewer, ' + label + '">&minus;</button>' +
+      '<b aria-label="' + r.bots + ' bots">' + r.bots + '</b>' +
+      '<button type="button" class="btn btn-secondary btn-sm btn-icon" data-act="bot" data-d="1"' + a + ' aria-label="One bot more, ' + label + '">+</button></span>';
+  }
+  const autoBtn = (gid, c, r) => r.held ? '<button type="button" class="btn btn-quiet btn-sm oc-auto" data-act="auto" data-g="' + gid + '" data-c="' + c + '" title="Bots were set by hand. Auto lets the room pick again.">Auto</button>' : '';
+  const pcount = n => '<span class="oc-p"><b>' + n + '</b> ' + ppl(n) + '</span>';
+  function moneyCell(g, c, r) {
+    if (!c) return '';
+    if (g.duel && !(r.money > 0.005)) return '<span class="oc-m"></span>';
+    return '<span class="oc-m ' + (r.money > 0.005 ? 'money' : 'quiet') + '">' + F.usd(r.money || 0) + '</span>';
+  }
+  function cellRight(g, c, r, label) {
+    if (g.duel) return '<span class="oc-na">' + (c === 0 ? 'bot joins after 10 s' : 'people only') + '</span>';
+    if (!r.room) return '<span class="oc-na">not running</span>';
+    return stepper(g.id, c, r, label) + '<span class="oc-na">bots</span>' + autoBtn(g.id, c, r);
+  }
+  const brWhy = s => s.br.humans < 1 ? 'Needs 1 person in the room' : '';
+  function brButtons(s) {
+    return '<button type="button" class="btn btn-primary btn-sm" data-act="br-start"' + (s.br.humans < 1 ? ' disabled title="' + brWhy(s) + '"' : '') + '>Start now</button>' +
+      '<button type="button" class="btn btn-secondary btn-sm" data-act="br-alone"' + (s.br.state !== 'waiting' ? ' disabled' : '') + '>Start alone</button>' +
+      '<button type="button" class="btn btn-danger btn-sm" data-act="br-stop"' + (s.br.state === 'waiting' ? ' disabled title="Nothing is starting or running"' : '') + '>Stop</button>';
+  }
+  const brWord = b => ({ waiting: 'Waiting', countdown: 'Starting in 30 s', running: 'Running' })[b.state] || b.state;
+  const brInfo = b => b.humans + ' ' + ppl(b.humans) + (b.state === 'waiting' ? ', starts by itself at ' + b.startsAt : '') + ', ' + F.usd(b.prize, 0) + ' prize';
+
+  /* the verdict: Safe to restart, or the countdown while maintenance is on */
+  function verdict(s) {
+    const n = paidPeople(s), m = inPlay(s);
+    if (s.maint) return n ? { t: n + ' ' + ppl(n) + ' still in paid rooms', cls: 'money', why: 'Money is still in play. Waiting for them to finish or cash out.' }
+      : { t: 'Safe to update now', cls: 'win', why: 'Maintenance is on and nobody has money on the table. Push the update.' };
+    return m > 0.005 ? { t: "Don't restart yet", cls: '', why: 'Money is still in play.' } : { t: 'Safe to restart', cls: '', why: 'Nobody has money on the table.' };
+  }
+  function figures(s, short) {
+    const e = s.escrow;
+    const fig = (v, label, cls, lcls, title) => '<div class="stat"' + (title ? ' title="' + esc(title) + '"' : '') + '><span' + (lcls ? ' class="' + lcls + '"' : '') + '>' + label + '</span><b class="' + (cls || '') + '">' + v + '</b></div>';
+    return '<div class="stat-row oc-figs">' +
+      fig(people(s), short ? 'people' : 'people playing') +
+      fig(bots(s), 'bots') +
+      fig(F.usd(inPlay(s)), short ? 'in play' : 'money in play', 'money', '', 'Live paid worth, money on the floor, unspent entries and paid duel stakes.') +
+      fig(F.usd(e.held), e.short ? 'escrow, short by ' + F.usd(e.short) : (short ? 'escrow, all money' : 'escrow (all money held)'), '', e.short ? 'loss' : '') +
+      fig(F.usd(s.bank.balance), short ? 'bot bank' : 'bot bank wallet', 'money', '', 'Money for paid bots, in its own wallet.') + '</div>';
+  }
+  function parts(s) {
+    const p = s.escrow.parts;
+    const it = (l, v, bad) => '<span' + (bad ? ' class="loss"' : '') + '>' + l + ' <b>' + F.usd(v) + '</b></span>';
+    return '<p class="oc-parts"><span>In escrow:</span>' + it('Bot bank', p.bank) + it('Money in play', p.inPlay) + it('Owed to players', p.owed) +
+      it('Spare (not owed to anyone)', p.spare, p.spare < -0.005) + '</p>';
+  }
+  function siteLines(s, phone) {
+    const line = (l, ctl, cls) => '<div class="oc-line' + (cls ? ' ' + cls : '') + '"><span class="oc-l">' + l + '</span>' + ctl + '</div>';
+    const b = s.bank;
+    return (phone ? line('Before an update', maintBtn(s)) + line('New games', tg('open', 'New games', [['open', 'Open', 1], ['closed', 'Closed']], s.open ? 'open' : 'closed')) : '') +
+      line(phone ? 'Cashed-out strip' : 'Cashed-out strip in the lobby', tg('strip', 'Cashed-out strip in the lobby', [['shown', 'Shown', 1], ['hidden', 'Hidden']], s.strip ? 'shown' : 'hidden')) +
+      line('Smooth turning', tg('smooth', 'Smooth turning', [['on', 'On', 1], ['off', 'Off']], s.smooth ? 'on' : 'off')) +
+      '<div class="oc-bank"><p>Bot bank <b class="money">' + F.usd(b.balance) + '</b>, today ' + F.usd(b.today) + ' of ' + F.usd(b.cap) + ', fees ' + b.sol.toFixed(4) + ' SOL</p>' +
+        '<div class="oc-form"><div class="input-wrap"><span class="input-pre">$</span><input class="input" inputmode="decimal" maxlength="8" autocomplete="off" placeholder="Daily limit" aria-label="Daily bot limit in dollars" data-cap></div>' +
+        '<button type="button" class="btn btn-secondary btn-sm" data-act="cap">Set limit</button></div></div>' +
+      '<div class="oc-addr"><span class="oc-l">Bot bank address (send bot money here)</span><div class="addr-line"><span class="mono">' + BANK_ADDR + '</span><button type="button" class="btn btn-secondary btn-sm" data-act="copy" data-v="Bot bank address">' + I('copy', 16) + 'Copy</button></div></div>' +
+      '<div class="oc-addr"><span class="oc-l">Escrow address</span><div class="addr-line"><span class="mono">' + ESC_ADDR + '</span><button type="button" class="btn btn-secondary btn-sm" data-act="copy" data-v="Escrow address">' + I('copy', 16) + 'Copy</button></div></div>' +
+      '<div class="oc-form oc-say"><input class="input" maxlength="200" autocomplete="off" placeholder="Message to everyone playing" aria-label="Message to everyone playing" data-say>' +
+        '<button type="button" class="btn btn-secondary btn-sm" data-act="send">Send</button></div>';
+  }
+  const maintBtn = s => '<button type="button" class="btn ' + (s.maint ? 'btn-primary' : 'btn-danger') + ' btn-sm" data-act="maint"' + (s.maint ? ' title="On since 11:31 PM. Players see: Updating, back in a few minutes."' : '') + '>' + (s.maint ? 'End maintenance' : 'Maintenance') + '</button>';
+  const alertsHTML = s => s.alerts.length ? '<div class="list oc-alerts">' + s.alerts.map(a => '<div class="oc-alert"><b>' + esc(a.title) + '</b><span class="t-meta">' + a.at + '</span><p>' + esc(a.text) + '</p></div>').join('') + '</div>'
+    : '<p class="oc-empty">' + I('check', 18) + 'Nothing wrong right now.</p>';
+  const logHTML = s => s.log.length ? '<ol class="oc-log">' + s.log.map(l => '<li><time>' + l.at + '</time><span>' + esc(l.text) + '</span></li>').join('') + '</ol>'
+    : '<p class="oc-empty">Nothing yet today.</p>';
+
+  /* ---------- Control: the PC sheet ---------- */
+  function controlPC(s) {
+    const v = verdict(s);
+    const rows = s.games.map(g => '<tr><th scope="row" class="oc-g"><span>' + esc(g.name) + '</span>' + (g.soon !== undefined ? '<div class="oc-soon">' + soonTg(g) + '</div>' : '') + '</th>' +
+      COLS.map((c, i) => { const r = g.rungs[i]; return '<td><div class="oc-cell">' + pcount(r.people) + cellRight(g, i, r, g.name + ' ' + COL[i]) + moneyCell(g, i, r) + '</div></td>'; }).join('') +
+      '<td class="oc-door">' + doorTg(g) + '</td></tr>').join('');
+    const b = s.br;
+    const br = '<tr class="oc-br"><th scope="row" class="oc-g"><span>Battle Royale</span></th><td colspan="4"><div class="oc-brline">' +
+      '<b>' + brWord(b) + '</b><span class="oc-na">' + brInfo(b) + '</span>' + stepper('br', 0, b, 'Battle Royale') + '<span class="oc-na">bots</span>' +
+      '<span class="oc-bracts">' + brButtons(s) + '</span><span class="oc-na">Engine</span>' + tg('engine', 'Battle Royale engine', [['new', 'New', 1], ['old', 'Old']], s.engine) + '</div></td></tr>';
+    return '<section class="panel oc-sum" aria-label="Summary"><div class="oc-verdict"><b class="' + v.cls + '">' + v.t + '</b><span>' + v.why + '</span></div>' + figures(s) +
+        '<div class="oc-open">' + maintBtn(s) + '<span class="oc-l">New games</span>' + tg('open', 'New games', [['open', 'Open', 1], ['closed', 'Closed']], s.open ? 'open' : 'closed') + '</div></section>' +
+      parts(s) +
+      '<section class="panel oc-sheet" aria-label="Games"><table><thead><tr><th scope="col">Game</th>' + COL.map(c => '<th scope="col">' + c + '</th>').join('') + '<th scope="col">Paid rooms</th></tr></thead><tbody>' + rows + br + '</tbody></table></section>' +
+      '<div class="oc-low"><section class="panel" aria-labelledby="site-t"><h2 id="site-t">Site</h2>' + siteLines(s) + '</section>' +
+        '<section class="panel" aria-labelledby="al-t"><h2 id="al-t">Alerts</h2>' + alertsHTML(s) + '</section>' +
+        '<section class="panel" aria-labelledby="log-t"><h2 id="log-t">Done today</h2>' + logHTML(s) + '</section></div>';
+  }
+
+  /* ---------- Control: the phone blocks ---------- */
+  function controlPhone(s) {
+    const v = verdict(s);
+    const blocks = s.games.map(g => '<div class="oc-pg"><div class="oc-pgh"><b>' + esc(g.name) + '</b>' + doorTg(g) + '</div>' +
+      (g.soon !== undefined ? '<div class="oc-pr oc-pr2"><span class="oc-k">In the lobby</span>' + soonTg(g) + '</div>' : '') +
+      COLS.map((c, i) => { const r = g.rungs[i];
+        const mny = i && r.money > 0.005 ? ', <span class="money">' + F.usd(r.money) + '</span>' : '';
+        const right = g.duel ? '<span class="oc-na">' + (i ? 'people only' : 'bot after 10 s') + '</span>' : !r.room ? '<span class="oc-na">not running</span>'
+          : '<span class="oc-sw">' + autoBtn(g.id, i, r) + stepper(g.id, i, r, g.name + ' ' + COL[i]) + '</span>';
+        return '<div class="oc-pr"><span class="oc-k">' + COL[i] + '</span><span class="oc-v"><b>' + r.people + '</b> ' + ppl(r.people) + mny + '</span>' + right + '</div>'; }).join('') + '</div>').join('');
+    const b = s.br;
+    const br = '<div class="oc-pg"><div class="oc-pgh"><b>Battle Royale</b><span class="oc-na">' + brWord(b) + ', ' + b.humans + ' ' + ppl(b.humans) + '</span></div>' +
+      '<div class="oc-pr"><span class="oc-k">Bots</span><span class="oc-v">' + (b.state === 'waiting' ? 'starts ' + b.startsAt + ', ' : '') + F.usd(b.prize, 0) + '</span><span class="oc-sw">' + stepper('br', 0, b, 'Battle Royale') + '</span></div>' +
+      '<div class="oc-bracts">' + brButtons(s) + '</div>' +
+      '<div class="oc-pr oc-pr2"><span class="oc-k">Engine</span>' + tg('engine', 'Battle Royale engine', [['new', 'New', 1], ['old', 'Old']], s.engine) + '</div></div>';
+    return '<section class="oc-pv"><b class="' + v.cls + '">' + v.t + '</b><span>' + v.why + '</span></section>' + figures(s, true) + parts(s) +
+      '<section class="panel oc-pgames" aria-label="Games">' + blocks + br + '</section>' +
+      '<section class="panel" aria-labelledby="psite-t"><h2 id="psite-t">Site</h2>' + siteLines(s, true) + '</section>' +
+      '<section class="panel" aria-labelledby="pal-t"><h2 id="pal-t">Alerts</h2>' + alertsHTML(s) + '</section>' +
+      '<section class="panel" aria-labelledby="plog-t"><h2 id="plog-t">Done today</h2>' + logHTML(s) + '</section>';
+  }
+
+  /* ---------- Live: the real people in every lobby ---------- */
+  function lobbies(s) {
+    const out = [];
+    s.games.forEach(g => COLS.forEach((c, i) => {
+      const r = g.rungs[i], names = (realNames[g.id] || [[], [], []])[i] || [], real = s.st === 'quiet' ? 0 : r.people || 0;
+      if (!g.duel && !r.room && !real) return;
+      const bits = [];
+      if (g.soon) bits.push('Coming soon');
+      if (g.duel && real) bits.push('in a match');
+      if (r.room && r.bots) bits.push(r.bots + ' bots');
+      if (s.tests.some(t => t.where === g.name + ' ' + COL[i] && t.kind === 'you')) bits.push('you');
+      out.push({ key: g.id + i, name: g.name, rung: COL[i], paid: i > 0, real, names: real ? names.slice(0, real) : [], extra: bits.join(', '), soon: !!g.soon,
+        btn: g.soon ? '' : g.duel && real ? 'Watch' : 'Join' + (i ? ' ' + COL[i] : '') });
+    }));
+    out.push({ key: 'br', name: 'Battle Royale', rung: 'Event', real: 0, names: [], extra: 'waiting room, ' + s.br.bots + ' bots', btn: 'Join' });
+    return out.sort((a, b) => b.real - a.real);
+  }
+  function live(s) {
+    const real = s.st === 'quiet' ? 0 : people(s), td = s.live.today;
+    const rows = lobbies(s).map(l => '<div class="row oc-lv' + (l.real ? ' has' : '') + (l.soon ? ' is-soon' : '') + '" role="listitem">' +
+      '<span class="oc-n">' + l.real + '</span><div class="row-main"><b>' + esc(l.name) + ' <span class="oc-rung' + (l.paid ? ' money' : '') + '">' + l.rung + '</span></b>' +
+      (l.names.length ? '<span class="oc-names">' + l.names.map(esc).join(', ') + '</span>' : '') + (l.extra ? '<span>' + esc(l.extra) + '</span>' : '') + '</div>' +
+      '<div class="row-end">' + (l.btn ? '<button type="button" class="btn ' + (l.real ? 'btn-primary' : 'btn-secondary') + ' btn-sm" data-act="go" data-v="' + esc(l.name + ' ' + l.rung) + '" data-w="' + l.btn + '">' + l.btn + '</button>' : '') + '</div></div>').join('');
+    const tests = s.tests.length ? '<section class="panel oc-tests" aria-labelledby="tc-t"><h2 id="tc-t">Our test clients</h2><p class="t-meta">Our own tools and you. None of these count as real people.</p><div class="list">' +
+      s.tests.map(t => '<div class="row"><div class="row-main"><b>' + esc(t.name) + '</b><span>' + esc(t.where) + '</span></div><div class="row-end"><span class="chip">' + (t.kind === 'you' ? 'you' : t.kind) + '</span></div></div>').join('') + '</div></section>' : '';
+    return '<section class="panel oc-lvtop"><div><b class="oc-big' + (real ? ' win' : '') + '">' + (real ? real + ' real ' + ppl(real) + ' playing now' : 'Nobody real is playing right now') + '</b>' +
+        '<span class="oc-sub">Today: ' + td.uniq + ' ' + ppl(td.uniq) + ', most at once ' + td.peak + '.</span></div>' +
+        '<div class="oc-lvctl"><span class="chip chip-live">Live</span>' +
+        '<button type="button" class="btn btn-secondary btn-sm" data-act="sound">' + (s.sound ? 'Sound on' : 'Sound off') + '</button>' +
+        '<button type="button" class="btn btn-secondary btn-sm" data-act="notify">' + I('bell', 16) + 'Notify me</button></div></section>' +
+      '<section class="panel oc-lvlist" aria-label="Lobbies"><div class="list" role="list">' + rows + '</div></section>' + tests;
+  }
+
+  /* ---------- Today: real people by hour ---------- */
+  const HOURS = { today: [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 2, 1, 0, 1, 2, 3, 2, 3, 4, 3, 2, 2], yesterday: [1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 2, 1, 1, 2, 3, 2, 1, 2, 3, 4, 5, 3, 2, 1] };
+  const DAYROWS = { today: [['Slither.io', 'Free', 5, '2 at 9:12 PM'], ['Paper.io', 'Free', 2, '1 at 8:40 PM'], ['Knockout', 'Free', 2, '1 at 11:20 PM'], ['Slither.io', '$0.50', 1, '1 at 10:05 PM'], ['Head Soccer', 'Free', 1, '1 at 7:51 PM']],
+    yesterday: [['Slither.io', 'Free', 6, '3 at 8:22 PM'], ['Pac-Man', 'Free', 3, '2 at 7:10 PM'], ['Paper.io', 'Free', 2, '1 at 9:45 PM'], ['8 Ball Pool', 'Free', 2, '2 at 6:30 PM']] };
+  const hourName = h => (h % 12 || 12) + (h < 12 ? ' AM' : ' PM');
+  function bars(hours, now, cls) {
+    const max = Math.max(1, ...hours);
+    return '<div class="' + cls + '">' + hours.map((v, h) => '<span' + (h === now ? ' class="now"' : '') + ' title="' + hourName(h) + ': ' + v + ' ' + ppl(v) + '"><i style="height:' + (v ? Math.max(8, Math.round(v / max * 100)) : 0) + '%"></i></span>').join('') + '</div>';
+  }
+  function today(s) {
+    const quiet = s.st === 'quiet', isT = s.day === 'today', hours = quiet ? HOURS.today.map(() => 0) : HOURS[s.day], now = isT ? 23 : -1;
+    const uniq = quiet ? 0 : isT ? 9 : 11, peak = quiet ? 0 : isT ? 4 : 5;
+    const rows = quiet ? [] : DAYROWS[s.day];
+    return '<section class="panel oc-lvtop"><div><b class="oc-big">' + uniq + ' real ' + ppl(uniq) + (isT ? ' today' : ' yesterday') + '</b>' +
+        '<span class="oc-sub">' + (peak ? 'Most at once: ' + peak + ', at ' + (isT ? '9:12 PM' : '8:22 PM') + '. Toronto time.' : 'Nobody real yet. Toronto time.') + '</span></div>' +
+        '<div class="oc-lvctl">' + tg('day', 'Day', [['today', 'Today'], ['yesterday', 'Yesterday']], s.day) + '</div></section>' +
+      '<section class="panel oc-chart" role="img" aria-label="Different real people in each hour of the day">' + bars(hours, now, 'oc-bars') +
+        '<div class="oc-axis"><span>12 AM</span><span>6 AM</span><span>12 PM</span><span>6 PM</span></div></section>' +
+      '<section class="panel oc-days" aria-label="Lobbies today"><div class="oc-drow oc-dh"><span>Lobby</span><span>People</span><span>Most at once</span><span>By hour</span></div>' +
+        (rows.length ? rows.map(([n, r, u, p]) => '<div class="oc-drow"><span><b>' + n + '</b> <span class="oc-rung' + (r !== 'Free' ? ' money' : '') + '">' + r + '</span></span><span>' + u + '</span><span>' + p + '</span>' +
+          bars(hours.map((v, h) => v && (h * 7 + u) % 3 ? Math.min(v, u) : 0), now, 'oc-bars sm') + '</div>').join('')
+          : '<p class="oc-empty">No real players in any lobby yet.</p>') + '</section>';
+  }
+
+  /* ---------- sign in (no session on this device) ---------- */
+  const signin = () => '<section class="oc-in"><div class="panel"><h2 class="d3">Sign in once on this device</h2>' +
+    '<p class="t-body">Sign in with the owner wallet one time. This device then stays signed in for a year, or until you sign it out under Devices.</p>' +
+    '<button type="button" class="btn btn-primary btn-lg btn-block" data-act="signin">Sign in</button></div></section>';
+
+  /* ---------- draw ---------- */
+  const TABS = [['control', 'Control'], ['live', 'Live'], ['today', 'Today']];
+  function draw() {
+    const out = S.st === 'signin', real = S.st === 'quiet' ? 0 : people(S);
+    const badge = id => id === 'live' && real ? '<span class="oc-badge" aria-label="' + real + ' real people">' + real + '</span>' : '';
+    document.getElementById('tabs').innerHTML = out ? '' : TABS.map(([id, l]) => '<button type="button" class="tab" data-act="tab" data-v="' + id + '"' + (S.tab === id ? ' aria-current="page"' : '') + '>' + l + badge(id) + '</button>').join('');
+    document.getElementById('ptabs').innerHTML = TABS.map(([id, l]) => '<button type="button" data-act="tab" data-v="' + id + '" aria-pressed="' + (S.tab === id) + '">' + l + badge(id) + '</button>').join('');
+    document.getElementById('ptabs').hidden = out;
+    document.getElementById('who').hidden = out; document.getElementById('devbtn').hidden = out;
+    document.getElementById('oc-title').textContent = out ? 'Control' : TABS.find(t => t[0] === S.tab)[1];
+    document.getElementById('oc-sub').textContent = out ? 'Owner only' : 'US server, up 3d 5h';
+    document.title = (real && !out ? '(' + real + ') ' : '') + 'Control | DuelSeries';
+    const body = document.getElementById('body');
+    body.innerHTML = out ? signin() : S.tab === 'live' ? live(S) : S.tab === 'today' ? today(S)
+      : '<div class="oc-pc">' + controlPC(S) + '</div><div class="oc-phone">' + controlPhone(S) + '</div>';
+  }
+
+  /* ---------- actions ---------- */
+  const game = id => S.games.find(g => g.id === id);
+  const log = text => { S.log.unshift({ at: nowAt(), text }); };
+  function confirm(o) {
+    U.sheet({ title: o.title, html: '<p class="t-body">' + o.body + '</p>',
+      foot: '<button type="button" class="btn ' + (o.danger ? 'btn-danger' : 'btn-primary') + ' btn-lg btn-block" data-ok data-autofocus>' + o.ok + '</button>' +
+        '<button type="button" class="btn btn-quiet btn-block" data-close>' + (o.no || 'Cancel') + '</button>',
+      onOpen(el, close) { el.querySelector('[data-ok]').addEventListener('click', e => U.busy(e.currentTarget, 600, () => { close(); o.then(); draw(); })); } });
+  }
+  function devices() {
+    const rows = () => S.devices.map(d => '<div class="row"><span class="row-ic">' + I(d.me ? 'home' : 'users', 18) + '</span><div class="row-main"><b>' + esc(d.name) + '</b><span>' + esc(d.what) + '</span></div>' +
+      '<div class="row-end">' + (d.me ? '<span class="chip">This device</span>' : '<small>until ' + d.until + '</small>') + '</div></div>').join('');
+    const first = () => U.step({ title: 'Devices', html: '<p class="t-meta">Each device stays signed in for a year from when it signed in.</p><div class="list">' + rows() + '</div>',
+      foot: '<button type="button" class="btn btn-danger btn-block" data-others' + (S.devices.length < 2 ? ' disabled' : '') + '>Sign out everywhere else</button>',
+      onOpen(el) { el.querySelector('[data-others]').addEventListener('click', () => U.step({ title: 'Sign out everywhere else?', html: '<p class="t-body">Every other device has to sign in with the owner wallet again. This PC stays signed in.</p>',
+        foot: '<button type="button" class="btn btn-danger btn-lg btn-block" data-ok>Sign them out</button><button type="button" class="btn btn-quiet btn-block" data-back2>Keep them</button>',
+        onOpen(e2, close) {
+          e2.querySelector('[data-back2]').addEventListener('click', first);
+          e2.querySelector('[data-ok]').addEventListener('click', ev => U.busy(ev.currentTarget, 700, () => { const n = S.devices.length - 1; S.devices = S.devices.filter(d => d.me); first(); U.toast('Signed out ' + n + ' other ' + (n === 1 ? 'device' : 'devices'), 'ok'); }));
+        } })); } });
+    first();
+  }
+  const on = (sel, fn) => document.addEventListener('click', e => { const b = e.target.closest(sel); if (b && !b.disabled) fn(b, e); });
+  on('[data-act]', (b) => {
+    const a = b.dataset.act, v = b.dataset.v, g = b.dataset.g && game(b.dataset.g), c = +b.dataset.c || 0;
+    if (b.getAttribute('aria-pressed') === 'true') return;
+    if (a === 'tab') { S.tab = v; draw(); if (v === 'live' && S.st !== 'quiet' && !S.pinged) { S.pinged = true; setTimeout(() => U.toast('Ravenfield joined Slither.io $0.50', 'info', 'Just now. Join from the Live list.'), 1400); } return; }
+    if (a === 'devices') return devices();
+    if (a === 'door') {
+      if (v === 'open') { g.door = 'open'; log('Paid ' + g.name + ': opened'); draw(); return U.toast('Paid ' + g.name + ' open', 'ok'); }
+      return confirm({ title: 'Close paid ' + g.name + '?', body: 'New paid joins are refused and refunded. Anyone already playing keeps going and can cash out. It stays closed across restarts until you open it.',
+        ok: 'Close paid ' + g.name, no: 'Keep it open', danger: true, then: () => { g.door = 'closed'; log('Paid ' + g.name + ': closed'); U.toast('Paid ' + g.name + ' closed', 'ok', 'Stays closed across restarts.'); } });
+    }
+    if (a === 'soon') return v === 'live'
+      ? confirm({ title: 'Bring ' + g.name + ' back?', body: 'Its lobby card opens again (lobbies show it on their next load) and new players can join.', ok: 'Make it live', no: 'Keep it Coming soon',
+        then: () => { g.soon = false; log(g.name + ': live in the lobby'); U.toast(g.name + ' is live', 'ok'); } })
+      : confirm({ title: 'Make ' + g.name + ' Coming soon?', body: 'Its lobby card locks and new players are turned away. Anyone already playing finishes and cashes out as normal, and its bots stop. It stays this way across restarts and deploys until you switch it back.',
+        ok: 'Make it Coming soon', no: 'Keep it live', danger: true, then: () => { g.soon = true; log(g.name + ': Coming soon in the lobby'); U.toast(g.name + ' is Coming soon', 'ok'); } });
+    if (a === 'bot') {
+      const r = b.dataset.g === 'br' ? S.br : g.rungs[c]; r.bots = Math.max(0, Math.min(30, r.bots + +b.dataset.d)); r.held = true;
+      log((b.dataset.g === 'br' ? 'Battle Royale' : g.name + ' ' + COL[c]) + ': bots set to ' + r.bots); draw();
+      const same = document.querySelector('[data-act="bot"][data-g="' + b.dataset.g + '"][data-c="' + c + '"][data-d="' + b.dataset.d + '"]:not(:disabled)');
+      if (same && getComputedStyle(same).display !== 'none' && same.offsetParent) same.focus({ preventScroll: true });
+      return;
+    }
+    if (a === 'auto') { const r = g.rungs[c]; r.held = false; r.bots = DEF[c]; log(g.name + ' ' + COL[c] + ': bots back to auto'); draw(); return; }
+    if (a === 'maint') return S.maint
+      ? confirm({ title: 'End maintenance?', body: 'Games reopen and the lobby banner goes.', ok: 'End maintenance', no: 'Stay in maintenance', then: () => { S.maint = false; S.open = true; log('Maintenance off, games reopened'); U.toast('Games reopened', 'ok'); } })
+      : confirm({ title: 'Start maintenance for an update?', body: 'New games close, the lobby says "Updating, back in a few minutes", and everyone playing is told to finish up or cash out. Nobody is kicked. After the restart the game reopens by itself once the server is healthy.',
+        ok: 'Start maintenance', no: 'Not now', danger: true, then: () => { S.maint = true; S.open = false; log('Maintenance on for an update'); U.toast('Maintenance on', 'ok', 'Players were told to finish up.'); } });
+    if (a === 'open') return v === 'open' ? (S.open = true, log('New games opened'), draw(), U.toast('New games open', 'ok'))
+      : confirm({ title: 'Close new games?', body: 'Anyone already playing finishes, but nobody new can start until you open them again.', ok: 'Close new games', no: 'Keep them open', danger: true,
+        then: () => { S.open = false; log('New games closed'); U.toast('New games closed', 'ok'); } });
+    if (a === 'strip') { S.strip = v === 'shown'; log('Cashed-out strip ' + v); draw(); return; }
+    if (a === 'smooth') { S.smooth = v === 'on'; log('Smooth turning ' + v); draw(); return; }
+    if (a === 'engine') return v === 'new' ? (S.engine = 'new', log('Battle Royale engine: new'), draw())
+      : confirm({ title: 'Send the Battle Royale back to the old engine?', body: 'The Events tab opens the old game from now on, across restarts, until you pick New.', ok: 'Use the old engine', no: 'Keep the new one', danger: true,
+        then: () => { S.engine = 'old'; log('Battle Royale engine: old'); } });
+    if (a === 'br-start' || a === 'br-alone') return U.busy(b, 700, () => { S.br.state = 'countdown'; log('Battle Royale started' + (a === 'br-alone' ? ' alone' : '')); draw(); U.toast('Battle Royale starting', 'ok', 'Mockup: the countdown runs here.'); });
+    if (a === 'br-stop') return confirm({ title: 'Stop the Battle Royale?', body: 'Nobody wins it and no prize is paid.', ok: 'Stop it', no: 'Let it run', danger: true, then: () => { S.br.state = 'waiting'; log('Battle Royale stopped'); } });
+    if (a === 'cap') {
+      const inp = b.parentElement.querySelector('[data-cap]'), x = parseFloat(inp.value);
+      if (!inp.value.trim() || !(x > 0)) { U.toast('Write the daily limit in dollars first', 'err'); inp.focus(); return; }
+      return U.busy(b, 600, () => { S.bank.cap = x; log('Bot bank daily limit set to ' + F.usd(x)); draw(); U.toast('Daily limit set to ' + F.usd(x), 'ok'); });
+    }
+    if (a === 'copy') { const t = v === 'Escrow address' ? ESC_ADDR : BANK_ADDR; try { navigator.clipboard.writeText(t).catch(() => {}); } catch (_) {} return U.toast(v + ' copied', 'ok', F.short(t)); }
+    if (a === 'send') {
+      const inp = b.parentElement.querySelector('[data-say]'), t = inp.value.trim();
+      if (!t) { U.toast('Write the message first', 'err'); inp.focus(); return; }
+      return confirm({ title: 'Send this to everyone playing?', body: '"' + esc(t) + '"', ok: 'Send it', no: 'Not yet', then: () => { log('Message sent: ' + t); U.toast('Message sent', 'ok', 'Everyone playing sees it now.'); } });
+    }
+    if (a === 'go') return U.toast((b.dataset.w === 'Watch' ? 'Watching ' : 'Joining ') + v, 'info', 'Mockup: the game opens in a new tab.');
+    if (a === 'sound') { S.sound = !S.sound; draw(); return; }
+    if (a === 'notify') return U.toast('Notifications on', 'ok', 'Mockup: the browser asks first.');
+    if (a === 'day') { S.day = v; draw(); return; }
+    if (a === 'signin') return U.busy(b, 800, () => { S = sample('normal'); draw(); U.toast('Signed in on this device', 'ok', 'Mockup: the owner wallet signs here.'); });
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Enter') return;
+    if (e.target.matches('[data-say]')) { e.preventDefault(); e.target.parentElement.querySelector('[data-act=send]').click(); }
+    if (e.target.matches('[data-cap]')) { e.preventDefault(); e.target.parentElement.parentElement.querySelector('[data-act=cap]').click(); }
+  });
+
+  /* the mockup switcher: Sample, Updating, Alert, Nobody on (?empty), Signed out */
+  const list = [['normal', 'Sample'], ['updating', 'Updating'], ['alert', 'Alert'], ['quiet', 'Nobody on'], ['signin', 'Signed out']];
+  if (U.Q.has('empty') && !U.Q.get('state')) history.replaceState(null, '', '?state=quiet');
+  K.states(list, st => { S = sample(st); draw(); });
+  const sw = document.querySelector('.ds-states'); if (sw) document.getElementById('head').append(sw);
+})();
+</script>
+</body>
+</html>

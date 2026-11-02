@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Events | DuelSeries</title>
+<meta name="theme-color" content="#000000">
+<link rel="icon" href="../../assets/img/favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=IBM+Plex+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="../kit.css">
+<link rel="stylesheet" href="layout.css">
+<link rel="stylesheet" href="mecard.css">
+</head>
+<body>
+<main class="main" id="main">
+  <div class="page-hd"><h1 class="t-page">Events</h1></div>
+  <div class="ev" id="ev"></div>
+</main>
+
+<script src="../../assets/data.js"></script>
+<script src="../chart.js"></script>
+<script src="../kit.js"></script>
+<script src="layout.js"></script>
+<script src="mecard.js"></script>
+<script>
+(function () {
+  const K = DSKit, F = K.fmt, esc = K.esc, U = DSUI;
+  L1.chrome('events');
+  const ev = document.getElementById('ev');
+  let firstPrize = true;
+
+  function render(state) {
+    const m = U.brModel(state);
+    const prizeLine = m.over ? '' : '<div class="prize"><span class="d2 num" id="prize">' + (firstPrize ? '$0' : F.usd(m.b.prize, 0)) + '</span><span>to 1st</span></div>';
+    const w = m.winner;
+    const champ = w ? '<div class="champ"><div class="champ-av" aria-hidden="true">' + esc(w.name[0].toUpperCase()) + '</div>' +
+      '<div><div class="champ-nm">' + esc(w.name) + '</div><div class="champ-sub">Won the ' + w.match + ' match</div></div>' +
+      '<div class="champ-pz"><span class="d2 num" id="prize">' + (firstPrize ? '$0' : F.usd(w.prize, 0)) + '</span><span>paid to their wallet</span></div></div>' : '';
+    const t0 = F.hms(m.secs);
+    const clock = m.over
+      ? '<div class="nextrow"><span class="t-label">Next match in</span><span class="nr-num" data-hms>' + t0.h + ':' + t0.m + ':' + t0.s + '</span><span class="t-meta">' + m.nextLabel + '</span></div>'
+      : '<div class="t-label clock-lbl">' + m.clockLabel + '</div>' + U.bigClock(m.secs, m.soon);
+
+    ev.innerHTML =
+      '<section class="br-card ev-hero' + (m.live ? ' is-live' : '') + '" aria-labelledby="br-t">' +
+        '<img class="br-art" src="../../assets/img/snake-card.webp" alt="">' +
+        '<div class="ev-in"><div class="ev-tags">' + m.tag + '<span class="chip chip-money">Free entry</span><span class="chip">Every 6 hours</span></div>' +
+        '<h2 class="t-page" id="br-t">Battle Royale</h2>' + prizeLine + champ + clock +
+        (m.alive ? '<div class="alive">' + m.alive + '</div>' : '') +
+        '<div class="acts">' + m.actions + '</div>' + (m.why ? '<p class="why">' + m.why + '</p>' : '') + '</div></section>' +
+      '<div class="low"><section class="panel" aria-labelledby="pod-t"><h3 id="pod-t">' + m.podiumTitle + '</h3><div class="pod">' + m.podium + '</div><p class="pod-note">' + m.podiumNote + '</p></section>' +
+        '<section class="panel sch" aria-labelledby="sch-t"><h3 id="sch-t">Today, every 6 hours</h3><div class="list">' + m.schedule + '</div></section></div>' +
+      '<section class="panel past" aria-labelledby="past-t"><h3 id="past-t">Past matches</h3><div class="list">' + m.past + '</div></section>' +
+      '<section class="panel how" aria-labelledby="how-t"><h3 id="how-t">How it works</h3>' + m.how + '</section>';
+
+    const pz = document.getElementById('prize');
+    if (firstPrize) { K.countUp(pz, m.over ? w.prize : m.b.prize, { decimals: 0 }); firstPrize = false; }
+    U.tickBig(ev, m.secs, m.soon);
+    U.wireEvent(ev, state, render);
+  }
+
+  K.states([['soon', 'Soon'], ['waiting', 'Waiting'], ['live', 'Live'], ['over', 'Over']], s => { U.resetJoin(); render(s); U.brPin(s); });
+  /* the mockup switcher sits in the page head, so it never covers the screen being judged */
+  const sw = document.querySelector('.ds-states'); if (sw) document.querySelector('.page-hd').append(sw);
+})();
+</script>
+</body>
+</html>
