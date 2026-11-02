@@ -85,7 +85,7 @@ test('Social is shown as Leaderboards, but keeps its id so the router, swipe ord
   assert.match(html, /\{id:'social', t:'Leaderboards',/);
   assert.ok(!/t:'Social'/.test(html), 'no tab is labelled Social any more');
   assert.match(html, /social:'social-screen'/, 'the route id is unchanged');
-  assert.match(read('public/js/v2/swipe.js'), /'events', 'social', 'settings'/);
+  assert.match(read('public/js/v2/swipe.js'), /'events', 'social', 'wallet', 'settings'/);
   assert.ok(!/"[^"]*\bSocial\b[^"]*"/.test(JSON.stringify(JSON.parse(read('public/updates.json')).posts.map(p => p.body))),
     'no update tells players to open Social');
 });

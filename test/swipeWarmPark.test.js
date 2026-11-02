@@ -66,7 +66,7 @@ test('nothing is warmed or parked while a finger is down', () => {
   box.timers.splice(0).forEach((f) => f());
   box.runIdle();                                         // the page's formatting first
   box.runIdle();
-  assert.deepStrictEqual(box.warmed, ['wallet'], 'once the finger is up');
+  assert.deepStrictEqual(box.warmed, ['events'], 'once the finger is up');
 });
 
 test('a landing asks for the park, once, in idle time', () => {
@@ -198,5 +198,5 @@ test('the page\'s money and date formatting is set up in the first idle moment, 
   assert.ok(box.formats >= 1, 'number formatting warmed');
   assert.deepStrictEqual(box.warmed, [], 'before any screen');
   box.runIdle();
-  assert.deepStrictEqual(box.warmed, ['wallet'], 'then the screens, one per idle moment');
+  assert.deepStrictEqual(box.warmed, ['events'], 'then the screens, one per idle moment');
 });

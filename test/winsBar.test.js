@@ -3,7 +3,9 @@
    real win slides in, and it scrolls by hand. Site redo (2026-11-01, site audit 2026-10-31): real cash-outs only.
    The seeded sample names and amounts that filled the row out to 50 are gone (every money figure shown is real);
    with no real win yet the strip says so, and when the server says there is nothing to show (ok:false) the strip
-   is not drawn at all. */
+   is not drawn at all.
+   Dial-in (Owen 2026-11-02): config.js SAMPLE_WINS fills the row with made-up wins from socialPreview.js, a new one
+   every few seconds, and the label says Sample unless SAMPLE_TAG is off. Off, it is real cash-outs only, as above. */
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
@@ -18,12 +20,13 @@ const GAMES = [
 ];
 
 // The strip's own script (from REAL_WINS to tkNew), run against a small game registry and a stand-in page.
-function strip(answer) {
+function strip(answer, fill) {
   const section = { hidden: false };
   const run = { innerHTML: '', style: {}, classList: { add() {} } };
   const ctx = {
     GAMES, G: (id) => GAMES.find((g) => g.id === id), artSrc: (id) => '/img/games/' + id + '-card.webp?v=1',
-    setInterval() {}, JSON, Number, String, Array, Promise,
+    setInterval() {}, JSON, Number, String, Array, Promise, Math, Date,
+    window: fill ? { V2SocialPreview: fill } : {}, V2SocialPreview: fill,
     document: { querySelector: (q) => (q === '#home .hwins' ? section : null), getElementById: (id) => (id === 'tkrun' ? run : null) },
     fetch: () => (answer instanceof Error ? Promise.reject(answer) : Promise.resolve({ json: () => Promise.resolve(answer) })),
   };
@@ -36,8 +39,9 @@ const settle = () => new Promise((r) => setImmediate(r));
 
 test('wins strip: nothing made up, real wins only, never a game that is not open', () => {
   const src = between('let REAL_WINS=[];', '/* How many wins at the front');
-  for (const gone of ['NAMES', 'SAMPLES', 'madeUpAmount', 'tkRng', 'sample', 'Math.random']) assert.ok(!src.includes(gone), gone + ' is gone');
-  assert.ok(!/class="ltag/.test(html), 'no Sample pill anywhere');
+  for (const gone of ['NAMES', 'SAMPLES', 'madeUpAmount', 'tkRng', 'Math.random']) assert.ok(!src.includes(gone), gone + ' is gone');
+  assert.ok(src.includes('const FILL=()=>window.V2SocialPreview&&V2SocialPreview.winsOn?V2SocialPreview:null;'),
+    'made-up wins come only from socialPreview.js, behind config.js SAMPLE_WINS');
   const { t } = strip({ ok: true, wins: [] });
   assert.deepStrictEqual(t.set([]), [], 'no real wins: an empty row, not samples');
   const w = t.set([{ who: 'MrPeanutK', g: 'snake', amt: 0.45 }, { who: 'ghost', g: 'stumble', amt: 1 }, { who: 'neo', g: 'pool8', amt: 0.9 }]);
@@ -88,4 +92,17 @@ test('wins strip: still on load and reload; moves only for a new real win; scrol
   assert.ok(/if\(box\.scrollLeft>4\)\{box\.scrollLeft\+=dx;return;\}/.test(html), 'a reader scrolled along keeps their place');
   const swipe = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'v2', 'swipe.js'), 'utf8');
   assert.ok(/const EXEMPT = '[^']*\.tickerwrap\.top \.ticker'/.test(swipe), 'a sideways swipe on it scrolls it, not the tabs');
+});
+
+test('wins strip: made-up wins only behind SAMPLE_WINS, tagged Sample unless the tag is off', () => {
+  const made = [{ who: 'Kestrel', g: 'snake', amt: 2.5 }, { who: 'zinc', g: 'stumble', amt: 1 }, { who: 'yuzu', g: 'pool8', amt: 0.9 }];
+  const fill = { winsOn: true, wins: () => made, WIN_MS: 6000, liveLook: false, tag: 'Sample' };
+  const { t } = strip({ ok: true, wins: [] }, fill);
+  assert.deepStrictEqual(t.buildWins().map((x) => x.who), ['Kestrel', 'yuzu'], 'the made-up row, never a game not open');
+  const cfg = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'v2', 'config.js'), 'utf8');
+  assert.ok(/SAMPLE_TAG: true,/.test(cfg), 'the Sample tag is on in the shipped config');
+  const pv = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'v2', 'socialPreview.js'), 'utf8');
+  assert.ok(/const LIVE_LOOK = CFG\.SAMPLE_TAG === false \|\| \(LOCAL && /.test(pv), 'only the config or a localhost preview drops the tag');
+  assert.ok(html.includes("if(l&&f&&!f.liveLook)l.innerHTML='<span>Wins</span><span class=\"ds-chip lb-sample\">'+f.tag+'</span>';"),
+    'the strip says Sample while the tag is on');
 });

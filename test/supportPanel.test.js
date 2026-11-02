@@ -40,12 +40,11 @@ test('every page with a contact link loads the panel', () => {
   }
   const html = read('public/v2.html');
   const side = html.slice(html.indexOf('function drawNav(){'), html.indexOf('const V2Side='));
-  /* Layout 1 (site redo stage 3): the PC sidebar's Support opens the Support page; its three ways in and Settings'
-     Contact open the panel. */
-  assert.match(side, /data-tab="support" onclick="go\('support'\)"[^>]*>\$\{SBI\(SB_P\.support\)\}<span>Support<\/span><\/button>/,
-    'the PC sidebar Support row opens the Support page');
-  const page = html.slice(html.indexOf('<main id="support-screen"'), html.indexOf('</main>', html.indexOf('<main id="support-screen"')));
-  assert.strictEqual((page.match(/<a class="ds-opt" [^>]*data-support/g) || []).length, 3, 'Report a bug, Send an idea, Something else');
+  /* Dial-in (Owen 2026-11-02): back to the pre-redo build, the PC sidebar's Support opens the panel and there is no
+     Support page. */
+  assert.match(side, /<a class="sb-it sbx" href="https:\/\/mail\.google\.com[^"]*" target="_blank" rel="noopener noreferrer" data-support>\$\{SBI\(SB_P\.support\)\}<span>Support<\/span><\/a>/,
+    'the PC sidebar Support row opens the Support panel');
+  assert.ok(!html.includes('<main id="support-screen"'), 'no Support page');
   assert.ok(html.includes('<a class="ds-row set-link" id="set-contact" href="https://mail.google.com'), 'Settings Contact (phone too)');
 });
 

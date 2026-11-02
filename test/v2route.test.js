@@ -2301,7 +2301,7 @@ test('Social shows Global player winnings: real players only, the lobby strip\'s
   assert.ok(/earnings=preview/.test(code) && /\?preview=1/.test(code), 'and only ?earnings=preview asks for the owner-inclusive preview');
   assert.ok(!/Paid out to players/.test(code), 'the old label is gone');
   const html = v2();
-  assert.ok(html.includes('<section id="soc-win" class="ds-panel lb-sum" aria-label="Global player winnings" hidden></section>'),
+  assert.ok(html.includes('<section id="soc-win" class="ds-panel lb-sum" aria-label="Global player earnings" hidden></section>'),
     'the panel is at the top of Social, hidden until the server answers');
   assert.ok(html.indexOf('id="soc-win"') < html.indexOf('id="lb-top-t"'), 'above the board');
   assert.ok(!html.includes('id="soc-tiles"'), 'the old tile is gone');
@@ -2317,8 +2317,7 @@ test('Social shows Global player winnings: real players only, the lobby strip\'s
   assert.ok(/else v\.textContent = usd\(0\)/.test(code), '$0 is drawn as $0.00');
   assert.ok(/d\.on !== true[^\n]*box\.hidden = true/.test(code.replace(/\n\s*/g, ' ')) || /box\.hidden = true; win = null; return;/.test(code),
     'hidden only when the server says off');
-  // LIVE with a beating dot, for everyone (Owen's own PC has animation effects off).
-  // The kit's live chip, the one beating dot on the screen (site redo 2026-11-01).
-  assert.ok(/'<span class="ds-chip ds-chip-live is-pulse" data-pulse id="soc-live"/.test(code), 'the dot beats');
+  // Dial-in (Owen 2026-11-02): the pre-redo top, "Live global player earnings" over the figure, Sample when made up.
+  assert.ok(/\(sample \? 'Global player earnings' : 'Live global player earnings'\)/.test(code), 'the title says Live only when real');
   assert.ok(/\.win-up\.rise\{animation:winUp/.test(html) && !/\.win-up\.go\{/.test(html), 'and the rise is not .go, the Play button');
 });

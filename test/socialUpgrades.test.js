@@ -339,7 +339,7 @@ test('preview: the sample players never leave the browser', () => {
   assert.ok(/if \(pv\) \{ drawWin\(\{ on: true, total: pv\.total\(\), preview: pv \}\); return; \}/.test(read('public/js/v2/social.js')),
     'Global player winnings in the preview is drawn without asking the server, tagged Sample');
   const lead = read('public/js/v2/leaders.js');
-  assert.ok(/if \(p\) \{ data = p\.board\(10\); failed = false; draw\(\); return; \}/.test(lead),
+  assert.ok(/if \(p\) \{ data = p\.board\(ROWS\); failed = false; draw\(\); return; \}/.test(lead) && /const ROWS = 10;/.test(lead),
     'the preview board is drawn without asking the server');
   const soc = read('public/js/v2/social.js');
   assert.ok(/let p = \(pv && pv\.profile\(name\)\) \|\| PROFILES\.get\(name\);/.test(soc),
@@ -348,14 +348,15 @@ test('preview: the sample players never leave the browser', () => {
      on sample search results, and the one note line under the board (the audit found it printed twice). */
   assert.ok(/'<span class="ds-chip lb-sample">' \+ PV\(\)\.tag \+ '<\/span>'/.test(soc) &&
     /'<span class="ds-chip lb-sample">' \+ sample\.tag \+ '<\/span>'/.test(soc), 'tagged Sample on screen');
-  assert.ok(/if \(SAMPLE\(\)\) html \+= '<p class="lb-foot lb-note">' \+ P\(\)\.note \+ '<\/p>';/.test(lead), 'one note, under the board');
+  // Dial-in (Owen 2026-11-02): the tag sits beside Top earners instead of a note line under the board.
+  assert.ok(/h\.innerHTML = 'Top earners' \+ \(SAMPLE\(\) \? ' <span class="ds-chip lb-sample">' \+ P\(\)\.tag/.test(lead), 'tagged Sample on the board');
   assert.ok(!/\.note\b/.test(soc.replace(/\/\*[\s\S]*?\*\//g, '')), 'and not a second time in Player winnings');
   // Sample figures are never marked live for visitors, and neither is a board that failed to load.
   // Only the browser that opened ?leaderboard=preview (liveLook) could, and liveLook is always false (Owen, 2026-10-28).
   assert.ok(/const SAMPLE = \(\) => !!P\(\) && !P\(\)\.liveLook;/.test(lead) && /live\.hidden = SAMPLE\(\) \|\| failed;/.test(lead));
   assert.ok(/const sample = d\.preview && !d\.preview\.liveLook \? d\.preview : null;/.test(soc) &&
-    /\(sample \? '<span class="ds-chip lb-sample">'/.test(soc) && /: '<span class="ds-chip ds-chip-live is-pulse" data-pulse id="soc-live"/.test(soc));
-  assert.ok(/top\.slice\(0, 10\)/.test(lead) && !/lb-all|openSheet/.test(lead), 'the top 10 on the board, no sheet');
+    /\(sample \? '<span class="ds-chip lb-sample">'/.test(soc) && /\(sample \? 'Global player earnings' : 'Live global player earnings'\)/.test(soc));
+  assert.ok(/pd\.top\.slice\(0, ROWS\)/.test(lead) && /const ROWS = 10;/.test(lead) && !/lb-all|openSheet/.test(lead), 'the top 10 on the board, no sheet');
 });
 
 test('sample board: config.js SAMPLE_BOARD shows it to every visitor, labelled Sample', () => {
