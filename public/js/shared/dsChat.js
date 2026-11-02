@@ -38,78 +38,93 @@
   var SVG_NS = 'http://www.w3.org/2000/svg';
   var SKULL = String.fromCharCode(0xD83D, 0xDC80);   // the kill line's mark
 
+  // The kit's look (site redo 2026-11-02, layout 1 "Sidebar" game-ui mockup): Archivo, each line a small black glass
+  // strip with the kit's 6 px radius, the name in the player's own lifted colour, your own line raised on the kit's
+  // line, a kill marked with a small red crosshair (never an emoji on screen), a 44 px input with the kit's focus ring.
+  // Colours read --ds-* tokens when a page loads them and fall back to the same values.
+  var SANS = '"Archivo","Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif';
+  var KILL_MARK = 'url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 24 24%27 fill=%27none%27 ' +
+    'stroke=%27%23ef7461%27 stroke-width=%272.2%27 stroke-linecap=%27round%27%3E%3Ccircle cx=%2712%27 cy=%2712%27 r=%277%27/%3E' +
+    '%3Cpath d=%27M12 2v5M12 17v5M2 12h5M17 12h5%27/%3E%3C/svg%3E")';
   var CSS = [
-    '.dsc{position:fixed;left:var(--dsc-l,10px);bottom:var(--dsc-b,12px);z-index:var(--dsc-z,30);width:340px;' +
-      'max-width:46vw;display:flex;flex-direction:column;align-items:flex-start;gap:6px;pointer-events:none;' +
-      'font:500 14px/1.36 "Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;color:#f3f5f8;' +
+    '.dsc{position:fixed;left:var(--dsc-l,10px);bottom:var(--dsc-b,12px);z-index:var(--dsc-z,30);width:360px;' +
+      'max-width:46vw;display:flex;flex-direction:column;align-items:flex-start;gap:8px;pointer-events:none;' +
+      'font:500 14px/1.4 ' + SANS + ';color:var(--ds-bone,#f4f1ea);' +
       '-webkit-font-smoothing:antialiased;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}',
     '.dsc[hidden]{display:none}',
     '.dsc *{box-sizing:border-box}',
-    '.dsc-phone{bottom:auto;top:calc(var(--dsc-t,10px) + env(safe-area-inset-top,0px));width:236px;max-width:60vw;' +
-      'font-size:12.5px;gap:5px}',
-    '.dsc-feed{order:1;display:flex;flex-direction:column;align-items:flex-start;gap:3px;width:100%;max-height:none;' +
+    '.dsc-phone{bottom:auto;top:calc(var(--dsc-t,10px) + env(safe-area-inset-top,0px));width:252px;max-width:64vw;' +
+      'font-size:13px;gap:6px}',
+    '.dsc-feed{order:1;display:flex;flex-direction:column;align-items:flex-start;gap:4px;width:100%;max-height:none;' +
       'overflow:hidden}',
     '.dsc-phone .dsc-feed{order:2}',
-    '.dsc-open .dsc-feed{max-height:15.6em;overflow-y:auto;pointer-events:auto;overscroll-behavior:contain;' +
-      'scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.25) transparent}',
-    '.dsc-phone.dsc-open .dsc-feed{max-height:9.4em}',
+    '.dsc-open .dsc-feed{max-height:16em;overflow-y:auto;pointer-events:auto;overscroll-behavior:contain;' +
+      'scrollbar-width:thin;scrollbar-color:var(--ds-line2,#5a4630) transparent}',
+    '.dsc-phone.dsc-open .dsc-feed{max-height:9.6em}',
     '.dsc-feed::-webkit-scrollbar{width:5px}',
-    '.dsc-feed::-webkit-scrollbar-thumb{background:rgba(255,255,255,.22);border-radius:3px}',
+    '.dsc-feed::-webkit-scrollbar-thumb{background:var(--ds-line2,#5a4630);border-radius:3px}',
     '.dsc-line{max-width:100%;overflow-wrap:anywhere;word-break:break-word;transition:opacity .7s ease}',
     '.dsc-line.dsc-old{opacity:0}',
     '.dsc-line.dsc-gone{display:none}',
     '.dsc-open .dsc-line.dsc-old{opacity:1;transition:none}',
     '.dsc-open .dsc-line.dsc-gone{display:block}',
-    '.dsc-name{font-weight:700;color:var(--dsc-c,#cdd5df);margin-right:.38em}',
-    '.dsc-kill{font-weight:600;color:#ffd0d0}',
+    '.dsc-name{font-weight:700;color:var(--dsc-c,var(--ds-tx2,#b3a792));margin-right:.42em}',
+    '.dsc-kill{font-weight:600;color:#f4c9bf}',
     '.dsc-kill .dsc-name{margin:0}',
-    '.dsc-kill .dsc-skull{margin-right:.35em}',
-    '.dsc-sys{color:#c9d3de;font-style:italic;font-weight:500}',
-    '.dsc-sys svg{width:.95em;height:.95em;vertical-align:-.12em;margin-right:.35em;fill:none;stroke:#f0b43c;stroke-width:2}',
-    '.dsc-row{order:2;display:none;align-items:center;gap:6px;width:100%;pointer-events:auto}',
+    // the kill mark: the skull stays in the text (screen readers, lines()) but is drawn as the kit's red crosshair
+    '.dsc-kill .dsc-skull{display:inline-block;width:15px;height:15px;margin-right:6px;vertical-align:-3px;font-size:0;' +
+      'line-height:0;color:transparent;overflow:hidden;background:' + KILL_MARK + ' center/15px 15px no-repeat}',
+    '.dsc-sys{color:var(--ds-tx2,#b3a792);font-style:italic;font-weight:500}',
+    '.dsc-sys svg{width:.95em;height:.95em;vertical-align:-.12em;margin-right:.35em;fill:none;stroke:var(--ds-tx2,#b3a792);stroke-width:2}',
+    '.dsc-row{order:2;display:none;align-items:center;gap:8px;width:100%;pointer-events:auto}',
     '.dsc-phone .dsc-row{order:1;display:flex}',
     '.dsc-open .dsc-row{display:flex}',
     '.dsc-form{position:relative;flex:1;min-width:0;display:none;margin:0}',
     '.dsc-open .dsc-form{display:block}',
-    '.dsc-in{display:block;width:100%;font:inherit;font-weight:500;color:#fff;caret-color:#f0b43c;border:0;outline:0;' +
-      'margin:0;padding:7px 46px 7px 11px;-webkit-user-select:text;user-select:text;-webkit-appearance:none;appearance:none}',
-    '.dsc-phone .dsc-in{font-size:16px;padding:7px 40px 7px 10px}',   // 16px: iOS zooms the page into a smaller box
-    '.dsc-in::placeholder{color:rgba(255,255,255,.5)}',
-    '.dsc-count{position:absolute;right:30px;top:50%;transform:translateY(-50%);font-size:11px;font-weight:600;' +
-      'color:rgba(255,255,255,.55);font-variant-numeric:tabular-nums;pointer-events:none}',
-    '.dsc-count.dsc-low{color:#f0b43c}',
-    '.dsc-mute{position:absolute;right:4px;top:50%;transform:translateY(-50%);width:24px;height:24px;border:0;padding:3px;' +
-      'margin:0;background:none;border-radius:6px;cursor:pointer;color:rgba(255,255,255,.6)}',
-    // the 24 px eye keeps a 40 px tap area
-    '.dsc-mute:before{content:"";position:absolute;inset:-8px}',
-    '.dsc-mute:hover,.dsc-mute:focus-visible{color:#fff;background:rgba(255,255,255,.1);outline:0}',
+    '.dsc-in{display:block;width:100%;height:44px;font:inherit;font-size:15px;font-weight:500;color:var(--ds-bone,#f4f1ea);' +
+      'caret-color:var(--ds-bone,#f4f1ea);border:0;outline:0;margin:0;padding:0 72px 0 12px;-webkit-user-select:text;user-select:text;' +
+      '-webkit-appearance:none;appearance:none}',
+    '.dsc-phone .dsc-in{font-size:16px;padding:0 64px 0 12px}',   // 16px: iOS zooms the page into a smaller box
+    '.dsc-in::placeholder{color:var(--ds-tx3,#988b78)}',
+    '.dsc-count{position:absolute;right:46px;top:50%;transform:translateY(-50%);font-size:12px;font-weight:650;' +
+      'color:var(--ds-tx2,#b3a792);font-variant-numeric:tabular-nums;pointer-events:none}',
+    '.dsc-count.dsc-low{color:var(--ds-red,#ef7461)}',
+    '.dsc-mute{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:32px;height:32px;border:0;padding:7px;' +
+      'margin:0;background:none;border-radius:6px;cursor:pointer;color:var(--ds-tx2,#b3a792);transition:background-color .14s,color .14s}',
+    // the 32 px eye keeps a 44 px tap area
+    '.dsc-mute:before{content:"";position:absolute;inset:-6px}',
+    '.dsc-mute:hover,.dsc-mute:focus-visible{color:var(--ds-bone,#f4f1ea);background:var(--ds-s2,#1a1611);outline:0}',
     '.dsc-mute svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;' +
       'stroke-linejoin:round;display:block}',
-    '.dsc-btn{display:none;flex:none;width:40px;height:40px;border:0;padding:0;margin:0;cursor:pointer;color:#fff;' +
+    '.dsc-btn{display:none;flex:none;width:44px;height:44px;border:0;padding:0;margin:0;cursor:pointer;color:var(--ds-bone,#f4f1ea);' +
       'pointer-events:auto;position:relative;touch-action:manipulation}',
     '.dsc-phone .dsc-btn{display:grid;place-items:center}',
     '.dsc-phone.dsc-nosend .dsc-btn{display:none}',
-    '.dsc-btn svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:2;stroke-linejoin:round}',
-    '.dsc-btn i{position:absolute;right:5px;top:5px;width:8px;height:8px;border-radius:50%;background:#f0b43c;' +
-      'box-shadow:0 0 0 2px rgba(10,12,16,.9);display:none}',
+    '.dsc-btn svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linejoin:round}',
+    '.dsc-btn i{position:absolute;right:8px;top:8px;width:8px;height:8px;border-radius:50%;background:var(--ds-bone,#f4f1ea);' +
+      'box-shadow:0 0 0 2px #000;display:none}',
     '.dsc-unread .dsc-btn i{display:block}',
-    '.dsc-hint{order:3;display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:rgba(255,255,255,.72);' +
-      'text-shadow:0 1px 2px rgba(0,0,0,.75)}',
+    '.dsc-hint{order:3;display:flex;align-items:center;gap:8px;min-height:32px;padding:0 10px 0 5px;border-radius:6px;' +
+      'background:rgba(0,0,0,.66);font-size:13px;font-weight:650;color:var(--ds-tx2,#b3a792)}',
     '.dsc-phone .dsc-hint,.dsc-open .dsc-hint{display:none}',
-    '.dsc-hint kbd{font:700 11px/1 "Segoe UI",system-ui,sans-serif;color:#fff;min-width:18px;height:18px;display:inline-grid;' +
-      'place-items:center;padding:0 4px;border-radius:5px;background:rgba(12,14,19,.72);' +
-      'box-shadow:inset 0 0 0 1px rgba(255,255,255,.28),0 1px 0 rgba(0,0,0,.5)}',
-    '.dsc-light .dsc-hint{color:rgba(20,24,32,.78);text-shadow:0 1px 0 rgba(255,255,255,.6)}',
+    '.dsc-hint kbd{font:700 12px/1 ' + SANS + ';color:var(--ds-tx2,#b3a792);min-width:22px;height:22px;display:inline-grid;' +
+      'place-items:center;padding:0 6px;border-radius:5px;background:var(--ds-s3,#272018);' +
+      'box-shadow:inset 0 0 0 1px var(--ds-line2,#5a4630),inset 0 -2px 0 rgba(0,0,0,.5)}',
+    '.dsc-light .dsc-hint{background:rgba(0,0,0,.72)}',
 
-    // Owen's pick (2026-10-16, look B "Pills" of three): each message a small dark pill led by a dot in the player's colour.
-    '.dsc .dsc-line{display:block;background:rgba(14,16,22,.76);padding:4px 11px 5px 10px;border-radius:14px;' +
-      'box-shadow:inset 0 0 0 1px rgba(255,255,255,.07),0 2px 8px rgba(0,0,0,.22)}',
+    // each message a small black glass strip (Owen's "Pills" pick, 2026-10-16, redrawn on the kit's 6 px radius)
+    '.dsc .dsc-line{display:block;background:rgba(0,0,0,.7);padding:4px 10px;border-radius:6px}',
+    '.dsc .dsc-me{background:rgba(39,32,24,.92);box-shadow:inset 0 0 0 1px var(--ds-line,#36291a)}',
+    '.dsc .dsc-me .dsc-name{color:var(--ds-bone,#f4f1ea)}',
     '.dsc .dsc-new{animation:dsc-in .18s ease-out}',
-    '.dsc-light .dsc-line{background:rgba(14,16,22,.82)}',
-    '.dsc .dsc-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:7px;' +
-      'vertical-align:.06em;background:var(--dsc-c,#cdd5df);box-shadow:0 0 0 2px rgba(0,0,0,.3)}',
-    '.dsc .dsc-in{background:rgba(14,16,22,.88);border-radius:16px;box-shadow:inset 0 0 0 1.5px rgba(240,180,60,.8)}',
-    '.dsc .dsc-btn{background:rgba(14,16,22,.7);border-radius:50%;box-shadow:inset 0 0 0 1px rgba(255,255,255,.12)}',
+    '.dsc-light .dsc-line{background:rgba(0,0,0,.8)}',
+    '.dsc .dsc-dot{display:none}',
+    '.dsc .dsc-in{background:rgba(0,0,0,.86);border-radius:10px;box-shadow:inset 0 0 0 1px var(--ds-line2,#5a4630);' +
+      'transition:box-shadow .14s}',
+    '.dsc .dsc-in:focus{box-shadow:inset 0 0 0 1px var(--ds-bone,#f4f1ea),0 0 0 3px rgba(244,241,234,.12)}',
+    '.dsc .dsc-btn{background:rgba(0,0,0,.74);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border-radius:10px;' +
+      'box-shadow:inset 0 0 0 1px var(--ds-line,#36291a)}',
+    '.dsc .dsc-btn[aria-expanded="true"]{box-shadow:inset 0 0 0 1px var(--ds-line2,#5a4630)}',
 
     '@keyframes dsc-in{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:none}}',
     '@media (prefers-reduced-motion: reduce){.dsc .dsc-line{transition:none}.dsc .dsc-new{animation:none}}'
@@ -253,6 +268,16 @@
       st.setAttribute('data-ds', 'chat');
       (doc.head || doc.body).appendChild(st);
       styleOn = true;
+      // the kit's font (the same link dsEnd and the Spectate bar add; whichever comes first wins)
+      try {
+        if (doc.querySelector && !doc.querySelector('link[data-dse-font],link[data-dsw-font],link[data-dsc-font]')) {
+          var fl = el('link');
+          fl.rel = 'stylesheet';
+          fl.href = 'https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=IBM+Plex+Mono:wght@500&display=swap';
+          fl.setAttribute('data-dsc-font', '1');
+          (doc.head || doc.body).appendChild(fl);
+        }
+      } catch (_) { /* the system font is fine */ }
     }
 
     var box = el('div', 'dsc' + (phone ? ' dsc-phone' : '') + (o.light ? ' dsc-light' : ''));

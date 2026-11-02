@@ -1,9 +1,9 @@
 // The one ping and FPS readout every game shows (Owen 2026-10-27: "for every single game, I want the exact same ping
 // and FPS count in every single game"). Same look, same spot, same measuring everywhere, PC and phone.
 //
-// Look: slither.io's line (public/js/slx/slxStats.js before this file): a coloured dot and "N ms", then "FPS N", in
-// an 11 px monospace, on a faint dark capsule so it reads on a bright table or sky as well as a dark map. Bottom right
-// corner, clear of the safe area, never takes a touch or a click.
+// Look: slither.io's line (public/js/slx/slxStats.js before this file): a coloured dot and "N ms", then "FPS N", now
+// in the site kit (12 px Archivo tabular figures on a black glass chip) so it reads on a bright table or sky as well as
+// a dark map. Bottom right corner, clear of the safe area, never takes a touch or a click.
 //
 // Ping: an app-level echo on the game's own socket ('ds:ping' with an acknowledgement, answered by server/perfEcho.js
 // on every namespace). One every 2 s (the first three 500 ms apart), one in flight at a time. Shown: the median of the
@@ -36,20 +36,22 @@
   var FPS_HALF_MS = 500;
   var Z = 950;                       // over the games' canvases and HUDs, under the shared end card (1000) and dialogs
 
+  // The kit's readout (site redo 2026-11-02, layout 1 game-ui mockup): Archivo 12 px tabular figures on a black glass
+  // chip with the kit's 6 px radius; the dot in the kit's green, a warm orange and the kit's red, grey while offline.
   var CSS = [
     '.dsp-hud{position:fixed;right:calc(8px + env(safe-area-inset-right,0px));bottom:calc(4px + env(safe-area-inset-bottom,0px));',
-    'z-index:' + Z + ';display:flex;align-items:center;gap:10px;height:16px;padding:0 7px;box-sizing:border-box;',
-    'border-radius:8px;background:rgba(8,12,16,.46);color:rgba(255,255,255,.8);pointer-events:none;user-select:none;',
-    '-webkit-user-select:none;white-space:nowrap;font:11px/16px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;',
-    'letter-spacing:.5px;font-variant-numeric:tabular-nums;contain:layout paint style;transform-origin:100% 100%;}',
+    'z-index:' + Z + ';display:flex;align-items:center;gap:10px;height:22px;padding:0 8px;box-sizing:border-box;',
+    'border-radius:6px;background:rgba(0,0,0,.66);color:rgba(244,241,234,.88);pointer-events:none;user-select:none;',
+    '-webkit-user-select:none;white-space:nowrap;font:600 12px/22px "Archivo","Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;',
+    '-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums;contain:layout paint style;transform-origin:100% 100%;}',
     '.dsp-hud[hidden]{display:none;}',
-    '.dsp-ping{display:flex;align-items:center;gap:4px;}',
-    '.dsp-dot{width:7px;height:7px;border-radius:50%;flex:none;background:#8a929c;}',
-    '.dsp-green{background:#22c55e;box-shadow:0 0 4px #22c55e88;}',
-    '.dsp-orange{background:#f97316;box-shadow:0 0 4px #f9731688;}',
-    '.dsp-red{background:#ef4444;box-shadow:0 0 4px #ef444488;}',
+    '.dsp-ping{display:flex;align-items:center;gap:5px;}',
+    '.dsp-dot{width:7px;height:7px;border-radius:50%;flex:none;background:#988b78;}',
+    '.dsp-green{background:#8ed081;box-shadow:0 0 4px rgba(142,208,129,.55);}',
+    '.dsp-orange{background:#ec8b4c;box-shadow:0 0 4px rgba(236,139,76,.55);}',
+    '.dsp-red{background:#ef7461;box-shadow:0 0 4px rgba(239,116,97,.55);}',
     '.dsp-ms{display:inline-block;min-width:6ch;}',
-    '.dsp-fps{display:inline-block;min-width:7ch;}'
+    '.dsp-fps{display:inline-block;min-width:6ch;}'
   ].join('');
 
   function now() { return root.performance && root.performance.now ? root.performance.now() : Date.now(); }
