@@ -254,6 +254,16 @@ test('a Sign in from the header and from the Wallet tab say where they were pres
   assert.deepStrictEqual(asked, ['header', 'wallet']);
 });
 
+test('signed in, the header button is Add funds: Privy\'s sheet, said to come from the header (site redo, layout 1)', () => {
+  const went = [];
+  const p = walletPage(SOL, { go: (t) => went.push(t) });
+  p.win.V2Wallet.headerTap();
+  p.win.V2Wallet.fund();
+  assert.deepStrictEqual(named(p.sent, 'add_funds_opened'), [{ where: 'header', method: 'any' }, { where: 'wallet', method: 'any' }]);
+  assert.deepStrictEqual(went, [], 'no trip to the Wallet tab: the balance beside it is that');
+  planned(p.sent);
+});
+
 test('session replays never show the balance, an address or a money amount (.ph-no-capture)', () => {
   const p = walletPage(SOL);
   const b = p.body();

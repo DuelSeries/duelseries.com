@@ -1452,8 +1452,12 @@ test('one layout for every game: rungs, Play, Customize, and no small print', ()
   assert.match(html, /\.go\{[^}]*background:linear-gradient\(180deg,#ffffff/, 'white on Free');
   assert.match(html, /\.go\.paid\{background:linear-gradient/, 'gold on a paid rung');
   assert.match(html, /paid=Number\(STEPS\[si\]\)>0&&!shut;\s*if\(go\)go\.classList\.toggle\('paid',paid\);/, 'set by the chosen rung');
-  // And it says the stake: "Play $0.50" (Owen, 2026-10-15).
-  assert.match(html, /lbl\.textContent=shut\?'Coming soon':paid\?'Play '\+cash\(Number\(STEPS\[si\]\)\):'Play';/, 'Play $0.50 on a paid rung');
+  // And it says the stake (Owen, 2026-10-15), in the mockup's words since the site redo (layout 1 stake sheet):
+  // "Find a $0.50 match" on a duel, "Join a $0.50 room" in a big room, "Sign in to play for $0.50" signed out.
+  assert.match(html, /const shut=!!\(cur&&cur\.soon&&!cur\.built\), st=Number\(STEPS\[si\]\)\|\|0, paid=st>0&&!shut;\s*const out=document\.body\.classList\.contains\('signedout'\), amt=cash\(st\);/, 'the amount is the chosen rung');
+  assert.match(html, /lbl\.textContent=shut\?'Coming soon':paid&&out\?'Sign in to play for '\+amt\s*:cur&&cur\.duel\?\(paid\?'Find a '\+amt\+' match':'Find a free match'\):paid\?'Join a '\+amt\+' room':'Play free';/, 'the stake on Play on a paid rung');
+  // $0.50 and $1, never $1.00.
+  assert.match(html, /const cash=v=>v===0\?'Free':'\$'\+\(v%1\?v\.toFixed\(2\):String\(v\)\);/, 'whole dollars without cents');
 });
 
 test('the game screen swipes to the next and previous game, and leaves taps and scrolling alone', () => {

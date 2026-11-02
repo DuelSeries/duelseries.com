@@ -183,22 +183,27 @@
     /* Signed out (known, not merely not loaded yet): the header drops the
        empty balance box and says Sign in, on a phone too, where it was a lone
        dash beside an unlabelled icon. While the wallet is still starting it
-       says Wallet, so a signed-in player never sees a Sign in flash by. A
+       says Add funds, so a signed-in player never sees a Sign in flash by. A
        browser with no sign of a session at all (DSWalletBoot.session, the top
        of v2.html) is known signed out from the start: the widget now comes in
-       once the page is idle, and the header said Wallet until then. */
+       once the page is idle, and the header said Add funds until then. */
     const out = (!!w().ready || noSession()) && !connected();
-    if (label) label.textContent = out ? 'Sign in' : 'Wallet';
+    if (label) label.textContent = out ? 'Sign in' : 'Add funds';
     // A name for screen readers too: on a phone the label is hidden and only the icon shows.
-    const btn = el('wbtn'); if (btn) btn.setAttribute('aria-label', out ? 'Sign in' : 'Wallet');
+    const btn = el('wbtn'); if (btn) btn.setAttribute('aria-label', out ? 'Sign in' : 'Add funds');
     document.body.classList.toggle('signedout', out);
   }
+  // Which Add funds was pressed, for add_funds_opened (addFundsOpened): the Wallet tab's, or the header's for its call.
+  let fundWhere = 'wallet';
   /* The header button signs you in when you are signed out, instead of
      opening a Wallet tab whose only content is a second Sign in button. */
   function headerTap() {
     /* Before the widget is in, too, when nobody can be signed in: Sign in fetches it and hands over (v2.html
        stub), where the Wallet tab would only say Starting your wallet and ask for a second tap. */
     if ((w().ready || noSession()) && !connected()) return login('header');
+    /* Signed in it is Add funds (site redo, layout 1: the balance beside it opens the Wallet tab), the same
+       fund() as the Wallet tab's own button. A wallet still starting goes to the Wallet tab, as before. */
+    if (connected()) { fundWhere = 'header'; try { return fund(); } finally { fundWhere = 'wallet'; } }
     if (window.go) window.go('wallet');
   }
 
@@ -727,7 +732,7 @@
      anything shaped like an address or a signature taken out. A fault in it never reaches the money code around it. */
   const errWords = m => String(m || '').replace(/[1-9A-HJ-NP-Za-km-z]{32,}/g, '…').replace(/\$?\d+(?:[.,]\d+)*/g, '#').slice(0, 100);
   function addFundsOpened(method) {
-    try { if (window.DSTrack) window.DSTrack.event('add_funds_opened', { where: 'wallet', method: method }); } catch (_) {}
+    try { if (window.DSTrack) window.DSTrack.event('add_funds_opened', { where: fundWhere, method: method }); } catch (_) {}
   }
   function withdrawFailed(e, asset) {
     try { if (window.DSTrack) window.DSTrack.event('withdraw_failed', { error: errWords(e && e.message ? e.message : e), asset: asset }); } catch (_) {}

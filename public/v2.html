@@ -571,6 +571,50 @@ body.signedout .me{display:none}
 .meveil{position:fixed;inset:0;z-index:49;display:none}
 .meveil.on{display:block}
 body.ingame>.mepop{visibility:hidden}   /* out of the header now, so the header's in-game rule no longer covers it */
+/* ── the shared popup in the lobby ───────────────────────────────────── */
+/* DSDialog (public/js/shared/dsDialog.js, also bundled in the wallet widget): Unlink, linking a wallet, a sign-in
+   that failed, the sign-in picks. Here it is the kit's one sheet, not the gold-rimmed card it draws everywhere else:
+   gold is money only, so its OK, its question mark, its outline button and its ring go bone. A centred sheet on a PC,
+   a bottom sheet on a phone (ds-kit.css .ds-sheet). Looks only: the script and its markup are the same on every page,
+   and a game page keeps its own card until that page is redone. One class deeper than the script's own rules (its
+   style tag lands after this one), body .dsd for the root. */
+body .dsd{background:var(--ds-scrim);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);font-family:var(--ds-f)}
+.dsd .dsd-card{width:min(420px,100%);border:0;border-radius:var(--ds-r3);background:var(--ds-s1);color:var(--ds-bone);
+  box-shadow:var(--ds-sh-pop);padding:var(--ds-sp5) var(--ds-sp5) var(--ds-sp3)}
+.dsd .dsd-card.busy{padding-bottom:var(--ds-sp5)}
+.dsd .dsd-card.pick{width:min(440px,100%);padding:var(--ds-sp5) var(--ds-sp5) var(--ds-sp3)}
+.dsd .dsd-spin{border-color:var(--ds-s3);border-top-color:var(--ds-bone)}
+.dsd .dsd-ic{width:44px;height:44px;border-radius:var(--ds-r2);font-size:20px;margin-bottom:var(--ds-sp3)}
+.dsd .dsd-ic.bad{background:var(--ds-red-t);color:var(--ds-red);box-shadow:none}
+.dsd .dsd-ic.ask{background:var(--ds-s3);color:var(--ds-bone);box-shadow:var(--ds-edge)}
+.dsd .dsd-title{margin-bottom:var(--ds-sp1);font-size:var(--ds-fs-4);font-weight:700;letter-spacing:0}
+.dsd .dsd-line{font-size:var(--ds-fs-2);line-height:1.5;color:var(--ds-tx2)}
+.dsd .dsd-go{height:52px;margin-top:var(--ds-sp5);border-radius:var(--ds-r2);background:var(--ds-bone);color:var(--ds-on-bone);
+  font-size:16px;line-height:52px;transition:background-color var(--ds-dur-1),box-shadow var(--ds-dur-1)}
+.dsd .dsd-go:hover{filter:none;background:#fff;box-shadow:0 0 0 4px var(--ds-bone-t)}
+.dsd .dsd-alt{height:52px;border:0;border-radius:var(--ds-r2);background:var(--ds-s3);color:var(--ds-bone);box-shadow:var(--ds-edge);
+  transition:background-color var(--ds-dur-1),box-shadow var(--ds-dur-1)}
+.dsd .dsd-alt:hover{background:#332a1f;box-shadow:var(--ds-edge2)}
+.dsd .dsd-no{min-height:44px;margin-top:var(--ds-sp2);padding:0 var(--ds-sp4);border-radius:var(--ds-r2);font-size:var(--ds-fs-3);
+  color:var(--ds-tx2);transition:background-color var(--ds-dur-1),color var(--ds-dur-1)}
+.dsd .dsd-no:hover{background:var(--ds-s2);color:var(--ds-bone)}
+.dsd .dsd-go:focus-visible,.dsd .dsd-alt:focus-visible,.dsd .dsd-no:focus-visible,.dsd .dsd-row:focus-visible{outline:2px solid var(--ds-bone);outline-offset:2px}
+.dsd .dsd-or{color:var(--ds-tx2)}
+.dsd .dsd-or:before,.dsd .dsd-or:after{background:var(--ds-line)}
+.dsd .dsd-list{gap:var(--ds-sp2)}
+.dsd .dsd-row{min-height:60px;border:0;border-radius:var(--ds-r2);background:var(--ds-s2);box-shadow:var(--ds-edge);
+  transition:background-color var(--ds-dur-1),box-shadow var(--ds-dur-1)}
+.dsd .dsd-row:hover{border:0;background:var(--ds-s3);box-shadow:var(--ds-edge2)}
+.dsd .dsd-row .dsd-mono{background:var(--ds-ink);color:var(--ds-bone);box-shadow:var(--ds-edge)}
+.dsd .dsd-name small{color:var(--ds-tx2)}
+.dsd .dsd-badge{border-radius:var(--ds-r1);background:var(--ds-s3);color:var(--ds-tx2)}
+.dsd .dsd-badge.ok{background:var(--ds-green-t);color:var(--ds-green)}
+@media(max-width:760px){
+  body .dsd{align-items:flex-end;padding:0}
+  .dsd .dsd-card,.dsd .dsd-card.pick{width:100%;max-height:92dvh;border-radius:var(--ds-r3) var(--ds-r3) 0 0;
+    padding-bottom:calc(var(--ds-sp3) + env(safe-area-inset-bottom))}
+  .dsd .dsd-card.busy{padding-bottom:calc(var(--ds-sp6) + env(safe-area-inset-bottom))}
+}
 /* ── wallet card ────────────────────────────────────────────────────── */
 /* Hangs off the balance in the header rather than taking a slot on the
    page, so add funds, withdraw and the address are one click away without
@@ -578,7 +622,10 @@ body.ingame>.mepop{visibility:hidden}   /* out of the header now, so the header'
 /* Two separate boxes: the balance is a readout, Wallet is the action. */
 .hbal{display:inline-flex;align-items:center;gap:4px;height:46px;padding:4px;border-radius:var(--r2);
   background:var(--s1);box-shadow:var(--ds-edge);flex:none}
-.balbox{display:inline-flex;align-items:center;height:38px;padding:0 12px;border-radius:var(--r1)}
+.balbox{display:inline-flex;align-items:center;height:38px;padding:0 12px;border:0;border-radius:var(--r1);
+  background:none;font:inherit;cursor:pointer;transition:background-color var(--ds-dur-1)}
+.balbox:hover{background:var(--s2)}
+.balbox:focus-visible{outline:2px solid var(--ds-bone);outline-offset:2px}
 .balbox .v{font-size:16px;font-weight:800;font-stretch:var(--ds-wide);color:var(--money);line-height:1}
 /* Signed out there is no balance, so no empty balance box and no chip around Sign in. */
 body.signedout .balbox{display:none}
@@ -590,6 +637,10 @@ body.signedout .hbal{height:auto;padding:0;background:none;box-shadow:none}
 body.signedout .wbtn{height:44px;padding:0 16px}
 .wbtn svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:2;
   stroke-linecap:round;stroke-linejoin:round}
+/* Signed out the button says Sign in, so no plus. On the Wallet tab the page has its own Add funds and Sign in. */
+body.signedout .wbtn svg{display:none}
+body.tab-wallet .wbtn{display:none}
+body.tab-wallet.signedout .hbal{display:none}
 /* (The old mock wallet dropdown's styles, .wcard to .wnote, were deleted
    2026-10-15: the dropdown itself went long ago and nothing used them.) */
 /* The player's address: one line, first and last four, and a real Copy
@@ -2023,6 +2074,9 @@ body.no-foot footer{display:none}
    field (in the header card now), Spectate and Customize are for a game you
    can play, so they go rather than sitting there shut. */
 #detail.soon .lookrow,#detail.soon .spec{display:none}
+/* The line under Play (paintGo): quiet meta, centred under the row it explains. */
+.dbal{margin:var(--ds-sp3) 0 0;font-size:var(--ds-fs-1);line-height:1.45;color:var(--ds-tx2);text-align:center}
+.dbal:empty,#detail.soon .dbal{display:none}
 /* No Invite a friend button on the game panel (Owen, 2026-10-27: "it's kind of in the way"): stake rows,
    then Play, Spectate and Customize right under. /play/<game> links still work (js/v2/invite.js). */
 /* The narrowest phones (320 to 360 px): a rung is about 90 px there, so the
@@ -2689,15 +2743,18 @@ html.ds-building body>:not(#splash){visibility:hidden}
   <!-- Until the wallet is known this reads "…", not $0.00: a real zero balance and having no
        wallet at all are very different things to tell someone about money. (It was an em dash,
        which on a phone read as a minus button; signed out, the box is hidden.) -->
-  <!-- The balance chip (site redo, layout 1): the amount in gold and the Wallet button in one chip. Signed out
-       the amount and the chip go (body.signedout) and the button says Sign in (wallet.js renderHeader). -->
+  <!-- The balance chip (site redo, layout 1, mockup looks/ab/1/home.html): the amount in gold, which opens the
+       Wallet tab, and Add funds beside it, which opens Privy's sheet the way the Wallet tab's Add funds does
+       (wallet.js headerTap). On the Wallet tab Add funds goes (body.tab-wallet): that page has its own. Signed out
+       the amount and the chip go (body.signedout) and the button says Sign in (wallet.js renderHeader). On a phone
+       Add funds is its plus alone. -->
   <div class="hbal">
-  <div class="balbox"><span class="v num ph-no-capture" id="hdr-balance" data-cu aria-label="Balance">…</span></div>
+  <button type="button" class="balbox" onclick="go('wallet')"><span class="v num ph-no-capture" id="hdr-balance" data-cu aria-label="Balance">…</span><span class="ds-sr">, open the wallet</span></button>
   <!-- One wallet surface. The dropdown that used to hang here was a second
        place to do money in, with its own tabs and its own idea of the balance. -->
-  <button class="wbtn" id="wbtn" onclick="V2Wallet.headerTap()">
-    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2H5a2 2 0 0 1-2-2m14 6h.01"/></svg>
-    <span>Wallet</span>
+  <button type="button" class="wbtn" id="wbtn" onclick="V2Wallet.headerTap()">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+    <span>Add funds</span>
   </button>
   </div>
   <!-- Your profile (Owen's pick B, 2026-10-16): your initial, and a tap opens
@@ -3454,6 +3511,9 @@ function openSwimHow(){
         Spectate
       </button>
     </div>
+    <!-- Which money Play uses (paintGo): the balance a paid rung is paid from, or that a free room never touches
+         it. A balance, so kept out of session replays. -->
+    <p class="dbal ph-no-capture" id="dbal"></p>
     <div class="fine" id="play-msg" hidden style="color:var(--money)"></div>
 
     <!-- Customize (BACKLOG 3.1, Owen's name for it). The whole row is the
@@ -4352,7 +4412,8 @@ function stepFor(id){
 }
 let si=3, cur=null, order=GAMES.slice();
 
-const cash=v=>v===0?'Free':'$'+v.toFixed(2);
+/* A rung's price as the mockup writes it: $0.50 and $1, never $1.00 (site redo, layout 1). */
+const cash=v=>v===0?'Free':'$'+(v%1?v.toFixed(2):String(v));
 const G=id=>GAMES.find(x=>x.id===id);
 
 /* ── real game art ───────────────────────────────────────────────────────
@@ -6126,7 +6187,7 @@ function drawStake(){
   /* Spectate watches the rung chosen here; its label says which. */
   document.getElementById('detail').classList.toggle('freerung',STEPS[si]===0);
   const sb=document.getElementById('specbtn');
-  if(sb&&cur&&!sb.disabled)sb.setAttribute('aria-label','Spectate the '+(STEPS[si]>0?'$'+Number(STEPS[si]).toFixed(2):'free')+' '+cur.name+' tables');
+  if(sb&&cur&&!sb.disabled)sb.setAttribute('aria-label','Spectate the '+(STEPS[si]>0?cash(Number(STEPS[si])):'free')+' '+cur.name+' tables');
   /* A rung that cannot be sat at says so by being struck through and
      disabled; the sentence under the row that repeated it is gone with the
      rest of the small print (Owen 2026-10-15). */
@@ -6144,11 +6205,28 @@ function drawStake(){
   const go=document.getElementById('gobtn');
   const shut=!!(cur&&cur.soon&&!cur.built), paid=Number(STEPS[si])>0&&!shut;
   if(go)go.classList.toggle('paid',paid);
-  /* And it says how much (Owen, 2026-10-15): "Play $0.50" on the button that
-     stakes it, plain "Play" on Free, "Coming soon" on a shut game. */
-  const lbl=document.getElementById('golabel');
-  if(lbl)lbl.textContent=shut?'Coming soon':paid?'Play '+cash(Number(STEPS[si])):'Play';
+  paintGo();
 }
+/* Play's words and the line under it (site redo, layout 1, the mockup's stake sheet). Play says what pressing it
+   does and, on a paid rung, how much it stakes (Owen, 2026-10-15: the amount on the button that stakes it): a duel
+   finds a match, a big room is joined, a paid rung signed out asks to sign in first (play.js does), a shut game is
+   Coming soon. The line says which money a paid rung uses: the balance it is paid from, the figure the header
+   shows. Words only: what Play does is startFromDetail's, unchanged. Again on every wallet change (below). */
+function paintGo(){
+  const shut=!!(cur&&cur.soon&&!cur.built), st=Number(STEPS[si])||0, paid=st>0&&!shut;
+  const out=document.body.classList.contains('signedout'), amt=cash(st);
+  const lbl=document.getElementById('golabel');
+  if(lbl)lbl.textContent=shut?'Coming soon':paid&&out?'Sign in to play for '+amt
+    :cur&&cur.duel?(paid?'Find a '+amt+' match':'Find a free match'):paid?'Join a '+amt+' room':'Play free';
+  const line=document.getElementById('dbal');
+  if(!line)return;
+  const w=window.duelWallet||{};
+  const bal=w.authenticated&&w.balance!=null&&isFinite(Number(w.balance))?Number(w.balance):null;
+  line.textContent=shut?'':!paid?'Free rooms never touch your balance.':out?'Paid rooms need you to sign in.'
+    :bal==null?'Paid from your balance.':'Paid from your '+usd(bal)+' balance.';
+}
+/* After wallet.js has had the same change (it sets body.signedout), so both read one answer. */
+window.addEventListener('duelwallet:change',()=>setTimeout(()=>{if(cur)paintGo()},0));
 /* Every board answer (V2Board load and push, through paintCounts) re-strikes the
    rungs of the game screen up now. open_ was the only other caller of
    refreshSteps, so a screen opened before /api/live had answered (an invite, a
@@ -6271,6 +6349,7 @@ const SB_P={
   eye:'M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6',
 };
 function drawNav(){
+  document.body.classList.toggle('tab-wallet',route==='wallet');   // the header's Add funds steps aside there (#wbtn)
   const navBtn=n=>
       `<button class="ni${n.id===route?' on':''}${n.pc?' pconly':''}${n.dot&&n.dot()?' isnew':''}${n.call&&n.call()?' brcall':''}" data-tab="${n.id}" onclick="go('${n.id}')" aria-label="${n.t}">
          <svg viewBox="0 0 24 24"><path d="${n.p}"/></svg><span class="lbl">${n.t}</span><span class="tip">${n.t}</span>
