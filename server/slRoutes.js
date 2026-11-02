@@ -41,11 +41,13 @@ function isSlFile(pathname) {
    lobby's frame it sends game:done instead, the message every game page sends to close itself. */
 const CLOSED_PAGE = '<!doctype html><html lang="en"><head><meta charset="utf-8">'
   + '<meta name="viewport" content="width=device-width, initial-scale=1"><title>slither.io - DuelSeries</title></head>'
-  + '<body style="margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;'
-  + 'background:#100e0b;color:#f5f1e8;font:16px Arial,sans-serif;text-align:center">'
-  + '<div><p>slither.io is not open yet.</p>'
-  + '<a id="back" href="/" target="_top" style="display:inline-block;font:600 16px Arial,sans-serif;'
-  + 'padding:10px 22px;border-radius:8px;background:#f0a830;color:#100e0b;text-decoration:none">Back to lobby</a></div>'
+  + '<body style="margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;'
+  + 'box-sizing:border-box;background:#000;color:#f4f1ea;font:16px/1.5 Archivo,\'Segoe UI\',system-ui,sans-serif;'
+  + 'text-align:center;-webkit-font-smoothing:antialiased">'
+  + '<div><p style="margin:0 0 20px;font-size:19px;font-weight:600">slither.io is not open yet.</p>'
+  + '<a id="back" href="/" target="_top" style="display:inline-flex;align-items:center;justify-content:center;'
+  + 'min-height:52px;min-width:200px;box-sizing:border-box;font:700 16px Archivo,\'Segoe UI\',system-ui,sans-serif;'
+  + 'padding:0 24px;border-radius:10px;background:#f4f1ea;color:#000;text-decoration:none">Back to lobby</a></div>'
   + '<script>document.getElementById("back").onclick=function(e){'
   + 'if(window.parent&&window.parent!==window){e.preventDefault();window.parent.postMessage("game:done","*")}};'
   + '</script></body></html>';

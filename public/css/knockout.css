@@ -16,22 +16,22 @@
    clocks, and this screen is nothing but a clock and a count. */
 
 :root {
-  --ink:   #100e0b;
+  --ink:   #000000;        /* site redo 2026-11-02: the kit's true black and warm panels for everything off the disc */
   --pit:   #0b0907;        /* the drop around the disc */
   --disc:  #1c1813;        /* the surface you play on */
   --disc2: #241d16;        /* its lit inner face */
   --rim:   #f0a830;        /* the edge, and the whole game */
-  --s1:    #17140f;
-  --s2:    #1f1b15;
-  --s3:    #282219;
-  --tx:    #f5f1e8;
-  --tx2:   #a89c8a;
-  --tx3:   #8d8171;
+  --s1:    #0d0b08;
+  --s2:    #1a1611;
+  --s3:    #272018;
+  --tx:    #f4f1ea;
+  --tx2:   #b3a792;
+  --tx3:   #988b78;
   --you:   #f4f1ea;
-  --them:  #e0705f;
+  --them:  #ef7461;
   --live:  #8ed081;
   --crust: #f0a830;        /* shared name with tanks.css, same role */
-  --f:  'Archivo', ui-sans-serif, system-ui, 'Segoe UI', Arial, sans-serif;
+  --f:  'Archivo', 'Segoe UI', system-ui, -apple-system, Roboto, Arial, sans-serif;
   --fm: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
 }
 
@@ -48,7 +48,7 @@ html, body {
   -webkit-user-select: none; user-select: none;
   -webkit-tap-highlight-color: transparent;
 }
-.num { font-family: var(--fm); font-variant-numeric: tabular-nums; }
+.num { font-family: var(--f); font-variant-numeric: tabular-nums; }
 
 #board { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
 
@@ -58,14 +58,14 @@ html, body {
   position: fixed; top: 0; left: 0; right: 0; z-index: 10;
   display: flex; align-items: center; gap: 14px;
   padding: calc(10px + env(safe-area-inset-top)) 14px 10px;
-  background: linear-gradient(to bottom, rgba(11,9,7,0.94), rgba(11,9,7,0));
+  background: linear-gradient(to bottom, rgba(0,0,0,0.9), rgba(0,0,0,0));
   pointer-events: none;
 }
 #top[hidden] { display: none; }
 .side { flex: 1; display: flex; align-items: center; gap: 9px; min-width: 0; }
 .side.them { flex-direction: row-reverse; }
 .who {
-  font-size: 12.5px; font-weight: 600; color: var(--tx2);
+  font-size: 13px; font-weight: 650; color: var(--tx2);
   max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
@@ -84,14 +84,14 @@ html, body {
    have to read is a number you read too late. */
 .clock { text-align: center; flex: 0 0 auto; }
 .clock .num {
-  display: block; font-size: 26px; font-weight: 600; line-height: 1;
+  display: block; font-size: 28px; font-weight: 800; font-stretch: 118%; letter-spacing: -.01em; line-height: 1;
   color: var(--tx); transition: color 0.2s;
 }
 .clock.urgent .num { color: var(--rim); }
 .clock.locked .num { color: var(--live); }
 .clock .lbl {
-  display: block; margin-top: 3px; font-family: var(--fm);
-  font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--tx3);
+  display: block; margin-top: 4px; font-family: var(--f);
+  font-size: 12px; font-weight: 600; color: var(--tx2);
 }
 
 /* ── the bar ───────────────────────────────────────────────────────────────
@@ -101,25 +101,28 @@ html, body {
   display: flex; align-items: center; gap: 12px;
   /* The bottom padding keeps Lock in clear of the ping and FPS readout (dsPerfHud.js) in the corner under it. */
   padding: 12px 14px calc(28px + env(safe-area-inset-bottom));
-  background: linear-gradient(to top, rgba(11,9,7,0.96), rgba(11,9,7,0));
+  background: linear-gradient(to top, rgba(0,0,0,0.92), rgba(0,0,0,0));
 }
 #bar[hidden] { display: none; }
-#hint { flex: 1; font-size: 12.5px; color: var(--tx3); min-width: 0; }
+#hint { flex: 1; font-size: 13px; line-height: 1.4; color: var(--tx2); min-width: 0; }
 .their {
-  font-family: var(--fm); font-size: 11px; letter-spacing: 0.06em;
-  text-transform: uppercase; color: var(--tx3); white-space: nowrap;
+  font-family: var(--f); font-size: 13px; font-weight: 650;
+  color: var(--tx2); white-space: nowrap;
 }
 .their.ready { color: var(--live); }
 #lock {
-  font-family: inherit; font-size: 13.5px; font-weight: 650;
-  border-radius: 10px; padding: 11px 18px; min-height: 44px; cursor: pointer;
-  border: 1px solid var(--rim); background: var(--rim); color: var(--ink);
-  transition: opacity 0.15s, background 0.15s;
+  font-family: inherit; font-size: 15px; font-weight: 700;
+  border-radius: 10px; padding: 0 22px; min-height: 48px; cursor: pointer;
+  border: 0; background: var(--you); color: #000;
+  transition: opacity 0.15s, background-color 0.14s, box-shadow 0.14s, transform .08s;
 }
-#lock:hover:not(:disabled) { background: #f6b845; }
+/* the kit's primary (bone): ending your turn is the action, and gold stays for money */
+#lock:hover:not(:disabled) { background: #fff; box-shadow: 0 0 0 4px rgba(244,241,234,.14); }
+#lock:active:not(:disabled) { transform: translateY(1px) scale(.985); }
+#lock:focus-visible { outline: 2px solid var(--you); outline-offset: 2px; }
 /* Still legible when it is off. A disabled control people cannot read is a
    control they assume is broken. */
-#lock:disabled { background: transparent; color: var(--tx3); border-color: var(--s3); cursor: default; }
+#lock:disabled { background: var(--s2); color: var(--tx3); box-shadow: inset 0 0 0 1px var(--s3); cursor: default; }
 
 /* ── the three seconds ─────────────────────────────────────────────────── */
 #count {

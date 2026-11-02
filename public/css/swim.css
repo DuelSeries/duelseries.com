@@ -5,17 +5,17 @@
    note read the same in every duel. Gold is you, teal is them: the colours the
    two cars are painted. */
 :root {
-  --ink:  #100e0b;
-  --s1:   #17140f;
-  --s2:   #1f1b15;
-  --s3:   #282219;
+  --ink:  #000000;
+  --s1:   #0d0b08;
+  --s2:   #1a1611;
+  --s3:   #272018;
   --rim:  #f0a830;
-  --tx:   #f5f1e8;
-  --tx2:  #a89c8a;
-  --tx3:  #8d8171;
+  --tx:   #f4f1ea;
+  --tx2:  #b3a792;
+  --tx3:  #988b78;
   --you:  #f0b440;
   --them: #4fc3d9;
-  --lose: #e0705f;
+  --lose: #ef7461;
   --f:  'Archivo', ui-sans-serif, system-ui, 'Segoe UI', Arial, sans-serif;
   --fm: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
 }
@@ -60,7 +60,7 @@ html, body {
 .rope.danger .fill { background: var(--lose); animation: swpulse 0.5s ease-in-out infinite alternate; }
 @keyframes swpulse { to { opacity: 0.45; } }
 .gapText {
-  font-family: var(--fm); font-size: 13px; font-weight: 600; color: var(--tx);
+  font-family: var(--f); font-size: 13px; font-weight: 700; color: var(--tx); font-variant-numeric: tabular-nums;
   text-shadow: 0 1px 8px rgba(0,0,0,0.8); white-space: nowrap;
 }
 
@@ -72,13 +72,13 @@ html, body {
 }
 #dash[hidden] { display: none; }
 .spd { display: flex; align-items: baseline; justify-content: center; gap: 6px; }
-.spd b { font-family: var(--fm); font-size: 46px; font-weight: 600; letter-spacing: -1px; font-variant-numeric: tabular-nums; min-width: 3ch; text-align: right; }
+.spd b { font-family: var(--f); font-weight: 800; font-stretch: 118%; font-variant-numeric: tabular-nums; font-size: 46px; letter-spacing: -.02em; min-width: 3ch; text-align: right; }
 .spd span { font-size: 13px; color: var(--tx2); font-weight: 600; }
-.dist { margin-top: -2px; font-family: var(--fm); font-size: 12px; color: var(--tx2); }
+.dist { margin-top: -2px; font-family: var(--f); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--tx2); }
 /* The gear beside the speed, and the tach under it: the rev counter on the start line (tall, labelled by the N),
    a slim bar once the race is on. Only for your own car. */
 .spd .gear { align-self: center; min-width: 1.6em; padding: 2px 6px; border-radius: 6px; font-style: normal;
-  font-family: var(--fm); font-size: 15px; font-weight: 600; color: #141820; background: rgba(255,255,255,0.88); text-shadow: none; }
+  font-family: var(--f); font-size: 15px; font-weight: 800; color: #000; background: #f4f1ea; text-shadow: none; }
 .spd .gear[hidden] { display: none; }
 .tach { width: 132px; height: 8px; margin: 1px auto 2px; border-radius: 3px; background: rgba(255,255,255,0.16); overflow: hidden;
   opacity: 0; transform: scaleY(0.375); transform-origin: center; transition: transform .25s ease, opacity .35s ease; }
@@ -96,7 +96,7 @@ html, body {
 }
 #close[hidden] { display: none; }
 #close b { font-size: 26px; font-weight: 800; color: var(--you); letter-spacing: -0.3px; }
-#close span { font-family: var(--fm); font-size: 15px; color: var(--tx); }
+#close span { font-family: var(--f); font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--tx); }
 #close.pop { animation: swpop 0.7s ease-out forwards; }
 @keyframes swpop {
   0%   { transform: translateX(-50%) translateY(8px) scale(0.86); opacity: 0; }
@@ -108,19 +108,19 @@ html, body {
 #warn {
   position: fixed; left: 50%; top: calc(78px + env(safe-area-inset-top)); z-index: 11;
   transform: translateX(-50%); pointer-events: none;
-  padding: 6px 14px; border-radius: 999px; background: rgba(120, 30, 24, 0.82);
-  font-size: 14px; font-weight: 700; color: #fff4ee;
+  padding: 8px 14px; border-radius: 10px; background: rgba(0, 0, 0, 0.84); box-shadow: inset 0 0 0 1px rgba(239, 116, 97, 0.6);
+  font-size: 14px; font-weight: 700; color: #ef7461;
 }
 #warn[hidden] { display: none; }
 
 #keys {
   position: fixed; left: 50%; bottom: calc(118px + env(safe-area-inset-bottom)); z-index: 10;
   transform: translateX(-50%); pointer-events: none; white-space: nowrap;
-  padding: 7px 14px; border-radius: 10px; background: rgba(12, 9, 10, 0.66);
-  font-size: 13px; color: var(--tx2);
+  padding: 8px 14px; border-radius: 10px; background: rgba(0, 0, 0, 0.74); box-shadow: inset 0 0 0 1px #36291a;
+  font-size: 13px; font-weight: 600; color: var(--tx2);
 }
 #keys[hidden] { display: none; }
-#keys kbd { font-family: var(--fm); font-size: 12px; color: var(--tx); padding: 1px 6px; border-radius: 5px; background: rgba(255,255,255,0.1); margin: 0 1px; }
+#keys kbd { display: inline-grid; place-items: center; min-width: 22px; height: 22px; font-family: var(--f); font-size: 12px; font-weight: 700; color: var(--tx2); padding: 0 6px; border-radius: 5px; background: #272018; box-shadow: inset 0 0 0 1px #5a4630, inset 0 -2px 0 rgba(0,0,0,.5); margin: 0 1px; }
 
 /* The edge flash: gold on a close pass, red on a crash. */
 #flash {
@@ -143,13 +143,13 @@ html, body {
 #pads button {
   position: absolute; bottom: calc(22px + env(safe-area-inset-bottom)); pointer-events: auto;
   font-family: var(--f); font-weight: 700; color: var(--tx); cursor: pointer;
-  border-radius: 18px; border: 1px solid rgba(255,255,255,0.18); background: rgba(16, 12, 14, 0.5);
-  backdrop-filter: blur(4px);
+  border-radius: 18px; border: 0; background: rgba(0, 0, 0, 0.6); box-shadow: inset 0 0 0 1px #5a4630;
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
 }
 #gas { right: calc(18px + env(safe-area-inset-right)); width: 92px; height: 120px; font-size: 16px; }
 #brake { right: calc(122px + env(safe-area-inset-right)); width: 78px; height: 78px; font-size: 14px; }
-#pads button.on { background: rgba(240, 180, 64, 0.38); border-color: rgba(240, 180, 64, 0.8); }
-#brake.on { background: rgba(224, 112, 95, 0.4); border-color: rgba(224, 112, 95, 0.85); }
+#pads button.on { background: rgba(244, 241, 234, 0.24); box-shadow: inset 0 0 0 2px #f4f1ea; }
+#brake.on { background: rgba(239, 116, 97, 0.3); box-shadow: inset 0 0 0 2px #ef7461; }
 /* On a phone the speed sits on the left of the pedals, clear of both thumbs. */
 body.touch #dash { left: auto; right: calc(222px + env(safe-area-inset-right)); transform: none; }
 body.touch #close { bottom: calc(150px + env(safe-area-inset-bottom)); }

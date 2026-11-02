@@ -1,6 +1,6 @@
-/* DSDialog: the one popup card for the lobby and every game (Owen's pick "A Gold card", 2026-10-17).
-   A centred dark card with a gold rim: a turning ring while something is in flight, a red mark and
-   a gold OK for an error, a gold button plus a quiet "no" for a question.
+/* DSDialog: the one popup card for the lobby and every game (Owen's pick "A Gold card", 2026-10-17, redrawn as the
+   site kit's sheet in the 2026-11-02 redo). A centred black card: a turning ring while something is in flight, a red
+   mark and a bone OK for an error, a bone button plus a quiet "no" for a question.
 
      DSDialog.busy({ title, line })               shows or updates the in-flight card
      DSDialog.alert({ title, line, ok })          resolves when OK is pressed
@@ -8,8 +8,8 @@
      DSDialog.choose({ title, line, primary, secondary, divider, items, cancel, cancelId })
                                                   a pick (the sign-in sheets): resolves the id of the button or
                                                   row pressed, cancelId for the quiet button when given, or false
-                                                  (Escape, or another card replacing it). primary (gold) and secondary (gold
-                                                  outline) are { id, label }; each item { id, label, sub, icon,
+                                                  (Escape, or another card replacing it). primary (bone) and secondary (raised
+                                                  kit button) are { id, label }; each item { id, label, sub, icon,
                                                   badge, tone } (icon an image URL, tone 'ok' greens the badge)
      DSDialog.close()
 
@@ -21,52 +21,59 @@
    reduced-motion rule (v2.html), which forces every animation down to one 0.01ms run. */
 (function () {
   if (typeof window === 'undefined' || window.DSDialog) return;
+  /* The kit's one sheet (site redo 2026-11-02, layout 1): a black panel on the kit's line with the pop shadow, the
+     bone primary for the next step, the raised secondary for the other, a quiet "no", kit option rows. Gold is left
+     for money, so the rim and the buttons are no longer gold. */
   var CSS =
     '.dsd{position:fixed;inset:0;z-index:100000;display:flex;align-items:center;justify-content:center;padding:16px;' +
-      'background:rgba(8,7,5,.74);font-family:Archivo,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif}' +
-    '.dsd-card{width:min(340px,100%);box-sizing:border-box;background:#17140f;border:1.5px solid rgba(240,168,48,.55);' +
-      'border-radius:22px;padding:22px 22px 16px;text-align:center;color:#f5f1e8;' +
-      'box-shadow:0 0 40px -8px rgba(240,168,48,.2),0 24px 60px rgba(0,0,0,.6)}' +
-    '.dsd-card.busy{padding-bottom:22px}' +
-    '.dsd-spin{width:30px;height:30px;margin:2px auto 12px;box-sizing:border-box;border-radius:50%;' +
-      'border:3px solid rgba(245,241,232,.14);border-top-color:#f0a830;' +
+      'background:rgba(0,0,0,.78);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);' +
+      'font-family:Archivo,"Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;-webkit-font-smoothing:antialiased}' +
+    '.dsd-card{width:min(380px,100%);box-sizing:border-box;background:#0d0b08;border:0;' +
+      'border-radius:18px;padding:24px 24px 16px;text-align:center;color:#f4f1ea;' +
+      'box-shadow:0 28px 70px rgba(0,0,0,.8),0 0 0 1px #36291a}' +
+    '.dsd-card.busy{padding-bottom:24px}' +
+    '.dsd-spin{width:30px;height:30px;margin:2px auto 14px;box-sizing:border-box;border-radius:50%;' +
+      'border:3px solid #272018;border-top-color:#f4f1ea;border-right-color:#f4f1ea;' +
       'animation:dsd-spin .8s linear infinite!important;animation-duration:.8s!important;animation-iteration-count:infinite!important}' +
     '@keyframes dsd-spin{to{transform:rotate(360deg)}}' +
-    '.dsd-ic{width:36px;height:36px;margin:0 auto 10px;border-radius:50%;display:grid;place-items:center;font-weight:700;font-size:18px;line-height:1}' +
-    '.dsd-ic.bad{background:rgba(224,112,95,.14);color:#e0705f;box-shadow:inset 0 0 0 1.5px rgba(224,112,95,.5)}' +
-    '.dsd-ic.ask{background:rgba(240,168,48,.12);color:#f0a830;box-shadow:inset 0 0 0 1.5px rgba(240,168,48,.5)}' +
-    '.dsd-title{margin:0 0 3px;font-size:18px;font-weight:700;line-height:1.25;letter-spacing:-.01em}' +
-    '.dsd-line{margin:0;font-size:13.5px;line-height:1.45;color:#a89c8a;word-break:break-word}' +
-    '.dsd-go{display:block;width:100%;height:44px;margin-top:16px;border:0;border-radius:999px;cursor:pointer;' +
-      'font-weight:700;font-size:16px;line-height:44px;font-family:inherit;color:#100e0b;background:linear-gradient(to bottom,#f7c766,#f0a830 52%,#c98a22)}' +
-    '.dsd-go:hover{filter:brightness(1.08)}' +
-    '.dsd-no{display:block;margin:6px auto 0;padding:8px 14px;border:0;background:none;cursor:pointer;' +
-      'font-weight:600;font-size:14px;font-family:inherit;color:#a89c8a}' +
-    '.dsd-no:hover{color:#f5f1e8}' +
-    '.dsd-go:focus-visible,.dsd-no:focus-visible{outline:2px solid #f4f1ea;outline-offset:3px}' +
+    '.dsd-ic{width:40px;height:40px;margin:0 auto 12px;border-radius:10px;display:grid;place-items:center;font-weight:800;font-size:18px;line-height:1}' +
+    '.dsd-ic.bad{background:rgba(239,116,97,.15);color:#ef7461}' +
+    '.dsd-ic.ask{background:rgba(244,241,234,.1);color:#f4f1ea}' +
+    '.dsd-title{margin:0 0 4px;font-size:18px;font-weight:700;line-height:1.25}' +
+    '.dsd-line{margin:0;font-size:14px;line-height:1.5;color:#b3a792;word-break:break-word}' +
+    '.dsd-go{display:block;width:100%;height:52px;margin-top:20px;border:0;border-radius:10px;cursor:pointer;' +
+      'font-weight:700;font-size:16px;line-height:52px;font-family:inherit;color:#000;background:#f4f1ea;' +
+      'transition:background-color .14s,box-shadow .14s,transform .08s}' +
+    '.dsd-go:hover{background:#fff;box-shadow:0 0 0 4px rgba(244,241,234,.14)}' +
+    '.dsd-go:active,.dsd-alt:active{transform:translateY(1px) scale(.985)}' +
+    '.dsd-no{display:block;margin:6px auto 0;min-height:44px;padding:0 16px;border:0;border-radius:10px;background:none;cursor:pointer;' +
+      'font-weight:650;font-size:15px;font-family:inherit;color:#b3a792}' +
+    '.dsd-no:hover{color:#f4f1ea;background:#1a1611}' +
+    '.dsd-go:focus-visible,.dsd-no:focus-visible{outline:2px solid #f4f1ea;outline-offset:2px}' +
     /* the pick list (choose): rows a thumb can hit, the list scrolls inside a short phone, the card never does */
-    '.dsd-card.pick{width:min(360px,100%);max-height:calc(100vh - 32px);max-height:calc(100dvh - 32px);display:flex;flex-direction:column;padding:20px 18px 12px}' +
-    '.dsd-card.pick .dsd-go{margin-top:14px;flex:none}' +
-    '.dsd-alt{display:block;width:100%;height:44px;margin-top:10px;flex:none;border:1.5px solid rgba(240,168,48,.55);border-radius:999px;' +
-      'cursor:pointer;background:transparent;color:#f0a830;font-weight:700;font-size:16px;font-family:inherit}' +
-    '.dsd-alt:hover{background:rgba(240,168,48,.08)}' +
-    '.dsd-alt:focus-visible{outline:2px solid #f4f1ea;outline-offset:3px}' +
+    '.dsd-card.pick{width:min(400px,100%);max-height:calc(100vh - 32px);max-height:calc(100dvh - 32px);display:flex;flex-direction:column;padding:22px 20px 12px}' +
+    '.dsd-card.pick .dsd-go{margin-top:16px;flex:none}' +
+    '.dsd-alt{display:block;width:100%;height:52px;margin-top:8px;flex:none;border:0;border-radius:10px;' +
+      'cursor:pointer;background:#272018;color:#f4f1ea;font-weight:650;font-size:16px;font-family:inherit;box-shadow:inset 0 0 0 1px #36291a;' +
+      'transition:background-color .14s,box-shadow .14s,transform .08s}' +
+    '.dsd-alt:hover{background:#332a1f;box-shadow:inset 0 0 0 1px #5a4630}' +
+    '.dsd-alt:focus-visible{outline:2px solid #f4f1ea;outline-offset:2px}' +
     '.dsd-card.pick .dsd-list{margin-top:14px}' +
-    '.dsd-or{display:flex;align-items:center;gap:10px;margin:16px 2px 8px;font-size:12.5px;color:#a89c8a;flex:none}' +
-    '.dsd-or:before,.dsd-or:after{content:"";flex:1;height:1px;background:rgba(245,241,232,.1)}' +
-    '.dsd-list{display:flex;flex-direction:column;gap:6px;overflow-y:auto;min-height:0;margin:0 -4px;padding:2px 4px}' +
-    '.dsd-row{display:flex;align-items:center;gap:12px;width:100%;min-height:52px;box-sizing:border-box;padding:9px 12px;' +
-      'border:1px solid rgba(245,241,232,.08);border-radius:14px;background:#1f1b15;color:#f5f1e8;cursor:pointer;' +
-      'font-family:inherit;text-align:left}' +
-    '.dsd-row:hover{border-color:rgba(240,168,48,.55);background:#241f17}' +
+    '.dsd-or{display:flex;align-items:center;gap:10px;margin:16px 2px 8px;font-size:13px;font-weight:600;color:#b3a792;flex:none}' +
+    '.dsd-or:before,.dsd-or:after{content:"";flex:1;height:1px;background:#36291a}' +
+    '.dsd-list{display:flex;flex-direction:column;gap:8px;overflow-y:auto;min-height:0;margin:0 -4px;padding:2px 4px}' +
+    '.dsd-row{display:flex;align-items:center;gap:12px;width:100%;min-height:60px;box-sizing:border-box;padding:10px 12px;' +
+      'border:0;border-radius:10px;background:#1a1611;color:#f4f1ea;cursor:pointer;box-shadow:inset 0 0 0 1px #36291a;' +
+      'font-family:inherit;text-align:left;transition:background-color .14s,box-shadow .14s}' +
+    '.dsd-row:hover{background:#272018;box-shadow:inset 0 0 0 1px #5a4630}' +
     '.dsd-row:focus-visible{outline:2px solid #f4f1ea;outline-offset:2px}' +
-    '.dsd-row img,.dsd-row .dsd-mono{width:32px;height:32px;border-radius:9px;flex:none;object-fit:cover}' +
-    '.dsd-row .dsd-mono{display:grid;place-items:center;background:#2c261d;color:#f0a830;font-weight:700;font-size:15px}' +
-    '.dsd-name{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}' +
-    '.dsd-name b{font-size:15px;font-weight:600;line-height:1.2}' +
-    '.dsd-name small{font-size:12px;color:#a89c8a;line-height:1.3}' +
-    '.dsd-badge{flex:none;font-size:12px;font-weight:600;color:#a89c8a;padding:3px 9px;border-radius:999px;background:rgba(245,241,232,.06)}' +
-    '.dsd-badge.ok{color:#8fdc9a;background:rgba(143,220,154,.12)}';
+    '.dsd-row img,.dsd-row .dsd-mono{width:40px;height:40px;border-radius:10px;flex:none;object-fit:cover}' +
+    '.dsd-row .dsd-mono{display:grid;place-items:center;background:#000;color:#f4f1ea;font-weight:800;font-size:16px}' +
+    '.dsd-name{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}' +
+    '.dsd-name b{font-size:15px;font-weight:650;line-height:1.25}' +
+    '.dsd-name small{font-size:13px;color:#b3a792;line-height:1.35}' +
+    '.dsd-badge{flex:none;display:inline-flex;align-items:center;height:24px;font-size:12px;font-weight:650;color:#b3a792;padding:0 8px;border-radius:6px;background:#272018}' +
+    '.dsd-badge.ok{color:#8ed081;background:rgba(142,208,129,.14)}';
 
   var root = null, settle = null;
 

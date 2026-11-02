@@ -3,7 +3,8 @@
 // Owen's pick the same evening ("actually can you do the gold coin"), after the cream "Ticket" and a short-lived "Lobby
 // panel": a small dark screen that pops up with a struck coin on its top edge. Money coming to you strikes a gold coin (the
 // in-game money: breathing gold with a small $), a battle royale win puts a crown on it, anything else (a loss, a free
-// death) leaves a blank iron coin and lets the figure say it. The board is fully clear, text only; your row is a gold pill.
+// death) leaves a blank iron coin and lets the figure say it. The board is fully clear, text only; your row is a bone pill
+// (site redo 2026-11-02: the kit keeps gold for money only).
 //
 // Each game keeps its own logic and money flow and only maps its data in (a small adapter in the game's own files):
 //   DSEnd.show(card)  -> the card on screen (replaces the one showing). card:
@@ -41,33 +42,37 @@
   var doc = root.document;
   if (root.DSEnd && root.DSEnd.version) return;
 
-  var FONT_HREF = 'https://fonts.googleapis.com/css2?family=Archivo:wght@400..700&family=IBM+Plex+Mono:wght@500;600&display=swap';
+  // The site kit's one font link (Archivo with its width axis, so the wide display cut renders; Plex Mono stays for
+  // wallet addresses only). Every colour reads the kit token when the page loads ds-tokens.css and falls back to the
+  // same value, so a game page that loads nothing else still gets the kit (site redo 2026-11-02, layout 1 "Sidebar").
+  var FONT_HREF = 'https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=IBM+Plex+Mono:wght@500&display=swap';
   var PHONE_MAX = 760;
-  var MONO = '"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace';
-  var SANS = 'Archivo,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif';
-  var PANEL_BG = 'linear-gradient(180deg,var(--dse-p1),var(--dse-p2) 72%) border-box';
+  var SANS = '"Archivo","Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif';
+  var WIDE = '118%';
+  var PANEL_BG = 'var(--dse-p1)';
 
   var CSS = [
-    // the card: the lobby's warm ink, gold only where there is money. Phone first: low on the screen, near the thumb.
-    '.dse{--dse-ink:#100e0b;--dse-p1:#201c16;--dse-p2:#16130f;--dse-tx:#f5f1e8;--dse-tx2:#a89c8a;--dse-tx3:#8d8171;' +
-      '--dse-bone:#f4f1ea;--dse-gold:#f0a830;--dse-loss:#ff6b57;--dse-line:rgba(245,241,232,.09);' +
+    // the card: the kit's panel on true black, gold only where there is money. Phone first: low, near the thumb.
+    '.dse{--dse-ink:var(--ds-ink,#000);--dse-p1:var(--ds-s1,#0d0b08);--dse-s2:var(--ds-s2,#1a1611);--dse-s3:var(--ds-s3,#272018);' +
+      '--dse-tx:var(--ds-bone,#f4f1ea);--dse-tx2:var(--ds-tx2,#b3a792);--dse-tx3:var(--ds-tx3,#988b78);' +
+      '--dse-bone:var(--ds-bone,#f4f1ea);--dse-gold:var(--ds-gold,#f0a830);--dse-loss:var(--ds-red,#ef7461);' +
+      '--dse-green:var(--ds-green,#8ed081);--dse-line:var(--ds-line,#36291a);--dse-line2:var(--ds-line2,#5a4630);' +
       'position:fixed;inset:0;display:flex;align-items:flex-end;justify-content:center;' +
-      'padding:12px 16px calc(14px + env(safe-area-inset-bottom,0px));box-sizing:border-box;' +
+      'padding:12px 16px calc(16px + env(safe-area-inset-bottom,0px));box-sizing:border-box;' +
       'font-family:' + SANS + ';color:var(--dse-tx);-webkit-text-size-adjust:100%;-webkit-tap-highlight-color:transparent;' +
-      'text-align:center;line-height:1.35}',
+      '-webkit-font-smoothing:antialiased;text-align:center;line-height:1.35}',
     '.dse *{box-sizing:border-box}',
     // :where keeps this reset weaker than the parts' own margins below
     '.dse :where(p),.dse :where(ol),.dse :where(dl),.dse :where(dd){margin:0;padding:0;list-style:none}',
     // the game stays visible above the card, darker where the card sits
-    '.dse-scrim{position:absolute;inset:0;background:linear-gradient(180deg,rgba(16,14,11,.38),rgba(16,14,11,.74) 72%)}',
-    '.dse-card{position:relative;width:360px;max-width:100%}',
-    '.dse-card.coined{padding-top:24px}',
-    '.dse-panel{position:relative;border-radius:18px;padding:20px 18px 18px;border:1px solid rgba(245,241,232,.09);' +
-      'background:' + PANEL_BG + ';' +
-      'box-shadow:inset 0 1px 0 rgba(255,236,200,.06),0 28px 56px -14px rgba(0,0,0,.72),0 10px 22px rgba(0,0,0,.34)}',
-    '.dse-card.coined .dse-panel{padding-top:50px}',
+    '.dse-scrim{position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.3),rgba(0,0,0,.76) 72%)}',
+    '.dse-card{position:relative;width:420px;max-width:100%}',
+    '.dse-card.coined{padding-top:28px}',
+    '.dse-panel{position:relative;border-radius:18px;padding:20px 16px 16px;border:0;background:' + PANEL_BG + ';' +
+      'box-shadow:0 28px 70px rgba(0,0,0,.8),0 0 0 1px var(--dse-line)}',
+    '.dse-card.coined .dse-panel{padding-top:46px}',
     // gold light from the coin falls on the top of the panel
-    '.dse-card.g-gold .dse-panel{background:radial-gradient(170px 96px at 50% 0,rgba(240,168,48,.15),rgba(240,168,48,0)),' +
+    '.dse-card.g-gold .dse-panel{background:radial-gradient(220px 120px at 50% 0,rgba(240,168,48,.16),rgba(240,168,48,0)),' +
       PANEL_BG + '}',
     '.dse-card.in .dse-panel{animation:dse-rise .3s cubic-bezier(.2,.8,.2,1) both}',
     '@keyframes dse-rise{from{opacity:0;transform:translateY(22px) scale(.97)}to{opacity:1;transform:none}}',
@@ -78,7 +83,7 @@
     '.dse-coin>span{position:relative;display:flex;align-items:center;justify-content:center;width:100%;height:100%;' +
       'border-radius:50%;overflow:hidden}',
     '.dse-coin>span:before{content:"";position:absolute;inset:3.5px;border-radius:50%;border:1.5px dotted}',
-    '.dse-coin b{position:relative;display:block;font:600 27px/1 ' + MONO + ';letter-spacing:-.04em}',
+    '.dse-coin b{position:relative;display:block;font:800 27px/1 ' + SANS + ';font-stretch:' + WIDE + '}',
     // the crown (a battle royale win): three points over a band
     '.dse-coin b.crown{width:24px;height:19px;margin-top:-1px}',
     '.dse-coin b.crown:before,.dse-coin b.crown:after{content:"";position:absolute;left:0;right:0;background:currentColor}',
@@ -88,25 +93,25 @@
     // gold: the money, with a soft bloom
     '.dse-coin.m-gold{background:linear-gradient(180deg,rgba(255,249,226,.62),rgba(255,249,226,0) 42%,rgba(74,40,0,0) 58%,rgba(74,40,0,.55)),' +
       'repeating-conic-gradient(#f6c860 0deg 2.6deg,#ad6f16 2.6deg 6deg);' +
-      'box-shadow:0 0 0 1px rgba(88,52,4,.75),0 0 28px 3px rgba(240,168,48,.36),0 9px 14px -4px rgba(0,0,0,.66),0 2px 3px rgba(0,0,0,.36)}',
+      'box-shadow:0 0 0 1px rgba(88,52,4,.75),0 0 28px 3px rgba(240,168,48,.34),0 9px 14px -4px rgba(0,0,0,.7),0 2px 3px rgba(0,0,0,.36)}',
     '.dse-coin.m-gold>span{background:radial-gradient(circle at 38% 20%,#ffefbc 0%,#fad06c 28%,#eeaa39 62%,#c98612 100%);' +
       'box-shadow:0 0 0 1.5px #f9d98c,0 0 0 2.5px rgba(96,56,4,.7),inset 0 2px 2px rgba(255,250,232,.6),inset 0 -2px 3px rgba(120,66,0,.42)}',
     '.dse-coin.m-gold>span:before{border-color:rgba(146,88,8,.55)}',
-    '.dse-coin.m-gold b{color:#9a5e06;text-shadow:0 1px 0 rgba(255,240,196,.9),0 -1px 0 rgba(110,60,0,.45)}',
+    '.dse-coin.m-gold b{color:#8a5404;text-shadow:0 1px 0 rgba(255,240,196,.9),0 -1px 0 rgba(110,60,0,.45)}',
     '.dse-coin.m-gold b.crown{filter:drop-shadow(0 1px 0 rgba(255,240,196,.9)) drop-shadow(0 -.5px 0 rgba(110,60,0,.5))}',
-    // iron: nothing won. Blank, dull, with a light rim so it still reads on the dark panel.
-    '.dse-coin.m-iron{background:linear-gradient(180deg,rgba(255,246,232,.34),rgba(255,246,232,0) 42%,rgba(0,0,0,0) 58%,rgba(0,0,0,.5)),' +
-      'repeating-conic-gradient(#80776c 0deg 2.6deg,#3e3831 2.6deg 6deg);' +
-      'box-shadow:0 0 0 1px rgba(255,240,220,.22),0 9px 14px -4px rgba(0,0,0,.66),0 2px 3px rgba(0,0,0,.36)}',
+    // iron: nothing won. Blank, dull, with a light rim so it still reads on the black panel.
+    '.dse-coin.m-iron{background:linear-gradient(180deg,rgba(255,246,232,.3),rgba(255,246,232,0) 42%,rgba(0,0,0,0) 58%,rgba(0,0,0,.5)),' +
+      'repeating-conic-gradient(#7d7368 0deg 2.6deg,#3d3730 2.6deg 6deg);' +
+      'box-shadow:0 0 0 1px rgba(255,240,220,.2),0 9px 14px -4px rgba(0,0,0,.7),0 2px 3px rgba(0,0,0,.36)}',
     '.dse-coin.m-iron>span{background:radial-gradient(circle at 38% 20%,#6b6359 0%,#544d45 40%,#423c35 78%,#37322c 100%);' +
-      'box-shadow:0 0 0 1.5px #91887b,0 0 0 2.5px rgba(0,0,0,.55),inset 0 1.5px 1px rgba(255,246,232,.16),inset 0 -1.5px 2px rgba(0,0,0,.38)}',
+      'box-shadow:0 0 0 1.5px #8f8679,0 0 0 2.5px rgba(0,0,0,.55),inset 0 1.5px 1px rgba(255,246,232,.16),inset 0 -1.5px 2px rgba(0,0,0,.38)}',
     '.dse-coin.m-iron>span:before{border-color:rgba(222,208,188,.26)}',
     // landing: gold turns once and lands with one glint; iron just drops into place
     '.dse-card.in .m-gold{animation:dse-strike .42s cubic-bezier(.22,.8,.3,1) .04s both}',
     '.dse-card.in .m-iron{animation:dse-drop .3s cubic-bezier(.3,.9,.4,1) .06s both}',
     '.dse-card.in .m-gold>span:after{content:"";position:absolute;inset:0;border-radius:50%;' +
       'background:linear-gradient(110deg,rgba(255,255,255,0) 36%,rgba(255,252,236,.8) 50%,rgba(255,255,255,0) 64%);' +
-      'transform:translateX(-110%);animation:dse-glint .2s ease-out .28s both}',
+      'transform:translateX(-110%);animation:dse-glint .22s ease-out .3s both}',
     '@keyframes dse-strike{0%{opacity:0;transform:perspective(300px) translateY(-10px) scale(1.12) rotateY(-360deg)}' +
       '22%{opacity:1}' +
       '72%{transform:perspective(300px) translateY(0) scale(.95) rotateY(0deg)}' +
@@ -115,168 +120,170 @@
       '100%{opacity:1;transform:none}}',
     '@keyframes dse-glint{from{transform:translateX(-110%)}to{transform:translateX(110%)}}',
 
-    // the result: the verdict, then the figure with its unit on the same line
+    // the result: the verdict, then the figure in the kit's wide display cut, its unit on the same line
     '.dse-v{font-size:15px;font-weight:600;color:var(--dse-tx2);overflow-wrap:anywhere}',
-    '.dse-hero{display:flex;flex-wrap:wrap;justify-content:center;align-items:baseline;column-gap:9px;margin-top:2px}',
-    '.dse-big{min-width:0;font:600 52px/1.08 ' + MONO + ';letter-spacing:-.03em;' +
+    '.dse-hero{display:flex;flex-wrap:wrap;justify-content:center;align-items:baseline;column-gap:9px;margin-top:4px}',
+    '.dse-big{min-width:0;font:800 44px/1.04 ' + SANS + ';font-stretch:' + WIDE + ';letter-spacing:-.02em;' +
       'font-variant-numeric:tabular-nums;color:var(--dse-tx);overflow-wrap:anywhere}',
-    '.dse.t-win .dse-big{color:var(--dse-gold);background:linear-gradient(180deg,#ffdc8f 12%,#f3ad35 58%,#d98d18 100%);' +
-      '-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}',
+    '.dse.t-win .dse-big{color:var(--dse-gold)}',
     '.dse.t-loss .dse-big{color:var(--dse-loss)}',
-    '.dse-cur{font-size:.5em;vertical-align:.7em;margin-right:.05em;letter-spacing:0}',
+    '.dse-cur{font-size:.62em;vertical-align:.48em;margin-right:.04em;letter-spacing:0}',
     '.dse-suf{font-size:.42em;vertical-align:.98em;margin-left:.06em;letter-spacing:0}',
     '.dse-unit{font-size:15px;font-weight:500;color:var(--dse-tx2)}',
-    '.dse-pod{margin:14px 0 0;text-align:left}',
-    '.dse-pod li{display:flex;align-items:baseline;gap:12px;padding:8px 10px;font-size:15px;color:var(--dse-tx2);' +
-      'border-top:1px solid var(--dse-line);overflow-wrap:anywhere}',
-    '.dse-pod li:first-child{border-top-color:transparent}',
-    '.dse-pod li i{font:600 13px ' + MONO + ';font-style:normal;color:var(--dse-tx3);width:14px;flex:0 0 auto}',
-    '.dse-pod li.me{color:var(--dse-tx);font-weight:650;border-radius:8px;border-top-color:transparent;' +
-      'background:rgba(240,168,48,.1);box-shadow:inset 0 0 0 1px rgba(240,168,48,.24)}',
-    '.dse-pod li.me+li{border-top-color:transparent}',
-    '.dse-pod li.me i{color:var(--dse-gold)}',
-    '.dse-facts{display:flex;margin:17px 0 0}',
-    '.dse-facts>div{display:flex;flex-direction:column-reverse;flex:1 1 0;min-width:0;padding:0 6px}',
-    '.dse-facts>div+div{border-left:1px solid var(--dse-line)}',
-    '.dse-facts dt{margin-top:1px;font-size:12.5px;color:var(--dse-tx3)}',
-    '.dse-facts dd{font:600 17px ' + MONO + ';font-variant-numeric:tabular-nums;color:var(--dse-tx);' +
+    // the battle royale podium: kit list rows, yours on a quiet bone pill
+    '.dse-pod{margin:16px 0 0;padding:2px 6px;border-radius:10px;background:var(--dse-ink);box-shadow:inset 0 0 0 1px var(--dse-line);text-align:left}',
+    '.dse-pod li{display:flex;align-items:baseline;gap:12px;padding:10px 8px;font-size:15px;color:var(--dse-tx2);' +
+      'box-shadow:0 -1px 0 var(--dse-line);overflow-wrap:anywhere}',
+    '.dse-pod li:first-child{box-shadow:none}',
+    '.dse-pod li i{font:800 13px ' + SANS + ';font-style:normal;font-variant-numeric:tabular-nums;color:var(--dse-tx3);width:14px;flex:0 0 auto}',
+    '.dse-pod li.me{color:var(--dse-tx);font-weight:650;border-radius:8px;background:var(--dse-s3);box-shadow:inset 0 0 0 1px var(--dse-line2)}',
+    '.dse-pod li.me+li{box-shadow:none}',
+    '.dse-pod li.me i{color:var(--dse-tx)}',
+    // the facts: the kit's stat tiles, label over figure
+    '.dse-facts{display:flex;gap:8px;margin:20px 0 0}',
+    '.dse-facts>div{display:flex;flex-direction:column;justify-content:center;flex:1 1 0;min-width:0;padding:10px 6px;' +
+      'border-radius:10px;background:var(--dse-ink);box-shadow:inset 0 0 0 1px var(--dse-line)}',
+    '.dse-facts dt{margin:0 0 3px;font-size:12px;font-weight:600;color:var(--dse-tx2)}',
+    '.dse-facts dd{font:800 16px/1.15 ' + SANS + ';font-stretch:' + WIDE + ';font-variant-numeric:tabular-nums;color:var(--dse-tx);' +
       'white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
 
-    // the money: what moved and where it is going, recessed under the result; the net row reads biggest
-    '.dse-tray{margin:16px 0 0;padding:5px 14px;border-radius:10px;background:rgba(8,7,5,.42);' +
-      'box-shadow:inset 0 0 0 1px rgba(245,241,232,.06);text-align:left}',
-    '.dse-lr{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:6px 0;font-size:15px;color:var(--dse-tx2)}',
-    '.dse-lr b{font:500 15.5px ' + MONO + ';font-variant-numeric:tabular-nums;color:var(--dse-tx);white-space:nowrap}',
-    '.dse-lr.net{margin-top:2px;padding-top:9px;border-top:1px solid var(--dse-line);color:var(--dse-tx);font-weight:650}',
-    '.dse-lr.net b{font-weight:600;font-size:20px;line-height:1.1}',
+    // the money: the kit's summary box under the result; the net row reads biggest
+    '.dse-tray{margin:20px 0 0;padding:2px 14px;border-radius:10px;background:var(--dse-ink);' +
+      'box-shadow:inset 0 0 0 1px var(--dse-line);text-align:left}',
+    '.dse-facts:not(.rows)+.dse-tray{margin-top:8px}',
+    '.dse-tray>*+*{box-shadow:0 -1px 0 var(--dse-line)}',
+    '.dse-lr{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:11px 0;font-size:15px;color:var(--dse-tx2)}',
+    '.dse-lr b{font:700 15px ' + SANS + ';font-variant-numeric:tabular-nums;color:var(--dse-tx);white-space:nowrap}',
+    '.dse-lr.net{color:var(--dse-tx);font-weight:650}',
+    '.dse-lr.net b{font-weight:800;font-size:20px;font-stretch:' + WIDE + ';line-height:1.1}',
     '.dse.t-win .dse-lr.net b{color:var(--dse-gold)}',
     '.dse.t-loss .dse-lr.net b{color:var(--dse-loss)}',
     // the dot beside the first line and the words wrapping under themselves: as a flex row, words too long for the
     // dot's line dropped below it and left the dot alone (a long delayed-payout line on a phone)
-    '.dse-st{display:flow-root;position:relative;padding:9px 0 8px 23px;font-size:14px;' +
-      'color:var(--dse-tx2);border-top:1px solid var(--dse-line)}',
-    '.dse-st:first-child{border-top:0}',
-    '.dse-st i{position:absolute;left:3px;top:calc(9px + .675em - 4px);width:8px;height:8px;border-radius:50%;' +
-      'background:var(--dse-gold);animation:dse-breathe 1.4s ease-in-out infinite}',
-    // sent: a pulsing green dot (Owen 2026-10-16, his one green: the lobby's live dot, --live #8ed081), for everyone
-    '.dse-st.ok{color:var(--dse-tx)}',
-    '.dse-st.ok i{width:9px;height:9px;background:#8ed081;animation:none;box-shadow:0 0 7px rgba(142,208,129,.55)}',
-    '.dse-st.ok i:after{content:"";position:absolute;inset:0;border-radius:50%;background:#8ed081;' +
+    '.dse-st{display:flow-root;position:relative;padding:12px 0 12px 22px;font-size:14px;color:var(--dse-tx2)}',
+    '.dse-st i{position:absolute;left:3px;top:calc(12px + .675em - 4px);width:8px;height:8px;border-radius:50%;' +
+      'background:var(--dse-tx2);animation:dse-breathe 1.4s ease-in-out infinite}',
+    // sent: the kit's live green dot, pulsing (the one green: live and wins)
+    '.dse-st.ok{color:var(--dse-tx);font-weight:600}',
+    '.dse-st.ok i{width:9px;height:9px;background:var(--dse-green);animation:none;box-shadow:0 0 7px rgba(142,208,129,.55)}',
+    '.dse-st.ok i:after{content:"";position:absolute;inset:0;border-radius:50%;background:var(--dse-green);' +
       'animation:dse-ping 1.6s cubic-bezier(0,0,.2,1) infinite}',
     '@keyframes dse-ping{0%{transform:scale(1);opacity:.75}80%,100%{transform:scale(2.7);opacity:0}}',
-    '.dse-st.err{color:#ff8a78}',
+    '.dse-st.err{color:var(--dse-loss)}',
     '.dse-st.err i{background:var(--dse-loss);animation:none}',
     '.dse-st a{float:right;margin-left:12px;color:var(--dse-tx);font-weight:650;text-decoration:underline;' +
-      'text-decoration-color:rgba(240,168,48,.65);text-underline-offset:3px}',
-    '.dse-st a:hover{color:var(--dse-gold)}',
+      'text-decoration-color:var(--dse-line2);text-underline-offset:3px}',
+    '.dse-st a:hover{text-decoration-color:var(--dse-tx)}',
     '.dse-st[data-chg] i{animation:dse-pop .28s cubic-bezier(.25,1,.5,1) both}',
     '.dse-st[data-chg] a{animation:dse-fade .22s ease-out both}',
-    '@keyframes dse-breathe{0%,100%{opacity:.4;transform:scale(.75)}50%{opacity:1;transform:scale(1)}}',
+    '@keyframes dse-breathe{0%,100%{opacity:.35;transform:scale(.75)}50%{opacity:1;transform:scale(1)}}',
     '@keyframes dse-pop{from{opacity:0;transform:scale(.3)}to{opacity:1;transform:none}}',
     '@keyframes dse-fade{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}',
-    '.dse-note{font-size:14px;color:var(--dse-tx2);margin:12px 0 0;overflow-wrap:anywhere}',
+    '.dse-note{font-size:13px;color:var(--dse-tx2);margin:12px 0 0;line-height:1.5;overflow-wrap:anywhere}',
     // a notice (no figure: a refusal, a closed room) reads as a short message
-    '.dse-card.notice .dse-v{font-size:19px;font-weight:650;color:var(--dse-tx)}',
+    '.dse-card.notice .dse-v{font-size:19px;font-weight:700;color:var(--dse-tx)}',
     '.dse-card.notice .dse-note{margin-top:8px;font-size:14.5px}',
 
-    // buttons: always one row, the next step (bone) widest, quiet outlines for the rest
-    '.dse-btns{display:flex;gap:8px;margin-top:16px}',
+    // buttons: the kit's one family in one row, the next step (bone) widest, raised secondaries for the rest
+    '.dse-btns{display:flex;gap:8px;margin-top:20px}',
     '.dse-btn{flex:1 1 0;min-width:0;height:52px;border:0;border-radius:10px;padding:0 10px;font:650 15px ' + SANS + ';cursor:pointer;' +
-      'background:rgba(245,241,232,.05);color:var(--dse-tx);box-shadow:inset 0 0 0 1px rgba(245,241,232,.16);' +
-      'line-height:1.15;touch-action:manipulation;-webkit-user-select:none;user-select:none}',
-    '.dse-btn:hover{background:rgba(245,241,232,.1)}',
-    '.dse-btn em{font:600 .95em ' + MONO + ';font-style:normal;letter-spacing:-.01em;white-space:nowrap}',
-    '.dse-btn.pri{flex-grow:1.75;font-size:16px;background:var(--dse-bone);color:var(--dse-ink);' +
-      'box-shadow:inset 0 -2px 0 rgba(16,14,11,.12),0 6px 16px rgba(0,0,0,.28)}',
+      'background:var(--dse-s3);color:var(--dse-tx);box-shadow:inset 0 0 0 1px var(--dse-line);' +
+      'line-height:1.15;touch-action:manipulation;-webkit-user-select:none;user-select:none;' +
+      'transition:background-color .14s,box-shadow .14s,transform .08s}',
+    '.dse-btn:hover{background:#332a1f;box-shadow:inset 0 0 0 1px var(--dse-line2)}',
+    '.dse-btn:active:not(:disabled){transform:translateY(1px) scale(.985)}',
+    '.dse-btn em{font:inherit;font-weight:800;font-style:normal;font-variant-numeric:tabular-nums;white-space:nowrap}',
+    '.dse-btn.pri{flex-grow:1.75;font-size:16px;font-weight:700;background:var(--dse-bone);color:#000;box-shadow:none}',
     '.dse-btns.n3 .dse-btn{padding:0 8px}.dse-btns.n3 .dse-btn.pri{flex-grow:1.6}',
     '.dse-btns.n4{flex-wrap:wrap}.dse-btns.n4 .dse-btn.pri{flex:1 1 100%}',
-    '.dse-btn.pri:hover{background:#fffaf0}',
-    '.dse-btn:disabled{cursor:default;opacity:.42}',
-    '.dse-btn:disabled:hover{background:rgba(245,241,232,.05)}',
-    // a disabled next step is a wait (next match, wallet, starting): it stays the main thing, in gold
-    '.dse-btn.pri:disabled,.dse-btn.pri:disabled:hover{opacity:1;background:rgba(240,168,48,.1);color:var(--dse-gold);' +
-      'box-shadow:inset 0 0 0 1px rgba(240,168,48,.42)}',
-    '.dse-btn:focus-visible{outline:2px solid var(--dse-gold);outline-offset:2px}',
+    '.dse-btn.pri:hover{background:#fff;box-shadow:0 0 0 4px rgba(244,241,234,.14)}',
+    '.dse-btn:disabled{cursor:default;background:var(--dse-s2);color:var(--dse-tx3);box-shadow:inset 0 0 0 1px var(--dse-line)}',
+    '.dse-btn:disabled:hover{background:var(--dse-s2);box-shadow:inset 0 0 0 1px var(--dse-line)}',
+    // a disabled next step is a wait (next match, wallet, starting): it stays the main thing, readable, on a raised edge
+    '.dse-btn.pri:disabled,.dse-btn.pri:disabled:hover{background:var(--dse-s2);color:var(--dse-tx);' +
+      'box-shadow:inset 0 0 0 1px var(--dse-line2)}',
+    '.dse-btn:focus-visible{outline:2px solid var(--dse-bone);outline-offset:2px}',
     '.dse-panel>.dse-btns:first-child{margin-top:0}',
     // Share (free games only, 2026-10-26): a quiet pill in the panel's top right corner, beside the coin, so the
     // one row of buttons stays exactly the same on every card
-    '.dse-share{position:absolute;top:10px;right:10px;display:flex;align-items:center;gap:6px;height:32px;padding:0 12px 0 10px;' +
-      'border:0;border-radius:99px;background:rgba(245,241,232,.06);color:var(--dse-tx2);font:650 13px ' + SANS + ';cursor:pointer;' +
-      'box-shadow:inset 0 0 0 1px rgba(245,241,232,.14);touch-action:manipulation;-webkit-user-select:none;user-select:none}',
-    // the pill is 32 px tall; its tap area reaches 40
-    '.dse-share:before{content:"";position:absolute;inset:-4px -2px}',
-    '.dse-share:hover{background:rgba(245,241,232,.11);color:var(--dse-tx)}',
-    '.dse-share:focus-visible{outline:2px solid var(--dse-gold);outline-offset:2px}',
+    '.dse-share{position:absolute;top:12px;right:12px;display:flex;align-items:center;gap:6px;height:32px;padding:0 12px 0 10px;' +
+      'border:0;border-radius:999px;background:var(--dse-s2);color:var(--dse-tx2);font:650 13px ' + SANS + ';cursor:pointer;' +
+      'box-shadow:inset 0 0 0 1px var(--dse-line);touch-action:manipulation;-webkit-user-select:none;user-select:none;' +
+      'transition:background-color .14s,color .14s}',
+    // the pill is 32 px tall; its tap area reaches 44
+    '.dse-share:before{content:"";position:absolute;inset:-6px -2px}',
+    '.dse-share:hover{background:var(--dse-s3);color:var(--dse-tx);box-shadow:inset 0 0 0 1px var(--dse-line2)}',
+    '.dse-share:focus-visible{outline:2px solid var(--dse-bone);outline-offset:2px}',
     '.dse-share svg{flex:none}',
 
     // a computer: the same card a size up, centred
     '@media (min-width:' + (PHONE_MAX + 1) + 'px){.dse{align-items:center;padding:16px}' +
-      '.dse-scrim{background:rgba(16,14,11,.58)}' +
-      '.dse-card{width:416px}.dse-card.coined{padding-top:30px}' +
-      '.dse-panel{padding:24px 26px 24px}.dse-card.coined .dse-panel{padding-top:60px}' +
-      '.dse-card.g-gold .dse-panel{background:radial-gradient(200px 110px at 50% 0,rgba(240,168,48,.15),rgba(240,168,48,0)),' + PANEL_BG + '}' +
+      '.dse-scrim{background:rgba(0,0,0,.62)}' +
+      '.dse-card.coined{padding-top:34px}' +
+      '.dse-panel{padding:24px}.dse-card.coined .dse-panel{padding-top:58px}' +
       '.dse-coin{width:80px;height:80px;margin-left:-40px;padding:7px}.dse-coin>span:before{inset:4.5px}' +
       '.dse-coin b{font-size:34px}.dse-coin b.crown{width:30px;height:24px}' +
-      '.dse-big{font-size:62px}.dse-v{font-size:16px}.dse-unit{font-size:16px}' +
-      '.dse-facts{margin-top:19px}.dse-facts dd{font-size:18px}.dse-btn{height:54px}}',
+      '.dse-big{font-size:56px}.dse-v{font-size:16px}.dse-unit{font-size:16px}' +
+      '.dse-facts{margin-top:24px}.dse-facts>div{padding:12px 8px}.dse-facts dd{font-size:18px}.dse-tray{padding:2px 16px}}',
 
     // a paid loss and a free game (Owen 2026-10-16, his picks "Coin falls away" and "Free"): an empty slot on the
     // card's top edge whose coin falls away as the card arrives (gold with its $ when money was lost, silver with a
-    // star in a free game), the stats as rows in the recessed tray like the cash-out's money, the figure alone and
+    // star in a free game), the stats as rows in the summary box like the cash-out's money, the figure alone and
     // centred (the red amount lost, or Free)
-    '.dse-coin.m-slot{background:radial-gradient(circle at 50% 40%,#0d0b08,#1b1712);box-shadow:inset 0 3px 8px rgba(0,0,0,.7),0 0 0 1px rgba(245,241,232,.22)}',
-    '.dse-coin.m-slot>span{border:1.5px dashed rgba(245,241,232,.38)}',
+    '.dse-coin.m-slot{background:radial-gradient(circle at 50% 40%,#000,#14110c);box-shadow:inset 0 3px 8px rgba(0,0,0,.7),0 0 0 1px var(--dse-line2)}',
+    '.dse-coin.m-slot>span{border:1.5px dashed rgba(244,241,234,.34)}',
     '.dse-coin.m-slot>span:before{display:none}',
-    '.dse-coin.m-slot.s-red{box-shadow:inset 0 3px 8px rgba(0,0,0,.7),0 0 0 1px rgba(255,107,87,.3)}',
-    '.dse-coin.m-slot.s-red>span{border-color:rgba(255,107,87,.5)}',
+    '.dse-coin.m-slot.s-red{box-shadow:inset 0 3px 8px rgba(0,0,0,.7),0 0 0 1px rgba(239,116,97,.34)}',
+    '.dse-coin.m-slot.s-red>span{border-color:rgba(239,116,97,.5)}',
     '.dse-card.in .dse-coin.m-slot{animation:dse-drop .3s cubic-bezier(.3,.9,.4,1) .06s both}',
     '.dse-ghost{position:absolute;inset:6px;display:flex;align-items:center;justify-content:center;border-radius:50%;opacity:0;' +
       'background:radial-gradient(circle at 38% 20%,#ffefbc 0%,#fad06c 28%,#eeaa39 62%,#c98612 100%);box-shadow:0 0 0 1.5px #f9d98c,0 0 18px rgba(240,168,48,.45)}',
-    '.dse-ghost b{color:#9a5e06;text-shadow:0 1px 0 rgba(255,240,196,.9)}',
-    '.dse-ghost.g-silver{background:radial-gradient(circle at 38% 20%,#ffffff 0%,#eceff3 28%,#c3c9d1 62%,#959ca7 100%);' +
-      'box-shadow:0 0 0 1.5px #f2f4f7,0 0 16px rgba(220,230,244,.35)}',
-    '.dse-ghost.g-silver b{color:#5d6570;text-shadow:none;filter:drop-shadow(0 1px 0 rgba(255,255,255,.9))}',
+    '.dse-ghost b{color:#8a5404;text-shadow:0 1px 0 rgba(255,240,196,.9)}',
+    '.dse-ghost.g-silver{background:radial-gradient(circle at 38% 20%,#ffffff 0%,#f1ede4 28%,#cbc4b7 62%,#9c9486 100%);' +
+      'box-shadow:0 0 0 1.5px #f4f1ea,0 0 16px rgba(244,241,234,.3)}',
+    '.dse-ghost.g-silver b{color:#5f574b;text-shadow:none;filter:drop-shadow(0 1px 0 rgba(255,255,255,.9))}',
     '.dse-card.in .dse-ghost{animation:dse-fall .66s cubic-bezier(.5,0,.75,0) .22s both}',
     '@keyframes dse-fall{0%{opacity:1;transform:none}100%{opacity:0;transform:translateY(40px) rotate(24deg) scale(.82)}}',
     '.dse-coin b.star{width:22px;height:21px}',
     '.dse-coin b.star:before{content:"";position:absolute;inset:0;background:currentColor;' +
       '-webkit-clip-path:polygon(50% 0,61.8% 35.1%,98.1% 35.1%,68.7% 56.7%,79.4% 91%,50% 70%,20.6% 91%,31.3% 56.7%,1.9% 35.1%,38.2% 35.1%);' +
       'clip-path:polygon(50% 0,61.8% 35.1%,98.1% 35.1%,68.7% 56.7%,79.4% 91%,50% 70%,20.6% 91%,31.3% 56.7%,1.9% 35.1%,38.2% 35.1%)}',
-    '.dse-card.g-slot .dse-panel{background:radial-gradient(170px 96px at 50% 0,rgba(245,241,232,.06),rgba(245,241,232,0)),' + PANEL_BG + '}',
-    '.dse-card.g-slot.s-red .dse-panel{background:radial-gradient(170px 96px at 50% 0,rgba(255,107,87,.11),rgba(255,107,87,0)),' + PANEL_BG + '}',
-    '.dse.k-free .dse-big{color:#d9d1c3}',
-    // the stats as tray rows: the same dl, laid out like the money rows
+    '.dse-card.g-slot .dse-panel{background:radial-gradient(220px 120px at 50% 0,rgba(244,241,234,.06),rgba(244,241,234,0)),' + PANEL_BG + '}',
+    '.dse-card.g-slot.s-red .dse-panel{background:radial-gradient(220px 120px at 50% 0,rgba(239,116,97,.12),rgba(239,116,97,0)),' + PANEL_BG + '}',
+    '.dse.k-free .dse-big{color:var(--dse-tx)}',
+    // the stats as summary rows: the same dl, laid out like the money rows
     '.dse-facts.rows{display:block;margin:0}',
-    '.dse-facts.rows>div{flex-direction:row;justify-content:space-between;align-items:baseline;gap:12px;padding:6px 0}',
-    '.dse-facts.rows>div+div{border-left:0}',
-    '.dse-facts.rows dt{margin:0;font-size:15px;color:var(--dse-tx2)}',
-    '.dse-facts.rows dd{font-size:15.5px}',
-    '@media (min-width:' + (PHONE_MAX + 1) + 'px){.dse-coin b.star{width:28px;height:27px}.dse-facts.rows dd{font-size:15.5px}' +
-      '.dse-card.g-slot .dse-panel{background:radial-gradient(200px 110px at 50% 0,rgba(245,241,232,.06),rgba(245,241,232,0)),' + PANEL_BG + '}' +
-      '.dse-card.g-slot.s-red .dse-panel{background:radial-gradient(200px 110px at 50% 0,rgba(255,107,87,.11),rgba(255,107,87,0)),' + PANEL_BG + '}}',
-    // the board: fully clear (Owen 2026-10-16), text with a shadow, your row on a gold pill. Compact on a phone
-    // (Owen: it never takes a big part of the screen): 11.5 px rows 16 px apart, names cut at about 10 characters.
-    '.dsb{position:fixed;top:8px;right:8px;width:128px;pointer-events:none;color:#f5f1e8;font:600 11.5px ' + SANS + ';' +
+    '.dse-facts.rows>div{flex-direction:row;justify-content:space-between;align-items:baseline;gap:12px;padding:11px 0;' +
+      'border-radius:0;background:none;box-shadow:none}',
+    '.dse-facts.rows>div+div{box-shadow:0 -1px 0 var(--dse-line)}',
+    '.dse-facts.rows dt{margin:0;font-size:15px;font-weight:400;color:var(--dse-tx2)}',
+    '.dse-facts.rows dd{font-size:15px;font-weight:700;font-stretch:100%}',
+    '@media (min-width:' + (PHONE_MAX + 1) + 'px){.dse-coin b.star{width:28px;height:27px}.dse-facts.rows>div{padding:12px 0}.dse-facts.rows dd{font-size:15px}}',
+    // the board: fully clear (Owen 2026-10-16), text with a shadow, your row on a bone pill (the kit's selected).
+    // Compact on a phone (Owen: it never takes a big part of the screen): 11.5 px rows 16 px apart, names cut at
+    // about 10 characters. Money figures stay gold.
+    '.dsb{position:fixed;top:8px;right:8px;width:128px;pointer-events:none;color:#f4f1ea;font:650 11.5px ' + SANS + ';' +
       'text-shadow:0 1px 2px rgba(0,0,0,.95),0 0 2px #000;-webkit-text-size-adjust:100%;line-height:1.3;text-align:left}',
     '.dsb p,.dsb ol{margin:0;padding:0;list-style:none}',
-    '.dsb-t{font-size:10.5px;color:rgba(245,241,232,.75);margin:0 0 1px 1px}',
+    '.dsb-t{font-size:10.5px;font-weight:700;color:rgba(244,241,234,.78);margin:0 0 1px 1px}',
     '.dsb li{display:grid;grid-template-columns:14px minmax(0,1fr) auto;gap:4px;align-items:baseline;line-height:16px;padding:0 4px;margin:0 -3px}',
     '.dsb li span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:10ch}',
-    '.dsb li i{font-style:normal;font-family:' + MONO + ';font-size:10.5px;color:rgba(245,241,232,.7)}',
-    '.dsb li b{font:600 11px ' + MONO + ';font-variant-numeric:tabular-nums}',
+    '.dsb li i{font-style:normal;font-size:10.5px;font-weight:700;font-variant-numeric:tabular-nums;color:rgba(244,241,234,.72)}',
+    '.dsb li b{font-weight:800;font-size:11px;font-variant-numeric:tabular-nums}',
     '.dsb.money li b{color:#f0a830}',
-    '.dsb li.me{background:linear-gradient(180deg,#ffd982,#eba232);color:#100e0b;border-radius:5px;text-shadow:none;font-weight:700;' +
-      'box-shadow:inset 0 1px 0 rgba(255,248,222,.65),0 1px 3px rgba(0,0,0,.35)}',
-    '.dsb li.me i{color:rgba(16,14,11,.62)}',
-    '.dsb li.me b,.dsb.money li.me b{color:#100e0b}',
+    '.dsb li.me{background:#f4f1ea;color:#000;border-radius:5px;text-shadow:none;font-weight:700;box-shadow:0 1px 3px rgba(0,0,0,.4)}',
+    '.dsb li.me i{color:rgba(0,0,0,.6)}',
+    '.dsb li.me b{color:#000}',
+    '.dsb.money li.me b{color:#7a4a00}',
     '.dsb li.gap{height:5px}',
-    // a light map: ink text and a white halo; your row keeps its gold pill
-    '.dsb.light{color:#100e0b;text-shadow:0 0 2px #fff,0 0 3px #fff,0 1px 1px rgba(255,255,255,.9)}',
-    '.dsb.light .dsb-t,.dsb.light li i{color:rgba(16,14,11,.7)}',
-    '.dsb.light.money li b{color:#8a5600}',
-    '.dsb.light li.me{text-shadow:none;box-shadow:inset 0 1px 0 rgba(255,248,222,.65),0 0 0 1px rgba(122,74,6,.35)}',
-    '.dsb.light li.me i{color:rgba(16,14,11,.62)}',
-    '.dsb.light li.me b,.dsb.light.money li.me b{color:#100e0b}',
+    // a light map: ink text and a white halo; your row keeps its pill, inked
+    '.dsb.light{color:#000;text-shadow:0 0 2px #fff,0 0 3px #fff,0 1px 1px rgba(255,255,255,.9)}',
+    '.dsb.light .dsb-t,.dsb.light li i{color:rgba(0,0,0,.7)}',
+    '.dsb.light.money li b{color:#7a4a00}',
+    '.dsb.light li.me{background:#000;color:#f4f1ea;text-shadow:none;box-shadow:0 1px 3px rgba(0,0,0,.3)}',
+    '.dsb.light li.me i{color:rgba(244,241,234,.7)}',
+    '.dsb.light li.me b{color:#f4f1ea}',
+    '.dsb.light.money li.me b{color:#f0a830}',
     // a computer: a little more room, still small
     '@media (min-width:' + (PHONE_MAX + 1) + 'px){.dsb{width:196px;font-size:13.5px;top:14px;right:14px}' +
       '.dsb-t{font-size:12px;margin-bottom:3px}' +
@@ -423,8 +430,7 @@
     return coin;
   }
 
-  // Button text with a trailing amount or clock ('Play again $1.00', 'Next match 0:12'): that part goes in the figures'
-  // mono face.
+  // Button text with a trailing amount or clock ('Play again $1.00', 'Next match 0:12'): that part is set in heavy tabular figures.
   function buttonText(btn, text) {
     var m = /^(.*\S)\s+([−-]?\$[\d,.]+|\d{1,2}:\d{2})$/.exec(text);
     if (!m) { btn.textContent = text; return; }

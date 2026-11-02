@@ -8,11 +8,11 @@
 
 :root {
   --grass: #9bc846;
-  --ink:   #100e0b;
-  --s2:    #1f1b15;
-  --s3:    #282219;
-  --tx:    #f5f1e8;
-  --tx3:   #8d8171;
+  --ink:   #000000;
+  --s2:    #1a1611;
+  --s3:    #272018;
+  --tx:    #f4f1ea;
+  --tx3:   #988b78;
   --gold:  #f0a830;
   --f:  'Archivo', ui-sans-serif, system-ui, 'Segoe UI', Arial, sans-serif;
 }
@@ -38,9 +38,9 @@ html, body {
 #tag {
   position: fixed; left: 0; top: 0; z-index: 6; pointer-events: none;
   transform: translate(-50%, -100%);
-  padding: 3px 9px 4px; border-radius: 7px; white-space: nowrap;
-  background: rgba(16, 14, 11, 0.72); color: #fff;
-  font-size: 13px; font-weight: 700; letter-spacing: 0.01em;
+  padding: 4px 10px; border-radius: 6px; white-space: nowrap;
+  background: rgba(0, 0, 0, 0.74); color: #f4f1ea; box-shadow: inset 0 0 0 1px #36291a;
+  font-size: 13px; font-weight: 700;
 }
 #tag[hidden] { display: none; }
 
