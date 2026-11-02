@@ -30,10 +30,14 @@
   const isPhone = () => window.matchMedia('(max-width: 760px)').matches;
 
   /* Ask for fullscreen at the first touch, since that is the first moment a
-     browser will honour it. Once only: a user who leaves fullscreen means it. */
+     browser will honour it. Once only: a user who leaves fullscreen means it.
+     Phones only (a touch-first screen up to 760px wide): on a PC the first click
+     anywhere, even on the header, used to throw the whole browser into
+     fullscreen (site audit 2026-10-31). A PC has the room already. */
+  const touchPhone = () => isPhone() && window.matchMedia('(hover: none) and (pointer: coarse)').matches;
   let asked = false;
   function tryFullscreen() {
-    if (asked || standalone()) return;
+    if (asked || standalone() || !touchPhone()) return;
     asked = true;
     const el = document.documentElement;
     const go = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;

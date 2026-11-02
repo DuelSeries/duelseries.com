@@ -2110,8 +2110,9 @@ test('each playable game card carries a people count, and a padlocked one does n
   const run = (counts) => new Function('window', 'V2Board', 'document', paint + '; paintCounts();')(
     { V2Board: { counts } }, { counts }, document);
   run({ snake: 12, agar: 0, paper: '<img src=x onerror=alert(1)>' });
+  /* Site redo (layout 1): a game with nobody in it and nobody waiting shows no chip at all, as the mockup draws it. */
   assert.deepStrictEqual(els.map(e => [e.hidden, e.b.textContent]),
-    [[false, '12'], [false, '0'], [true, ''], [true, '']], 'numbers shown, anything else hidden');
+    [[false, '12'], [true, ''], [true, ''], [true, '']], 'numbers shown, 0 and anything else hidden');
   assert.strictEqual(els[0].attrs['aria-label'], '12 playing now');
   assert.ok(els[0].cls.has('on') && !els[1].cls.has('on'), 'the live dot is on at 12 and off at 0');
   run({ snake: 0, agar: 3 });

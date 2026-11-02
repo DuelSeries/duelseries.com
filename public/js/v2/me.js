@@ -23,20 +23,22 @@
     catch (_) { return ''; }
   }
   function wallet() { return window.duelWallet || {}; }
+  const PERSON = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg>';
   function short(a) { return a && a.length > 10 ? a.slice(0, 4) + '…' + a.slice(-4) : (a || ''); }
 
   /* The disc, the card's heading and its address, from the saved name and the
      wallet. textContent only: the name is typed by the player. */
   function paint() {
     const n = name(), w = wallet();
-    const initial = n ? n[0].toUpperCase() : '?';
+    /* No name yet: a person, not a question mark (a ? in the header read as a Help button), and the card's
+       heading says there is none rather than showing the field's placeholder as if it were a name. */
     ['medisc', 'medisc2'].forEach(id => {
       const d = el(id); if (!d) return;
-      d.textContent = initial;
+      if (n) d.textContent = n[0].toUpperCase(); else d.innerHTML = PERSON;
       d.classList.toggle('q', !n);
     });
     const nm = el('mename');
-    if (nm) { nm.textContent = n || 'Your name'; nm.classList.toggle('none', !n); }
+    if (nm) { nm.textContent = n || 'No name yet'; nm.classList.toggle('none', !n); }
     const ad = el('meaddr');
     if (ad) ad.textContent = w.authenticated && w.address ? short(w.address) : '';
     const btn = el('mebtn');
