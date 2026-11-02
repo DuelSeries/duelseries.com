@@ -11,12 +11,12 @@
 
 :root {
   --night: #6dd9e8;        /* the reference's sky (DefualtMap background_color) */
-  --ink:   #100e0b;
-  --s2:    #1f1b15;
-  --s3:    #282219;
-  --tx:    #f5f1e8;
-  --tx2:   #a89c8a;
-  --tx3:   #8d8171;
+  --ink:   #000000;
+  --s2:    #1a1611;
+  --s3:    #272018;
+  --tx:    #f4f1ea;
+  --tx2:   #b3a792;
+  --tx3:   #988b78;
   --gold:  #f0a830;
   --f:  'Archivo', ui-sans-serif, system-ui, 'Segoe UI', Arial, sans-serif;
   --fm: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
@@ -103,16 +103,16 @@ html, body {
 #rotate {
   position: fixed; inset: 0; z-index: 30; display: flex; flex-direction: column;
   align-items: center; justify-content: center; gap: 18px; padding: 24px; text-align: center;
-  background: #dc4e4e; color: #fff;
+  background: #000; color: #f4f1ea; font-family: 'Archivo', 'Segoe UI', system-ui, sans-serif;
 }
 #rotate[hidden] { display: none; }
 #rotate .rotPhone {
-  width: 54px; height: 92px; border: 6px solid #fff; border-radius: 10px;
+  width: 54px; height: 92px; border: 5px solid #f4f1ea; border-radius: 12px;
   animation: rtturn 1.6s ease-in-out infinite;
 }
 @keyframes rtturn { 0%, 30% { transform: rotate(0deg); } 60%, 100% { transform: rotate(-90deg); } }
-#rotate b { font-size: 26px; font-weight: 800; }
-#rotate span { font-size: 14px; opacity: 0.9; max-width: 280px; }
+#rotate b { font-size: 26px; font-weight: 800; font-stretch: 118%; letter-spacing: -.01em; }
+#rotate span { font-size: 15px; color: #b3a792; max-width: 280px; line-height: 1.5; }
 
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }

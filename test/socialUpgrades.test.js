@@ -344,13 +344,17 @@ test('preview: the sample players never leave the browser', () => {
   const soc = read('public/js/v2/social.js');
   assert.ok(/let p = \(pv && pv\.profile\(name\)\) \|\| PROFILES\.get\(name\);/.test(soc),
     'a sample profile is made here, never fetched');
-  assert.ok(/'<span class="lb-tag p-tag">' \+ PV\(\)\.tag \+ '<\/span> player'/.test(soc) &&
-    /'<span class="lb-tag">' \+ P\(\)\.tag \+ '<\/span>'/.test(lead), 'tagged Sample on screen');
-  // Sample figures are never marked LIVE for visitors: the board heading and Global player winnings.
-  // Only the browser that opened ?leaderboard=preview (liveLook) sees LIVE (Owen, 2026-10-26).
-  assert.ok(/const SAMPLE = \(\) => !!P\(\) && !P\(\)\.liveLook;/.test(lead) && /live\.hidden = SAMPLE\(\);/.test(lead));
+  /* Tagged Sample on screen (site redo 2026-11-01, layout 1): the tag once in Player winnings, on a sample profile and
+     on sample search results, and the one note line under the board (the audit found it printed twice). */
+  assert.ok(/'<span class="ds-chip lb-sample">' \+ PV\(\)\.tag \+ '<\/span>'/.test(soc) &&
+    /'<span class="ds-chip lb-sample">' \+ sample\.tag \+ '<\/span>'/.test(soc), 'tagged Sample on screen');
+  assert.ok(/if \(SAMPLE\(\)\) html \+= '<p class="lb-foot lb-note">' \+ P\(\)\.note \+ '<\/p>';/.test(lead), 'one note, under the board');
+  assert.ok(!/\.note\b/.test(soc.replace(/\/\*[\s\S]*?\*\//g, '')), 'and not a second time in Player winnings');
+  // Sample figures are never marked live for visitors, and neither is a board that failed to load.
+  // Only the browser that opened ?leaderboard=preview (liveLook) could, and liveLook is always false (Owen, 2026-10-28).
+  assert.ok(/const SAMPLE = \(\) => !!P\(\) && !P\(\)\.liveLook;/.test(lead) && /live\.hidden = SAMPLE\(\) \|\| failed;/.test(lead));
   assert.ok(/const sample = d\.preview && !d\.preview\.liveLook \? d\.preview : null;/.test(soc) &&
-    /\(sample \? '' : '<span class="win-live">/.test(soc) && /<div class="win-note">' \+ sample\.note/.test(soc));
+    /\(sample \? '<span class="ds-chip lb-sample">'/.test(soc) && /: '<span class="ds-chip ds-chip-live is-pulse" data-pulse id="soc-live"/.test(soc));
   assert.ok(/top\.slice\(0, 10\)/.test(lead) && !/lb-all|openSheet/.test(lead), 'the top 10 on the board, no sheet');
 });
 

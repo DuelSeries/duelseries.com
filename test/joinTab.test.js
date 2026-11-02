@@ -85,8 +85,12 @@ test('a set https link opens in a new tab with noopener noreferrer; anything els
     assert.strictEqual(a.rel, 'noopener noreferrer', a.href);
   }
   const soon = made.filter(n => n.className.split(' ').includes('soon'));
-  assert.strictEqual(soon.length, 3, 'whop (http), x (javascript:) and tiktok (empty) are not links');
+  /* Site redo stage 3: an unset social is no longer drawn as a greyed circle that does nothing (audit); only the
+     Whop row stays as a shut block that says Opening soon. */
+  assert.strictEqual(soon.length, 1, 'whop (http) is not a link');
   assert.ok(soon.every(n => n.tagName === 'DIV'), 'and not pressable');
+  assert.ok(!made.some(n => /\bjn-(x|tiktok)\b/.test(n.className)), 'x (javascript:) and tiktok (empty) draw nothing');
+  assert.ok(made.some(n => /\bjn-youtube\b/.test(n.className) && n.tagName === 'A'), 'a set one is a circle that links');
   assert.ok(made.some(n => n.className === 'jn-soon' && n.textContent === 'Opening soon'), 'the row says so');
 });
 

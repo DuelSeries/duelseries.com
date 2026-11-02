@@ -97,17 +97,19 @@
     if (!w().swap) return '';
     const c = convertible();
     return '<span class="num">' + solTxt(solLamports()) + '</span>' +
-      (c && swapOn() ? '<button type="button" class="wcv" onclick="V2Wallet.convert()">Convert to USDC</button>' : '');
+      (c && swapOn() ? '<button type="button" class="ds-btn ds-btn-secondary ds-btn-sm wcv" onclick="V2Wallet.convert()">Convert to USDC</button>' : '');
   }
   /* SOL mode: old USDC still in the wallet (from before the switch, or sent by habit). One line, two actions:
-     Convert to SOL (the price sheet, then one tap) and Withdraw USDC. */
+     Convert to SOL (the price sheet, then one tap) and Withdraw USDC. It says the big figure above leaves it out
+     (stage 3 audit: the headline balance was not all the money and nothing said so). */
   function usdcLine() {
     if (!usdcOn()) return '';
     return '<span class="ph-no-capture">You have <b class="num">' + money(usdcBal()) + '</b> USDC</span>' +
+      '<span class="wusdc-k"> as well, not counted in the balance above</span>' +
       // the server's smallest convert is $0.10 (server/swap.js MIN_USDC_CONVERT)
       (swapOn() && window.duelWalletUsdcToSolQuote && usdcBal() >= 0.10
-        ? '<button type="button" class="wcv" onclick="V2Wallet.convertUsdc()">Convert to SOL</button>' : '') +
-      '<button type="button" class="wcv" onclick="V2Wallet.cashOut(\'usdc\')">Withdraw USDC</button>';
+        ? '<button type="button" class="ds-btn ds-btn-secondary ds-btn-sm wcv" onclick="V2Wallet.convertUsdc()">Convert to SOL</button>' : '') +
+      '<button type="button" class="ds-btn ds-btn-secondary ds-btn-sm wcv" onclick="V2Wallet.cashOut(\'usdc\')">Withdraw USDC</button>';
   }
   // Thousands separated, so $1,234.56 never reads as $1234.56.
   const money = n => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -132,6 +134,14 @@
     'stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ' +
     'aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2.5"/>' +
     '<path d="M5 15V6.5A2.5 2.5 0 0 1 7.5 4H15"/></svg>';
+  /* The in and out marks on a history row (they were the characters ↓ and ↑, drawn in whatever font had them). */
+  const ARROW_IN = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" ' +
+    'stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v13M6.5 12.5L12 18l5.5-5.5"/></svg>';
+  const ARROW_OUT = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" ' +
+    'stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V6M6.5 11.5L12 6l5.5 5.5"/></svg>';
+  /* A list that did not load says so and offers the way to ask again right there: "Tap refresh" pointed at a round
+     arrow far up the page, and nobody taps on a PC (stage 3 audit). Refresh reads the balance and every list. */
+  const AGAIN = ' <button type="button" class="ds-btn ds-btn-secondary ds-btn-sm wagain" onclick="V2Wallet.refresh()">Try again</button>';
   function addrRow(id, a) {
     return '<div class="waddr" id="' + id + '">' +
       '<code class="ph-no-capture" title="' + esc(a) + '">' + esc(ownShort(a)) + '</code>' +
@@ -143,6 +153,24 @@
     mvGen++; clearTimeout(mvTimer);
     const mv = el('w-moves'); if (mv) mv.innerHTML = '';
   }
+  /* History (site redo stage 3): one panel beside the balance, Transactions (with Add funds and Withdrawals under
+     them) or Earnings. Shown only for a signed-in wallet; anything else is one panel across the screen. The view is
+     kept across redraws. Display only: both views are loaded either way, as they always were. */
+  let histView = 'tx';
+  function hist(on) {
+    const g = el('w-grid'); if (g) g.classList.toggle('in', !!on);
+    const h = el('w-hist'); if (h) h.hidden = !on;
+    if (!on) { const t = el('w-txs'); if (t) t.innerHTML = ''; }
+  }
+  function view(v) {
+    if (v !== 'tx' && v !== 'earn') return;
+    histView = v;
+    const h = el('w-hist'); if (!h) return;
+    h.setAttribute('data-view', v);
+    if (h.querySelectorAll) h.querySelectorAll('[data-hv]').forEach(b => b.setAttribute('aria-pressed', String(b.getAttribute('data-hv') === v)));
+  }
+  // The balance figure's length, for the lit figure to fit its panel (v2.html #w-bal): "$1,234.56" sits smaller than "$4.20".
+  const fitLen = s => String(s == null ? '' : s).length;
 
   /* The header readout. Not connected shows "…" (the box is hidden once signed out is known), never $0.00. */
   function renderHeader() {
@@ -155,22 +183,27 @@
     /* Signed out (known, not merely not loaded yet): the header drops the
        empty balance box and says Sign in, on a phone too, where it was a lone
        dash beside an unlabelled icon. While the wallet is still starting it
-       says Wallet, so a signed-in player never sees a Sign in flash by. A
+       says Add funds, so a signed-in player never sees a Sign in flash by. A
        browser with no sign of a session at all (DSWalletBoot.session, the top
        of v2.html) is known signed out from the start: the widget now comes in
-       once the page is idle, and the header said Wallet until then. */
+       once the page is idle, and the header said Add funds until then. */
     const out = (!!w().ready || noSession()) && !connected();
-    if (label) label.textContent = out ? 'Sign in' : 'Wallet';
+    if (label) label.textContent = out ? 'Sign in' : 'Add funds';
     // A name for screen readers too: on a phone the label is hidden and only the icon shows.
-    const btn = el('wbtn'); if (btn) btn.setAttribute('aria-label', out ? 'Sign in' : 'Wallet');
+    const btn = el('wbtn'); if (btn) btn.setAttribute('aria-label', out ? 'Sign in' : 'Add funds');
     document.body.classList.toggle('signedout', out);
   }
+  // Which Add funds was pressed, for add_funds_opened (addFundsOpened): the Wallet tab's, or the header's for its call.
+  let fundWhere = 'wallet';
   /* The header button signs you in when you are signed out, instead of
      opening a Wallet tab whose only content is a second Sign in button. */
   function headerTap() {
     /* Before the widget is in, too, when nobody can be signed in: Sign in fetches it and hands over (v2.html
        stub), where the Wallet tab would only say Starting your wallet and ask for a second tap. */
     if ((w().ready || noSession()) && !connected()) return login('header');
+    /* Signed in it is Add funds (site redo, layout 1: the balance beside it opens the Wallet tab), the same
+       fund() as the Wallet tab's own button. A wallet still starting goes to the Wallet tab, as before. */
+    if (connected()) { fundWhere = 'header'; try { return fund(); } finally { fundWhere = 'wallet'; } }
     if (window.go) window.go('wallet');
   }
 
@@ -187,10 +220,16 @@
   function linkedRow() {
     const L = w().linked;
     if (!L || w().external) return '';
-    return '<div class="plab wlinklab">Linked wallet</div>' +
+    // Unlink reads as a leaving action (red tint, like Settings' Sign out), never as a second Copy (stage 3 audit).
+    return '<span class="ds-t-label wlinklab">Linked wallet</span>' +
       '<div class="waddr wlink"><code class="ph-no-capture" title="' + esc(L.address) + '">' + esc(L.name) + ' ' + esc(ownShort(L.address)) + '</code>' +
-        '<button type="button" class="cp" onclick="V2Wallet.unlink()">Unlink</button></div>';
+        '<button type="button" class="cp wunl" onclick="V2Wallet.unlink()">Unlink</button></div>';
   }
+  const CHECK = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" ' +
+    'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+  const LOCK = '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" ' +
+    'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="10" rx="2.5"/>' +
+    '<path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>';
   function render(light) {
     renderHeader();
     const body = el('w-body');
@@ -199,21 +238,35 @@
     if (!w().ready) {
       drawnFor = null;
       clearMoves();
-      body.innerHTML = '<div class="panel"><p class="note">Starting your wallet…</p></div>';
+      hist(false);
+      body.innerHTML = '<div class="ds-panel wstart" role="status"><span class="ds-spin" aria-hidden="true"></span>' +
+        '<p class="ds-hint">Starting your wallet…</p></div>';
       return;
     }
     if (!connected()) {
       drawnFor = null;
       const earn = el('w-earn'); if (earn) earn.hidden = true;
       clearMoves();
+      hist(false);
+      /* Signed out (stage 3 audit: an empty box with one button): what the wallet is, why to sign in, and the one
+         Sign in. The balance beside it is shut and says so, never a $0.00 for money nobody has looked at. */
       body.innerHTML =
-        '<div class="panel">' +
-        '<div class="brow"><button class="btn pri" onclick="V2Wallet.login()">Sign in</button></div>' +
-        '</div>';
+        '<section class="ds-panel ds-out wout" aria-labelledby="wout-t"><div>' +
+          '<h2 class="ds-t-page" id="wout-t">Sign in to see your wallet</h2>' +
+          '<p class="ds-t-body">Your DuelSeries wallet holds the money you use for paid rooms. It belongs to you, and only you can move money out of it.</p>' +
+          '<ul><li>' + CHECK + 'Add funds with a card or from another wallet.</li>' +
+            '<li>' + CHECK + 'Your balance shows in dollars.</li>' +
+            '<li>' + CHECK + 'Withdraw to any Solana wallet whenever you like.</li></ul>' +
+          '<button type="button" class="ds-btn ds-btn-primary ds-btn-lg" onclick="V2Wallet.login()">Sign in</button>' +
+          '<p class="ds-hint">Free rooms work without signing in.</p></div>' +
+        '<div class="ds-panel ds-lit is-off ds-out-bal" aria-hidden="true"><span class="ds-t-label">Your balance</span>' +
+          '<span class="ds-out-lock">' + LOCK + '</span><b class="wout-what">Signed out</b>' +
+          '<p class="ds-t-meta">Shows here once you sign in</p></div></section>';
       return;
     }
     if (light === true && drawnFor === w().address && drawnLink === linkKey() && el('w-bal')) {
       el('w-bal').textContent = bigBal(w().balance);
+      const st = el('w-bal').style; if (st && st.setProperty) st.setProperty('--n', fitLen(bigBal(w().balance)));
       const s = el('w-sol'); if (s) s.innerHTML = solLine();
       const u = el('w-usdc'); if (u) u.innerHTML = usdcLine();
       return;
@@ -221,17 +274,16 @@
 
     const addr = w().address;
     const bal = Number(w().balance) || 0;
+    hist(true);
+    view(histView);
     body.innerHTML =
-      /* The balance leads, at the size of the thing it is. Add funds and
-         Withdraw sit under it because they are what you came to do, and
-         Refresh is beside them rather than hidden, because an on-chain
-         balance can be a few seconds behind and the only honest answer to
-         "is it there yet" is a button that asks again. */
-      /* No "Available" over it and no "USDC on Solana" under it (Owen,
-         2026-10-15): the big number on the Wallet tab is the balance, and the
-         address panel right below already says what it is held in. */
-      '<div class="wbal">' +
-        '<div class="bnum num ph-no-capture" id="w-bal" data-cu>' + bigBal(bal) + '</div>' +
+      /* The balance leads, at the size of the thing it is: the one lit panel on the site (the kit's .ds-lit and
+         .ds-led). Add funds and Withdraw sit under it because they are what you came to do, and Refresh is beside
+         them rather than hidden, because an on-chain balance can be a few seconds behind and the only honest answer
+         to "is it there yet" is a button that asks again. */
+      '<section class="ds-panel ds-lit ds-balp wbal" aria-labelledby="w-bal-t">' +
+        '<span class="ds-t-label" id="w-bal-t">Your balance</span>' +
+        '<div style="--n:' + fitLen(bigBal(bal)) + '" class="ds-led num ph-no-capture" id="w-bal" data-cu>' + bigBal(bal) + '</div>' +
         /* The SOL under the dollars, small, like the DamnBruh wallet's "$1.03 / 0.0098 SOL"
            (Owen, 2026-10-15), with the one tap that turns it into dollars. */
         '<div class="wsol ph-no-capture" id="w-sol">' + solLine() + '</div>' +
@@ -239,35 +291,36 @@
         '<div class="wsol wusdc" id="w-usdc">' + usdcLine() + '</div>' +
         /* The form lives in its own sheet now, so this row never swaps out. */
         ('<div class="wacts">' +
-            '<button class="btn pri" onclick="V2Wallet.fund()">Add funds</button>' +
-            '<button class="btn sec" onclick="V2Wallet.cashOut()">Withdraw</button>' +
-            '<button class="btn sec wref" id="w-refresh" onclick="V2Wallet.refresh()" ' +
+            '<button type="button" class="ds-btn ds-btn-primary ds-btn-lg wa-add" onclick="V2Wallet.fund()">Add funds</button>' +
+            '<button type="button" class="ds-btn ds-btn-secondary ds-btn-lg wa-wd" onclick="V2Wallet.cashOut()">Withdraw</button>' +
+            '<button type="button" class="ds-btn ds-btn-secondary ds-btn-lg ds-btn-icon wref" id="w-refresh" onclick="V2Wallet.refresh()" ' +
               'aria-label="Refresh balance" title="Refresh balance">' +
-              '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" ' +
-                'stroke="currentColor" stroke-width="2.2" stroke-linecap="round">' +
+              '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" ' +
+                'stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">' +
                 '<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>' +
             '</button>' +
           '</div>') +
         addChip() +
-      '</div>' +
-      '<div class="panel wdep">' +
+      '</section>' +
+      '<section class="ds-panel wdep" aria-labelledby="w-addr-t">' +
         /* "Add funds", not "Deposit", everywhere (Owen, 2026-10-15); this is the
            address the money is sent to, so it is named as what it is. */
-        '<div class="plab">Your wallet address</div>' +
+        '<span class="ds-t-label" id="w-addr-t">Your wallet address</span>' +
         addrRow('w-addr', addr) +
         /* The one sentence kept. The rest of the copy on this screen was
            explanation; this is the only line whose absence can cost somebody
-           their money. */
-        /* SOL too since card top-ups arrive as SOL (Owen, 2026-10-15); it becomes
-           USDC with Convert above. */
-        '<p class="note">SOL or USDC on Solana only. Anything else is unrecoverable.</p>' +
+           their money. SOL mode says SOL only, the same as Add funds' Receive page (stage 3 audit); USDC mode
+           takes SOL too, since card top-ups arrive as SOL (Owen, 2026-10-15). */
+        '<p class="ds-t-meta">' + (solMode()
+          ? 'Send only SOL on the Solana network to this address. Anything else sent here is lost.'
+          : 'SOL or USDC on Solana only. Anything else is unrecoverable.') + '</p>' +
         linkedRow() +
-      '</div>' +
-      '<div class="head"><div><h2>Transactions</h2></div></div>' +
-      /* Five rows tall, the rest a scroll away inside the card, and the next
-         page asked for as the scroll nears the end (Owen, 2026-10-15). A Show
-         more button under a list that long was a page of buttons to tap. */
-      '<div class="txcard"><div class="txl sc" id="w-tx" onscroll="V2Wallet.txScroll()">' +
+      '</section>';
+    /* Five rows tall, the rest a scroll away inside the card, and the next
+       page asked for as the scroll nears the end (Owen, 2026-10-15). A Show
+       more button under a list that long was a page of buttons to tap. */
+    const txs = el('w-txs');
+    if (txs) txs.innerHTML = '<div class="txcard"><div class="txl sc" id="w-tx" onscroll="V2Wallet.txScroll()">' +
         '<div class="none">Loading…</div></div></div>';
     drawnFor = addr;
     drawnLink = linkKey();
@@ -313,7 +366,7 @@
        says where it goes: each row opens the transaction on Solscan. */
     return '<a class="tx ph-no-capture" href="https://solscan.io/tx/' + esc(t.signature) + '" ' +
       'target="_blank" rel="noopener noreferrer" title="View on Solscan">' +
-      '<span class="txi ' + (inb ? 'in' : 'out') + '" aria-hidden="true">' + (inb ? '↓' : '↑') + '</span>' +
+      '<span class="txi ' + (inb ? 'in' : 'out') + '" aria-hidden="true">' + (inb ? ARROW_IN : ARROW_OUT) + '</span>' +
       '<span class="txw"><span class="txn">' + name + '</span>' +
         '<span class="txd">' + when(t.at) + '</span></span>' +
       '<span class="txa num ' + (inb ? 'in' : 'out') + '">' +
@@ -337,7 +390,7 @@
     const box = el('w-tx');
     if (!box || txFor !== a) return;          // screen changed under us
     if (!page) {
-      box.innerHTML = '<div class="none">Could not load transactions. Tap refresh to try again.</div>';
+      box.innerHTML = '<div class="none">Could not load transactions.' + AGAIN + '</div>';
       return edge(box);
     }
     if (!page.transactions.length) {
@@ -366,7 +419,7 @@
     const tail = box.querySelector('.txtail'); if (tail) tail.remove();
     if (!page) {
       box.insertAdjacentHTML('beforeend', '<button type="button" class="none txtail txretry" ' +
-        'onclick="V2Wallet.more()">Could not load more. Tap to try again.</button>');
+        'onclick="V2Wallet.more()">Could not load more. Press to try again.</button>');
       return edge(box);
     }
     box.insertAdjacentHTML('beforeend', page.transactions.map(txRow).join(''));
@@ -423,13 +476,16 @@
   function moveParts(t, inb) {
     const sign = inb ? '+' : '−';
     switch (t.kind) {
+      /* Dollars on the right on every row, like the balance and Transactions; the SOL that actually moved is the
+         small figure after the date (stage 3 audit: the list switched units row by row). No price, no dollars. */
       case 'sol':
-        return { name: inb ? 'Add funds' : 'Withdraw', amt: sign + solAmt(t.sol),
-                 extra: t.usd > 0 ? 'about ' + money(t.usd) : '' };
+        return t.usd > 0
+          ? { name: inb ? 'Add funds' : 'Withdraw', amt: sign + money(t.usd), extra: solAmt(t.sol) }
+          : { name: inb ? 'Add funds' : 'Withdraw', amt: sign + solAmt(t.sol), extra: '' };
       case 'convert':
         return { name: 'Convert to USDC', amt: '+' + money(t.usdc), extra: t.sol > 0 ? 'from ' + solAmt(t.sol) : '', noPeer: true };
       case 'convertSol':
-        return { name: 'Convert to SOL', amt: '+' + solAmt(t.sol), extra: 'from ' + money(t.usdc), noPeer: true };
+        return { name: 'Convert to SOL', amt: money(t.usdc), extra: t.sol > 0 ? 'as ' + solAmt(t.sol) : 'as SOL', noPeer: true };
       case 'withdrawSol':
         return { name: 'Withdraw', amt: '−' + money(t.usdc), extra: t.sol > 0 ? 'as ' + solAmt(t.sol) : 'as SOL' };
       default:
@@ -443,11 +499,13 @@
     return '<div class="tx mv ph-no-capture">' +
       '<a class="mvl" href="https://solscan.io/tx/' + esc(t.signature) + '" ' +
         'target="_blank" rel="noopener noreferrer" title="View on Solscan">' +
-        '<span class="txi ' + (inb ? 'in' : 'out') + '" aria-hidden="true">' + (inb ? '↓' : '↑') + '</span>' +
+        '<span class="txi ' + (inb ? 'in' : 'out') + '" aria-hidden="true">' + (inb ? ARROW_IN : ARROW_OUT) + '</span>' +
         '<span class="txw"><span class="txn">' + esc(p.name) + '</span>' +
-          '<span class="txd">' + whenAt(t.at) + (p.extra ? ', ' + esc(p.extra) : '') + '</span></span></a>' +
+          '<span class="txd">' + whenAt(t.at) + (p.extra ? ', ' + esc(p.extra) : '') + '</span></span>' +
+        /* The amount sits in the link with what and when; the other wallet, with its copy button, is its own part
+           of the row (a button cannot sit inside a link), beside it on a PC and under it on a phone. */
+        '<span class="txa num ' + (inb ? 'in' : 'out') + '">' + esc(p.amt) + '</span></a>' +
       '<span class="mvr">' +
-        '<span class="txa num ' + (inb ? 'in' : 'out') + '">' + esc(p.amt) + '</span>' +
         (peer
           ? '<span class="mvp">' + (inb ? 'from ' : 'to ') +
               '<code title="' + esc(peer) + '">' + esc(ownShort(peer)) + '</code>' +
@@ -462,7 +520,7 @@
     if (!again) { clearTimeout(mvTimer); gen = ++mvGen; again = 0; }
     const sec = el('w-moves'); if (!sec) return;
     if (!again) {
-      sec.innerHTML = '<div class="head"><div><h2>Add funds and Withdrawals</h2></div></div>' +
+      sec.innerHTML = '<div class="whd"><h2>Add funds and Withdrawals</h2></div>' +
         '<div class="txcard"><div class="txl sc" id="w-mv" onscroll="V2Wallet.mvScroll()">' +
           '<div class="none">Loading…</div></div></div>';
     }
@@ -478,7 +536,7 @@
       // What an earlier part found stays; the row under it says the rest did not come.
       const kept = box.querySelector('.mv');
       const tail = '<div class="none txtail">Could not load ' + (kept ? 'the rest' : 'these') +
-        '. Tap refresh to try again.</div>';
+        '.' + AGAIN + '</div>';
       if (kept) { const t = box.querySelector('.txtail'); if (t) t.remove(); box.insertAdjacentHTML('beforeend', tail); }
       else box.innerHTML = tail;
       return edge(box);
@@ -547,9 +605,9 @@
           ? '<p class="note ph-no-capture">At least ' + solFloor(q.minOut) + ' arrives if the price moves. On-chain transfers cannot be reversed.</p>'
           : '<p class="note" aria-live="polite">Getting a price…</p>') +
         '<div class="brow">' +
-          '<button class="btn pri" onclick="V2Wallet.confirmCash()"' + (q && !pending.busy ? '' : ' disabled') + '>' +
+          '<button type="button" class="ds-btn ds-btn-primary ds-btn-lg ds-btn-block" onclick="V2Wallet.confirmCash()"' + (q && !pending.busy ? '' : ' disabled') + '>' +
             (pending.busy ? 'Sending…' : 'Send it') + '</button>' +
-          '<button class="btn sec" onclick="V2Wallet.backCash()"' + (pending.busy ? ' disabled' : '') + '>Back</button>' +
+          '<button type="button" class="ds-btn ds-btn-quiet ds-btn-block" onclick="V2Wallet.backCash()"' + (pending.busy ? ' disabled' : '') + '>Back</button>' +
         '</div></div>';
     }
     if (pending) {
@@ -562,20 +620,19 @@
         '<code class="cofull ph-no-capture">' + esc(pending.to) + '</code>' +
         '<p class="note">On-chain transfers cannot be reversed.</p>' +
         '<div class="brow">' +
-          '<button class="btn pri" onclick="V2Wallet.confirmCash()">Send it</button>' +
-          '<button class="btn sec" onclick="V2Wallet.backCash()">Back</button>' +
+          '<button type="button" class="ds-btn ds-btn-primary ds-btn-lg ds-btn-block" onclick="V2Wallet.confirmCash()">Send it</button>' +
+          '<button type="button" class="ds-btn ds-btn-quiet ds-btn-block" onclick="V2Wallet.backCash()">Back</button>' +
         '</div></div>';
     }
     if (!swapOn()) payAs = 'usdc';
     /* Send as USDC or SOL (Owen, 2026-10-15). The amount stays in dollars
        either way; SOL is converted from it as it is sent. */
     const asRow = swapOn()
-      ? '<div class="payas" role="radiogroup" aria-label="Send as">' +
-          '<span class="k">Send as</span>' +
+      ? '<div class="payas"><span class="k">Send as</span><div class="ds-seg" role="radiogroup" aria-label="Send as">' +
           ['usdc', 'sol'].map(v => '<button type="button" role="radio" aria-checked="' + (payAs === v) + '"' +
             ' class="pa' + (payAs === v ? ' on' : '') + '" onclick="V2Wallet.setPayAs(\'' + v + '\')">' +
             (v === 'usdc' ? 'USDC' : 'SOL') + '</button>').join('') +
-        '</div>' +
+        '</div></div>' +
         (payAs === 'sol'
           ? '<p class="note pahint">Converted from your USDC as it is sent. ' +
               money((w().swap && w().swap.minWithdrawSolUsd) || 1) + ' or more.</p>'
@@ -584,29 +641,32 @@
     /* The balance alone (the sheet is titled Withdraw), and the can't-be-
        reversed warning once, on the confirm step where it is read before
        sending, rather than on both steps (2026-10-15 audit). */
+    /* Each box says what goes in it, and the amount's unit shows in the box itself (stage 3 audit: the unit was only
+       in a placeholder). The To chip sits right before the address box (refreshChip puts it back there). */
     return '<div class="cashout">' +
-      '<div class="mfig ph-no-capture">' +
-        '<div class="v num">' + balMoney(bal) + '</div></div>' +
+      '<div class="ds-avail ph-no-capture"><span>Available</span><b class="num">' + balMoney(bal) + '</b></div>' +
       asRow +
-      linkChip() +
       /* Enter in either field does what the Withdraw button does. */
-      '<input class="fld" id="co-to" placeholder="Solana address" autocomplete="off" ' +
+      '<div class="ds-field"><label for="co-to">Send to</label>' +
+      linkChip() +
+      '<input class="fld ds-input" id="co-to" placeholder="Solana address" autocomplete="off" ' +
         'spellcheck="false" aria-label="Destination Solana address" ' +
-        'onkeydown="if(event.key===\'Enter\')V2Wallet.submitCash()">' +
-      '<div class="amtrow">' +
-        '<input class="fld num" id="co-amt" inputmode="decimal" placeholder="0.00" ' +
+        'onkeydown="if(event.key===\'Enter\')V2Wallet.submitCash()"></div>' +
+      '<div class="ds-field"><label for="co-amt">Amount in dollars</label>' +
+      '<div class="amtrow ds-input-wrap"><span class="ds-input-pre" aria-hidden="true">$</span>' +
+        '<input class="fld num ds-input ds-input-money" id="co-amt" inputmode="decimal" placeholder="0.00" ' +
           'autocomplete="off" aria-label="Amount in US dollars" ' +
           'onkeydown="if(event.key===\'Enter\')V2Wallet.submitCash()">' +
         '<button type="button" class="maxbtn" onclick="V2Wallet.max()">Max</button>' +
-      '</div>' +
+      '</div></div>' +
       /* Empty until there is something to say: the available figure is
          already the big number at the top of this sheet. */
       '<p class="note ph-no-capture" id="co-msg"></p>' +
       '<div class="brow">' +
         /* Withdraw, like the button and the sheet: "Cash out" is what you do
            to leave a game with your winnings, a different thing. */
-        '<button class="btn pri" onclick="V2Wallet.submitCash()">Withdraw</button>' +
-        '<button class="btn sec" onclick="V2Wallet.cancelCash()">Cancel</button>' +
+        '<button type="button" class="ds-btn ds-btn-primary ds-btn-lg ds-btn-block" onclick="V2Wallet.submitCash()">Withdraw</button>' +
+        '<button type="button" class="ds-btn ds-btn-quiet ds-btn-block" onclick="V2Wallet.cancelCash()">Cancel</button>' +
       '</div></div>';
   }
 
@@ -624,42 +684,43 @@
         '<code class="cofull ph-no-capture">' + esc(p.to) + '</code>' +
         '<p class="note">On-chain transfers cannot be reversed.</p>' +
         '<div class="brow">' +
-          '<button class="btn pri" onclick="V2Wallet.confirmCash()">Send it</button>' +
-          '<button class="btn sec" onclick="V2Wallet.backCash()">Back</button>' +
+          '<button type="button" class="ds-btn ds-btn-primary ds-btn-lg ds-btn-block" onclick="V2Wallet.confirmCash()">Send it</button>' +
+          '<button type="button" class="ds-btn ds-btn-quiet ds-btn-block" onclick="V2Wallet.backCash()">Back</button>' +
         '</div></div>';
     }
     const asRow = usdcOn()
-      ? '<div class="payas" role="radiogroup" aria-label="Send as">' +
-          '<span class="k">Send as</span>' +
+      ? '<div class="payas"><span class="k">Send as</span><div class="ds-seg" role="radiogroup" aria-label="Send as">' +
           ['sol', 'usdc'].map(v => '<button type="button" role="radio" aria-checked="' + (as === v) + '"' +
             ' class="pa' + (as === v ? ' on' : '') + '" onclick="V2Wallet.setPayAs(\'' + v + '\')">' +
             (v === 'sol' ? 'SOL' : 'USDC') + '</button>').join('') +
-        '</div>'
+        '</div></div>'
       : '';
+    /* What can go, in dollars (the USDC as USDC), then the SOL itself small under it: the amount box takes SOL, so its
+       label and the unit in the box say SOL, and "About $x" under it turns what is typed back into dollars. */
     return '<div class="cashout">' +
-      '<div class="mfig ph-no-capture">' +
-        (as === 'usdc'
-          ? '<div class="v num">' + money(usdcBal()) + '<span class="cvu"> USDC</span></div>'
-          : '<div class="v num">' + bigBal(w().balance) + '</div>') +
-      '</div>' +
+      '<div class="ds-avail ph-no-capture"><span>Available</span><b class="num">' +
+        (as === 'usdc' ? money(usdcBal()) + '<span class="cvu"> USDC</span>' : bigBal(w().balance)) + '</b></div>' +
       (as !== 'sol' ? '' : solKnown() ? '<p class="note ph-no-capture">You have ' + solTxt(solLamports()) + '. Keep ' + solTxt(KEEP_LAMPORTS) +
         ' in your wallet for network fees.</p>'
         : '<p class="note">Could not read your balance just now. You can still withdraw: the network refuses more than your wallet has.</p>') +
       asRow +
+      '<div class="ds-field"><label for="co-to">Send to</label>' +
       linkChip() +
-      '<input class="fld" id="co-to" placeholder="Solana address" autocomplete="off" ' +
+      '<input class="fld ds-input" id="co-to" placeholder="Solana address" autocomplete="off" ' +
         'spellcheck="false" aria-label="Destination Solana address" ' +
-        'onkeydown="if(event.key===\'Enter\')V2Wallet.submitCash()">' +
-      '<div class="amtrow">' +
-        '<input class="fld num" id="co-amt" inputmode="decimal" placeholder="' + (as === 'usdc' ? '0.00' : '0.0000') + '" ' +
+        'onkeydown="if(event.key===\'Enter\')V2Wallet.submitCash()"></div>' +
+      '<div class="ds-field"><label for="co-amt">' + (as === 'usdc' ? 'Amount in USDC' : 'Amount in SOL') + '</label>' +
+      '<div class="amtrow ds-input-wrap">' + (as === 'usdc' ? '<span class="ds-input-pre" aria-hidden="true">$</span>' : '') +
+        '<input class="fld num ds-input ds-input-money" id="co-amt" inputmode="decimal" placeholder="' + (as === 'usdc' ? '0.00' : '0.0000') + '" ' +
           'autocomplete="off" aria-label="' + (as === 'usdc' ? 'Amount in USDC' : 'Amount in SOL') + '" ' +
           'oninput="V2Wallet.hint()" onkeydown="if(event.key===\'Enter\')V2Wallet.submitCash()">' +
+        (as === 'usdc' ? '' : '<span class="co-unit" aria-hidden="true">SOL</span>') +
         '<button type="button" class="maxbtn" onclick="V2Wallet.max()"' + (maxOff(as) ? ' disabled' : '') + '>Max</button>' +
-      '</div>' +
+      '</div></div>' +
       '<p class="note ph-no-capture" id="co-msg"></p>' +
       '<div class="brow">' +
-        '<button class="btn pri" onclick="V2Wallet.submitCash()">Withdraw</button>' +
-        '<button class="btn sec" onclick="V2Wallet.cancelCash()">Cancel</button>' +
+        '<button type="button" class="ds-btn ds-btn-primary ds-btn-lg ds-btn-block" onclick="V2Wallet.submitCash()">Withdraw</button>' +
+        '<button type="button" class="ds-btn ds-btn-quiet ds-btn-block" onclick="V2Wallet.cancelCash()">Cancel</button>' +
       '</div></div>';
   }
 
@@ -671,7 +732,7 @@
      anything shaped like an address or a signature taken out. A fault in it never reaches the money code around it. */
   const errWords = m => String(m || '').replace(/[1-9A-HJ-NP-Za-km-z]{32,}/g, '…').replace(/\$?\d+(?:[.,]\d+)*/g, '#').slice(0, 100);
   function addFundsOpened(method) {
-    try { if (window.DSTrack) window.DSTrack.event('add_funds_opened', { where: 'wallet', method: method }); } catch (_) {}
+    try { if (window.DSTrack) window.DSTrack.event('add_funds_opened', { where: fundWhere, method: method }); } catch (_) {}
   }
   function withdrawFailed(e, asset) {
     try { if (window.DSTrack) window.DSTrack.event('withdraw_failed', { error: errWords(e && e.message ? e.message : e), asset: asset }); } catch (_) {}
@@ -715,7 +776,7 @@
     const W = w();
     if (W.walletFunding || W.external) return '';
     const name = W.linked ? W.linked.name : ((W.linkable || [])[0] || {}).label;
-    return name ? '<div class="wadd"><button type="button" class="tolink" onclick="V2Wallet.addFromWallet()">Add from ' + esc(name) + '</button></div>' : '';
+    return name ? '<div class="wadd"><button type="button" class="ds-btn ds-btn-quiet ds-btn-sm tolink" onclick="V2Wallet.addFromWallet()">Add from ' + esc(name) + '</button></div>' : '';
   }
   /* Link a browser wallet: its connect, then one signature Privy keeps on the account. Resolves true once the
      widget shows it linked. */
@@ -795,19 +856,22 @@
     const typed = el('ad-amt') ? el('ad-amt').value : '';
     b.innerHTML = '<div class="cashout">' +
       '<p class="note">From <b>' + esc(L.name) + '</b> <code class="ph-no-capture">' + esc(ownShort(L.address)) + '</code> to your DuelSeries wallet</p>' +
-      '<div class="mfig ph-no-capture"><div class="v num" id="ad-fig">…</div></div>' +
+      // the linked wallet's figure on the right, its name on the left (the Withdraw sheet's Available row)
+      '<div class="mfig ph-no-capture"><div class="v num" id="ad-fig">…</div><div class="k">In ' + esc(L.name) + '</div></div>' +
       '<p class="note ph-no-capture" id="ad-have"></p>' +
-      '<div class="amtrow">' +
+      '<div class="ds-field"><label for="ad-amt">' + (r ? 'Amount in dollars' : 'Amount in SOL') + '</label>' +
+      '<div class="amtrow ds-input-wrap">' + (r ? '<span class="ds-input-pre" aria-hidden="true">$</span>' : '') +
         // the unit shows in the field itself: dollars when the sheet opened with a price, else SOL
-        '<input class="fld num" id="ad-amt" inputmode="decimal" placeholder="' + (r ? '$0.00' : '0.0000 SOL') + '" autocomplete="off" ' +
+        '<input class="fld num ds-input ds-input-money" id="ad-amt" inputmode="decimal" placeholder="' + (r ? '0.00' : '0.0000') + '" autocomplete="off" ' +
           'aria-label="' + (r ? 'Amount in US dollars' : 'Amount in SOL') + '" oninput="V2Wallet.addHint()" ' +
           'onkeydown="if(event.key===\'Enter\')V2Wallet.submitAdd()">' +
+        (r ? '' : '<span class="co-unit" aria-hidden="true">SOL</span>') +
         '<button type="button" class="maxbtn" onclick="V2Wallet.addMax()"' + (a.max > 0 ? '' : ' disabled') + '>Max</button>' +
-      '</div>' +
+      '</div></div>' +
       '<p class="note ph-no-capture" id="ad-msg"></p>' +
       '<div class="brow">' +
-        '<button class="btn pri" onclick="V2Wallet.submitAdd()"' + (a.busy ? ' disabled' : '') + '>Add funds</button>' +
-        '<button class="btn sec" onclick="V2Wallet.cancelAdd()">Cancel</button>' +
+        '<button type="button" class="ds-btn ds-btn-primary ds-btn-lg ds-btn-block" onclick="V2Wallet.submitAdd()"' + (a.busy ? ' disabled' : '') + '>Add funds</button>' +
+        '<button type="button" class="ds-btn ds-btn-quiet ds-btn-block" onclick="V2Wallet.cancelAdd()">Cancel</button>' +
       '</div></div>';
     addFigures();
     if (typed && el('ad-amt')) { el('ad-amt').value = typed; addHint(); }
@@ -893,10 +957,10 @@
   function linkChip() {
     const W = w();
     if (W.external) return '';
-    if (W.linked) return '<button type="button" class="tolink" onclick="V2Wallet.toLinked()">To ' + esc(W.linked.name) +
+    if (W.linked) return '<button type="button" class="ds-btn ds-btn-secondary ds-btn-sm tolink" onclick="V2Wallet.toLinked()">To ' + esc(W.linked.name) +
       ' <span class="num ph-no-capture">' + esc(ownShort(W.linked.address)) + '</span></button>';
     const L = W.linkable || [];
-    return L.length ? '<button type="button" class="tolink" onclick="V2Wallet.toLinked()">To ' + esc(L[0].label) + '</button>' : '';
+    return L.length ? '<button type="button" class="ds-btn ds-btn-secondary ds-btn-sm tolink" onclick="V2Wallet.toLinked()">To ' + esc(L[0].label) + '</button>' : '';
   }
   /* The withdraw sheet is not redrawn while open (it would lose what was typed); its To chip follows the linked
      wallet on its own, so an Unlink, or a link from elsewhere, never leaves an old address behind it. */
@@ -1189,8 +1253,8 @@
     const reserve = Math.round(((w().swap && w().swap.solReserve) || 0) * 1e9);
     if (cv.err) {
       b.innerHTML = '<div class="cashout"><p class="note" data-state="bad" id="cv-msg">' + esc(cv.err) + '</p>' +
-        '<div class="brow"><button class="btn pri" onclick="V2Wallet.convertAgain()">Try again</button>' +
-        '<button class="btn sec" onclick="V2Wallet.cancelConvert()">Cancel</button></div></div>';
+        '<div class="brow"><button type="button" class="ds-btn ds-btn-primary ds-btn-lg ds-btn-block" onclick="V2Wallet.convertAgain()">Try again</button>' +
+        '<button type="button" class="ds-btn ds-btn-quiet ds-btn-block" onclick="V2Wallet.cancelConvert()">Cancel</button></div></div>';
       return;
     }
     const q = cv.q;
@@ -1206,9 +1270,9 @@
           ? 'The price can move a little before it lands. If it would pay less than the at-least figure, nothing is converted.'
           : 'Getting a price…') + '</p>' +
         '<div class="brow">' +
-          '<button class="btn pri" onclick="V2Wallet.confirmConvert()"' + (q && !cv.busy ? '' : ' disabled') + '>' +
+          '<button type="button" class="ds-btn ds-btn-primary ds-btn-lg ds-btn-block" onclick="V2Wallet.confirmConvert()"' + (q && !cv.busy ? '' : ' disabled') + '>' +
             (cv.busy ? 'Converting…' : 'Convert') + '</button>' +
-          '<button class="btn sec" onclick="V2Wallet.cancelConvert()"' + (cv.busy ? ' disabled' : '') + '>Cancel</button>' +
+          '<button type="button" class="ds-btn ds-btn-quiet ds-btn-block" onclick="V2Wallet.cancelConvert()"' + (cv.busy ? ' disabled' : '') + '>Cancel</button>' +
         '</div></div>';
       return;
     }
@@ -1225,9 +1289,9 @@
         ? 'The price can move a little before it lands. If it would pay less than the at-least figure, nothing is converted.'
         : 'Getting a price…') + '</p>' +
       '<div class="brow">' +
-        '<button class="btn pri" onclick="V2Wallet.confirmConvert()"' + (q && !cv.busy ? '' : ' disabled') + '>' +
+        '<button type="button" class="ds-btn ds-btn-primary ds-btn-lg ds-btn-block" onclick="V2Wallet.confirmConvert()"' + (q && !cv.busy ? '' : ' disabled') + '>' +
           (cv.busy ? 'Converting…' : 'Convert') + '</button>' +
-        '<button class="btn sec" onclick="V2Wallet.cancelConvert()"' + (cv.busy ? ' disabled' : '') + '>Cancel</button>' +
+        '<button type="button" class="ds-btn ds-btn-quiet ds-btn-block" onclick="V2Wallet.cancelConvert()"' + (cv.busy ? ' disabled' : '') + '>Cancel</button>' +
       '</div></div>';
   }
   function confirmConvert() {
@@ -1409,7 +1473,7 @@
     setTimeout(offerConvert, 1200);
   });
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') setTimeout(offerConvert, 400); });
-  window.V2Wallet = { render: render, login: login, fund: fund, copy: copy,
+  window.V2Wallet = { render: render, login: login, fund: fund, copy: copy, view: view,
                       refresh: refresh, more: more, txScroll: txScroll, mvScroll: mvScroll,
                       copyPeer: copyPeer,
                       cashOut: cashOut, cancelCash: cancelCash, backCash: backCash,

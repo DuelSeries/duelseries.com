@@ -19,6 +19,8 @@ import { DEVICE_ACTIONS, loadDeviceKey, createDeviceKey, forgetDeviceKey, signWi
 import { linkedOf, linkWith, addProblem, maxAddLamports, buildAdd } from './linkedWallet.mjs';
 // The shared gold popup card (public/js/shared/dsDialog.js), bundled so the lobby needs no extra tag.
 import '../../public/js/shared/dsDialog.js';
+// Privy's own windows in the site's look (site redo stage 3): a stylesheet only, added once as a <style> tag below.
+import privyTheme from './privyTheme.css?inline';
 
 // Active money mode (sol|usdc) reported by the server. In BOTH modes the games count in dollars; the mode
 // decides what a send is made of (a SOL transfer or a USDC token transfer) and what a balance is read from.
@@ -1344,6 +1346,13 @@ function App() {
 if (typeof globalThis.fetch === 'function') {
   globalThis.fetch = holdBackCoinbase(globalThis.fetch.bind(globalThis), APP_ID,
     () => moneyConfig().then((c) => !!(c && c.coinbaseOnramp)).catch(() => false));
+}
+
+if (typeof document !== 'undefined' && !document.getElementById('ds-privy-theme')) {
+  const theme = document.createElement('style');
+  theme.id = 'ds-privy-theme';
+  theme.textContent = privyTheme;
+  (document.head || document.documentElement).appendChild(theme);
 }
 
 const mount = document.getElementById('wallet-root');

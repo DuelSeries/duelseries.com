@@ -1,77 +1,84 @@
 'use strict';
-/* The home screen's wins bar (public/v2.html), Owen 2026-10-28: the last 50 wins, real cash-outs first and the
-   same seeded samples filling the rest; it holds still, only a new real win slides in, and it scrolls by hand. */
+/* The home screen's Live wins strip (public/v2.html). Owen 2026-10-28: the last 50 wins, it holds still, only a new
+   real win slides in, and it scrolls by hand. Site redo (2026-11-01, site audit 2026-10-31): real cash-outs only.
+   The seeded sample names and amounts that filled the row out to 50 are gone (every money figure shown is real);
+   with no real win yet the strip says so, and when the server says there is nothing to show (ok:false) the strip
+   is not drawn at all. */
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
-const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'v2.html'), 'utf8');
+const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'v2.html'), 'utf8').replace(/\r\n/g, '\n');
 const between = (a, b) => { const i = html.indexOf(a); assert.ok(i >= 0, a); const j = html.indexOf(b, i); assert.ok(j > i, b); return html.slice(i, j); };
+const GAMES = [
+  { id: 'snake', name: 'Slither.io', ladder: 1 }, { id: 'paper', name: 'Paper.io', ladder: 1 }, { id: 'pool8', name: '8 Ball Pool', duel: 1, paid: 1 },
+  { id: 'tanks', name: 'Bowmasters', duel: 1, freeOnly: 1 }, { id: 'stumble', name: 'Stumble Guys', soon: 1 },
+];
 
-// The bar's own script, run against a small game registry: 2 ladder games, 1 paid duel, 1 free-only, 1 soon.
-function bar() {
-  const GAMES = [
-    { id: 'snake', ladder: 1 }, { id: 'paper', ladder: 1 }, { id: 'pool8', duel: 1, paid: 1 },
-    { id: 'tanks', duel: 1, freeOnly: 1 }, { id: 'stumble', soon: 1 },
-  ];
-  const ctx = { GAMES, G: (id) => GAMES.find((g) => g.id === id) };
+// The strip's own script (from REAL_WINS to tkNew), run against a small game registry and a stand-in page.
+function strip(answer) {
+  const section = { hidden: false };
+  const run = { innerHTML: '', style: {}, classList: { add() {} } };
+  const ctx = {
+    GAMES, G: (id) => GAMES.find((g) => g.id === id), artSrc: (id) => '/img/games/' + id + '-card.webp?v=1',
+    setInterval() {}, JSON, Number, String, Array, Promise,
+    document: { querySelector: (q) => (q === '#home .hwins' ? section : null), getElementById: (id) => (id === 'tkrun' ? run : null) },
+    fetch: () => (answer instanceof Error ? Promise.reject(answer) : Promise.resolve({ json: () => Promise.resolve(answer) })),
+  };
   vm.createContext(ctx);
-  vm.runInContext(between('let REAL_WINS=[];', 'let WINS=buildWins();') + 'let WINS=buildWins();'
-    + between('function tkPill(i){', 'function tkPills(run){')
-    + between('const tkKey=', '/* The k newest')
-    + ';this.t={SAMPLES,buildWins,tkPill,tkNew,NAMES,set:(r)=>{REAL_WINS=r;WINS=buildWins();return WINS;}};', ctx);
-  return ctx.t;
+  vm.runInContext(between('let REAL_WINS=[];', '/* How many wins at the front') + between('const tkKey=', '/* The k newest')
+    + ';this.t={buildWins,tkNew,loadRealWins,set:(r)=>{REAL_WINS=r;WINS=buildWins();return WINS;}};', ctx);
+  return { t: ctx.t, section, run };
 }
+const settle = () => new Promise((r) => setImmediate(r));
 
-test('wins bar: 50 samples, the same on every load, only from games with a paid table', () => {
-  const a = bar(), b = bar();
-  assert.strictEqual(new Set(a.NAMES).size, a.NAMES.length, 'no repeated sample name');
-  assert.strictEqual(a.SAMPLES.length, 50);
-  assert.strictEqual(JSON.stringify(a.SAMPLES), JSON.stringify(b.SAMPLES), 'seeded: a reload shows the same row');
-  assert.ok(!/Math\.random/.test(between('let REAL_WINS=[];', 'let WINS=buildWins();')), 'nothing random per load');
-  for (const s of a.SAMPLES) {
-    assert.strictEqual(s.sample, true);
-    assert.ok(['snake', 'paper', 'pool8'].includes(s.g), s.g + ' has a paid table');
-    if (s.g === 'pool8') assert.ok(s.amt === 0.9 || s.amt === 1.8, 'a duel pays $0.90 or $1.80');
-    if (s.g === 'paper') assert.ok(Math.round(s.amt * 100) % 45 === 0 && s.amt >= 0.45 && s.amt <= 7.2, 'whole $0.45s');
-    if (s.g === 'snake') assert.ok(s.amt >= 0.45 && s.amt <= 8.5);
+test('wins strip: nothing made up, real wins only, never a game that is not open', () => {
+  const src = between('let REAL_WINS=[];', '/* How many wins at the front');
+  for (const gone of ['NAMES', 'SAMPLES', 'madeUpAmount', 'tkRng', 'sample', 'Math.random']) assert.ok(!src.includes(gone), gone + ' is gone');
+  assert.ok(!/class="ltag/.test(html), 'no Sample pill anywhere');
+  const { t } = strip({ ok: true, wins: [] });
+  assert.deepStrictEqual(t.set([]), [], 'no real wins: an empty row, not samples');
+  const w = t.set([{ who: 'MrPeanutK', g: 'snake', amt: 0.45 }, { who: 'ghost', g: 'stumble', amt: 1 }, { who: 'neo', g: 'pool8', amt: 0.9 }]);
+  assert.deepStrictEqual(w.map((x) => x.who), ['MrPeanutK', 'neo'], 'a game not open yet never shows');
+  assert.strictEqual(t.set(Array.from({ length: 60 }, (_, i) => ({ who: 'p' + i, g: 'paper', amt: 0.9 }))).length, 50, 'the last 50');
+});
+
+test('wins strip: the first answer draws it still; none yet says so; ok:false hides it', async () => {
+  let s = strip({ ok: true, wins: [{ name: 'MrPeanutK', game: 'snake', amount: 1.77 }, { name: '<b>x</b>', game: 'paper', amount: 0.9 }] });
+  s.t.loadRealWins(); await settle(); await settle();
+  assert.strictEqual(s.section.hidden, false);
+  assert.ok(s.run.innerHTML.includes('<b>MrPeanutK</b><em class="num">+$1.77</em>'), 'name and amount');
+  assert.ok(s.run.innerHTML.includes('&lt;b&gt;x&lt;/b&gt;') && !s.run.innerHTML.includes('<b><b>'), 'a player\'s name is escaped');
+  assert.ok(s.run.innerHTML.includes(' won in Slither.io'), 'read aloud with its game');
+
+  s = strip({ ok: true, wins: [] });
+  s.t.loadRealWins(); await settle(); await settle();
+  assert.strictEqual(s.section.hidden, false);
+  assert.ok(s.run.innerHTML.includes('No paid wins yet'), 'an honest empty state');
+
+  for (const off of [{ ok: false, wins: [] }, new Error('offline')]) {
+    s = strip(off);
+    s.t.loadRealWins(); await settle(); await settle();
+    assert.strictEqual(s.section.hidden, true, 'no strip: ' + (off instanceof Error ? 'a failed first read' : 'the server says off'));
+    assert.ok(!/No paid wins yet/.test(s.run.innerHTML), 'and no claim that there are none');
   }
 });
 
-test('wins bar: real wins go in front, the last samples drop off, always 50', () => {
-  const t = bar();
-  const real = [{ who: 'MrPeanutK', g: 'snake', amt: 0.45 }, { who: 'neo', g: 'pool8', amt: 0.9 }];
-  const w = t.set(real);
-  assert.strictEqual(w.length, 50);
-  assert.deepStrictEqual(w.slice(0, 2).map((x) => x.who), ['MrPeanutK', 'neo']);
-  assert.strictEqual(JSON.stringify(w.slice(2)), JSON.stringify(t.SAMPLES.slice(0, 48)), 'the samples keep their order');
-  assert.strictEqual(t.tkPill(0), '<span class="ltag"><span class="dot"></span>Live wins</span>', 'a real first card says Live');
-  assert.strictEqual(t.tkPill(1), '');
-  assert.strictEqual(t.tkPill(2), '<span class="ltag sample">Sample</span>', 'where the samples begin is marked');
-  assert.strictEqual(t.tkPill(3), '');
-  t.set([{ who: 'ghost', g: 'stumble', amt: 1 }]);
-  assert.strictEqual(t.tkPill(0), '<span class="ltag sample">Sample wins</span>', 'a game not open yet never shows; all samples');
-  const full = t.set(Array.from({ length: 60 }, (_, i) => ({ who: 'p' + i, g: 'paper', amt: 0.9 })));
-  assert.strictEqual(full.length, 50);
-  assert.ok(full.every((x) => !x.sample), '50 real wins: no samples left');
-});
-
-test('wins bar: how many wins are new at the front', () => {
-  const t = bar();
+test('wins strip: how many wins are new at the front', () => {
+  const { t } = strip({ ok: true, wins: [] });
   const was = t.set([]);
   const one = t.set([{ who: 'x', g: 'pool8', amt: 0.9 }]);
-  assert.strictEqual(t.tkNew(was, one), 1, 'the first real win slides in over the samples');
+  assert.strictEqual(t.tkNew(was, one), 0, 'the first win into an empty row: redrawn still');
   const two = t.set([{ who: 'y', g: 'snake', amt: 2.5 }, { who: 'x', g: 'pool8', amt: 0.9 }]);
   assert.strictEqual(t.tkNew(one, two), 1);
   const same = t.set([{ who: 'x', g: 'pool8', amt: 0.9 }, { who: 'x', g: 'pool8', amt: 0.9 }]);
   assert.strictEqual(t.tkNew(one, same), 1, 'the same win twice in a row');
   assert.strictEqual(t.tkNew(two, one), 0, 'nothing new at the front: redrawn still');
-  assert.strictEqual(t.tkNew([], one), 0);
 });
 
-test('wins bar: still on load and reload; moves only for a new real win; scrolls by hand', () => {
+test('wins strip: still on load and reload; moves only for a new real win; scrolls by hand', () => {
   const draw = between('function drawTicker(){', '/* How many wins');
   assert.ok(!/setInterval|setTimeout|requestAnimationFrame/.test(draw), 'drawing the row starts no motion');
   assert.ok(!/tkTimer/.test(html), 'no rotation timer');

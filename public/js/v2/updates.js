@@ -25,6 +25,22 @@
   let loading = null;
   let fresh = new Set();   // not seen yet: what the tab's dot means
   let marks = new Set();   // drawn as new on this visit (kept after the visit marks them seen)
+  /* Layout 1 (site redo stage 3): eight posts at a time, Show older posts for the next eight (the stage 3 audit found
+     all 104 posts and their pictures drawn at once), and a filter by kind. */
+  const PAGE = 8;
+  let kind = 'all', shown = PAGE;
+  const kindOf = (p) => (TAG[p.tag] ? p.tag : 'new');
+  /* The kit's stroke marks for the tags and the buttons. */
+  const MARK = { 'new': 'M12 5v14M5 12h14', fix: 'M5 12l5 5 9-10', event: 'M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0zM17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3',
+    'heads-up': 'M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 21h4', up: 'M12 19V5M5 12l7-7 7 7', chev: 'M9 6l6 6-6 6', x: 'M6 6l12 12M18 6L6 18',
+    list: 'M4 5h16M4 12h16M4 19h10' };
+  const NS = 'http://www.w3.org/2000/svg';
+  function ic(name, size) {
+    const v = document.createElementNS(NS, 'svg');
+    v.setAttribute('viewBox', '0 0 24 24'); v.setAttribute('width', size || 14); v.setAttribute('height', size || 14); v.setAttribute('aria-hidden', 'true');
+    const p = document.createElementNS(NS, 'path'); p.setAttribute('d', MARK[name]); v.appendChild(p);
+    return v;
+  }
 
   const el = (tag, cls, text) => {
     const n = document.createElement(tag);
@@ -80,40 +96,126 @@
 
   function when(d) {
     const m = DATE.exec(d);
-    return m ? Number(m[3]) + ' ' + MONTHS[Number(m[2]) - 1] : '';
+    return m ? { day: Number(m[3]), mon: MONTHS[Number(m[2]) - 1] } : { day: '', mon: '' };
+  }
+
+  const list = () => (kind === 'all' ? posts : posts.filter(p => kindOf(p) === kind));
+  function post(p) {
+    const a = el('article', 'uppost' + (marks.has(p.id) ? ' fresh' : ''));
+    const stop = el('i', 'upstop'); stop.setAttribute('aria-hidden', 'true'); a.appendChild(stop);
+    const t = kindOf(p);
+    const tag = el('span', 'ds-chip uptag t-' + t); tag.appendChild(ic(t)); tag.appendChild(document.createTextNode(TAG[t]));
+    a.appendChild(tag);
+    const h = el('h3', 'uph');
+    if (marks.has(p.id)) h.appendChild(el('span', 'ds-sr', 'Not seen yet: '));
+    h.appendChild(document.createTextNode(p.title));
+    a.appendChild(h);
+    const all = pics(p);
+    const hero = pic(p.image);
+    if (hero) a.appendChild(thumb(hero, 'uphero', all, 0));
+    String(p.body || '').split(/\n\s*\n/).map(x => x.trim()).filter(Boolean)
+      .forEach(par => a.appendChild(el('p', 'upb', par)));
+    const rest = all.slice(hero ? 1 : 0);
+    if (rest.length) {
+      const g = el('div', 'upgal');
+      rest.forEach((x, i) => g.appendChild(thumb(x, 'upthumb', all, i + (hero ? 1 : 0))));
+      a.appendChild(g);
+    }
+    return a;
   }
 
   function draw() {
-    const list = $('up-list');
-    if (!list) return;
-    list.textContent = '';
-    if (posts === null) return;
+    const box = $('up-list');
+    if (!box) return;
+    box.textContent = '';
+    const rail = $('up-rail');
+    if (posts === null) { if (rail) rail.hidden = true; return; }
     if (!posts.length) {
-      list.appendChild(el('p', 'upnone', failed ? 'Updates did not load. Check your connection and open the tab again.' : 'Nothing posted yet.'));
+      if (rail) rail.hidden = true;
+      const n = el('div', 'ds-panel upnone');
+      const i = el('span', 'upnone-ic'); i.appendChild(ic('list', 26)); n.appendChild(i);
+      if (failed) {
+        n.appendChild(el('b', '', 'Updates did not load'));
+        n.appendChild(el('span', '', 'Updates did not load. Check your connection and open the tab again.'));
+        const again = el('button', 'ds-btn ds-btn-secondary', 'Try again'); again.type = 'button';
+        again.addEventListener('click', () => { again.classList.add('is-loading'); load().then(() => { marks = new Set(fresh); draw(); rail && drawRail(); }); });
+        n.appendChild(again);
+      } else {
+        n.appendChild(el('b', '', 'Nothing posted yet'));
+        n.appendChild(el('span', '', 'Every change you can see on DuelSeries gets a short post here, most with a picture.'));
+      }
+      box.appendChild(n);
       return;
     }
-    posts.forEach(p => {
-      const a = el('article', 'uppost' + (marks.has(p.id) ? ' fresh' : ''));
-      const d = el('time', 'upd num', when(p.date));
-      d.dateTime = p.date;
-      a.appendChild(d);
-      const t = TAG[p.tag] ? p.tag : 'new';
-      a.appendChild(el('span', 'uptag t-' + t, TAG[t]));
-      a.appendChild(el('h3', 'uph', p.title));
-      const all = pics(p);
-      const hero = pic(p.image);
-      if (hero) a.appendChild(thumb(hero, 'uphero', all, 0));
-      String(p.body || '').split(/\n\s*\n/).map(s => s.trim()).filter(Boolean)
-        .forEach(par => a.appendChild(el('p', 'upb', par)));
-      const rest = all.slice(hero ? 1 : 0);
-      if (rest.length) {
-        const g = el('div', 'upgal');
-        rest.forEach((x, i) => g.appendChild(thumb(x, 'upthumb', all, i + (hero ? 1 : 0))));
-        a.appendChild(g);
-      }
-      list.appendChild(a);
+    if (rail) rail.hidden = false;
+    const l = list(), some = l.slice(0, shown);
+    const days = [];
+    some.forEach(p => { const d = days[days.length - 1]; if (d && d.date === p.date) d.posts.push(p); else days.push({ date: p.date, posts: [p] }); });
+    const tl = el('ol', 'uptl');
+    tl.setAttribute('aria-label', 'Posts by day');
+    days.forEach(d => {
+      const w = when(d.date);
+      const li = el('li', 'upday');
+      const tm = el('time', 'upday-d'); tm.dateTime = d.date;
+      tm.appendChild(el('b', '', String(w.day))); tm.appendChild(el('span', '', w.mon));
+      li.appendChild(tm);
+      const ps = el('div', 'upday-posts');
+      d.posts.forEach(p => ps.appendChild(post(p)));
+      li.appendChild(ps);
+      tl.appendChild(li);
     });
+    box.appendChild(tl);
+    const more = el('div', 'up-more');
+    if (l.length > shown) {
+      const b = el('button', 'ds-btn ds-btn-secondary', 'Show older posts'); b.type = 'button';
+      b.addEventListener('click', () => {
+        const was = shown; shown += PAGE; draw();
+        const h = box.querySelectorAll('.uph')[was];
+        if (h) { h.tabIndex = -1; try { h.focus({ preventScroll: true }); } catch (_) {} }
+      });
+      more.append(b, el('span', 'ds-t-meta', (l.length - shown) + ' more'));
+    } else {
+      more.appendChild(el('span', 'ds-t-meta', 'That is every ' + (kind === 'all' ? '' : TAG[kind].toLowerCase() + ' ') + 'post.'));
+      const t = el('button', 'ds-btn ds-btn-quiet ds-btn-sm'); t.type = 'button';
+      t.append(ic('up', 16), document.createTextNode('Back to top'));
+      t.addEventListener('click', toTop);
+      more.appendChild(t);
+    }
+    box.appendChild(more);
   }
+
+  /* The rail: Show (All and each kind there are posts of, with how many), what the filled stops mean, Back to top. */
+  function drawRail() {
+    const chips = $('up-filter'), key = $('up-key');
+    if (!chips || !posts || !posts.length) return;
+    const count = (k) => (k === 'all' ? posts.length : posts.filter(p => kindOf(p) === k).length);
+    chips.textContent = '';
+    [['all', 'All']].concat(Object.keys(TAG).map(k => [k, TAG[k]])).filter(([k]) => count(k)).forEach(([k, n]) => {
+      const b = el('button', 'ds-fchip', n); b.type = 'button';
+      b.setAttribute('aria-pressed', String(k === kind));
+      b.appendChild(el('small', '', String(count(k))));
+      b.addEventListener('click', () => {
+        kind = k; shown = PAGE;
+        chips.querySelectorAll('.ds-fchip').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+        draw();
+      });
+      chips.appendChild(b);
+    });
+    if (key) {
+      key.textContent = '';
+      const row = (fresh_, text) => { const r = el('span'); const st = el('i', 'upstop' + (fresh_ ? ' is-fresh' : '')); st.setAttribute('aria-hidden', 'true'); r.append(st, document.createTextNode(text)); key.appendChild(r); };
+      const n = marks.size;
+      row(true, n ? n + (n === 1 ? ' post you have not seen' : ' posts you have not seen') : 'You have seen every post');
+      row(false, 'Seen before');
+    }
+  }
+  function toTop() {
+    const sc = $('updates-screen');
+    try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (_) { window.scrollTo(0, 0); }
+    if (sc && sc.scrollTop) try { sc.scrollTo({ top: 0, behavior: 'smooth' }); } catch (_) { sc.scrollTop = 0; }
+    const h = $('up-t'); if (h) try { h.focus({ preventScroll: true }); } catch (_) {}
+  }
+  document.addEventListener('click', (e) => { if (e.target && e.target.closest && e.target.closest('#up-top')) toTop(); });
 
   function thumb(x, cls, all, i) {
     const b = el('button', cls);
@@ -127,16 +229,19 @@
   }
 
   /* The viewer: one picture large, its words under it, arrows when the post has more. */
-  let veil = null, shown = [], at = 0, back = null;
+  let veil = null, shown_ = [], at = 0, back = null;
   function viewer() {
     if (veil) return veil;
     veil = el('div', 'upveil');
     veil.setAttribute('role', 'dialog'); veil.setAttribute('aria-modal', 'true'); veil.setAttribute('aria-label', 'Picture');
-    veil.innerHTML = '<figure class="upfig"><img alt=""><figcaption></figcaption></figure>' +
-      '<button type="button" class="upnav prev" aria-label="Previous picture">&#8249;</button>' +
-      '<button type="button" class="upnav next" aria-label="Next picture">&#8250;</button>' +
-      '<button type="button" class="upx" aria-label="Close">&#10005;</button>';
-    veil.addEventListener('click', (e) => { if (e.target === veil || e.target.classList.contains('upfig')) close(); });
+    const x = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="' + MARK.x + '"/></svg>';
+    const ch = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="' + MARK.chev + '"/></svg>';
+    veil.innerHTML = '<figure class="upfig"><div class="upstage"><img alt=""></div><div class="upcap"><figcaption></figcaption>' +
+      '<div class="upnavs"><button type="button" class="ds-btn ds-btn-secondary ds-btn-icon upnav prev" aria-label="Previous picture">' + ch + '</button>' +
+      '<span class="ds-t-meta" aria-live="polite"></span>' +
+      '<button type="button" class="ds-btn ds-btn-secondary ds-btn-icon upnav next" aria-label="Next picture">' + ch + '</button></div></div>' +
+      '<button type="button" class="upx" aria-label="Close">' + x + '</button></figure>';
+    veil.addEventListener('click', (e) => { if (e.target === veil) close(); });
     veil.querySelector('.upx').addEventListener('click', close);
     veil.querySelector('.prev').addEventListener('click', () => step(-1));
     veil.querySelector('.next').addEventListener('click', () => step(1));
@@ -152,22 +257,23 @@
     return veil;
   }
   function paint() {
-    const x = shown[at];
+    const x = shown_[at];
     const im = veil.querySelector('img');
     im.src = x.src; im.alt = x.alt;
     veil.querySelector('figcaption').textContent = x.alt;
-    veil.classList.toggle('many', shown.length > 1);
+    veil.classList.toggle('many', shown_.length > 1);
+    const n = veil.querySelector('.upnavs .ds-t-meta'); if (n) n.textContent = (at + 1) + ' of ' + shown_.length;
   }
   function view(all, i, from) {
     viewer();
-    shown = all; at = i; back = from;
+    shown_ = all; at = i; back = from;
     paint();
     veil.classList.add('on');
     veil.querySelector('.upx').focus();
   }
   function step(d) {
-    if (shown.length < 2) return;
-    at = (at + d + shown.length) % shown.length;
+    if (shown_.length < 2) return;
+    at = (at + d + shown_.length) % shown_.length;
     paint();
   }
   function close() {
@@ -181,7 +287,7 @@
     draw();
     await load();
     marks = new Set(fresh);
-    draw();
+    draw(); drawRail();
     if (posts && posts.length) {
       try { localStorage.setItem(SEEN_KEY, posts[0].id); } catch (_) {}
     }

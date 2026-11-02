@@ -12,7 +12,7 @@
 
    Scrubbing: drag a finger or the pointer across it and a line follows, with
    the date and the total at that moment. Touch is the primary case here, so
-   the whole plot is one big hit area rather than per-point targets — on a
+   the whole plot is one big hit area rather than per-point targets: on a
    phone there is no hover to fall back on and a 14px dot is not findable.
 
    Quiet stretches are squeezed (Owen, 2026-10-15: "squeeze with a break
@@ -23,7 +23,11 @@
 
    Zoom (Owen, same day, on both the Wallet and the profile graph): pinch and
    two-finger drag on a phone, the wheel and a drag on a computer, and the
-   − + Reset buttons under the graph on both. One finger still scrubs. */
+   − + Reset buttons under the graph on both. One finger still scrubs.
+
+   Site redo stage 3: the kit's colours (the line, its fill and dots in --money, which the lobby maps to the kit's
+   gold; a --ds-s3 grid on the ink box; the ink ring round the scrub dot) and the kit's Archivo for the figures
+   (v2.html svg.v2chart text), a little shorter than before. */
 (function () {
   const DAY = 864e5;
   const MAX_ZOOM = 40;          // the narrowest view is 1/40 of the whole line
@@ -195,7 +199,7 @@ function fmtAxis(t, span) {
     return {
       narrow: narrow,
       W: narrow ? 420 : (boxW > 0 && boxW < 980 ? Math.max(560, Math.round(boxW)) : 980),
-      H: narrow ? 520 : 430,
+      H: narrow ? 470 : 400,     // site redo stage 3: a little shorter, so the figures above it and the line share a screen
       PR: narrow ? 16 : 26, PT: 22, PB: 46,
       FS: narrow ? 14.5 : 12,     // 12 in the phone's 0.83-scale viewBox was 9px
       all: all, ts: ts, us: ts.map(map.fwd), values: all.map(p => p.cum), map: map,
@@ -239,10 +243,9 @@ function fmtAxis(t, span) {
     for (const k of ax.marks) {
       const y = Y(k.v).toFixed(1);
       ticks += '<line x1="' + PL + '" x2="' + (W - PR) + '" y1="' + y + '" y2="' + y +
-               '" stroke="var(--s2)" stroke-width="1"/>' +
+               '" stroke="var(--ds-s3)" stroke-width="1"/>' +
                '<text x="' + (PL - 10) + '" y="' + (Y(k.v) + FS / 3).toFixed(1) +
-               '" text-anchor="end" font-size="' + FS + '" fill="var(--tx3)" ' +
-               'font-family="var(--fm)">' + k.text + '</text>';
+               '" text-anchor="end" font-size="' + FS + '" fill="var(--ds-tx3)">' + k.text + '</text>';
     }
 
     /* Squeezed gaps: a quiet band, a break cut into the axis, and how long the
@@ -252,14 +255,14 @@ function fmtAxis(t, span) {
       if (br.u1 <= a || br.u0 >= b) continue;
       const x0 = Xu(Math.max(br.u0, a)), x1 = Xu(Math.min(br.u1, b)), cx = (x0 + x1) / 2;
       breaks += '<rect class="brk" x="' + x0.toFixed(1) + '" y="' + PT + '" width="' + (x1 - x0).toFixed(1) +
-                '" height="' + ih + '" fill="var(--s2)" opacity=".55"/>';
+                '" height="' + ih + '" fill="var(--ds-s2)" opacity=".55"/>';
       if (br.u0 >= a && br.u1 <= b) {
         breaks += '<path d="M' + (cx - 7).toFixed(1) + ' ' + (base + 7) + ' L' + (cx - 1).toFixed(1) + ' ' + (base - 7) +
                   ' M' + (cx + 1).toFixed(1) + ' ' + (base + 7) + ' L' + (cx + 7).toFixed(1) + ' ' + (base - 7) +
-                  '" stroke="var(--tx3)" stroke-width="1.5" fill="none"/>';
+                  '" stroke="var(--ds-tx3)" stroke-width="1.5" fill="none"/>';
         if (x1 - x0 >= FS * 2.2)
           breaks += '<text x="' + cx.toFixed(1) + '" y="' + (base - 14) + '" text-anchor="middle" font-size="' +
-                    (FS - 1) + '" fill="var(--tx2)">' + fmtGap(br.ms) + '</text>';
+                    (FS - 1) + '" fill="var(--ds-tx2)">' + fmtGap(br.ms) + '</text>';
       }
     }
 
@@ -284,7 +287,7 @@ function fmtAxis(t, span) {
       const x = (PL + iw * frac).toFixed(1);
       const anchor = k === 0 ? 'start' : k === want - 1 ? 'end' : 'middle';
       dates += '<text x="' + x + '" y="' + (H - (short ? 27 : 22)) +
-               '" text-anchor="' + anchor + '" font-size="' + FS + '" fill="var(--tx3)">' + day +
+               '" text-anchor="' + anchor + '" font-size="' + FS + '" fill="var(--ds-tx3)">' + day +
                (short ? '<tspan x="' + x + '" dy="' + (FS + 1) + '" font-size="' + (FS - 1.5) + '">' + hour + '</tspan>' : '') +
                '</text>';
     }
@@ -333,10 +336,10 @@ function fmtAxis(t, span) {
           'stroke-linejoin="round" stroke-linecap="round"/>' + dots +
       '</g>' +
       '<line x1="' + PL + '" x2="' + (W - PR) + '" y1="' + base.toFixed(1) + '" y2="' +
-        base.toFixed(1) + '" stroke="var(--tx3)" stroke-width="1.5"/>' +
+        base.toFixed(1) + '" stroke="var(--ds-tx3)" stroke-width="1.5"/>' +
       '<line class="scrub" x1="0" x2="0" y1="' + PT + '" y2="' + base +
-        '" stroke="var(--tx2)" stroke-width="1" opacity="0"/>' +
-      '<circle class="scrubdot" r="6" fill="var(--money)" stroke="var(--bg)" ' +
+        '" stroke="var(--ds-tx2)" stroke-width="1" opacity="0"/>' +
+      '<circle class="scrubdot" r="6" fill="var(--money)" stroke="var(--ds-ink)" ' +
         'stroke-width="2.5" opacity="0"/>';
 
     return { html: html, meta: { a: a, b: b, PL: PL, PR: W - PR, iw: iw, W: W, span: span, Y: Y } };

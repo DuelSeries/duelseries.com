@@ -22,18 +22,22 @@ test('every row has its Watch, not only the rows with people in them', () => {
   assert.doesNotMatch(src, /on\?`<button class="sb-eye"/);
 });
 
-test('New, the count and the Watch each have a column of their own', () => {
-  assert.match(html, /\.sb-go\{[^}]*display:grid;grid-template-columns:calc\(21px \+ var\(--art\) \/ 2\) minmax\(0,1fr\) auto minmax\(28px,max-content\)/);
-  assert.match(html, /\.sb-new\{grid-column:3;/);
-  assert.match(html, /\.sb-c\{grid-column:4;justify-self:end;/);
-  assert.doesNotMatch(html, /\.sb-new\+\.sb-c\{margin-left:auto\}/);
+/* Site redo (layout 1, 2026-11-01): the New pill left the rows (it sat on 7 of 10 of them, so it stopped meaning
+   anything) and the count is the row's last column, in green; the Watch eye follows it. */
+test('the count has a column of its own, and the rows carry no New pill', () => {
+  assert.match(html, /\.sb-go\{[^}]*display:grid;grid-template-columns:calc\(21px \+ var\(--art\) \/ 2\) minmax\(0,1fr\) auto;/);
+  assert.match(html, /\.sb-c\{grid-column:3;justify-self:end;/);
+  assert.doesNotMatch(rowSource(), /sb-new/);
   assert.doesNotMatch(html, /\.sb-g\.idle \.sb-go\{[^}]*padding-right:38px/);
 });
 
+/* The sidebar is the tokens' 240px (216px on a narrow PC window), and its rows are sized so the whole column,
+   ten-plus game rows and the pinned foot included, fits a 1440x900 window without scrolling. */
 test('the game rows are shorter than the tabs at every height', () => {
-  assert.match(html, /:root\{--sbw:256px;--rh:32px;--gh:28px;--art:22px\}/);
-  assert.match(html, /\(min-height:1000px\)\{:root\{--rh:38px;--gh:30px;--art:24px\}\}/);
-  assert.match(html, /\(min-height:1060px\)\{:root\{--rh:40px;--gh:32px;--art:26px\}\}/);
+  assert.match(html, /:root\{--sbw:var\(--ds-sbw\)\}/);
+  assert.match(html, /:root\{--rh:32px;--gh:26px;--art:20px\}/);
+  assert.match(html, /\(min-height:1000px\)\{:root\{--rh:36px;--gh:30px;--art:22px\}\}/);
+  assert.match(html, /\(min-height:1060px\)\{:root\{--rh:38px;--gh:32px;--art:24px\}\}/);
   assert.match(html, /\.sb-g\{display:flex;align-items:center;height:var\(--gh\);/);
 });
 

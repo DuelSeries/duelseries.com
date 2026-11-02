@@ -58,18 +58,30 @@
     } catch (_) { fallback(); }
   }
 
-  function copy(gameId) {
+  /* A Copy button that says Copied for a moment after a press (the Refer a friend page): its label is .ref-cl. */
+  function flip(btn) {
+    if (!btn) return;
+    const lbl = btn.querySelector('.ref-cl');
+    if (lbl && !btn.dataset.was) btn.dataset.was = lbl.textContent;
+    btn.classList.add('is-done');
+    if (lbl) lbl.textContent = btn.dataset.done || 'Copied';
+    clearTimeout(btn._t);
+    btn._t = setTimeout(() => { btn.classList.remove('is-done'); if (lbl) lbl.textContent = btn.dataset.was; }, 2200);
+  }
+
+  function copy(gameId, btn) {
     const id = gameId || (window.V2Detail && V2Detail.game);
     const url = linkFor(id);
     if (!url) return;
     const g = SHARE.byGame(id);
     copyText(url, () => {
-      const btn = document.getElementById('invbtn'), label = document.getElementById('invlabel');
-      if (btn && label) {
-        btn.classList.add('done');
+      flip(btn);
+      const inv = document.getElementById('invbtn'), label = document.getElementById('invlabel');
+      if (inv && label) {
+        inv.classList.add('done');
         label.textContent = 'Link copied';
-        clearTimeout(btn._t);
-        btn._t = setTimeout(() => { btn.classList.remove('done'); label.textContent = 'Invite a friend'; }, 2200);
+        clearTimeout(inv._t);
+        inv._t = setTimeout(() => { inv.classList.remove('done'); label.textContent = 'Invite a friend'; }, 2200);
       }
       if (window.DSToast) DSToast.show({ kind: 'ok', title: 'Invite link copied', detail: 'Send it to a friend to play ' + g.name + ' together' });
     });
@@ -165,15 +177,56 @@
     else window.addEventListener('load', () => arrive(arrived), { once: true });
   }
 
-  /* The PC sidebar's "Refer a friend": the lobby's own address, which opens the home screen
+  /* Refer a friend's Copy link: the lobby's own address, which opens the home screen
      with the site's link preview (shared/shareGames.js HOME). Nothing is promised for it. */
-  function home() {
+  function home(btn) {
     copyText(location.origin + '/', () => {
+      flip(btn);
       if (window.DSToast) DSToast.show({ kind: 'ok', title: 'Invite link copied', detail: 'Send it to a friend' });
     });
     // the lobby's own link names no game: an invite_copied without one is a "Refer a friend"
     if (window.DSTrack) window.DSTrack.event('invite_copied', {});
   }
 
-  window.V2Invite = { copy: copy, link: linkFor, home: home };
+  /* ── the Refer a friend page (site redo stage 3, layout 1; mockup looks/ab/1/refer.html) ──
+     The lobby link set large with its Copy, beside what a friend sees when it lands in a chat (the site's own link
+     preview, shareGames.js HOME), then a link for each free game with how many are playing it now (the board's own
+     counts, nothing typed in), each with its own Copy. A game that is Coming soon gets no row; one with no link at all
+     is named under the list. Free only: a link never carries a stake. */
+  const COPY_IC = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" class="ref-i-cp"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></svg>' +
+    '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" class="ref-i-ok"><path d="M5 12l5 5 9-10"/></svg>';
+  const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  function page() {
+    const list = document.getElementById('ref-list');
+    if (!list) return;
+    const host = String(location.host || 'duelseries.com').replace(/^www./, '');
+    const u = document.getElementById('ref-url'); if (u) u.textContent = host;
+    const b = document.getElementById('ref-bub'); if (b) b.textContent = location.origin + '/';
+    const h = document.getElementById('ref-host'); if (h) h.textContent = host;
+    const all = typeof GAMES !== 'undefined' ? GAMES : [];
+    const soon = (id) => !!(window.V2_IS_SOON && window.V2_IS_SOON(id));
+    const counts = (window.V2Board && V2Board.counts) || null;
+    const art = (id) => (window.V2_artSrc ? window.V2_artSrc(id) : '/img/games/' + id + '.png');
+    const rows = all.filter((g) => SHARE.byGame(g.id) && !g.soon && !soon(g.id));
+    list.innerHTML = rows.map((g) => {
+      const s = SHARE.byGame(g.id);
+      const n = counts && typeof counts[g.id] === 'number' && counts[g.id] > 0 ? Math.floor(counts[g.id]) : 0;
+      return '<div class="ds-row ref-row"><span class="ds-row-ic"><img src="' + esc(art(g.id)) + '" alt="" loading="lazy" draggable="false"></span>' +
+        '<span class="ds-row-main"><b>' + esc(g.name) + '</b><span class="ref-u">' + esc(host + '/play/' + s.slug) + '</span>' +
+        (n ? '<span class="ref-k">' + n + ' playing</span>' : '') + '</span>' +
+        '<span class="ds-row-end ref-end">' + (n ? '<span class="ref-n"><i class="ds-dot"></i>' + n + ' playing</span>' : '') +
+        '<button type="button" class="ds-btn ds-btn-secondary ds-btn-sm ref-cp" data-inv="' + esc(g.id) + '" aria-label="Copy the invite link for ' + esc(g.name) + '">' +
+        COPY_IC + '<span class="ref-cl">Copy</span></button></span></div>';
+    }).join('');
+    const without = all.filter((g) => !g.soon && !soon(g.id) && !SHARE.byGame(g.id)).map((g) => g.name);
+    const and = (a) => a.length > 1 ? a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1] : a[0];
+    const none = document.getElementById('ref-none');
+    if (none) none.textContent = without.length ? and(without) + (without.length > 1 ? ' have' : ' has') + ' no invite link yet.' : '';
+  }
+  document.addEventListener('click', (e) => {
+    const b = e.target && e.target.closest && e.target.closest('#ref-list [data-inv]');
+    if (b) copy(b.dataset.inv, b);
+  });
+
+  window.V2Invite = { copy: copy, link: linkFor, home: home, page: page };
 })();

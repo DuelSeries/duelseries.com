@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <!-- Press Start 2P (SIL Open Font Licence): an arcade-style face, not anyone's logo. -->
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=Press+Start+2P&display=swap">
 <style>
   :root { --bg: #000; --wall: #2121ff; --chomp: #ffff00; --dot: #ffb8ae; --ink: #fff; --door: #ffb8ff; }
   html, body { margin: 0; height: 100%; background: var(--bg); overflow: hidden; touch-action: none; }
@@ -52,16 +52,21 @@
   }
   #play:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
   .hint { margin: 20px 0 0; font-size: 9px; line-height: 1.8; color: #9a9aff; }
-  #toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); padding: 12px 16px; font-size: 10px;
-           background: #000; border: 2px solid var(--wall); border-radius: 6px; }
-  /* paid rooms: the hint chip (agPaid's #ag-paid-hint) and the phone's held Cash out button, in the coins' gold */
+  /* Over a match (site redo 2026-11-02): the kit's in-game parts, Archivo on black glass, while the title card above
+     keeps the game's own arcade look. The paid hint chip and the phone's held Cash out are money, so they are the
+     kit's gold. */
+  #toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); padding: 12px 16px; max-width: calc(100vw - 32px);
+           font: 650 14px 'Archivo', 'Segoe UI', system-ui, -apple-system, Roboto, Arial, sans-serif; line-height: 1.4; color: #f4f1ea; background: rgba(0, 0, 0, .84); border: 0; border-radius: 10px;
+           box-shadow: inset 0 0 0 1px #36291a, 0 28px 70px rgba(0, 0, 0, .8); -webkit-font-smoothing: antialiased; }
   #ag-paid-hint { position: fixed; left: 50%; top: 64px; transform: translateX(-50%); z-index: 1100; padding: 10px 14px;
-                  font-size: 10px; color: #f5b335; background: #000; border: 2px solid #f5b335; border-radius: 6px; }
+                  font: 700 14px 'Archivo', 'Segoe UI', system-ui, -apple-system, Roboto, Arial, sans-serif; color: #f0a830; background: rgba(0, 0, 0, .84); border: 0; border-radius: 10px;
+                  box-shadow: inset 0 0 0 1px rgba(240, 168, 48, .4); -webkit-font-smoothing: antialiased; }
   #ag-paid-hint[hidden], #cashout[hidden] { display: none; }
   #cashout { position: fixed; right: max(14px, env(safe-area-inset-right, 0px)); bottom: calc(18px + env(safe-area-inset-bottom, 0px));
-             z-index: 900; padding: 16px 14px; font: 10px 'Press Start 2P', monospace; color: #1a1000; background: #f5b335;
-             border: 0; border-radius: 10px; box-shadow: 0 0 0 3px #8a5a12 inset; touch-action: none; -webkit-user-select: none; user-select: none; }
-  #cashout.held { background: #ffd76e; }
+             z-index: 900; min-height: 52px; padding: 0 20px; font: 700 16px 'Archivo', 'Segoe UI', system-ui, -apple-system, Roboto, Arial, sans-serif; color: #000; background: #f0a830;
+             border: 0; border-radius: 10px; box-shadow: none; touch-action: none; -webkit-user-select: none; user-select: none;
+             -webkit-font-smoothing: antialiased; }
+  #cashout.held { background: #f6b84d; box-shadow: 0 0 0 4px rgba(240, 168, 48, .24); }
 </style>
 </head>
 <body>

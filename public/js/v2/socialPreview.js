@@ -204,6 +204,42 @@
   // Every sample player's figure added up, for Global player winnings (social.js).
   const total = () => (ON ? build().reduce((t, p) => t + Math.round(p.amount * 100), 0) / 100 : 0);
 
+  /* The board's three periods in the strip's own shape (/api/earnings periods): { today, week, all }, each
+     { total, count, top: [{ name, game, amount, n }] }. Today and This week go by the Eastern day, as the
+     server's do (server/earnings: age in days on America/Toronto, today is age 0, the week is under 7). Worked
+     out at most once a minute. */
+  const dayOf = t => Date.parse(new Date(t).toLocaleDateString('en-CA', { timeZone: 'America/Toronto' }));
+  let perMemo = null, perAt = 0;
+  function periods() {
+    if (!ON) return {};
+    const now = clock();
+    if (perMemo && Math.abs(now - perAt) < 60000) return perMemo;
+    const today = dayOf(now);
+    const mk = () => ({ total: 0, count: 0, top: [] });
+    const out = { today: mk(), week: mk(), all: mk() };
+    for (const p of build()) {
+      const per = { today: [0, 0], week: [0, 0], all: [0, 0] };
+      for (const g of p.profile.games) {
+        const c = Math.round(g.amount * 100), age = Math.round((today - dayOf(Date.parse(g.at))) / DAY);
+        per.all[0] += c; per.all[1]++;
+        if (age < 7) { per.week[0] += c; per.week[1]++; }
+        if (age <= 0) { per.today[0] += c; per.today[1]++; }
+      }
+      for (const k of ['today', 'week', 'all']) {
+        if (!per[k][1]) continue;
+        out[k].total += per[k][0]; out[k].count += per[k][1];
+        out[k].top.push({ name: p.name, game: p.game, amount: per[k][0] / 100, n: per[k][1] });
+      }
+    }
+    for (const k of ['today', 'week', 'all']) {
+      out[k].total = out[k].total / 100;
+      out[k].top.sort((a, b) => (b.amount - a.amount) || (b.n - a.n) || (a.name < b.name ? -1 : 1));
+      out[k].top = out[k].top.slice(0, 10);
+    }
+    perMemo = out; perAt = now;
+    return out;
+  }
+
   /* Not into analytics either: .ph-no-capture keeps PostHog's clicks and its
      session replay off the sample names (public/js/posthog-init.js masks the
      text of anything with that class). */
@@ -220,6 +256,6 @@
        so no browser wears LIVE on sample players. Kept as a field because
        leaders.js, social.js and v2.html read it. */
     liveLook: false,
-    board: board, search: search, profile: profile, amountOf: amountOf, rankOf: rankOf, total: total, tag: TAG, note: NOTE,
+    board: board, periods: periods, search: search, profile: profile, amountOf: amountOf, rankOf: rankOf, total: total, tag: TAG, note: NOTE,
   };
 })();

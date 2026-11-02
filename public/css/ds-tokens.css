@@ -1,0 +1,119 @@
+/* DuelSeries tokens (site redo, stage 3). Custom properties only: no selectors but :root, no fonts, no imports,
+   so any page or game can load it without changing a pixel of its own until it reads a token.
+
+   The look: true black page, warm panels, bone for actions, gold for money only, green for live and wins only,
+   red for errors and losses only. Archivo for everything; IBM Plex Mono for wallet addresses only.
+   Every name starts with --ds- so it never meets a game's own --s1 or --bg.
+
+   Fonts (the one Google Fonts URL every page that uses --ds-f should load):
+   https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=IBM+Plex+Mono:wght@500&display=swap
+
+   Phone is max-width 760px (the same cut the lobby and dsEnd use); below it the chrome and the big type step down.
+
+   EVERY TOKEN
+   Colour    --ds-ink (page, #000) --ds-s1 (panels, sidebar, sheets) --ds-s2 (controls, hover) --ds-s3 (raised, selected)
+             --ds-line (the one edge) --ds-line2 (input and hovered edges) --ds-bone (text and primary button)
+             --ds-on-bone (text on a bone control) --ds-tx2 (secondary text) --ds-tx3 (quiet text, 12px and up)
+             --ds-gold (money) --ds-green (live, wins, money in) --ds-red (errors, losses)
+             tints --ds-gold-t --ds-green-t --ds-red-t --ds-bone-t ; --ds-scrim (sheet backdrop) --ds-glass (chips on art)
+   Edges     --ds-edge (inset 1px line) --ds-edge2 (hovered) --ds-edge-gold (money rim)
+   Shadows   --ds-sh-1 (a lifted card) --ds-sh-pop (sheets, popovers, toasts) --ds-glow-gold (the one gold bloom)
+   Type      --ds-f --ds-fm --ds-wide (Archivo's wide cut) ; sizes --ds-fs-1 12 --ds-fs-2 13 --ds-fs-3 15 --ds-fs-4 18
+             --ds-fs-5 22 --ds-fs-6 30 --ds-fs-7 44 --ds-fs-8 68 ; weights --ds-w-body 400 --ds-w-ui 650 --ds-w-bold 700
+             --ds-w-display 800 ; line heights --ds-lh-tight 1.05 --ds-lh-ui 1.25 --ds-lh-body 1.5
+   Radii     --ds-r1 6 (chips, thumbs) --ds-r2 10 (buttons, inputs, rows) --ds-r3 18 (panels, sheets) --ds-rf (pill)
+             --ds-gc-r 16 (game cards, 12 on a phone)
+   Space     --ds-sp1 4 --ds-sp2 8 --ds-sp3 12 --ds-sp4 16 --ds-sp5 24 --ds-sp6 32 --ds-sp7 48
+   Chrome    --ds-hdh (header, 64 / 60 phone) --ds-bbh (phone bottom bar, 64) --ds-sbw (PC sidebar, 240) --ds-tap (44)
+   Z ladder  --ds-z-base 0 --ds-z-raised 6 --ds-z-nav 40 --ds-z-hd 50 --ds-z-pop 60 --ds-z-sheet 200 --ds-z-toast 220
+             --ds-z-frame 300 --ds-z-dialog 100000 --ds-z-splash 2147483000
+   Motion    --ds-dur-1 .14s (hover, press) --ds-dur-2 .24s (open, close) --ds-dur-3 .4s (a page-level moment)
+             --ds-ease (out, settles) --ds-ease-io (in and out) --ds-blur 12px (the one frosted value)
+*/
+:root {
+  --ds-ink: #000000;
+  --ds-s1: #0d0b08;
+  --ds-s2: #1a1611;
+  --ds-s3: #272018;
+  --ds-line: #36291a;
+  --ds-line2: #5a4630;
+  --ds-bone: #f4f1ea;
+  --ds-on-bone: #000000;
+  --ds-tx2: #b3a792;
+  --ds-tx3: #988b78;
+  --ds-gold: #f0a830;
+  --ds-green: #8ed081;
+  --ds-red: #ef7461;
+  --ds-gold-t: rgba(240, 168, 48, .14);
+  --ds-green-t: rgba(142, 208, 129, .14);
+  --ds-red-t: rgba(239, 116, 97, .15);
+  --ds-bone-t: rgba(244, 241, 234, .1);
+  --ds-scrim: rgba(0, 0, 0, .78);
+  --ds-glass: rgba(0, 0, 0, .84);
+
+  --ds-edge: inset 0 0 0 1px var(--ds-line);
+  --ds-edge2: inset 0 0 0 1px var(--ds-line2);
+  --ds-edge-gold: inset 0 0 0 1px rgba(240, 168, 48, .4);
+  --ds-sh-1: 0 16px 34px -14px rgba(0, 0, 0, .9);
+  --ds-sh-pop: 0 28px 70px rgba(0, 0, 0, .8), 0 0 0 1px var(--ds-line);
+  --ds-glow-gold: 0 0 10px rgba(240, 168, 48, .5);
+
+  --ds-f: 'Archivo', 'Segoe UI', system-ui, -apple-system, Roboto, sans-serif;
+  --ds-fm: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
+  --ds-wide: 118%;
+  --ds-fs-1: 12px;
+  --ds-fs-2: 13px;
+  --ds-fs-3: 15px;
+  --ds-fs-4: 18px;
+  --ds-fs-5: 22px;
+  --ds-fs-6: 30px;
+  --ds-fs-7: 44px;
+  --ds-fs-8: 68px;
+  --ds-w-body: 400;
+  --ds-w-ui: 650;
+  --ds-w-bold: 700;
+  --ds-w-display: 800;
+  --ds-lh-tight: 1.05;
+  --ds-lh-ui: 1.25;
+  --ds-lh-body: 1.5;
+
+  --ds-r1: 6px;
+  --ds-r2: 10px;
+  --ds-r3: 18px;
+  --ds-rf: 999px;
+  --ds-gc-r: 16px;
+
+  --ds-sp1: 4px;
+  --ds-sp2: 8px;
+  --ds-sp3: 12px;
+  --ds-sp4: 16px;
+  --ds-sp5: 24px;
+  --ds-sp6: 32px;
+  --ds-sp7: 48px;
+
+  --ds-hdh: 64px;
+  --ds-bbh: 64px;
+  --ds-sbw: 240px;
+  --ds-tap: 44px;
+
+  --ds-z-base: 0;
+  --ds-z-raised: 6;
+  --ds-z-nav: 40;
+  --ds-z-hd: 50;
+  --ds-z-pop: 60;
+  --ds-z-sheet: 200;
+  --ds-z-toast: 220;
+  --ds-z-frame: 300;
+  --ds-z-dialog: 100000;
+  --ds-z-splash: 2147483000;
+
+  --ds-dur-1: .14s;
+  --ds-dur-2: .24s;
+  --ds-dur-3: .4s;
+  --ds-ease: cubic-bezier(.2, .8, .2, 1);
+  --ds-ease-io: cubic-bezier(.4, 0, .2, 1);
+  --ds-blur: 12px;
+}
+@media (max-width: 760px) {
+  :root { --ds-hdh: 60px; --ds-fs-5: 20px; --ds-fs-6: 26px; --ds-fs-7: 40px; --ds-fs-8: 50px; --ds-gc-r: 12px; }
+}

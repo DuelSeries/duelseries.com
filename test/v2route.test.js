@@ -196,7 +196,8 @@ test('a profile draws the Wallet tab\'s exact earnings graph, from the same rows
   assert.ok(/games: games\.rows\.map/.test(prof) && /joinedAt: row\.created_at/.test(prof),
     'getProfile returns the cash-out rows and the open date');
   assert.ok(/history: \{/.test(prof), 'and keeps the series the old snake client reads');
-  assert.ok(/class="panel chartbox" id="p-chart"/.test(v2()), 'in the same box as the wallet\'s');
+  // The same chartbox the wallet's graph uses, inside the profile's own Earnings panel since the site redo (2026-11-01).
+  assert.ok(/class="chartbox" id="p-chart"/.test(v2()), 'in the same box as the wallet\'s');
 });
 
 test('no invented game history survives in the shell', () => {
@@ -706,7 +707,10 @@ test('the name is changed in one place: the profile card behind your initial in 
   const html = v2();
   const hdr = html.slice(html.indexOf('<header>'), html.indexOf('</header>'));
   assert.ok(/<button type="button" class="me" id="mebtn" onclick="V2Me\.toggle\(\)"/.test(hdr), 'the disc is a button in the header');
-  const card = hdr.slice(hdr.indexOf('id="mepop"'));
+  /* The card itself sits just after the header since the site redo (2026-11-01): the header's backdrop filter would
+     trap the phone's bottom sheet inside it. */
+  const card = html.slice(html.indexOf('id="mepop"'), html.indexOf('</div>', html.indexOf('id="me-out"')));
+  assert.ok(html.indexOf('id="mepop"') > html.indexOf('</header>'), 'the card follows the header');
   for (const id of ['id="play-name"', 'id="name-act"', 'id="mename"', 'id="meaddr"', 'id="me-out"'])
     assert.ok(card.includes(id), 'the card has ' + id);
   assert.ok(card.includes('onclick="signOut(this)"'), 'Sign out is the Settings one');
@@ -1096,8 +1100,11 @@ test('every tab owns its own screen node, so a swipe between neighbours has two 
   /* Clips and Updates are PC only (Owen 2026-10-16): a phone never shows them,
      so the swipe, which is the phone's, leaves them out on purpose. */
   const PC_ONLY = ['clips-screen', 'updates-screen', 'join-screen'];
+  /* Refer a friend and Support (site redo stage 3) are pages under the sidebar's foot and Settings' About, not tabs:
+     like a game's screen or a profile, a swipe from them goes nowhere. */
+  const NOT_TABS = ['refer-screen', 'support-screen'];
   for (const id of ids) {
-    if (PC_ONLY.includes(id)) assert.ok(!sw.includes("'" + id + "'"), id + ' is not in the phone swipe');
+    if (PC_ONLY.includes(id) || NOT_TABS.includes(id)) assert.ok(!sw.includes("'" + id + "'"), id + ' is not in the phone swipe');
     else assert.ok(sw.includes("'" + id + "'"), 'the swipe knows ' + id);
   }
   assert.ok(!/id="stub2?"/.test(html), 'and the shared placeholder is gone for good');
@@ -1329,7 +1336,7 @@ test('the nightly event states its prizes and reads the match, not a clock', () 
   /* One prize now: first place takes $20, second and third take the placing.
      The page must not imply otherwise anywhere, which is a thing prose gets
      wrong long after the number is fixed. */
-  assert.ok(/<span class="pmoney"[^>]*>\$20<\/span>/.test(html), 'first place is paid $20');
+  assert.ok(/<span class="ev-pz num" id="ev-std" data-cu="ev-prize">\$20<\/span><span>to 1st<\/span>/.test(html), 'first place is paid $20');
   assert.ok(!/$10|$5/.test(html.slice(html.indexOf('class="podium"'),
     html.indexOf('class="evfoot"'))), 'and nothing else on the podium is');
   assert.ok(!/top three share the pot/i.test(html),
@@ -1339,11 +1346,13 @@ test('the nightly event states its prizes and reads the match, not a clock', () 
     assert.ok(html.includes('id="' + id + '"'), 'the podium has a seat for ' + id);
   }
   assert.ok(/V2Event={[^}]*podium/.test(html), 'and a way to seat a winner in it');
-  // Tallest in the middle: the heights ARE the ranking.
+  // Tallest in the middle: the heights ARE the ranking (the kit's podium since the site redo, 2026-11-01).
+  assert.ok(/<div class="ds-pod podium">/.test(html) && /class="ds-pl p1 empty plinth"/.test(html), 'the kit podium');
+  const kit = fs.readFileSync(path.join(ROOT, 'public/css/ds-kit.css'), 'utf8');
   const h = (k) => {
-    const at = html.indexOf('.p' + k + ' .pblock{height:');
+    const at = kit.indexOf('.ds-pl.p' + k + ' .blk { height:');
     assert.ok(at > 0, 'plinth ' + k + ' has a height');
-    return parseInt(html.slice(at).split('height:')[1], 10);
+    return parseInt(kit.slice(at).split('height:')[1], 10);
   };
   assert.ok(h(1) > h(2) && h(2) > h(3), 'first place stands highest');
 
@@ -1361,13 +1370,20 @@ test('the events podium leads, holds the last match all day, and never shows a p
   const html = v2();
   const at = html.indexOf('id="events-screen"');
   const scr = html.slice(at, html.indexOf('</main>', at));
-  assert.ok(scr.indexOf('class="podium"') < scr.indexOf('class="evclock"'), 'the podium comes before the clock');
+  /* Site redo stage 3 (layout 1, mockup site-redo/looks/ab/1/events.html, 2026-11-01): the Battle Royale card leads
+     with its prize, clock and Join; the podium is under it, beside the schedule. */
+  assert.ok(scr.indexOf('class="ds-bigclock evclock"') < scr.indexOf('class="ds-pod podium"'), 'the card and its clock lead, the podium follows');
   assert.ok(scr.indexOf('id="ev-h"') > 0 && scr.indexOf('id="ev-m"') > 0 && scr.indexOf('id="ev-s"') > 0,
     'hours, minutes and seconds, all three');
   assert.ok(/var seated=on\?null:pod;/.test(html), "the last match's names, except while a match is on");
-  assert.ok(html.includes("(st==='waiting' && !seated) ? '$'+stdPrize"), 'only an empty podium before the start shows the standing prize');
-  assert.ok(html.includes("(BR.prize>0 ? '$'+BR.prize : '—')"), "and a match's own podium shows what it paid");
-  assert.ok(/\.evbar\{position:sticky;bottom:/.test(html), 'Join and Spectate pinned on a phone');
+  assert.ok(html.includes("(st==='waiting' && !seated) ? ['$'+stdPrize,'ds-money']"),'only an empty podium before the start shows the standing prize');
+  assert.ok(html.includes("(BR.prize>0 ? ['$'+BR.prize,'ds-money'] : ['No prize','ds-quiet'])"), "and a match's own podium shows what it paid, or No prize");
+  // No long dash for a prize nobody was paid (audit 2026-10-31): not on the tab, not in the script that fills it.
+  const evjs = html.slice(html.indexOf('/* The nightly event, driven by the MATCH'), html.indexOf('function openSwimHow(){'));
+  assert.ok(!/\u2014/.test(scr) && !/\u2014/.test(evjs), 'no em dash on the Events tab');
+  /* Join used to ride a bar pinned over the tab bar, because the podium came first and pushed it down. With the card
+     first, Join is on the first screen of a phone too. */
+  assert.ok(scr.indexOf('id="ev-join"') < scr.indexOf('class="ds-pod podium"'), 'Join is on the card, before the podium');
   // Player names reach the page as text, never as markup.
   const tick = html.slice(html.indexOf('function caption('), html.indexOf('/* engine(): which engine'));
   assert.ok(!/innerHTML/.test(tick), 'no innerHTML anywhere a winner name can reach');
@@ -1436,8 +1452,12 @@ test('one layout for every game: rungs, Play, Customize, and no small print', ()
   assert.match(html, /\.go\{[^}]*background:linear-gradient\(180deg,#ffffff/, 'white on Free');
   assert.match(html, /\.go\.paid\{background:linear-gradient/, 'gold on a paid rung');
   assert.match(html, /paid=Number\(STEPS\[si\]\)>0&&!shut;\s*if\(go\)go\.classList\.toggle\('paid',paid\);/, 'set by the chosen rung');
-  // And it says the stake: "Play $0.50" (Owen, 2026-10-15).
+  // And it says the stake: "Play $0.50" (Owen, 2026-10-15, kept over the mockup's words on 2026-11-02).
   assert.match(html, /lbl\.textContent=shut\?'Coming soon':paid\?'Play '\+cash\(Number\(STEPS\[si\]\)\):'Play';/, 'Play $0.50 on a paid rung');
+  // No balance line under Play (Owen, 2026-11-02).
+  assert.doesNotMatch(html, /id="dbal"|Paid from your/, 'no balance line under Play');
+  // $0.50 and $1, never $1.00.
+  assert.match(html, /const cash=v=>v===0\?'Free':'\$'\+\(v%1\?v\.toFixed\(2\):String\(v\)\);/, 'whole dollars without cents');
 });
 
 test('the game screen swipes to the next and previous game, and leaves taps and scrolling alone', () => {
@@ -2110,8 +2130,9 @@ test('each playable game card carries a people count, and a padlocked one does n
   const run = (counts) => new Function('window', 'V2Board', 'document', paint + '; paintCounts();')(
     { V2Board: { counts } }, { counts }, document);
   run({ snake: 12, agar: 0, paper: '<img src=x onerror=alert(1)>' });
+  /* Site redo (layout 1): a game with nobody in it and nobody waiting shows no chip at all, as the mockup draws it. */
   assert.deepStrictEqual(els.map(e => [e.hidden, e.b.textContent]),
-    [[false, '12'], [false, '0'], [true, ''], [true, '']], 'numbers shown, anything else hidden');
+    [[false, '12'], [true, ''], [true, ''], [true, '']], 'numbers shown, 0 and anything else hidden');
   assert.strictEqual(els[0].attrs['aria-label'], '12 playing now');
   assert.ok(els[0].cls.has('on') && !els[1].cls.has('on'), 'the live dot is on at 12 and off at 0');
   run({ snake: 0, agar: 3 });
@@ -2280,9 +2301,9 @@ test('Social shows Global player winnings: real players only, the lobby strip\'s
   assert.ok(/earnings=preview/.test(code) && /\?preview=1/.test(code), 'and only ?earnings=preview asks for the owner-inclusive preview');
   assert.ok(!/Paid out to players/.test(code), 'the old label is gone');
   const html = v2();
-  assert.ok(html.includes('<section id="soc-win" aria-label="Global player winnings" hidden></section>'),
+  assert.ok(html.includes('<section id="soc-win" class="ds-panel lb-sum" aria-label="Global player winnings" hidden></section>'),
     'the panel is at the top of Social, hidden until the server answers');
-  assert.ok(html.indexOf('id="soc-win"') < html.indexOf('<h2>Top earners'), 'above the board');
+  assert.ok(html.indexOf('id="soc-win"') < html.indexOf('id="lb-top-t"'), 'above the board');
   assert.ok(!html.includes('id="soc-tiles"'), 'the old tile is gone');
   // Live: asked while Social is on screen, from the server's memory; a rise counts up and shows the difference.
   assert.ok(/const WIN_POLL_MS = 1\d000;/.test(code), 'asked every 10 to 19 s');
@@ -2297,6 +2318,7 @@ test('Social shows Global player winnings: real players only, the lobby strip\'s
   assert.ok(/d\.on !== true[^\n]*box\.hidden = true/.test(code.replace(/\n\s*/g, ' ')) || /box\.hidden = true; win = null; return;/.test(code),
     'hidden only when the server says off');
   // LIVE with a beating dot, for everyone (Owen's own PC has animation effects off).
-  assert.ok(/\.win-live i\{[^}]*animation:lpulse/.test(html), 'the dot beats');
+  // The kit's live chip, the one beating dot on the screen (site redo 2026-11-01).
+  assert.ok(/'<span class="ds-chip ds-chip-live is-pulse" data-pulse id="soc-live"/.test(code), 'the dot beats');
   assert.ok(/\.win-up\.rise\{animation:winUp/.test(html) && !/\.win-up\.go\{/.test(html), 'and the rise is not .go, the Play button');
 });

@@ -28,8 +28,9 @@
   var Z = 2147480100; // above the empty map (dsEmptyArena 2147480000), under the clip recorder's card
   var ART_Z = Z - 200; // the card art behind an empty table: over the game's own page, under the bar
   var ART_V = 1; // public/v2.html ART_V: the card pictures' version, so a new painting is fetched fresh
-  var FONT_HREF = 'https://fonts.googleapis.com/css2?family=Archivo:wght@400..700&display=swap';
-  var SANS = 'Archivo,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif';
+  // the site kit's font link and stack (site redo 2026-11-02): Archivo with its width axis
+  var FONT_HREF = 'https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=IBM+Plex+Mono:wght@500&display=swap';
+  var SANS = '"Archivo","Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif';
   var WORDS = {
     lobby: 'Lobby',
     prev: 'Previous player',
@@ -38,49 +39,54 @@
     finding: 'Finding a player',
     unnamed: 'Unnamed'
   };
+  // The kit's in-game glass (layout 1 "Sidebar", game-ui mockup): black glass with the kit's one line, bone text,
+  // 10 px radii on the Lobby control, round arrows, an 18 px plate. Colours read --ds-* tokens when a page loads them.
   var CSS = [
     '.dsw-lobby,.dsw-switch{position:fixed;z-index:' + Z + ';font-family:' + SANS + ';-webkit-tap-highlight-color:transparent;',
-    'user-select:none;-webkit-user-select:none;touch-action:manipulation;}',
+    'user-select:none;-webkit-user-select:none;touch-action:manipulation;-webkit-font-smoothing:antialiased;}',
     '.dsw-lobby,.dsw-switch{display:none;}',
     '.dsw-on .dsw-lobby{display:inline-flex;}',
     '.dsw-on .dsw-switch{display:flex;}',
     '.dsw-btn{display:inline-flex;align-items:center;justify-content:center;margin:0;border:0;cursor:pointer;padding:0;',
-    'font:600 15px ' + SANS + ';color:#f5f1e8;background:none;}',
-    '.dsw-btn:focus-visible{outline:2px solid #f4f1ea;outline-offset:2px;}',
-    '.dsw-btn:disabled{opacity:.35;cursor:default;}',
-    '.dsw-lobby{left:calc(16px + env(safe-area-inset-left,0px));top:calc(16px + env(safe-area-inset-top,0px));gap:6px;height:40px;padding:0 16px 0 10px;border-radius:999px;background:#f4f1ea;',
-    'color:#100e0b;box-shadow:0 2px 10px rgba(0,0,0,.25);}',
-    '.dsw-lobby:hover{background:#fff;}',
+    'font:650 15px ' + SANS + ';color:var(--ds-bone,#f4f1ea);background:none;transition:background-color .14s,box-shadow .14s,transform .08s;}',
+    '.dsw-btn:focus-visible{outline:2px solid var(--ds-bone,#f4f1ea);outline-offset:2px;}',
+    '.dsw-btn:disabled{color:var(--ds-tx3,#988b78);cursor:default;}',
+    '.dsw-lobby{left:calc(16px + env(safe-area-inset-left,0px));top:calc(16px + env(safe-area-inset-top,0px));gap:8px;height:44px;',
+    'padding:0 16px 0 12px;border-radius:10px;background:rgba(0,0,0,.74);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);',
+    'box-shadow:inset 0 0 0 1px var(--ds-line,#36291a);}',
+    '.dsw-lobby:hover{background:rgba(26,22,17,.94);box-shadow:inset 0 0 0 1px var(--ds-line2,#5a4630);}',
+    '.dsw-lobby:active{transform:translateY(1px) scale(.985);}',
     '.dsw-lobby svg{width:18px;height:18px;flex:none;}',
     '.dsw-switch{left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);align-items:center;',
-    'gap:10px;}',
-    '.dsw-round{width:56px;height:56px;flex:none;border-radius:50%;background:rgba(16,14,11,.80);',
-    'box-shadow:0 0 0 1px rgba(245,241,232,.14),0 6px 18px rgba(0,0,0,.28);}',
-    '.dsw-round:hover:not(:disabled){background:rgba(31,27,21,.94);}',
+    'gap:12px;}',
+    '.dsw-round{width:56px;height:56px;flex:none;border-radius:50%;background:rgba(0,0,0,.74);',
+    '-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);box-shadow:inset 0 0 0 1px var(--ds-line,#36291a),0 6px 18px rgba(0,0,0,.3);}',
+    '.dsw-round:hover:not(:disabled){background:rgba(26,22,17,.94);box-shadow:inset 0 0 0 1px var(--ds-line2,#5a4630),0 6px 18px rgba(0,0,0,.3);}',
     '.dsw-round:active:not(:disabled){transform:scale(.94);}',
-    '.dsw-round svg{width:26px;height:26px;}',
-    '.dsw-plate{display:flex;align-items:center;justify-content:center;box-sizing:border-box;min-width:220px;max-width:320px;',
-    'height:56px;padding:0 22px;border-radius:16px;background:rgba(16,14,11,.80);color:#f5f1e8;',
-    'box-shadow:0 0 0 1px rgba(245,241,232,.14),0 6px 18px rgba(0,0,0,.28);}',
-    '.dsw-name{font-weight:650;font-size:18px;letter-spacing:-.005em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
-    '.dsw-empty .dsw-name{font-weight:600;font-size:16px;color:#d9d0c1;}',
+    '.dsw-round svg{width:24px;height:24px;}',
+    '.dsw-plate{display:flex;align-items:center;justify-content:center;box-sizing:border-box;min-width:260px;max-width:460px;',
+    'height:56px;padding:0 24px;border-radius:18px;background:rgba(0,0,0,.84);color:var(--ds-bone,#f4f1ea);',
+    '-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);box-shadow:inset 0 0 0 1px var(--ds-line,#36291a),0 6px 18px rgba(0,0,0,.3);}',
+    '.dsw-name{font-weight:700;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
+    '.dsw-empty .dsw-name,.dsw-wait .dsw-name{font-weight:600;font-size:15px;color:var(--ds-tx2,#b3a792);}',
     // phones: thumbs, and clear of the minimaps at the bottom right
     '@media (max-width:600px),(pointer:coarse) and (max-height:600px){',
     '.dsw-switch{left:12px;right:var(--dsw-right,12px);transform:none;bottom:calc(var(--dsw-lift,116px) + env(safe-area-inset-bottom,0px));',
-    'justify-content:space-between;}',
+    'justify-content:space-between;gap:8px;}',
     '.dsw-round{width:var(--dsw-size,64px);height:var(--dsw-size,64px);}',
     '.dsw-plate{min-width:0;max-width:none;flex:1;height:var(--dsw-size,64px);padding:0 14px;}',
-    '.dsw-lobby{height:calc(var(--dsw-size,64px) * .66);}}',
+    '.dsw-name{font-size:16px;}',
+    '.dsw-lobby{height:max(44px,calc(var(--dsw-size,64px) * .66));padding:0 14px 0 10px;}}',
     '@media (prefers-reduced-motion:reduce){.dsw-round:active:not(:disabled){transform:none;}}',
-    // the empty table's card art (emptyArt): public/v2.html .gbg .im.still and .gbg::after, the lobby's game screen
-    '.dsw-art{position:fixed;inset:0;z-index:' + ART_Z + ';overflow:hidden;pointer-events:none;background:#100e0b;display:none;}',
+    // the empty table's card art (emptyArt): the lobby's game screen, zoomed, blurred and dark on true black
+    '.dsw-art{position:fixed;inset:0;z-index:' + ART_Z + ';overflow:hidden;pointer-events:none;background:#000;display:none;}',
     '.dsw-art.dsw-art-on{display:block;}',
     '.dsw-art i{position:absolute;inset:-40px;background-size:cover;background-position:center;',
     'filter:blur(6px) brightness(.4) saturate(1.05);}',
     '@media (orientation:portrait){.dsw-art i{background-size:auto 150%;background-position:50% 28%;}}',
     ".dsw-art::after{content:'';position:absolute;inset:0;",
-    'background:radial-gradient(120% 80% at 50% 48%,rgba(10,9,7,.74),rgba(10,9,7,.42) 66%,rgba(10,9,7,.66)),',
-    'linear-gradient(180deg,rgba(10,9,7,.55),transparent 30%,rgba(10,9,7,.55));}'
+    'background:radial-gradient(120% 80% at 50% 48%,rgba(0,0,0,.66),rgba(0,0,0,.36) 66%,rgba(0,0,0,.62)),',
+    'linear-gradient(180deg,rgba(0,0,0,.5),transparent 30%,rgba(0,0,0,.55));}'
   ].join('');
   var ICON = {
     back: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3L5 8l5 5" fill="none" stroke="currentColor" ' +
@@ -194,6 +200,7 @@
     var body = doc.body;
     if (body && body.classList) body.classList.toggle('dsw-on', on);
     sw.classList.toggle('dsw-empty', isEmpty);
+    sw.classList.toggle('dsw-wait', !isEmpty && name === null);
     var text = isEmpty ? WORDS.empty : name === null ? WORDS.finding : (name || WORDS.unnamed);
     if (nameEl.textContent !== text) nameEl.textContent = text;
     var off = isEmpty || isBusy;

@@ -2,8 +2,9 @@
    page (server/sl/slBoot.js composePage), never by public/sl.html. Their page is quirks mode (no doctype), so every
    selector here is a .slx-* class and nothing styles their own elements.
 
-   Palette: their menu background #161c22 (public/sl.html body), a field one step lighter, the site's text
-   #f5f1e8 and accent #f0a830 on #100e0b (the closed page, server/slRoutes.js CLOSED_PAGE). */
+   Palette (site redo 2026-11-02): the site kit over their menu. Black fields on the kit's line, bone for the action
+   and the text, gold only for money (the paid snake's worth), red for a refusal. Archivo, as the shared end card,
+   chat and Spectate bar on this page load it. */
 
 /* The direct-visit panel (slxDirect.js): inside their login layer, under the last-score line. */
 .slx-direct {
@@ -21,11 +22,11 @@
   height: 44px;
   margin: 0;
   padding: 0 18px;
-  border: 1px solid #39434e;
-  border-radius: 22px;
-  background: #1f262e;
-  color: #f5f1e8;
-  font: 17px 'Lucida Sans Unicode', 'Lucida Grande', sans-serif;
+  border: 1px solid #5a4630;
+  border-radius: 10px;
+  background: #000;
+  color: #f4f1ea;
+  font: 500 16px 'Archivo', 'Segoe UI', system-ui, -apple-system, Roboto, Arial, sans-serif;
   text-align: center;
   outline: none;
   -webkit-appearance: none;
@@ -33,13 +34,13 @@
 }
 
 .slx-direct-name::placeholder {
-  color: #7d8996;
+  color: #988b78;
   opacity: 1;
 }
 
 .slx-direct-name:focus {
-  border-color: #f0a830;
-  box-shadow: 0 0 0 3px rgba(240, 168, 48, 0.22);
+  border-color: #f4f1ea;
+  box-shadow: 0 0 0 3px rgba(244, 241, 234, 0.12);
 }
 
 .slx-direct-play {
@@ -49,11 +50,10 @@
   margin: 12px 0 0;
   padding: 0 30px;
   border: 0;
-  border-radius: 22px;
-  background: #f0a830;
-  color: #100e0b;
-  font: 700 17px Arial, 'Helvetica Neue', Helvetica, sans-serif;
-  letter-spacing: 0.02em;
+  border-radius: 10px;
+  background: #f4f1ea;
+  color: #000;
+  font: 700 16px 'Archivo', 'Segoe UI', system-ui, -apple-system, Roboto, Arial, sans-serif;
   cursor: pointer;
   touch-action: manipulation;
   -webkit-user-select: none;
@@ -61,17 +61,19 @@
 }
 
 .slx-direct-play:hover {
-  background: #f5b94f;
+  background: #fff;
+  box-shadow: 0 0 0 4px rgba(244, 241, 234, 0.14);
 }
 
 .slx-direct-play:focus-visible {
-  outline: 2px solid #f5f1e8;
-  outline-offset: 3px;
+  outline: 2px solid #f4f1ea;
+  outline-offset: 2px;
 }
 
 .slx-direct-play:disabled {
-  background: #5c4a2a;
-  color: #c9bfae;
+  background: #1a1611;
+  color: #988b78;
+  box-shadow: inset 0 0 0 1px #36291a;
   cursor: default;
 }
 
@@ -83,8 +85,8 @@
 
 /* Paid snake (slxPaid.js, PAID-SL-DESIGN 9): made only on a paid page, so every rule below is .slx-paid-*.
    The line over the game: the own snake's worth while it is alive, top centre, clear of their leaderboard (top
-   right), their longest box (top left) and the phone's hold button (bottom centre). The figure is the cash-out
-   ring's green (slxHold RING_COLOUR). */
+   right), their longest box (top left) and the phone's hold button (bottom centre). The figure is money, so it is
+   the kit's gold, on the kit's black glass plate. */
 .slx-paid-hud {
   position: fixed;
   top: 12px;
@@ -92,11 +94,13 @@
   transform: translateX(-50%);
   z-index: 8;
   display: none;
-  padding: 6px 14px;
-  border-radius: 16px;
-  background: rgba(16, 14, 11, 0.6);
-  color: #f5f1e8;
-  font: 600 15px Arial, 'Helvetica Neue', Helvetica, sans-serif;
+  padding: 7px 14px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.74);
+  box-shadow: inset 0 0 0 1px #36291a;
+  color: #f4f1ea;
+  font: 650 15px 'Archivo', 'Segoe UI', system-ui, -apple-system, Roboto, Arial, sans-serif;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
   pointer-events: none;
   -webkit-user-select: none;
@@ -104,8 +108,8 @@
 }
 
 .slx-paid-hud-v {
-  color: #14f195;
-  font-weight: 700;
+  color: #f0a830;
+  font-weight: 800;
 }
 
 /* A refused Lobby says why, over the results card (z-index 30). */
@@ -117,11 +121,12 @@
   z-index: 31;
   display: none;
   max-width: 86vw;
-  padding: 8px 16px;
-  border-radius: 18px;
-  background: #100e0b;
-  color: #f0a830;
-  font: 700 15px Arial, 'Helvetica Neue', Helvetica, sans-serif;
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.88);
+  box-shadow: inset 0 0 0 1px rgba(239, 116, 97, 0.5);
+  color: #ef7461;
+  font: 700 15px 'Archivo', 'Segoe UI', system-ui, -apple-system, Roboto, Arial, sans-serif;
   text-align: center;
   pointer-events: none;
 }

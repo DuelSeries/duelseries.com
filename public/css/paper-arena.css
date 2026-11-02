@@ -20,8 +20,8 @@
 .pp-soft small { display: block; margin-top: 10px; font-size: 13px; opacity: 0.7; }
 
 /* Reconnecting: over the last frame, so the player sees where the square was. */
-.pp-veil { background: rgba(0, 0, 0, 0.45); font-size: 24px; text-shadow: 0 0 2px #000; }
-.pp-veil small { display: block; margin-top: 10px; font-size: 13px; opacity: 0.8; }
+.pp-veil { background: rgba(0, 0, 0, 0.6); font-family: 'Archivo', 'Segoe UI', system-ui, -apple-system, Roboto, Arial, sans-serif; font-size: 22px; font-weight: 700; color: #f4f1ea; }
+.pp-veil small { display: block; margin-top: 10px; font-size: 13px; font-weight: 500; color: #b3a792; }
 
 /* The end cards and the leaderboard are the site's shared ones (public/js/shared/dsEnd.js), styled there. */
 
@@ -31,10 +31,11 @@
    "P clip" dot (clipRec.js, data-dot="bl") holds the bottom line, and the two used to overlap. */
 .pp-hint {
   position: absolute; left: 12px; bottom: 28px; z-index: 2;
-  color: rgba(0, 0, 0, 0.45); font-size: 14px; pointer-events: none; user-select: none;
+  padding: 6px 10px; border-radius: 6px; background: rgba(0, 0, 0, 0.66);
+  color: #b3a792; font-family: 'Archivo', 'Segoe UI', system-ui, -apple-system, Roboto, Arial, sans-serif; font-size: 13px; font-weight: 650; pointer-events: none; user-select: none;
 }
 .pp-hint[hidden] { display: none; }
-.pp-hint b { color: rgba(0, 0, 0, 0.6); }
+.pp-hint b { color: #f4f1ea; }
 body.pp-touch .pp-hint { display: none; }
 
 /* Touch heading arrow (paperTouch.js). The snake game's arrow in the agar page's dark ink with a
@@ -52,18 +53,19 @@ body.pp-touch .pp-hint { display: none; }
 .pp-cash {
   position: absolute; left: 14px; bottom: 14px; z-index: 2;
   width: 72px; height: 72px; padding: 0; border: 0; border-radius: 50%;
-  background: rgba(0, 0, 0, 0.35); color: #fff; font: inherit; font-size: 12px; line-height: 1.1;
+  background: rgba(0, 0, 0, 0.74); color: #f4f1ea; font-family: 'Archivo', 'Segoe UI', system-ui, -apple-system, Roboto, Arial, sans-serif; font-size: 12px; font-weight: 700; line-height: 1.1;
+  box-shadow: inset 0 0 0 1px #36291a;
   display: none; align-items: center; justify-content: center;
   touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
   -webkit-tap-highlight-color: transparent; cursor: pointer;
 }
 .pp-cash svg { position: absolute; left: 0; top: 0; width: 72px; height: 72px; transform: rotate(-90deg); }
 .pp-cash circle { fill: none; stroke-width: 5; }
-.pp-cash-track { stroke: rgba(255, 255, 255, 0.35); }
-.pp-cash-fill { stroke: #ffc933; stroke-linecap: round; }
+.pp-cash-track { stroke: rgba(244, 241, 234, 0.22); }
+.pp-cash-fill { stroke: #f0a830; stroke-linecap: round; }
 .pp-cash span { position: relative; pointer-events: none; }
-.pp-cash.pp-down { background: rgba(0, 0, 0, 0.55); }
-.pp-cash.pp-waiting .pp-cash-track { stroke: rgba(255, 201, 51, 0.6); stroke-dasharray: 6 6; }
+.pp-cash.pp-down { background: rgba(26, 22, 17, 0.94); }
+.pp-cash.pp-waiting .pp-cash-track { stroke: rgba(240, 168, 48, 0.6); stroke-dasharray: 6 6; }
 .pp-cash[hidden] { display: none !important; }
 body.pp-touch .pp-cash { display: flex; }
 @media (pointer: coarse) {
@@ -84,17 +86,19 @@ body.pp-touch .pp-cash { display: flex; }
   display: flex; align-items: center; gap: 8px; max-width: calc(100% - 24px);
 }
 .pp-watch-btn, .pp-watch-label {
-  box-sizing: border-box; height: 40px; border-radius: 10px;
-  background: rgba(0, 0, 0, 0.35); color: #fff; font: inherit; font-size: 16px; line-height: 40px;
+  box-sizing: border-box; height: 44px; border-radius: 10px;
+  background: rgba(0, 0, 0, 0.74); color: #f4f1ea; box-shadow: inset 0 0 0 1px #36291a;
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  font-family: 'Archivo', 'Segoe UI', system-ui, -apple-system, Roboto, Arial, sans-serif; font-size: 15px; font-weight: 650; line-height: 44px;
   user-select: none; -webkit-user-select: none;
 }
 .pp-watch-btn {
   flex: none; border: 0; padding: 0 16px; cursor: pointer;
   touch-action: manipulation; -webkit-tap-highlight-color: transparent;
 }
-.pp-watch-btn:hover { background: rgba(0, 0, 0, 0.5); }
-.pp-watch-btn:active { background: rgba(0, 0, 0, 0.55); }
-.pp-watch-btn:focus-visible { outline: 2px solid #9fe7c9; outline-offset: 2px; }
+.pp-watch-btn:hover { background: rgba(26, 22, 17, 0.94); box-shadow: inset 0 0 0 1px #5a4630; }
+.pp-watch-btn:active { transform: translateY(1px) scale(.985); }
+.pp-watch-btn:focus-visible { outline: 2px solid #f4f1ea; outline-offset: 2px; }
 .pp-watch-label {
   min-width: 0; padding: 0 12px; pointer-events: none;
   overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
