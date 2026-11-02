@@ -1337,8 +1337,10 @@ test('the nightly event states its prizes and reads the match, not a clock', () 
      The page must not imply otherwise anywhere, which is a thing prose gets
      wrong long after the number is fixed. */
   assert.ok(/<span class="ev-pz num" id="ev-std" data-cu="ev-prize">\$20<\/span><span>to 1st<\/span>/.test(html), 'first place is paid $20');
-  assert.ok(!/$10|$5/.test(html.slice(html.indexOf('class="podium"'),
-    html.indexOf('class="evfoot"'))), 'and nothing else on the podium is');
+  // The podium panel, from its section to the schedule after it (a real slice: both marks must be found).
+  const podA = html.indexOf('id="ev-podp"'), podB = html.indexOf('id="ev-sch-t"');
+  assert.ok(podA > 0 && podB > podA, 'the podium panel is found');
+  assert.ok(!/\$(10|5)/.test(html.slice(podA, podB)), 'and nothing else on the podium is');
   assert.ok(!/top three share the pot/i.test(html),
     'and the page does not still say the pot is shared');
   // A seat with nobody in it, ready to hold a name.
@@ -1452,10 +1454,10 @@ test('one layout for every game: rungs, Play, Customize, and no small print', ()
   assert.match(html, /\.go\{[^}]*background:linear-gradient\(180deg,#ffffff/, 'white on Free');
   assert.match(html, /\.go\.paid\{background:linear-gradient/, 'gold on a paid rung');
   assert.match(html, /paid=Number\(STEPS\[si\]\)>0&&!shut;\s*if\(go\)go\.classList\.toggle\('paid',paid\);/, 'set by the chosen rung');
-  // And it says the stake (Owen, 2026-10-15), in the mockup's words since the site redo (layout 1 stake sheet):
-  // "Find a $0.50 match" on a duel, "Join a $0.50 room" in a big room, "Sign in to play for $0.50" signed out.
-  assert.match(html, /const shut=!!\(cur&&cur\.soon&&!cur\.built\), st=Number\(STEPS\[si\]\)\|\|0, paid=st>0&&!shut;\s*const out=document\.body\.classList\.contains\('signedout'\), amt=cash\(st\);/, 'the amount is the chosen rung');
-  assert.match(html, /lbl\.textContent=shut\?'Coming soon':paid&&out\?'Sign in to play for '\+amt\s*:cur&&cur\.duel\?\(paid\?'Find a '\+amt\+' match':'Find a free match'\):paid\?'Join a '\+amt\+' room':'Play free';/, 'the stake on Play on a paid rung');
+  // And it says the stake: "Play $0.50" (Owen, 2026-10-15, kept over the mockup's words on 2026-11-02).
+  assert.match(html, /lbl\.textContent=shut\?'Coming soon':paid\?'Play '\+cash\(Number\(STEPS\[si\]\)\):'Play';/, 'Play $0.50 on a paid rung');
+  // No balance line under Play (Owen, 2026-11-02).
+  assert.doesNotMatch(html, /id="dbal"|Paid from your/, 'no balance line under Play');
   // $0.50 and $1, never $1.00.
   assert.match(html, /const cash=v=>v===0\?'Free':'\$'\+\(v%1\?v\.toFixed\(2\):String\(v\)\);/, 'whole dollars without cents');
 });

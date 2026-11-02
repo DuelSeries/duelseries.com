@@ -342,8 +342,8 @@ test('preview: the sample players never leave the browser', () => {
   assert.ok(/if \(p\) \{ data = p\.board\(10\); failed = false; draw\(\); return; \}/.test(lead),
     'the preview board is drawn without asking the server');
   const soc = read('public/js/v2/social.js');
-  assert.ok(/let p = \(pv && pv\.profile\(name\)\) \|\| PROFILES\.get\(name\);/.test(soc),
-    'a sample profile is made here, never fetched');
+  assert.ok(/let p = \(!\(opt && opt\.own\) && pv && pv\.profile\(name\)\) \|\| PROFILES\.get\(name\);/.test(soc),
+    'a sample profile is made here, never fetched (your own profile is always the real one)');
   /* Tagged Sample on screen (site redo 2026-11-01, layout 1): the tag once in Player winnings, on a sample profile and
      on sample search results, and the one note line under the board (the audit found it printed twice). */
   assert.ok(/'<span class="ds-chip lb-sample">' \+ PV\(\)\.tag \+ '<\/span>'/.test(soc) &&

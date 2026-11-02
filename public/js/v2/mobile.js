@@ -31,10 +31,11 @@
 
   /* Ask for fullscreen at the first touch, since that is the first moment a
      browser will honour it. Once only: a user who leaves fullscreen means it.
-     Phones only (a touch-first screen up to 760px wide): on a PC the first click
-     anywhere, even on the header, used to throw the whole browser into
-     fullscreen (site audit 2026-10-31). A PC has the room already. */
-  const touchPhone = () => isPhone() && window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+     Touch-first screens only: on a PC the first click anywhere, even on the
+     header, used to throw the whole browser into fullscreen (site audit
+     2026-10-31). A PC has the room already. Not by width: a phone held sideways
+     is wider than 760px, and its first tap would be used up (review 2026-11-02). */
+  const touchPhone = () => window.matchMedia('(hover: none) and (pointer: coarse)').matches;
   let asked = false;
   function tryFullscreen() {
     if (asked || standalone() || !touchPhone()) return;

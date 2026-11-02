@@ -235,7 +235,9 @@
     const body = el('w-body');
     if (!body) return;
 
-    if (!w().ready) {
+    /* With no sign of a session the signed-out panel shows at once: its Sign in works before the widget has loaded
+       (the stub in v2.html fetches it), and the header's Sign in is hidden on this tab (review 2026-11-02). */
+    if (!w().ready && !noSession()) {
       drawnFor = null;
       clearMoves();
       hist(false);

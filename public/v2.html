@@ -426,7 +426,9 @@ header{position:sticky;top:0;z-index:50;background:rgba(0,0,0,.88);
   padding:var(--ds-sp6) var(--ds-sp6) var(--ds-sp6) 40px;margin-bottom:var(--ds-sp4)}
 .ref-main{display:flex;flex-direction:column;align-items:flex-start;gap:var(--ds-sp3);min-width:0}
 .ref-main h3{margin:0}
-.ref-url{margin:2px 0 var(--ds-sp2);font-size:60px;font-weight:800;font-stretch:125%;letter-spacing:-.035em;line-height:1;overflow-wrap:anywhere}
+/* Sized to its column (review 2026-11-02: from 1101 to 1300px wide it broke mid-word): 60px where there is room. */
+#refer-screen .ref-main{container-type:inline-size;min-width:0}
+.ref-url{margin:2px 0 var(--ds-sp2);font-size:min(60px,11cqi);font-weight:800;font-stretch:125%;letter-spacing:-.035em;line-height:1;overflow-wrap:anywhere}
 #refer-screen .ref-main .ds-btn{min-width:210px}
 .ref-fine{max-width:50ch;margin:2px 0 0;font-size:var(--ds-fs-2)}
 /* the link as it lands in a chat: the message, then the site's own link preview under it */
@@ -528,7 +530,9 @@ header{position:sticky;top:0;z-index:50;background:rgba(0,0,0,.88);
 .medisc.q{color:var(--tx2)}
 .me:focus-visible{outline:2px solid var(--bone);outline-offset:2px}
 body.signedout .me{display:none}
-.mepop{position:fixed;top:calc(var(--ds-hdh) + 8px);right:24px;z-index:var(--ds-z-pop);width:360px;
+/* Sheet height at every width, over the game sheet (#detail, z 150): Play opens this card for a player with no
+   name yet (play.js requireName), and under the sheet that was a dead Play on PC (review 2026-11-02). */
+.mepop{position:fixed;top:calc(var(--ds-hdh) + 8px);right:24px;z-index:var(--ds-z-sheet);width:360px;
   max-height:calc(100dvh - var(--ds-hdh) - 24px);overflow:auto;overscroll-behavior:contain;
   display:flex;flex-direction:column;gap:var(--ds-sp4);padding:var(--ds-sp5);text-align:left;
   background:var(--ds-s1);border-radius:var(--ds-r3);box-shadow:var(--ds-sh-pop);
@@ -568,7 +572,7 @@ body.signedout .me{display:none}
 #mepop .melinks .ds-row:hover{background:var(--ds-s2)}
 .mechev{color:var(--tx2);display:grid}
 #mepop .meout{margin-top:calc(-1 * var(--ds-sp2))}
-.meveil{position:fixed;inset:0;z-index:49;display:none}
+.meveil{position:fixed;inset:0;z-index:calc(var(--ds-z-sheet) - 1);display:none}
 .meveil.on{display:block}
 body.ingame>.mepop{visibility:hidden}   /* out of the header now, so the header's in-game rule no longer covers it */
 /* ── the shared popup in the lobby ───────────────────────────────────── */
@@ -780,7 +784,8 @@ body.ingame>.howveil,body.ingame>.meveil,body.ingame>.apscreen,body.ingame>.bshe
 #home .brh .ds-clockbox{min-width:200px}
 #home .brh .ds-clockbox.wait b,#home .brh .ds-clockbox.wait .ds-t-label{visibility:hidden}
 #home .brh .ds-clockbox b.live{color:var(--live)}
-@media(min-width:761px) and (max-width:1100px){
+/* Up to 1280px the button takes its own row, so the title column never shrinks under the clock (review 2026-11-02). */
+@media(min-width:761px) and (max-width:1280px){
   #home .brh{grid-template-columns:minmax(0,1fr) auto;padding-right:30%}
   #home .brh .ds-btn{grid-column:1/-1;justify-self:start}
 }
@@ -953,7 +958,7 @@ body.ingame .win-live i,body.ingame .win-live i::before{animation-play-state:pau
 #social-screen .lb-board-hd{margin:var(--ds-sp1) 0 var(--ds-sp3)}
 #social-screen .lb-board-hd h2{font-size:var(--ds-fs-5);letter-spacing:-.01em}
 .lb-pod{display:grid;grid-template-columns:1.3fr 1fr 1fr;gap:var(--ds-sp3)}
-#social-screen .lb-t{position:relative;overflow:hidden;isolation:isolate;min-width:0;min-height:168px;display:flex;flex-direction:column;
+#social-screen .lb-t{position:relative;overflow:hidden;isolation:isolate;min-width:0;container-type:inline-size;min-height:168px;display:flex;flex-direction:column;
   align-items:flex-start;justify-content:flex-end;gap:2px;padding:var(--ds-sp4) var(--ds-sp5) var(--ds-sp5);border:0;text-align:left;
   color:var(--ds-bone);font:inherit;transition:background-color var(--ds-dur-1),box-shadow var(--ds-dur-1)}
 #social-screen button.lb-t{cursor:pointer}
@@ -969,9 +974,10 @@ body.ingame .win-live i,body.ingame .win-live i::before{animation-play-state:pau
 .lb-t.is-1 .lb-t-rk{background:var(--ds-bone);color:var(--ds-on-bone);box-shadow:none}
 .lb-t-nm{display:flex;align-items:center;gap:var(--ds-sp2);max-width:100%;min-width:0;font-size:var(--ds-fs-4);font-weight:750;line-height:1.25}
 .lb-t-nm>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.lb-t-v{font-size:30px;font-weight:800;font-stretch:var(--ds-wide);letter-spacing:-.015em;line-height:1.05;font-variant-numeric:tabular-nums;
+.lb-t-v{font-size:min(30px,17cqi);font-weight:800;font-stretch:var(--ds-wide);letter-spacing:-.015em;line-height:1.05;font-variant-numeric:tabular-nums;
   white-space:nowrap;color:var(--ds-gold)}
-.lb-t.is-1 .lb-t-v{font-size:40px}
+/* Sized to the tile (review 2026-11-02: from 1101 to 1240px wide the figure was cut off). */
+.lb-t.is-1 .lb-t-v{font-size:min(40px,17cqi)}
 .lb-t-sub{font-size:var(--ds-fs-2);color:var(--ds-tx2);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px}
 #social-screen .lb-t.is-empty{background:var(--ds-ink);min-height:132px}
 .lb-t.is-empty .lb-t-nm{color:var(--ds-tx2);font-weight:650}
@@ -998,6 +1004,7 @@ body.ingame .win-live i,body.ingame .win-live i::before{animation-play-state:pau
 .lb-load{display:flex;align-items:center;gap:var(--ds-sp3);color:var(--ds-tx2)}
 /* The right column. */
 .lb-find,.lb-how{display:flex;flex-direction:column;gap:var(--ds-sp3)}
+.lb-how[hidden]{display:none}
 #social-screen .lb-side-t{font-size:var(--ds-fs-4);font-weight:750;font-stretch:100%;letter-spacing:0;line-height:1.25}
 #social-screen .lb-q .ds-input-pre{display:grid;left:var(--ds-sp4)}
 #social-screen .lb-q .ds-input{padding-left:46px}
@@ -1072,8 +1079,8 @@ body.ingame .win-live i,body.ingame .win-live i::before{animation-play-state:pau
   .lb-t.is-1 .lb-t-art{width:56%}
   .lb-t-nm{font-size:var(--ds-fs-3)}
   .lb-t.is-1 .lb-t-nm{font-size:var(--ds-fs-4)}
-  .lb-t-v{font-size:21px}
-  .lb-t.is-1 .lb-t-v{font-size:34px}
+  .lb-t-v{font-size:min(21px,17cqi)}
+  .lb-t.is-1 .lb-t-v{font-size:min(34px,17cqi)}
   .lb-t-sub{font-size:var(--ds-fs-1)}
   #social-screen .lb-rest{padding:var(--ds-sp1)}
   #social-screen .lb-row{grid-template-columns:26px auto minmax(0,1fr) auto;gap:var(--ds-sp2)}
@@ -2074,9 +2081,6 @@ body.no-foot footer{display:none}
    field (in the header card now), Spectate and Customize are for a game you
    can play, so they go rather than sitting there shut. */
 #detail.soon .lookrow,#detail.soon .spec{display:none}
-/* The line under Play (paintGo): quiet meta, centred under the row it explains. */
-.dbal{margin:var(--ds-sp3) 0 0;font-size:var(--ds-fs-1);line-height:1.45;color:var(--ds-tx2);text-align:center}
-.dbal:empty,#detail.soon .dbal{display:none}
 /* No Invite a friend button on the game panel (Owen, 2026-10-27: "it's kind of in the way"): stake rows,
    then Play, Spectate and Customize right under. /play/<game> links still work (js/v2/invite.js). */
 /* The narrowest phones (320 to 360 px): a rung is about 90 px there, so the
@@ -2359,10 +2363,11 @@ footer{margin-top:var(--ds-sp7);padding:var(--ds-sp5) 0 var(--ds-sp6);box-shadow
   .hd{height:56px;gap:8px;padding:0 12px 0 16px}
   .logo{font-size:19px}
   .hd .sp{display:none}          /* the spacers pushed everything off-screen */
-  .hbal{margin-left:auto}
-  .balbox{padding:0 10px}
+  /* 44px money targets on a phone (review 2026-11-02): the chip grows to 52 inside the 56px header. */
+  .hbal{margin-left:auto;height:52px}
+  .balbox{padding:0 10px;height:44px}
   .balbox .v{font-size:15px}
-  .wbtn{width:38px;padding:0;justify-content:center}
+  .wbtn{width:44px;height:44px;padding:0;justify-content:center}
   .wbtn span{display:none}       /* icon only: the label is what overflowed */
   /* Signed out there is no balance beside it, so "Sign in" fits and says
      what the button does. */
@@ -2642,7 +2647,7 @@ html.ds-building body>:not(#splash){visibility:hidden}
 /* A fast load takes the splash down before its 1.8 s draw-on is done, and a half-traced ring and a half-written
    name used to fade away (site audit 2026-10-31). hide() adds .done first: every piece goes straight to its
    finished frame, so what fades out is the whole mark. */
-#splash.done *{animation-delay:0s!important;animation-duration:1ms!important}
+#splash.done *,#splash.done .spw path{animation-delay:0s!important;animation-duration:1ms!important}   /* the name's rule is more specific */
 </style>
 <noscript><style>#splash{display:none}</style></noscript>
 </head>
@@ -3511,9 +3516,6 @@ function openSwimHow(){
         Spectate
       </button>
     </div>
-    <!-- Which money Play uses (paintGo): the balance a paid rung is paid from, or that a free room never touches
-         it. A balance, so kept out of session replays. -->
-    <p class="dbal ph-no-capture" id="dbal"></p>
     <div class="fine" id="play-msg" hidden style="color:var(--money)"></div>
 
     <!-- Customize (BACKLOG 3.1, Owen's name for it). The whole row is the
@@ -6205,28 +6207,11 @@ function drawStake(){
   const go=document.getElementById('gobtn');
   const shut=!!(cur&&cur.soon&&!cur.built), paid=Number(STEPS[si])>0&&!shut;
   if(go)go.classList.toggle('paid',paid);
-  paintGo();
-}
-/* Play's words and the line under it (site redo, layout 1, the mockup's stake sheet). Play says what pressing it
-   does and, on a paid rung, how much it stakes (Owen, 2026-10-15: the amount on the button that stakes it): a duel
-   finds a match, a big room is joined, a paid rung signed out asks to sign in first (play.js does), a shut game is
-   Coming soon. The line says which money a paid rung uses: the balance it is paid from, the figure the header
-   shows. Words only: what Play does is startFromDetail's, unchanged. Again on every wallet change (below). */
-function paintGo(){
-  const shut=!!(cur&&cur.soon&&!cur.built), st=Number(STEPS[si])||0, paid=st>0&&!shut;
-  const out=document.body.classList.contains('signedout'), amt=cash(st);
+  /* And it says how much (Owen, 2026-10-15, again 2026-11-02): "Play $0.50" on the button that
+     stakes it, plain "Play" on Free, "Coming soon" on a shut game. */
   const lbl=document.getElementById('golabel');
-  if(lbl)lbl.textContent=shut?'Coming soon':paid&&out?'Sign in to play for '+amt
-    :cur&&cur.duel?(paid?'Find a '+amt+' match':'Find a free match'):paid?'Join a '+amt+' room':'Play free';
-  const line=document.getElementById('dbal');
-  if(!line)return;
-  const w=window.duelWallet||{};
-  const bal=w.authenticated&&w.balance!=null&&isFinite(Number(w.balance))?Number(w.balance):null;
-  line.textContent=shut?'':!paid?'Free rooms never touch your balance.':out?'Paid rooms need you to sign in.'
-    :bal==null?'Paid from your balance.':'Paid from your '+usd(bal)+' balance.';
+  if(lbl)lbl.textContent=shut?'Coming soon':paid?'Play '+cash(Number(STEPS[si])):'Play';
 }
-/* After wallet.js has had the same change (it sets body.signedout), so both read one answer. */
-window.addEventListener('duelwallet:change',()=>setTimeout(()=>{if(cur)paintGo()},0));
 /* Every board answer (V2Board load and push, through paintCounts) re-strikes the
    rungs of the game screen up now. open_ was the only other caller of
    refreshSteps, so a screen opened before /api/live had answered (an invite, a
@@ -6979,12 +6964,31 @@ document.addEventListener('keydown',e=>{
   if(isOn('lookveil'))return closeLook(false);
   if(isOn('lkpick'))return closeLkPick();
   /* The game's sheet: Escape is its Back, unless a card of its own is up (the profile card, a wallet or
-     sign-in window, a DSDialog). */
+     sign-in window, a DSDialog) or this Escape just closed the profile card (me.js runs first). */
   const det=document.getElementById('detail');
-  if(screenShown(det)&&!document.querySelector('.mepop:not([hidden]),.dsd,#privy-dialog,[id^="privy-modal"]'))goBack();
+  if(screenShown(det)&&!e.defaultPrevented&&!document.querySelector('.mepop:not([hidden]),.dsd,#privy-dialog,[id^="privy-modal"]'))goBack();
 });
 document.getElementById('detail').addEventListener('click',e=>{
   if(e.target.id==='detail'||e.target.classList.contains('dbox'))goBack();
+});
+/* A pull down on a phone sheet closes it, as its grab handle says (the earnings and support sheets already did;
+   review 2026-11-02). Only from the top of the sheet's own scroll, only a clear downward pull, never a sideways
+   one (the game sheet swipes between games), and each closes the way its X does. */
+[['mepop',()=>V2Me.close()],['wdrveil',()=>V2Wallet.cancelCash()],['adveil',()=>V2Wallet.cancelAdd()],
+ ['cvveil',()=>V2Wallet.cancelConvert()],['detail',()=>goBack()]].forEach(([id,close])=>{
+  const box=document.getElementById(id);
+  if(!box)return;
+  let y0=null,x0=0;
+  box.addEventListener('touchstart',e=>{
+    const sc=id==='detail'?box:(e.target.closest&&e.target.closest('.howcard'))||box;
+    y0=matchMedia('(max-width:760px)').matches&&e.touches.length===1&&sc.scrollTop<=0?e.touches[0].clientY:null;
+    x0=e.touches[0].clientX;
+  },{passive:true});
+  box.addEventListener('touchend',e=>{
+    const t=e.changedTouches[0],dy=y0==null?0:t.clientY-y0;
+    if(dy>70&&Math.abs(t.clientX-x0)<dy/2)close();
+    y0=null;
+  },{passive:true});
 });
 /* Clicking the darkened area outside the card closes it, which is what a
    dimmed backdrop looks like it should do. */

@@ -1,4 +1,4 @@
-/* The lobby's "Players have cashed out $X" strip, its top-10 board and sheet.
+/* The lobby's "Players have cashed out $X" strip and its top-10 sheet.
 
    Everything here reads /api/earnings (server/earnings), which answers
    {on:false} until real players have cashed out, or when Owen hides it (the
@@ -19,11 +19,11 @@
   var PERIOD_WORD = { today: 'today', week: 'this week', all: 'so far' };
 
   var data = null;       // last {on:true,...} answer, or null
-  var strip = null, board = null, sheet = null, cols = null;
-  var boardTab = null, sheetTab = null;
+  var strip = null, sheet = null;
+  var sheetTab = null;
 
   /* Site redo stage 3: drawn from the kit's tokens (ds-tokens.css): a quiet panel row with the figure in gold (money),
-     the board and the sheet as the kit's panel and sheet, the period tabs as its segmented control. */
+     the sheet as the kit's sheet, the period tabs as its segmented control. */
   var css = '' +
     '.earn-strip{display:flex;align-items:center;gap:10px;width:100%;margin:0 0 var(--ds-sp4,16px);min-height:48px;padding:0 16px;' +
       'border:0;border-radius:var(--ds-r2,10px);cursor:pointer;text-align:left;background:var(--ds-s1,#0d0b08);' +
@@ -35,12 +35,6 @@
     '.earn-strip .earn-r{margin-left:auto;color:var(--ds-tx2,#b3a792);font-size:13px;white-space:nowrap;display:flex;align-items:center;gap:8px}' +
     '.earn-strip .earn-r b{color:var(--ds-bone,#f4f1ea);font-weight:700}' +
     '.earn-chev{font-size:20px;line-height:1;color:var(--ds-tx3,#988b78)}' +
-    '.earn-cols{display:block}' +
-    '.earn-board{display:none}' +
-    '@media(min-width:1100px){' +
-      '.earn-cols.on{display:grid;grid-template-columns:minmax(0,1fr) 320px;column-gap:28px;align-items:start}' +
-      '.earn-cols.on .earn-board{display:block;margin-top:56px}' +
-    '}' +
     '.earn-card{background:var(--ds-s1,#0d0b08);box-shadow:var(--ds-edge);border-radius:var(--ds-r3,18px);padding:var(--ds-sp5,24px);color:var(--ds-bone,#f4f1ea)}' +
     '.earn-card h3{font-size:var(--ds-fs-4,18px);font-weight:700;display:flex;align-items:center;gap:8px;margin:0}' +
     '.earn-tag{display:inline-flex;align-items:center;height:24px;padding:0 8px;border-radius:var(--ds-r1,6px);font-size:12px;font-weight:650;' +
@@ -102,7 +96,7 @@
     return 'all';
   }
 
-  /* The board's inside, shared by the PC panel and the sheet. */
+  /* The sheet's inside. */
   function boardHtml(d, tab, withClose) {
     var p = d.periods[tab];
     var rows = p.top.map(function (r, i) {
@@ -132,12 +126,6 @@
       var b = e.target.closest && e.target.closest('.earn-tabs button');
       if (b) set(b.getAttribute('data-t'));
     });
-  }
-
-  function drawBoard() {
-    if (!board || !data) return;
-    if (!boardTab || !data.periods[boardTab]) boardTab = firstTab(data);
-    board.innerHTML = boardHtml(data, boardTab, false);
   }
 
   function drawSheet() {
@@ -201,40 +189,14 @@
       '<span class="earn-chev" aria-hidden="true">&rsaquo;</span></span>';
   }
 
-  /* PC: the board sits beside Open lobbies. That heading and the list are moved
-     into a two-column wrapper once; on narrower screens the wrapper is a plain
-     block and the board is hidden (the strip opens the sheet instead). */
-  function placeBoard() {
-    var lob = document.getElementById('lob');
-    if (!lob) return;
-    if (!cols) {
-      var head = lob.previousElementSibling;
-      if (!head || !head.classList.contains('head')) return;
-      cols = document.createElement('div');
-      cols.className = 'earn-cols';
-      var left = document.createElement('div');
-      left.style.minWidth = '0';
-      lob.parentNode.insertBefore(cols, head);
-      left.appendChild(head);
-      left.appendChild(lob);
-      board = document.createElement('aside');
-      board.className = 'earn-board earn-card';
-      board.setAttribute('aria-label', 'Top cash-outs');
-      wireTabs(board, function (t) { boardTab = t; drawBoard(); });
-      cols.appendChild(left);
-      cols.appendChild(board);
-    }
-    cols.classList.add('on');
-    drawBoard();
-  }
+  /* Layout 1 (site redo) has no Open lobbies on Home, so the PC board that sat beside it is gone: the top 10 is the
+     Leaderboards tab's, and the strip opens this sheet on every screen size (review 2026-11-02). */
 
   function hide() {
     data = null;
     if (window.V2Side) window.V2Side.paint();
     document.body.classList.remove('earn-on');
     if (strip) { strip.remove(); strip = null; }
-    if (cols) cols.classList.remove('on');
-    if (board) board.innerHTML = '';
     closeSheet();
   }
 
@@ -244,7 +206,6 @@
     injectCss();
     document.body.classList.add('earn-on');
     drawStrip();
-    placeBoard();
     if (sheet) drawSheet();
     if (window.V2Side) window.V2Side.paint();
   }

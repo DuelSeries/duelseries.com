@@ -119,7 +119,7 @@
     if (!n) return;
     close();
     if (typeof window.go === 'function') window.go('social');
-    if (window.V2Social) window.V2Social.openPlayer(n);
+    if (window.V2Social) window.V2Social.openPlayer(n, { own: true });
   }
 
   document.addEventListener('keydown', e => {
@@ -130,6 +130,8 @@
     const btn = el('name-act');
     if (btn && btn.dataset && btn.dataset.state && btn.dataset.state !== 'idle') return;
     close();
+    /* This Escape was the card's: the game sheet under it stays open (v2.html's Escape reads this). */
+    e.preventDefault();
     const b = el('mebtn'); if (b) b.focus();
   });
   /* A balance change reaches the header first and rolls there, so an open card reads it again once it has landed. */
