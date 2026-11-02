@@ -349,13 +349,13 @@ test('preview: the sample players never leave the browser', () => {
   assert.ok(/'<span class="ds-chip lb-sample">' \+ PV\(\)\.tag \+ '<\/span>'/.test(soc) &&
     /'<span class="ds-chip lb-sample">' \+ sample\.tag \+ '<\/span>'/.test(soc), 'tagged Sample on screen');
   // Dial-in (Owen 2026-11-02): the tag sits beside Top earners instead of a note line under the board.
-  assert.ok(/h\.innerHTML = 'Top earners' \+ \(SAMPLE\(\) \? ' <span class="ds-chip lb-sample">' \+ P\(\)\.tag/.test(lead), 'tagged Sample on the board');
+  assert.ok(/h\.innerHTML = 'Top earners <span class="ds-chip ds-chip-live lb-live">Live<\/span>' \+\s*\(SAMPLE\(\) \? '<span class="ds-chip lb-sample">' \+ P\(\)\.tag/.test(lead), 'Live, then Sample right after it, on the board');
   assert.ok(!/\.note\b/.test(soc.replace(/\/\*[\s\S]*?\*\//g, '')), 'and not a second time in Player winnings');
   // Sample figures are never marked live for visitors, and neither is a board that failed to load.
   // Only the browser that opened ?leaderboard=preview (liveLook) could, and liveLook is always false (Owen, 2026-10-28).
   assert.ok(/const SAMPLE = \(\) => !!P\(\) && !P\(\)\.liveLook;/.test(lead) && /live\.hidden = SAMPLE\(\) \|\| failed;/.test(lead));
   assert.ok(/const sample = d\.preview && !d\.preview\.liveLook \? d\.preview : null;/.test(soc) &&
-    /\(sample \? '<span class="ds-chip lb-sample">'/.test(soc) && /\(sample \? 'Global player earnings' : 'Live global player earnings'\)/.test(soc));
+    /\(sample \? '<span class="ds-chip lb-sample">'/.test(soc) && /'<span class="ds-chip ds-chip-live lb-live">Live<\/span>' \+\s*\(sample \? '<span class="ds-chip lb-sample">'/.test(soc));
   assert.ok(/pd\.top\.slice\(0, ROWS\)/.test(lead) && /const ROWS = 10;/.test(lead) && !/lb-all|openSheet/.test(lead), 'the top 10 on the board, no sheet');
 });
 

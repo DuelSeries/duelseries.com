@@ -2318,6 +2318,6 @@ test('Social shows Global player winnings: real players only, the lobby strip\'s
   assert.ok(/d\.on !== true[^\n]*box\.hidden = true/.test(code.replace(/\n\s*/g, ' ')) || /box\.hidden = true; win = null; return;/.test(code),
     'hidden only when the server says off');
   // Dial-in (Owen 2026-11-02): the pre-redo top, "Live global player earnings" over the figure, Sample when made up.
-  assert.ok(/\(sample \? 'Global player earnings' : 'Live global player earnings'\)/.test(code), 'the title says Live only when real');
+  assert.ok(/'<span class="ds-chip ds-chip-live lb-live">Live<\/span>' \+\s*\(sample \? '<span class="ds-chip lb-sample">' \+ sample\.tag/.test(code), 'Live, with Sample right after it when made up');
   assert.ok(/\.win-up\.rise\{animation:winUp/.test(html) && !/\.win-up\.go\{/.test(html), 'and the rise is not .go, the Play button');
 });

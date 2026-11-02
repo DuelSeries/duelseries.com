@@ -119,7 +119,9 @@
     drawMarks();
     if (!periods().includes(period)) period = 'all';
     const h = $('lb-top-t');
-    if (h) h.innerHTML = 'Top earners' + (SAMPLE() ? ' <span class="ds-chip lb-sample">' + P().tag + '</span>' : '');
+    // "● Live", then Sample right after it while the players are made up (Owen 2026-11-02).
+    if (h) h.innerHTML = 'Top earners <span class="ds-chip ds-chip-live lb-live">Live</span>' +
+      (SAMPLE() ? '<span class="ds-chip lb-sample">' + P().tag + '</span>' : '');
     if (!data && !P()) {
       box.innerHTML = failed
         ? '<div class="ds-panel lb-none" role="status"><b>Could not load the board.</b><p class="ds-hint">It tries again every minute. ' +

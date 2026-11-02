@@ -132,7 +132,9 @@
       // Sample unless this is Owen's own preview browser (socialPreview.js liveLook): the tag, never the live mark.
       const sample = d.preview && !d.preview.liveLook ? d.preview : null;
       // The pre-redo board's top (Owen 2026-11-02): the title and the figure, nothing else.
-      box.innerHTML = '<div class="lb-sum-hd"><h3 class="lb-sum-t">' + (sample ? 'Global player earnings' : 'Live global player earnings') + '</h3>' +
+      // "● Live", then Sample right after it while the figure is made up (Owen 2026-11-02), as on Top earners.
+      box.innerHTML = '<div class="lb-sum-hd"><h3 class="lb-sum-t">Global player earnings</h3>' +
+        '<span class="ds-chip ds-chip-live lb-live">Live</span>' +
         (sample ? '<span class="ds-chip lb-sample">' + sample.tag + '</span>' : '') + '</div>' +
         '<div class="lb-fig"><span class="win-vw"><b class="win-v num" data-cu="soc-win" data-cu-rise></b><span class="win-up num" aria-hidden="true"></span></span></div>';
     }
