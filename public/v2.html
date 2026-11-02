@@ -1160,6 +1160,14 @@ body.ingame .win-live i,body.ingame .win-live i::before{animation-play-state:pau
   .ev-low{grid-template-columns:minmax(0,1fr)}
   .swpod li{max-width:100%}
 }
+/* The one beating dot on Events (the state chip, while something is happening now) and on Leaderboards (Live), for
+   everyone, like the old ones: Owen's PC reports reduced motion and a still dot reads as nothing. Still under a game and
+   while the screen is parked off to the side on a phone. */
+@media(prefers-reduced-motion:reduce){
+  #events-screen .ds-chip-live.is-pulse[data-pulse]::before,#social-screen .ds-chip-live.is-pulse[data-pulse]::before{
+    animation-duration:1.8s!important;animation-iteration-count:infinite!important}
+}
+body.ingame .ds-chip-live.is-pulse::before,.scr-park .ds-chip-live.is-pulse::before{animation-play-state:paused!important}
 
 .note b{color:var(--tx2);font-weight:600}
 .lnk{color:var(--tx2);text-decoration:underline;text-underline-offset:2px}
