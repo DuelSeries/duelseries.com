@@ -202,7 +202,7 @@
     hd.appendChild(el('h2', 'cltoph', 'Top clippers'));
     hd.appendChild(el('span', 'ds-t-meta', 'Clips on the wall'));
     top.appendChild(hd);
-    if (!data.top.length) top.appendChild(el('p', 'cltopnone', 'Nobody yet. Get a clip on the wall to lead this board.'));
+    if (!data.top.length) top.appendChild(el('p', 'cltopnone', 'Nobody yet.'));
     const list = el('div', 'ds-list');
     data.top.forEach((t, i) => {
       const r = el('div', 'ds-row cltr');
@@ -248,7 +248,7 @@
       list.appendChild(r);
     });
     if (mineList.length) m.appendChild(list);
-    m.appendChild(el('p', 'ds-hint clmine-hint', 'Every clip is checked before anyone else can see it. You can delete yours any time, even once it is on the wall.'));
+    // (no explaining line under Your clips, Owen 2026-11-02)
   }
   function dropBox() {
     const b = el('button', 'cldrop');

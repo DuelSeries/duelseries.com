@@ -1006,6 +1006,14 @@ body.ingame .win-live i,body.ingame .win-live i::before{animation-play-state:pau
 .lb-res:empty{display:none}
 .lb-res .ds-list{margin:0 calc(-1 * var(--ds-sp2))}
 .lb-res .ds-hint{padding:var(--ds-sp1) 0}
+/* Dial-in 2026-11-02: one centered column like the pre-redo board. */
+#social-screen .lb{display:flex;flex-direction:column;align-items:stretch;gap:var(--ds-sp5);max-width:720px;margin:0 auto}
+#social-screen .lb-sum{display:flex;flex-direction:column;align-items:center;text-align:center;gap:var(--ds-sp3);
+  padding:var(--ds-sp6) var(--ds-sp5)}
+#social-screen .lb-sum-hd{justify-content:center}
+#social-screen .lb-fig{justify-content:center}
+#social-screen .lb-board-hd{display:flex;align-items:center;gap:var(--ds-sp3)}
+#social-screen #soc-win{order:1} #social-screen .lb-board{order:2} #social-screen .lb-find{order:3}
 .lb-how ul{list-style:none;display:flex;flex-direction:column;gap:var(--ds-sp3)}
 .lb-how li{font-size:var(--ds-fs-2);color:var(--ds-tx2);line-height:1.5}
 .lb-how li b{color:var(--ds-bone);font-weight:650}
@@ -1111,6 +1119,13 @@ body.ingame .win-live i,body.ingame .win-live i::before{animation-play-state:pau
 .wgrid2.in{display:grid;grid-template-columns:minmax(0,400px) minmax(0,1fr);gap:var(--ds-sp5);align-items:start}
 /* The balance stays in view while History scrolls past it. */
 .wgrid2.in>#w-body{display:flex;flex-direction:column;gap:var(--ds-sp4);position:sticky;top:calc(var(--ds-hdh) + var(--ds-sp5))}
+/* Dial-in 2026-11-02: the phone's one column on every screen, centered. */
+#wallet-screen .wgrid2,#wallet-screen .wgrid2.in{display:flex;flex-direction:column;align-items:stretch;gap:var(--ds-sp4);max-width:600px;margin:0 auto}
+#wallet-screen .wgrid2.in>#w-body{position:static}
+#wallet-screen .wtop{display:flex;align-items:flex-end;justify-content:space-between;gap:var(--ds-sp4)}
+#wallet-screen .wtop-bal{flex:1 1 0;min-width:0;container-type:inline-size;display:flex;flex-direction:column;gap:var(--ds-sp1)}
+#wallet-screen .wtop-addr{flex:0 1 auto;min-width:0;display:flex;flex-direction:column;gap:var(--ds-sp2);padding-bottom:18px}
+#wallet-screen .wbal>.ds-t-meta{margin:var(--ds-sp3) 0 0;line-height:1.5}
 #w-hist[hidden]{display:none}
 
 /* The balance. The lit figure fits its panel: wallet.js puts the figure's length in --n, so "$1,234.56" sits
@@ -1240,6 +1255,11 @@ body.ingame .win-live i,body.ingame .win-live i::before{animation-play-state:pau
   .wgrid2.in{grid-template-columns:minmax(0,1fr);gap:var(--ds-sp4)}
   .wgrid2.in>#w-body{position:static}
   #w-bal{font-size:min(52px,calc(100cqi / (var(--n,6) * .74)))}
+  #wallet-screen .wtop{gap:var(--ds-sp3)}
+  #wallet-screen .wtop .waddr{min-height:44px;padding:4px 4px 4px var(--ds-sp3);gap:6px}
+  #wallet-screen .wtop .waddr code{font-size:13px}
+  #wallet-screen .wtop .waddr .cp{height:36px;min-width:0;width:40px;padding:0}
+  #wallet-screen .wtop .waddr .cp span{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
   #wallet-screen .wacts{grid-template-columns:minmax(0,1fr) auto}
   #wallet-screen .wa-add{grid-column:1/-1}
   #w-hist{padding:var(--ds-sp4) var(--ds-sp3)}
@@ -2476,10 +2496,6 @@ footer{margin-top:var(--ds-sp7);padding:var(--ds-sp5) 0 var(--ds-sp6);box-shadow
   #home .games-hd .f-lg{display:none}
   #home .games-hd .f-sm{display:inline}
   .ggrid{--cols:3;--gg:10px}
-  .ggrid>.card.is-tail{grid-column:1/-1;aspect-ratio:auto;height:92px}
-  .card.is-tail .gart{width:64%;object-position:50% 100%;
-    -webkit-mask-image:linear-gradient(90deg,#000 62%,transparent);mask-image:linear-gradient(90deg,#000 62%,transparent)}
-  .card.is-tail .ds-gc-soon{left:auto;right:12px;top:50%;transform:translateY(-50%)}
   .gamegrid{grid-template-columns:repeat(3,1fr);gap:10px}
   .tiles{grid-template-columns:1fr 1fr;gap:10px}
   .tile{padding:15px 16px}
@@ -2594,6 +2610,23 @@ body.scr-anim { overflow-x:hidden }
    frame's inline width and height are 100%, hence !important. */
 #game-frame.sl07{width:calc(100% / .7)!important;height:calc(100% / .7)!important;
   transform:scale(.7);transform-origin:0 0}
+
+/* ── Dial-in (Owen 2026-11-02): every tab's content centered, each page only as wide as it needs ──────────
+   Last in the sheet so it wins over each screen's own .head margins. */
+main.wrap{margin-left:auto;margin-right:auto}
+:is(#home,#wallet-screen,#events-screen,#social-screen,#player-screen,#settings-screen,#clips-screen,#updates-screen,
+  #refer-screen,#support-screen,#join-screen)>*{margin-left:auto;margin-right:auto}
+:is(#home,#wallet-screen,#events-screen,#social-screen,#player-screen,#settings-screen,#clips-screen,#updates-screen,
+  #refer-screen,#support-screen,#join-screen)>.head{margin-left:auto;margin-right:auto}
+#home>*{max-width:1400px}
+#events-screen>*,#player-screen>*,#clips-screen>*{max-width:1180px}
+#wallet-screen>*{max-width:600px}
+#settings-screen>*{max-width:640px}
+#updates-screen>*{max-width:800px}
+#updates-screen .up-cols{display:block}
+/* Settings: one column, everything on the same edges. */
+#settings-screen .setgrid{display:flex;flex-direction:column;align-items:stretch;gap:var(--ds-sp4)}
+#settings-screen .set-left{position:static}
 </style>
 <style>
 /* ── Loading screen (Owen's pick 1 of 6, "Draw on", 2026-10-26) ──────────────
@@ -2841,10 +2874,10 @@ html.ds-building body>:not(#splash){visibility:hidden}
 <!-- Layout 1 (site redo stage 3, Owen's pick): the Live wins strip, the Battle Royale banner, then every game in
      one grid with a filter. All three are filled by the script below from the server's own answers. -->
 <main id="home" class="wrap">
-  <!-- Live wins: the latest real cash-outs from paid rooms, newest first (/api/earnings/recent, loadRealWins).
-       Nothing in it is made up: with none yet it says so. It holds still and scrolls by hand (Owen 2026-10-28). -->
+  <!-- Live wins: the latest real cash-outs from paid rooms, newest first (/api/earnings/recent, loadRealWins), or the
+       made-up ones while config.js SAMPLE_WINS is on, tagged Sample (tkLabel). It scrolls by hand. -->
   <section class="hwins" aria-label="Live wins">
-    <div class="ds-wins-lbl"><span><i class="ds-dot hw-dot" aria-hidden="true"></i>Live wins</span><small>From paid rooms</small></div>
+    <div class="ds-wins-lbl" id="hw-lbl"><span><i class="ds-dot hw-dot" aria-hidden="true"></i>Live wins</span></div>
     <div class="tickerwrap top">
       <div class="ticker"><div class="tkrun" id="tkrun" role="list"></div></div>
     </div>
@@ -2869,7 +2902,6 @@ html.ds-building body>:not(#splash){visibility:hidden}
   <section aria-labelledby="games-t">
     <div class="ds-sec-hd games-hd">
       <h2 id="games-t">Games</h2>
-      <div class="ds-seg" id="gfilter" role="group" aria-label="Show games"></div>
     </div>
     <div class="ggrid" id="track"></div>
   </section>
@@ -3541,11 +3573,11 @@ function openSwimHow(){
     <!-- Filled by public/js/v2/wallet.js. -->
     <div id="w-body"></div>
 
-    <section class="ds-panel whist" id="w-hist" data-view="tx" aria-labelledby="w-hist-t" hidden>
+    <section class="ds-panel whist" id="w-hist" data-view="earn" aria-labelledby="w-hist-t" hidden>
       <div class="whist-hd"><h2 id="w-hist-t">History</h2>
         <div class="ds-seg" role="group" aria-label="Show">
-          <button type="button" data-hv="tx" aria-pressed="true" onclick="V2Wallet.view('tx')">Transactions</button>
-          <button type="button" data-hv="earn" aria-pressed="false" onclick="V2Wallet.view('earn')">Earnings</button>
+          <button type="button" data-hv="earn" aria-pressed="true" onclick="V2Wallet.view('earn')">Earnings</button>
+          <button type="button" data-hv="tx" aria-pressed="false" onclick="V2Wallet.view('tx')">Transactions</button>
         </div>
       </div>
 
@@ -3679,38 +3711,23 @@ function openSwimHow(){
 <!-- Leaderboards (layout 1, mockup looks/ab/1/leaderboards.html). PC: player winnings and the top 10 on the left,
      Find a player and How the board works in a column on the right. Phone: winnings, search, board, how it works. -->
 <main id="social-screen" class="wrap">
-  <div class="head"><div><h2 class="ds-t-page">Leaderboards</h2></div></div>
+  <!-- Back to the pre-redo layout (Owen 2026-11-02): the total paid out to players on top, then Top earners, then
+       search, in one centered column. social.js fills #soc-win, leaders.js #soc-top. -->
   <div class="lb">
-    <div class="lb-main">
-    <!-- Player winnings: real players only, the lobby strip's own totals (/api/earnings/total all time, and the
-         strip's /api/earnings for today and this week). Filled by social.js; hidden only while the strip's off switch
-         is on. The period it shows is the board's period too. -->
-    <section id="soc-win" class="ds-panel lb-sum" aria-label="Global player winnings" hidden></section>
+    <section id="soc-win" class="ds-panel lb-sum" aria-label="Global player earnings" hidden></section>
     <section class="lb-board" aria-labelledby="lb-top-t">
-      <div class="ds-sec-hd lb-board-hd"><h2 id="lb-top-t">Top 10 all time</h2></div>
+      <div class="ds-sec-hd lb-board-hd"><h2 id="lb-top-t">Top earners</h2></div>
       <div id="soc-top"></div>
     </section>
-    </div>
-    <div class="lb-side">
-    <section class="ds-panel lb-find" aria-labelledby="lb-find-t">
-      <h2 class="lb-side-t" id="lb-find-t">Find a player</h2>
+    <section class="lb-find" aria-label="Find a player">
       <div class="ds-input-wrap lb-q">
         <svg class="ds-input-pre" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4.2-4.2"/></svg>
-        <input class="ds-input" id="soc-q" type="search" placeholder="Search by name" maxlength="24"
+        <input class="ds-input" id="soc-q" type="search" placeholder="Search players by name" maxlength="24"
           autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search"
           oninput="V2Social.search(this.value)" aria-label="Search players by name" aria-controls="soc-board">
       </div>
       <div class="lb-res" id="soc-board" aria-live="polite"></div>
     </section>
-    <section class="ds-panel lb-how" aria-labelledby="lb-how-t">
-      <h2 class="lb-side-t" id="lb-how-t">How the board works</h2>
-      <ul>
-        <li><b>Money</b> is what landed in players' wallets from paid rooms, after the 10% cut.</li>
-        <li>Only real players count. Free games, bots and the house's own wallets never do.</li>
-        <li>The board updates every minute. Search finds anyone who has played, on the board or not.</li>
-      </ul>
-    </section>
-    </div>
   </div>
 </main>
 
@@ -3771,17 +3788,17 @@ function openSwimHow(){
       <section class="ds-panel set-prefs" aria-label="Preferences">
         <!-- The lobby's tap sounds (public/js/v2/sounds.js). Games keep their own. -->
         <div class="set-grp" role="group" aria-labelledby="set-snd-h"><h3 class="set-grp-h" id="set-snd-h">Sound</h3><div class="ds-list">
-          <div class="ds-row set-row"><div class="ds-row-main"><b id="set-snd-l">Lobby sounds</b><span>A short sound when you tap. Games keep their own.</span></div>
+          <div class="ds-row set-row"><div class="ds-row-main"><b id="set-snd-l">Lobby sounds</b></div>
             <div class="ds-row-end"><button type="button" class="sw" id="set-snd" role="switch" aria-checked="true" aria-labelledby="set-snd-l" onclick="setSnd(this)"><span>On</span><span>Off</span></button></div></div>
-          <div class="ds-row set-row set-vrow" id="set-vol-row"><div class="ds-row-main"><b id="set-vol-l">Volume</b><span>Letting go plays a tap at the new level.</span></div>
+          <div class="ds-row set-row set-vrow" id="set-vol-row"><div class="ds-row-main"><b id="set-vol-l">Volume</b></div>
             <div class="ds-row-end"><span class="vol-wrap"><input type="range" class="vol" id="set-vol" min="0" max="100" step="5" value="70" aria-labelledby="set-vol-l"><b class="vol-n" id="set-vol-n" aria-hidden="true">70%</b></span></div></div>
-          <div class="ds-row set-row set-pc" id="set-hov-row"><div class="ds-row-main"><b id="set-hov-l">Hover sounds</b><span>A soft tick when the mouse moves onto a button.</span></div>
+          <div class="ds-row set-row set-pc" id="set-hov-row"><div class="ds-row-main"><b id="set-hov-l">Hover sounds</b></div>
             <div class="ds-row-end"><button type="button" class="sw" id="set-hov" role="switch" aria-checked="true" aria-labelledby="set-hov-l" onclick="setHov(this)"><span>On</span><span>Off</span></button></div></div>
         </div></div>
         <!-- Graphics quality (Owen 2026-10-21): slither's own low quality, stored in its own key "qual" ('0' is Low).
              High is today's look. An open game picks a change up at once (public/js/slx/slxQuality.js). -->
         <div class="set-grp" role="group" aria-labelledby="set-gfx-h"><h3 class="set-grp-h" id="set-gfx-h">Graphics</h3><div class="ds-list">
-          <div class="ds-row set-row"><div class="ds-row-main"><b id="set-gfx-l">Quality</b><span>High is the default. Low turns off the food glow in Slither.io so big fights stay smooth on slower devices.</span></div>
+          <div class="ds-row set-row"><div class="ds-row-main"><b id="set-gfx-l">Quality</b></div>
             <div class="ds-row-end"><div class="ds-seg" id="set-gfx" role="group" aria-labelledby="set-gfx-l">
               <button type="button" data-q="1" aria-pressed="true" onclick="setGfx(this)">High</button>
               <button type="button" data-q="0" aria-pressed="false" onclick="setGfx(this)">Low</button>
@@ -3789,12 +3806,12 @@ function openSwimHow(){
         </div></div>
         <!-- The in-game clip recorder (public/js/clip/clipRec.js) reads these when a game opens. PC only, like the
              recorder. -->
-        <div class="set-grp set-pc" role="group" aria-labelledby="set-clip-h"><h3 class="set-grp-h" id="set-clip-h">Clips<small>On a computer only</small></h3><div class="ds-list">
-          <div class="ds-row set-row"><div class="ds-row-main"><b id="set-clips-l">Save clips with P</b><span>The last 30 seconds of a game as an MP4 in your Downloads, with the end card, chat and HUD in it.</span></div>
+        <div class="set-grp set-pc" role="group" aria-labelledby="set-clip-h"><h3 class="set-grp-h" id="set-clip-h">Clips</h3><div class="ds-list">
+          <div class="ds-row set-row"><div class="ds-row-main"><b id="set-clips-l">Save clips with P</b></div>
             <div class="ds-row-end"><button type="button" class="sw" id="set-clips" role="switch" aria-checked="true" aria-labelledby="set-clips-l" onclick="setClips(this)"><span>On</span><span>Off</span></button></div></div>
-          <div class="ds-row set-row" id="set-mic-row"><div class="ds-row-main"><b id="set-mic-l">Add my mic</b><span>Your voice in saved clips. Your browser asks first.</span></div>
+          <div class="ds-row set-row" id="set-mic-row"><div class="ds-row-main"><b id="set-mic-l">Add my mic</b></div>
             <div class="ds-row-end"><button type="button" class="sw" id="set-mic" role="switch" aria-checked="false" aria-labelledby="set-mic-l" onclick="setMic(this)"><span>On</span><span>Off</span></button></div></div>
-          <div class="ds-row set-row" id="set-tab-row"><div class="ds-row-main"><b id="set-tab-l">Record the whole screen</b><span>Adds the lobby, its tabs and your mouse. Your browser asks once per visit and shows its sharing bar.</span></div>
+          <div class="ds-row set-row" id="set-tab-row"><div class="ds-row-main"><b id="set-tab-l">Record the whole screen</b></div>
             <div class="ds-row-end"><button type="button" class="sw" id="set-tab" role="switch" aria-checked="false" aria-labelledby="set-tab-l" onclick="setClipTab(this)"><span>On</span><span>Off</span></button></div></div>
         </div></div>
       </section>
@@ -3804,11 +3821,11 @@ function openSwimHow(){
       <nav class="ds-panel set-about" aria-label="About DuelSeries">
         <h3 class="set-grp-h">About</h3>
         <div class="ds-list">
-          <button type="button" class="ds-row set-link" onclick="go('refer')"><span class="ds-row-main"><b>Refer a friend</b><span>Send a friend a link to a free game</span></span><span class="ds-row-end set-chev" aria-hidden="true"></span></button>
+          <button type="button" class="ds-row set-link" onclick="window.V2Invite&&V2Invite.home()"><span class="ds-row-main"><b>Refer a friend</b></span><span class="ds-row-end set-chev" aria-hidden="true"></span></button>
           <a class="ds-row set-link" href="/terms.html"><span class="ds-row-main"><b>Terms of service</b></span><span class="ds-row-end set-chev" aria-hidden="true"></span></a>
           <a class="ds-row set-link" href="/privacy.html"><span class="ds-row-main"><b>Privacy policy</b></span><span class="ds-row-end set-chev" aria-hidden="true"></span></a>
           <a class="ds-row set-link" href="/responsible-play.html"><span class="ds-row-main"><b>Responsible play</b></span><span class="ds-row-end set-chev" aria-hidden="true"></span></a>
-          <a class="ds-row set-link" id="set-contact" href="https://mail.google.com/mail/?view=cm&amp;to=playduelseries@gmail.com" target="_blank" rel="noopener noreferrer" data-support><span class="ds-row-main"><b>Contact</b><span>Email or Discord</span></span><span class="ds-row-end set-chev" aria-hidden="true"></span></a>
+          <a class="ds-row set-link" id="set-contact" href="https://mail.google.com/mail/?view=cm&amp;to=playduelseries@gmail.com" target="_blank" rel="noopener noreferrer" data-support><span class="ds-row-main"><b>Contact</b></span><span class="ds-row-end set-chev" aria-hidden="true"></span></a>
         </div>
       </nav>
     </div>
@@ -3822,7 +3839,7 @@ function openSwimHow(){
 <main id="clips-screen" class="wrap">
   <div class="head clhead">
     <div><h2 class="ds-t-page">Clips</h2>
-      <p class="pg-sub">Moments from DuelSeries games, shared by players and checked before they go up. Press P in any game to save the last 30 seconds, then Share to DuelSeries. Already posted it on X, YouTube or TikTok? Send the link instead.</p></div>
+      <p class="pg-sub">Press P in any game to save a clip.</p></div>
     <div class="cl-acts">
       <button type="button" class="ds-btn ds-btn-secondary clsend sec" onclick="V2Clips.openSubmit()"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>Send a link</button>
       <button type="button" class="ds-btn ds-btn-primary clsend" onclick="V2Clips.openUpload()"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>Upload a clip</button>
@@ -3843,7 +3860,6 @@ function openSwimHow(){
       <!-- The clip team (join.js LINKS.whop): free to join, its own page has the rules. No pay is stated here. -->
       <section class="ds-panel cl-team" aria-labelledby="cl-team-t">
         <div class="cl-team-hd"><span class="ds-opt-ic"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M3 8l3.5 9L10 9l2 5 2-5 3.5 8L21 8"/></svg></span><h2 id="cl-team-t">Clip team</h2></div>
-        <p>The DuelSeries clip team lives on Whop. It is free to join, and its page has the clip rules.</p>
         <a class="ds-btn ds-btn-secondary ds-btn-block" href="https://whop.com/duelseries/clip-team-c9/" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>Open the clip team on Whop</a>
       </section>
     </aside>
@@ -3854,102 +3870,16 @@ function openSwimHow(){
      looks/ab/1/updates.html): a timeline, one date per day on a spine, eight posts at a time with Show older posts;
      a rail beside it filters by kind, says what the filled stops mean and goes back to the top. PC only. -->
 <main id="updates-screen" class="wrap">
-  <div class="head"><div><h2 class="ds-t-page" id="up-t" tabindex="-1">Updates</h2><p class="pg-sub upsub">What changed on DuelSeries, newest first.</p></div></div>
+  <div class="head"><div><h2 class="ds-t-page" id="up-t" tabindex="-1">Updates</h2></div></div>
   <div class="up-cols">
     <div id="up-list"></div>
-    <aside class="ds-panel up-rail" id="up-rail" aria-label="Filter posts" hidden>
-      <h3 id="up-show-t">Show</h3>
-      <div class="ds-fchips" id="up-filter" role="group" aria-labelledby="up-show-t"></div>
-      <div class="up-key" id="up-key"></div>
-      <button type="button" class="ds-btn ds-btn-secondary ds-btn-block" id="up-top"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>Back to top</button>
-    </aside>
   </div>
 </main>
 
 <!-- Join us (public/js/v2/join.js, public/css/join.css): the Discord, the Whop clip team, socials. PC only. -->
 <main id="join-screen" class="wrap"></main>
 
-<!-- Refer a friend (site redo stage 3, layout 1; mockup looks/ab/1/refer.html; filled by invite.js V2Invite.page).
-     The PC sidebar's row and Settings' About open it. The lobby link with Copy (the old one-click copy, now with the
-     link and its preview in view), then a free link per game. Free only: nothing is promised for inviting. -->
-<main id="refer-screen" class="wrap">
-  <div class="head"><div><h2 class="ds-t-page">Refer a friend</h2>
-    <p class="pg-sub">Send a friend a link to a free game. It opens in their browser, with nothing to download and no sign up.</p></div></div>
-  <div class="ref">
-    <section class="ds-panel ref-hero" aria-labelledby="ref-t">
-      <div class="ref-main">
-        <h3 class="ds-t-label" id="ref-t">The lobby link</h3>
-        <p class="ref-url" id="ref-url">duelseries.com</p>
-        <button type="button" class="ds-btn ds-btn-primary ds-btn-lg ref-cp" id="ref-copy" data-done="Link copied" onclick="window.V2Invite&&V2Invite.home(this)"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" class="ref-i-cp"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></svg><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" class="ref-i-ok"><path d="M5 12l5 5 9-10"/></svg><span class="ref-cl">Copy link</span></button>
-        <p class="ds-t-meta ref-fine">Opens the lobby, where they pick any free game. There is no referral reward: it is just a link to play together.</p>
-      </div>
-      <figure class="ref-msg">
-        <figcaption class="ds-t-label">What your friend sees</figcaption>
-        <span class="ref-bub" id="ref-bub">https://duelseries.com/</span>
-        <div class="ref-embed" aria-hidden="true">
-          <img class="ref-art" src="/og/home.jpg" alt="" width="1200" height="630" loading="lazy" decoding="async" draggable="false">
-          <div class="ref-embed-txt"><small id="ref-host">duelseries.com</small><b>DuelSeries: free multiplayer browser games</b>
-            <span>Snake, Paper, Cells, Chomp, 1v1 duels and a battle royale. Free in your browser, no download.</span></div>
-        </div>
-      </figure>
-    </section>
-    <div class="ref-low">
-      <section class="ds-panel ref-games" aria-labelledby="ref-g-t">
-        <div class="ds-panel-head"><h2 id="ref-g-t">Invite to one game</h2></div>
-        <p class="ds-t-meta ref-lead">Each link opens that game on Free.</p>
-        <div class="ds-list" id="ref-list"></div>
-        <p class="ds-t-meta ref-none" id="ref-none"></p>
-      </section>
-      <section class="ds-panel ref-how" aria-labelledby="ref-h-t">
-        <div class="ds-panel-head"><h2 id="ref-h-t">When they open a game link</h2></div>
-        <ol class="ds-steps">
-          <li><b>1</b><div>They open it on any phone or PC<span>In the browser they already have. Nothing to download.</span></div></li>
-          <li><b>2</b><div>The free game starts<span>It opens on Free and starts by itself, signed in or as a guest.</span></div></li>
-          <li><b>3</b><div>Paid stays their choice<span>A link never picks a paid room and never carries money. Paying to play is always something they choose.</span></div></li>
-        </ol>
-      </section>
-    </div>
-  </div>
-</main>
 
-<!-- Support (site redo stage 3, layout 1; mockup looks/ab/1/support.html). The PC sidebar's Support opens this page:
-     the address set large with Open in Gmail (a new tab, never mailto:), Copy and Ask on Discord, and the three ways in
-     that open the Support sheet (support.js) with Gmail prefilled. Settings' Contact and every other write-to-us link
-     still open that sheet directly. -->
-<main id="support-screen" class="wrap">
-  <div class="head"><div><h2 class="ds-t-page">Support</h2><p class="pg-sub">Email us, or ask in the Discord.</p></div></div>
-  <div class="sup-pg">
-    <div class="sup-grid">
-      <section class="ds-panel sup-mailp" aria-labelledby="sup-mail-t">
-        <h3 class="ds-t-label" id="sup-mail-t">Our email</h3>
-        <p class="sup-big" id="sup-big">playduelseries<wbr>@gmail.com</p>
-        <div class="sup-acts">
-          <a class="ds-btn ds-btn-primary ds-btn-lg" href="https://mail.google.com/mail/?view=cm&amp;to=playduelseries@gmail.com" target="_blank" rel="noopener noreferrer" data-sup-a="gmail"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>Open in Gmail</a>
-          <button type="button" class="ds-btn ds-btn-secondary ds-btn-lg sup-pcp" id="sup-copy" onclick="window.DSSupport&&DSSupport.copyFrom(this)"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" class="ref-i-cp"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></svg><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" class="ref-i-ok"><path d="M5 12l5 5 9-10"/></svg><span class="sup-cl">Copy address</span></button>
-          <a class="ds-btn ds-btn-secondary ds-btn-lg" href="https://discord.gg/TkFaefHDFr" target="_blank" rel="noopener noreferrer" data-sup-a="discord"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M8.5 7.5c2.3-.7 4.7-.7 7 0M7.5 16.5c2.8 1 6.2 1 9 0"/><path d="M6.8 6.4C5 9 4.2 12 4.4 15.5c1.4 1.1 2.8 1.8 4.3 2.2l.9-1.6M17.2 6.4C19 9 19.8 12 19.6 15.5c-1.4 1.1-2.8 1.8-4.3 2.2l-.9-1.6"/><circle cx="9.5" cy="12.5" r="1.1"/><circle cx="14.5" cy="12.5" r="1.1"/></svg>Ask on Discord</a>
-        </div>
-        <p class="ds-t-meta sup-note">Gmail opens in a new tab with our address filled in, so you do not need a mail app.</p>
-      </section>
-      <section class="ds-panel sup-top" aria-labelledby="sup-top-t">
-        <div class="ds-panel-head"><h2 id="sup-top-t">What is it about?</h2></div>
-        <div class="sup-opts">
-          <a class="ds-opt" href="https://mail.google.com/mail/?view=cm&amp;to=playduelseries@gmail.com" target="_blank" rel="noopener noreferrer" data-support data-title="Report a bug" data-sub="Tell us which game, what happened and roughly when." data-subject="Bug report" data-body="Which game:&#10;What happened:&#10;Roughly when:&#10;"><span class="ds-opt-ic"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="7" y="8" width="10" height="12" rx="5"/><path d="M12 8V5M9 5l1 3M15 5l-1 3M3 13h4M17 13h4M4 19l3-2M20 19l-3-2M4 8l3 2M20 8l-3 2"/></svg></span><span><b>Report a bug</b><small>Which game, what happened and roughly when.</small></span><span class="set-chev" aria-hidden="true"></span></a>
-          <a class="ds-opt" href="https://mail.google.com/mail/?view=cm&amp;to=playduelseries@gmail.com" target="_blank" rel="noopener noreferrer" data-support data-title="Send an idea" data-sub="Tell us what you would add or change." data-subject="Idea for DuelSeries"><span class="ds-opt-ic"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-4 10.5c.8.8 1 1.5 1 2.5h6c0-1 .2-1.7 1-2.5A6 6 0 0 0 12 3z"/></svg></span><span><b>Send an idea</b><small>What you would add or change.</small></span><span class="set-chev" aria-hidden="true"></span></a>
-          <a class="ds-opt" href="https://mail.google.com/mail/?view=cm&amp;to=playduelseries@gmail.com" target="_blank" rel="noopener noreferrer" data-support><span class="ds-opt-ic"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.2a2.5 2.5 0 1 1 3.2 2.4c-.5.2-.8.7-.8 1.2v.6M12 17h.01"/></svg></span><span><b>Something else</b><small>Your wallet, a game, your account, anything.</small></span><span class="set-chev" aria-hidden="true"></span></a>
-        </div>
-      </section>
-    </div>
-    <nav class="sup-more" aria-labelledby="sup-more-t">
-      <h3 class="ds-t-label" id="sup-more-t">Other pages</h3>
-      <div class="sup-links">
-        <a class="ds-btn ds-btn-quiet" href="/games">Game guides</a>
-        <a class="ds-btn ds-btn-quiet" href="/terms.html">Terms of service</a>
-        <a class="ds-btn ds-btn-quiet" href="/privacy.html">Privacy policy</a>
-        <a class="ds-btn ds-btn-quiet" href="/responsible-play.html">Responsible play</a>
-      </div>
-    </nav>
-  </div>
-</main>
 
 <div id="clveil" class="howveil" role="dialog" aria-modal="true" aria-label="Clip">
   <div id="clbox" class="clbox"></div>
@@ -5809,13 +5739,8 @@ function filterGames(k){
   shapeGrid();
   lobbyWake();                           // cards just shown or hidden: the frame loop rechecks what is on screen
 }
-/* Three across on a phone: a lone card on the last row spans it as one wide tile, so the grid always ends on a
-   full row. */
-function shapeGrid(){
-  const vis=[...document.querySelectorAll('#track .card')].filter(c=>!c.hidden);
-  vis.forEach(c=>c.classList.remove('is-tail'));
-  if(vis.length>1&&vis.length%3===1)vis[vis.length-1].classList.add('is-tail');
-}
+/* Every card is the same size, the last one included (Owen 2026-11-02: OMG Shooter was a wide tile on a phone). */
+function shapeGrid(){}
 window.filterGames=filterGames;
 
 /* The board itself lives in public/js/v2/board.js and reads /api/live. These
@@ -5835,8 +5760,24 @@ window.repaintAll=repaintAll;
    strip is not drawn at all, since "none yet" would be a claim it cannot make. */
 let REAL_WINS=[];
 const TK_N=50;
+/* config.js SAMPLE_WINS (Owen 2026-11-02): the row is the made-up wins from socialPreview.js instead, a new one
+   sliding in every few seconds, and the label wears Sample unless SAMPLE_TAG is off (tkLabel). */
+const FILL=()=>window.V2SocialPreview&&V2SocialPreview.winsOn?V2SocialPreview:null;
 function buildWins(){
-  return REAL_WINS.filter(w=>{const g=G(w.g); return g&&!g.soon}).slice(0,TK_N);
+  return (FILL()?FILL().wins(TK_N):REAL_WINS).filter(w=>{const g=G(w.g); return g&&!g.soon}).slice(0,TK_N);
+}
+function tkLabel(){
+  const l=document.getElementById('hw-lbl'), f=FILL();
+  if(l&&f&&!f.liveLook)l.innerHTML='<span>Wins</span><span class="ds-chip lb-sample">'+f.tag+'</span>';
+}
+let _fillSlot=null;
+function fillTick(){
+  const f=FILL(); if(!f)return;
+  const slot=Math.floor(Date.now()/f.WIN_MS);
+  if(_fillSlot===null){_fillSlot=slot;tkShow(true);tkLabel();WINS=buildWins();drawTicker();return;}
+  if(slot===_fillSlot)return;
+  const k=Math.min(3,slot-_fillSlot); _fillSlot=slot;
+  WINS=buildWins(); tkSlide(k);
 }
 let WINS=buildWins();
 /* Asked on load and every 20 s. The server answers from memory and a landed cash-out refreshes it at once, so a
@@ -5846,6 +5787,7 @@ let WINS=buildWins();
 let _realKey='[]', _tkFirst=true;
 function tkShow(on){const s=document.querySelector('#home .hwins'); if(s&&s.hidden===on)s.hidden=!on}
 function loadRealWins(){
+  if(FILL()){if(_fillSlot===null){fillTick();setInterval(fillTick,1000);}return;}
   fetch('/api/earnings/recent',{cache:'no-store'}).then(r=>r.json()).then(d=>{
     if(!d||d.ok!==true||!Array.isArray(d.wins)){
       tkShow(false); _tkFirst=true; _realKey='[]'; REAL_WINS=[]; WINS=[];   // drawn afresh, still, if it comes back
@@ -6038,7 +5980,7 @@ function open_(id){
   const dpc=document.getElementById('dpc');
   if(dpc){dpc.dataset.pc=cur.soon?'':cur.id;dpc.hidden=true}
   const dblurb=document.getElementById('dblurb');
-  if(dblurb)dblurb.textContent=cur.d||'';
+  if(dblurb)dblurb.textContent='';   // no game descriptions anywhere in the lobby (Owen 2026-11-02)
   /* Play, or shut with a padlock on a game that is not open yet. */
   const goBtn=document.getElementById('gobtn');
   if(goBtn){
@@ -6187,14 +6129,12 @@ function drawStake(){
   /* A rung that cannot be sat at says so by being struck through and
      disabled; the sentence under the row that repeated it is gone with the
      rest of the small print (Owen 2026-10-15). */
-  /* The words under each amount (site redo): what the rung is, or why it is shut. */
-  const shutNow=!!(cur&&cur.soon&&!cur.built);
-  const under=(s,off)=>s===0?(shutNow?'Soon':'No money'):!off?'Entry':shutNow?'Soon':(cur&&(cur.freeOnly||cur.solo))?'Free only':'Not open now';
+  /* No words under the amounts (Owen 2026-11-02): a shut rung is struck through and disabled. */
   document.getElementById('stakes').innerHTML=STEPS.map((s,i)=>{
     const off=STEPS_OFF.has(s);
     return `<button type="button" class="stk${i===si?' on':''}${s===0?' free':''}${off?' off':''}" aria-pressed="${i===si}"
        ${off?'disabled aria-disabled="true"':''}
-       onclick="pickStake(${i})"><b${s>0?' class="m"':''}>${cash(s)}</b><span>${under(s,off)}</span></button>`;
+       onclick="pickStake(${i})"><b${s>0?' class="m"':''}>${cash(s)}</b></button>`;
   }).join('');
   /* Play turns gold on a paid rung: the money look, on the button that
      stakes it. Never on a game that is not open (its Play is shut). */
@@ -6340,9 +6280,9 @@ function drawNav(){
     +`<section class="sbx sb-live" aria-labelledby="sb-lh"><div class="sb-lhd"><span id="sb-lh">Live games</span><span class="sbx sb-stat" id="sb-stat" hidden></span></div><div class="sb-list" id="sb-list"></div></section>`
     +`<div class="sb-pin">`
     +`<button class="sbx sb-br" id="sb-br" type="button" onclick="go('events')" hidden><span class="sb-bri">${SBI(SB_P.trophy)}</span><b class="sb-brn">Battle Royale</b><span class="sb-m"></span><b class="sb-cd" id="sb-cd"></b><span class="sb-fr" id="sb-fr"></span><i class="sb-bar" aria-hidden="true"></i></button>`
-    +`<button class="sb-it sbx${route==='refer'?' on':''}" type="button" data-tab="refer" onclick="go('refer')"${route==='refer'?' aria-current="page"':''}>${SBI(SB_P.refer)}<span>Refer a friend</span></button>`
+    +`<button class="sb-it sbx" type="button" onclick="window.V2Invite&&V2Invite.home()">${SBI(SB_P.refer)}<span>Refer a friend</span></button>`
     +navBtn(pin('join'))
-    +`<button class="sb-it sbx${route==='support'?' on':''}" type="button" data-tab="support" onclick="go('support')"${route==='support'?' aria-current="page"':''}>${SBI(SB_P.support)}<span>Support</span></button>`
+    +`<a class="sb-it sbx" href="https://mail.google.com/mail/?view=cm&amp;to=playduelseries@gmail.com" target="_blank" rel="noopener noreferrer" data-support>${SBI(SB_P.support)}<span>Support</span></a>`
     +navBtn(pin('settings'))
     +`</div>`;
   if(window.V2Side)V2Side.paint();
@@ -6447,7 +6387,7 @@ window.V2Side=V2Side;
    showing underneath another. The player profile has no nav slot of its
    own: it is reached from the board and keeps Social lit while it is up. */
 const SCREENS=['home','allgames','detail','settings-screen',
-               'wallet-screen','events-screen','social-screen','join-screen','refer-screen','support-screen','player-screen',
+               'wallet-screen','events-screen','social-screen','join-screen','player-screen',
                'clips-screen','updates-screen'];
 /* dir: +1 the new screen arrives from the right (you swiped forward), -1 from
    the left, 0 or omitted for no animation. Taps on the nav pass 0 on purpose:
@@ -6516,7 +6456,7 @@ function showScreen(id,dir){
    it away. Three calls, so swipe.js never has to know the screen ids or which
    module loads what. */
 const SCREEN_FOR={play:'home',wallet:'wallet-screen',events:'events-screen',
-                  social:'social-screen',join:'join-screen',refer:'refer-screen',support:'support-screen',settings:'settings-screen',clips:'clips-screen',updates:'updates-screen'};
+                  social:'social-screen',join:'join-screen',settings:'settings-screen',clips:'clips-screen',updates:'updates-screen'};
 window.V2_SCREEN_FOR=SCREEN_FOR;
 /* Product tracking (shared/trackPlan.js): one lobby_tab_viewed for every real
    change of tab, the first tab on load included. A re-render, a second tap on
@@ -6687,10 +6627,9 @@ async function setMic(b){
 function drawAcct(){
   const w=window.duelWallet||{};
   const box=document.getElementById('set-acct'); if(!box)return;
-  const look=`<button type="button" class="ds-row set-link" onclick="setLooks()"><span class="ds-row-ic">${SET_IC.look}</span><span class="ds-row-main"><b>Customize</b><span>Your look in each game</span></span><span class="ds-row-end set-chev" aria-hidden="true"></span></button>`;
+  const look=`<button type="button" class="ds-row set-link" onclick="setLooks()"><span class="ds-row-ic">${SET_IC.look}</span><span class="ds-row-main"><b>Customize</b></span><span class="ds-row-end set-chev" aria-hidden="true"></span></button>`;
   if(!(w.authenticated&&w.address)){
     box.innerHTML=`<div class="set-out"><h3 class="set-out-h">You are signed out</h3>
-      <p class="ds-t-body">Sign in to play paid rooms and use your wallet. Free rooms and the Battle Royale work without it.</p>
       <button type="button" class="ds-btn ds-btn-primary ds-btn-lg ds-btn-block acctbtn" onclick="window.duelWalletLogin&&window.duelWalletLogin('settings')">Sign in</button></div>
       <div class="ds-list set-alist">${look}</div>`;
     return;
@@ -6700,15 +6639,13 @@ function drawAcct(){
   const a=w.address, sh=a.length>10?a.slice(0,4)+'…'+a.slice(-4):a;
   box.innerHTML=`<div class="who"><div class="who-av${n?'':' is-q'}" aria-hidden="true">${n?setEsc(n[0].toUpperCase()):'?'}</div>
       <div class="who-t"><div class="who-nm${n?'':' is-q'}">${n?setEsc(n):'No name yet'}</div>
-      <p class="who-sub">${n?'Signed in on this device.':'Pick one before your first game: letters and numbers, 3 to 16.'}</p></div>
-      <div class="who-edit"><p>${n?'Your name is changed in your profile card.':'Names are set in your profile card.'}</p>
-      <button type="button" class="ds-btn ds-btn-secondary ds-btn-sm" onclick="setCard(event)">${n?'Open profile card':'Set your name'}</button></div></div>
+</div>
+      <div class="who-edit"><button type="button" class="ds-btn ds-btn-secondary ds-btn-sm" onclick="setCard(event)">${n?'Open profile card':'Set your name'}</button></div></div>
     <div class="ds-list set-alist">
       <div class="ds-row waddr" id="set-addr"><span class="ds-row-ic">${SET_IC.wallet}</span><span class="ds-row-main"><b>Wallet address</b><code class="ds-mono ph-no-capture" title="${setEsc(a)}">${setEsc(sh)}</code></span>
         <span class="ds-row-end"><button type="button" class="ds-btn ds-btn-secondary ds-btn-sm cp" onclick="V2Wallet.copy('set-addr')" aria-label="Copy wallet address">${SET_IC.copy}<span>Copy</span></button></span></div>
       ${look}</div>
-    <button type="button" class="ds-btn ds-btn-danger ds-btn-block acctbtn out" id="set-signout" onclick="signOut(this)">Sign out</button>
-    <p class="ds-t-meta set-bye">Your name, looks and settings stay on this device.</p>`;
+    <button type="button" class="ds-btn ds-btn-danger ds-btn-block acctbtn out" id="set-signout" onclick="signOut(this)">Sign out</button>`;
 }
 /* The header card is the one place a name changes (Owen). Opened from here after this press has finished, so the
    press itself is not read as a click outside the card. */

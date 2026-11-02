@@ -250,12 +250,47 @@
     }
   }
 
+  /* Home's Live wins when config.js SAMPLE_WINS is on (Owen 2026-11-02: many more, full and moving). One made-up
+     win every WIN_MS, each slot's player, game and amount from its own seed, so every browser shows the same row at
+     the same moment and a new win slides in at the left as each slot opens. Names are the board's players and a
+     few more; amounts are the rooms' real prizes ($0.90 and $1.80 for a 1 v 1, a cash-out in a big room). */
+  const CFG = window.DSConfig || {};
+  const WINS_ON = !has('off') && CFG.SAMPLE_WINS === true;
+  const WIN_MS = 6000;
+  const WIN_GAMES = [['snake', 3], ['chomp', 3], ['agar', 2], ['paper', 2], ['pool8', 2], ['headsoccer', 1], ['airhockey', 1],
+    ['knockout', 1], ['battleship', 1], ['rooftop', 1], ['crossy', 1], ['swim', 1]];
+  const DUELS = new Set(['pool8', 'headsoccer', 'airhockey', 'battleship', 'rooftop', 'crossy', 'swim']);
+  const EXTRA = ['milo.v', 'Shreya', 'cobaltcat', 'Juniper', 'reza_k', 'blitzkid', 'Anouk', 'tofu_tom', 'Lysander', 'glimmer',
+    'Matteo', 'snek_lord', 'Wren', 'oatmilk', 'Kofi', 'pinecone', 'Esme', 'turbo_tav', 'Ilse', 'Darius'];
+  const WIN_NAMES = NAMES.concat(EXTRA);
+  const WIN_W = WIN_GAMES.reduce((s, g) => s + g[1], 0);
+  function winAt(slot) {
+    const r = rng(0x5eed + Math.imul(slot, 2654435761));
+    let k = r() * WIN_W, g = WIN_GAMES[0][0];
+    for (const [id, w] of WIN_GAMES) { if ((k -= w) < 0) { g = id; break; } }
+    let amt;
+    if (DUELS.has(g)) amt = r() < 0.7 ? 0.9 : 1.8;
+    else { const x = r(); amt = x < 0.55 ? 0.3 + r() * 1.7 : x < 0.9 ? 2 + r() * 4 : 6 + r() * 9; }
+    return { who: WIN_NAMES[Math.floor(r() * WIN_NAMES.length)], g: g, amt: Math.round(amt * 100) / 100, slot: slot };
+  }
+  // The newest n made-up wins, newest first: { who, g, amt, slot }.
+  function wins(n) {
+    if (!WINS_ON) return [];
+    const now = Math.floor(clock() / WIN_MS), out = [];
+    for (let k = 0; k < (n || 50); k++) out.push(winAt(now - k));
+    return out;
+  }
+
+  /* The Sample tag (config.js SAMPLE_TAG) is on unless the config turns it off, or this is a localhost dev server
+     opened with ?filler=live (Owen's preview of the untagged look). Nothing on a real host can drop it. */
+  const LOCAL = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+  const LIVE_LOOK = CFG.SAMPLE_TAG === false || (LOCAL && /(^|[?&])filler=live(&|$)/.test(location.search));
+
   window.V2SocialPreview = {
     on: ON,
-    /* Always false (Owen 2026-10-28): the owner sees exactly what players see,
-       so no browser wears LIVE on sample players. Kept as a field because
-       leaders.js, social.js and v2.html read it. */
-    liveLook: false,
+    winsOn: WINS_ON, wins: wins, WIN_MS: WIN_MS,
+    // true only when the Sample tag is off (above): leaders.js, social.js and v2.html then show the Live wording.
+    liveLook: LIVE_LOOK,
     board: board, periods: periods, search: search, profile: profile, amountOf: amountOf, rankOf: rankOf, total: total, tag: TAG, note: NOTE,
   };
 })();

@@ -156,7 +156,7 @@
   /* History (site redo stage 3): one panel beside the balance, Transactions (with Add funds and Withdrawals under
      them) or Earnings. Shown only for a signed-in wallet; anything else is one panel across the screen. The view is
      kept across redraws. Display only: both views are loaded either way, as they always were. */
-  let histView = 'tx';
+  let histView = 'earn';      // opens on Earnings (Owen 2026-11-02)
   function hist(on) {
     const g = el('w-grid'); if (g) g.classList.toggle('in', !!on);
     const h = el('w-hist'); if (h) h.hidden = !on;
@@ -282,11 +282,14 @@
          them rather than hidden, because an on-chain balance can be a few seconds behind and the only honest answer
          to "is it there yet" is a button that asks again. */
       '<section class="ds-panel ds-lit ds-balp wbal" aria-labelledby="w-bal-t">' +
+        /* The balance and the address in one row at the top (Owen 2026-11-02). */
+        '<div class="wtop"><div class="wtop-bal">' +
         '<span class="ds-t-label" id="w-bal-t">Your balance</span>' +
         '<div style="--n:' + fitLen(bigBal(bal)) + '" class="ds-led num ph-no-capture" id="w-bal" data-cu>' + bigBal(bal) + '</div>' +
         /* The SOL under the dollars, small, like the DamnBruh wallet's "$1.03 / 0.0098 SOL"
            (Owen, 2026-10-15), with the one tap that turns it into dollars. */
         '<div class="wsol ph-no-capture" id="w-sol">' + solLine() + '</div>' +
+        '</div><div class="wtop-addr"><span class="ds-t-label" id="w-addr-t">Your wallet address</span>' + addrRow('w-addr', addr) + '</div></div>' +
         /* SOL mode only (empty, and not drawn, otherwise): "You have $X USDC" with its two actions. */
         '<div class="wsol wusdc" id="w-usdc">' + usdcLine() + '</div>' +
         /* The form lives in its own sheet now, so this row never swaps out. */
@@ -301,12 +304,6 @@
             '</button>' +
           '</div>') +
         addChip() +
-      '</section>' +
-      '<section class="ds-panel wdep" aria-labelledby="w-addr-t">' +
-        /* "Add funds", not "Deposit", everywhere (Owen, 2026-10-15); this is the
-           address the money is sent to, so it is named as what it is. */
-        '<span class="ds-t-label" id="w-addr-t">Your wallet address</span>' +
-        addrRow('w-addr', addr) +
         /* The one sentence kept. The rest of the copy on this screen was
            explanation; this is the only line whose absence can cost somebody
            their money. SOL mode says SOL only, the same as Add funds' Receive page (stage 3 audit); USDC mode
@@ -314,8 +311,8 @@
         '<p class="ds-t-meta">' + (solMode()
           ? 'Send only SOL on the Solana network to this address. Anything else sent here is lost.'
           : 'SOL or USDC on Solana only. Anything else is unrecoverable.') + '</p>' +
-        linkedRow() +
-      '</section>';
+      '</section>' +
+      (linkedRow() ? '<section class="ds-panel wdep">' + linkedRow() + '</section>' : '');
     /* Five rows tall, the rest a scroll away inside the card, and the next
        page asked for as the scroll nears the end (Owen, 2026-10-15). A Show
        more button under a list that long was a page of buttons to tap. */

@@ -131,13 +131,10 @@
     if (!box.querySelector('.win-v')) {
       // Sample unless this is Owen's own preview browser (socialPreview.js liveLook): the tag, never the live mark.
       const sample = d.preview && !d.preview.liveLook ? d.preview : null;
-      box.innerHTML = '<div class="lb-sum-hd"><h3 class="lb-sum-t">Player winnings</h3>' +
-        (sample ? '<span class="ds-chip lb-sample">' + sample.tag + '</span>'
-          : '<span class="ds-chip ds-chip-live is-pulse" data-pulse id="soc-live" title="Updates every minute">Live</span>' +
-            '<span class="ds-t-meta lb-upd">Updates every minute</span>') + '</div>' +
-        '<div class="ds-seg lb-per" id="lb-per" role="group" aria-label="Period" hidden></div>' +
-        '<div class="lb-fig"><span class="win-vw"><b class="win-v num" data-cu="soc-win" data-cu-rise></b><span class="win-up num" aria-hidden="true"></span></span>' +
-        '<p class="lb-figsub" id="soc-winsub"></p></div>';
+      // The pre-redo board's top (Owen 2026-11-02): the title and the figure, nothing else.
+      box.innerHTML = '<div class="lb-sum-hd"><h3 class="lb-sum-t">' + (sample ? 'Global player earnings' : 'Live global player earnings') + '</h3>' +
+        (sample ? '<span class="ds-chip lb-sample">' + sample.tag + '</span>' : '') + '</div>' +
+        '<div class="lb-fig"><span class="win-vw"><b class="win-v num" data-cu="soc-win" data-cu-rise></b><span class="win-up num" aria-hidden="true"></span></span></div>';
     }
     box.hidden = false;
     win = Math.round(d.total * 100) / 100;

@@ -31,6 +31,7 @@
      are (socialPreview.js liveLook is always false now). */
   const SAMPLE = () => !!P() && !P().liveLook;
   const PERIODS = ['today', 'week', 'all'];
+  const ROWS = 25;            // made-up players shown on the board (the real board is the server's top 10)
   const WORD = { today: 'today', week: 'this week', all: 'all time' };
 
   let money = n => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -51,14 +52,15 @@
   /* A period's board and totals: { top: [{ name, game, amount, n }], total, count }, or null when not known. */
   function periodData(p) {
     const pv = P();
-    if (pv) return pv.periods()[p] || null;
+    if (pv) return p === 'all' ? { top: pv.board(ROWS).top, total: pv.total(), count: null } : pv.periods()[p] || null;
     if (p === 'all') return data ? { top: data.top || [], total: null, count: null } : null;
     const d = window.V2Earnings && window.V2Earnings.data;
     if (!d || d.on !== true || d.preview || !d.periods || !d.periods[p]) return null;
     return d.periods[p];
   }
   // The periods that can be shown: All time always, Today and This week when known.
-  const periods = () => PERIODS.filter(p => p === 'all' || !!periodData(p));
+  // All time only (Owen 2026-11-02: the pre-redo board, no Today or This week).
+  const periods = () => ['all'];
   // Like earnings.js: open on the first period that has anyone on it.
   const firstPeriod = () => periods().find(p => { const d = periodData(p); return d && d.top && d.top.length; }) || 'all';
 
@@ -116,7 +118,8 @@
     if (!box) return;
     drawMarks();
     if (!periods().includes(period)) period = 'all';
-    const h = $('lb-top-t'); if (h) h.textContent = 'Top 10 ' + WORD[period];
+    const h = $('lb-top-t');
+    if (h) h.innerHTML = 'Top earners' + (SAMPLE() ? ' <span class="ds-chip lb-sample">' + P().tag + '</span>' : '');
     if (!data && !P()) {
       box.innerHTML = failed
         ? '<div class="ds-panel lb-none" role="status"><b>Could not load the board.</b><p class="ds-hint">It tries again every minute. ' +
@@ -125,9 +128,9 @@
       return;
     }
     const pd = periodData(period) || { top: [] };
-    const top = (pd.top ? pd.top.slice(0, 10) : []).map((r, i) => Object.assign({}, r, { rank: r.rank || i + 1 }));
-    let html = '<div class="lb-pod">' + [0, 1, 2].map(i => top[i] ? tile(top[i], i) : emptyTile(i, top.length)).join('') + '</div>';
-    if (top.length > 3) html += '<div class="ds-panel ds-panel-tight lb-rest"><div class="ds-list">' + top.slice(3).map(rowHTML).join('') + '</div></div>';
+    const top = (pd.top ? pd.top.slice(0, ROWS) : []).map((r, i) => Object.assign({}, r, { rank: r.rank || i + 1 }));
+    // One plain list, 1st down (the pre-redo board): no podium cards.
+    let html = top.length ? '<div class="ds-panel ds-panel-tight lb-rest"><div class="ds-list">' + top.map(rowHTML).join('') + '</div></div>' : '';
     if (!top.length) {
       const later = PERIODS.slice(PERIODS.indexOf(period) + 1)
         .find(p => periods().includes(p) && (periodData(p).top || []).length);
@@ -135,16 +138,13 @@
         ? 'Nobody has cashed out yet. Players show up here once they cash out from a paid room.'
         : 'Nobody has cashed out ' + WORD[period] + ' yet.') + '</p>' +
         (later ? '<button type="button" class="ds-btn ds-btn-secondary ds-btn-sm" data-per="' + later + '">See ' + WORD[later] + '</button>' : '') + '</div>';
-    } else if (top.length < 10) {
-      html += '<p class="lb-foot">That is everyone who cashed out ' + WORD[period] + '.</p>';
     }
-    if (SAMPLE()) html += '<p class="lb-foot lb-note">' + P().note + '</p>';
     box.innerHTML = html;
   }
 
   async function refresh() {
     const p = P();
-    if (p) { data = p.board(10); failed = false; draw(); return; }
+    if (p) { data = p.board(ROWS); failed = false; draw(); return; }
     try {
       const r = await fetch('/api/earnings/board', { cache: 'no-store' });
       if (r.ok === false) throw new Error('HTTP ' + r.status);

@@ -1,13 +1,18 @@
 'use strict';
 /* ─── Lobby switches, one line each ───────────────────────────────────────────
-   SAMPLE_BOARD: the Leaderboards tab shows the sample players from
-   socialPreview.js to EVERY visitor, tagged "Sample" on the board, the Global
-   player winnings card and each profile, with the line "Sample players to
-   preview the board." (Owen, 2026-10-26: to see the full board in the real
-   game and get feedback, then turn it off.) The lobby earnings strip, the
-   Wallet, /api/* and all server data stay real either way.
-   false = the real board for everyone again (?leaderboard=preview still shows
-   the sample board in one browser). */
+   SAMPLE_BOARD: the Leaderboards tab shows the made-up players from
+   socialPreview.js to EVERY visitor (Owen, 2026-10-26: to see the full board
+   in the real game, then turn it off). false = the real board again.
+   SAMPLE_WINS: Home's Live wins row is filled with made-up wins from the same
+   players (socialPreview.js wins), new ones sliding in every few seconds
+   (Owen, 2026-11-02: "full and moving"). false = real cash-outs only.
+   SAMPLE_TAG: every made-up win, player and earnings figure wears "Sample".
+   It MUST stay true on main: made-up money is never shown as real. The only
+   way round it is ?filler=live on a localhost dev server (Owen's preview),
+   which socialPreview.js ignores on any other host.
+   The Wallet, /api/* and all server data stay real either way. */
 window.DSConfig = Object.assign(window.DSConfig || {}, {
   SAMPLE_BOARD: true,
+  SAMPLE_WINS: true,
+  SAMPLE_TAG: true,
 });
