@@ -50,8 +50,10 @@
     } catch (_) {
       // Shown, not left inside the hidden section, so a failed read is never a blank.
       const box = el('w-earn'); if (box) box.hidden = false;
-      el('s-body').innerHTML = '<div class="panel"><p class="note">Could not load ' +
-        'earnings. Tap refresh to try again.</p></div>';
+      /* The same box and the same way to ask again as the Transactions list's (stage 3 audit: two looks, and a "Tap
+         refresh" that pointed at a round arrow far up the page). */
+      el('s-body').innerHTML = '<div class="wnone">Could not load earnings. ' +
+        '<button type="button" class="ds-btn ds-btn-secondary ds-btn-sm wagain" onclick="V2Stats.load()">Try again</button></div>';
       return;
     }
 
@@ -61,7 +63,8 @@
     const box = el('w-earn'); if (box) box.hidden = false;
 
     if (!cashouts) {
-      el('s-body').innerHTML = '<div class="panel"><p class="note">No cash-outs yet.</p></div>';
+      // "Game payout" is what Transactions calls this money; Cash out is the game's word for leaving a game.
+      el('s-body').innerHTML = '<div class="wnone">No payouts yet. Win a paid room and it shows here.</div>';
       return;
     }
 
@@ -70,7 +73,19 @@
        (Owen, 2026-10-15; wallet.js loadMoves). Every payout is still a row of
        Transactions. The graph is the shared one (chart.js V2EarningsChart), so
        a player's profile draws exactly this line from exactly these rows. */
-    el('s-body').innerHTML = '<div class="panel chartbox" id="s-chart"></div>';
+    /* Above the line, its figures (stage 3, layout 1's Earnings): what the payouts add up to, the biggest one and how
+       many, all read from the same recorded rows the line is drawn from, so they always agree with it. */
+    const total = games.reduce((t, g) => t + (Number(g.amount) || 0), 0);
+    const best = games.reduce((t, g) => Math.max(t, Number(g.amount) || 0), 0);
+    const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+    el('s-body').innerHTML =
+      '<div class="ds-stat-row wstats">' +
+        '<div class="ds-stat"><span>Total payouts</span><b class="ds-win num">' + money(total) + '</b></div>' +
+        '<div class="ds-stat"><span>Best payout</span><b class="ds-win num">' + money(best) + '</b></div>' +
+        '<div class="ds-stat"><span>Payouts</span><b class="num">' + cashouts + '</b></div></div>' +
+      '<div class="whd"><h3>Running total</h3><span class="ds-t-meta">' +
+        (coarse ? 'Drag across it to read a day' : 'Hover to read a day') + '</span></div>' +
+      '<div class="panel chartbox" id="s-chart"></div>';
     window.V2EarningsChart(el('s-chart'), games, p.joinedAt, money);
   }
 

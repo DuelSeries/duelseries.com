@@ -1,0 +1,52 @@
+/* Privy's own windows (sign in, Add funds, Receive funds) in the site's look: site redo stage 3, CSS only.
+
+   Privy writes its colours and corners as custom properties on :root, built from the appearance config in main.jsx
+   (theme dark, gold accent). These win over them (:root:root is one step more specific than Privy's :root, so the
+   order the two style tags land in does not matter) and read the site's tokens (/css/ds-tokens.css) where the page
+   has them, with the same values written out where it does not (the game pages).
+
+   The look: a warm panel on true black, bone for the main button and text on it in black, quiet text in the site's
+   two greys, the site's one edge colour, its corners and its font. Green and red keep their meaning. The accent
+   given to MoonPay's own checkout (main.jsx, appearance.accentColor) stays gold: that page is money. */
+:root:root {
+  --privy-color-background: var(--ds-s1, #0d0b08);
+  --privy-color-background-2: var(--ds-s2, #1a1611);
+  --privy-color-background-3: var(--ds-s3, #272018);
+  --privy-color-background-clicked: var(--ds-s3, #272018);
+  --privy-color-foreground: var(--ds-bone, #f4f1ea);
+  --privy-color-foreground-1: var(--ds-bone, #f4f1ea);
+  --privy-color-foreground-2: var(--ds-tx2, #b3a792);
+  --privy-color-foreground-3: var(--ds-tx3, #988b78);
+  --privy-color-foreground-4: var(--ds-line2, #5a4630);
+  --privy-color-foreground-accent: var(--ds-on-bone, #000000);
+  --privy-color-accent: var(--ds-bone, #f4f1ea);
+  --privy-color-accent-light: rgba(244, 241, 234, .16);
+  --privy-color-accent-hover: #ffffff;
+  --privy-color-accent-dark: #ddd8cc;
+  --privy-color-accent-darkest: #bdb6a8;
+  --privy-color-success: var(--ds-green, #8ed081);
+  --privy-color-error: var(--ds-red, #ef7461);
+  --privy-color-border-default: var(--ds-line, #36291a);
+  --privy-color-border-hover: var(--ds-line2, #5a4630);
+  --privy-color-border-focus: var(--ds-bone, #f4f1ea);
+  --privy-color-border-interactive: var(--ds-line2, #5a4630);
+  --privy-color-border-interactive-hover: var(--ds-tx3, #988b78);
+  --privy-color-icon-default: var(--ds-bone, #f4f1ea);
+  --privy-color-icon-muted: var(--ds-tx2, #b3a792);
+  --privy-color-icon-subtle: var(--ds-tx3, #988b78);
+  --privy-link-navigation-color: var(--ds-bone, #f4f1ea);
+  --privy-border-radius-xs: 4px;
+  --privy-border-radius-sm: var(--ds-r1, 6px);
+  --privy-border-radius-md: var(--ds-r2, 10px);
+  --privy-border-radius-mdlg: 14px;
+  --privy-border-radius-lg: var(--ds-r3, 18px);
+  --privy-border-radius-full: var(--ds-rf, 999px);
+}
+
+/* The site's sheet backdrop, and its font inside the window (what Privy draws in a mono face keeps it). */
+#privy-dialog-backdrop {
+  background: var(--ds-scrim, rgba(0, 0, 0, .78));
+}
+#privy-modal-content {
+  font-family: var(--ds-f, 'Archivo', 'Segoe UI', system-ui, -apple-system, Roboto, sans-serif);
+}

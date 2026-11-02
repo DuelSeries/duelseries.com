@@ -257,7 +257,7 @@ test('a Sign in from the header and from the Wallet tab say where they were pres
 test('session replays never show the balance, an address or a money amount (.ph-no-capture)', () => {
   const p = walletPage(SOL);
   const b = p.body();
-  assert.match(b, /class="bnum num ph-no-capture" id="w-bal" data-cu>/, 'the balance');
+  assert.match(b, /class="ds-led num ph-no-capture" id="w-bal" data-cu>/, 'the balance (the kit lit figure since the site redo)');
   assert.match(b, /class="wsol ph-no-capture" id="w-sol">/, 'the SOL under it');
   assert.match(b, /<span class="ph-no-capture">You have <b class="num">\$12\.34<\/b> USDC<\/span>/, 'old USDC');
   assert.match(b, /<code class="ph-no-capture" title="7xKp/, 'the address (the title holds all of it: a blocked element records no attribute)');

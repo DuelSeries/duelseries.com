@@ -774,104 +774,165 @@ body.ingame .win-live i,body.ingame .win-live i::before{animation-play-state:pau
   .pnet{flex-basis:100%;text-align:left}
 }
 .panel{background:var(--s1);border-radius:var(--r3);padding:24px 26px}
-/* ── wallet ─────────────────────────────────────────────────────────── */
-/* The balance is the screen, so it is not in a box competing with a box beside
-   it. It sits on the page at the size of the number it is, with the two things
-   you came here to do underneath. */
-.wbal{text-align:center;padding:16px 0 30px}
-.wbal .bnum{font-size:56px;line-height:1.05;letter-spacing:-2.5px}
-.wacts{display:flex;gap:9px;justify-content:center;margin-top:22px;flex-wrap:wrap}
-/* flex:none, because .btn carries flex:1 for the button rows it was written
-   for and here they would each take a third of the page. */
-.wacts .btn{flex:0 0 auto;min-width:150px}
-/* Square: it is an icon, not a word. */
-.wacts .wref{min-width:0;width:44px;padding:0;display:grid;place-items:center}
-/* The SOL under the dollars, quiet, with Convert beside it when there is
-   some to convert (Owen, 2026-10-15). A fixed height, so the buttons under it
-   do not jump when the figure arrives. */
-.wsol{display:flex;align-items:center;justify-content:center;gap:10px;min-height:30px;
-  margin-top:6px;font-size:14px;color:var(--tx2)}
-.wsol .num{font-family:var(--fm)}
-.wcv{background:var(--s2);border:none;border-radius:var(--rf);padding:6px 13px;
-  font-family:inherit;font-size:12.5px;font-weight:650;color:var(--money);cursor:pointer;
-  transition:background .15s,color .15s}
-.wcv:hover{background:var(--money);color:var(--ink)}
-.wcv:focus-visible{outline:2px solid var(--money);outline-offset:2px}
-/* SOL mode: "You have $X USDC" with its two actions, wrapping on a phone. Nothing is drawn while it is empty,
-   so USDC mode keeps exactly the spacing it had. */
-.wusdc{flex-wrap:wrap;margin-top:2px}
-.wusdc:empty{display:none}
+/* ── wallet (site redo stage 3, layout 1; mockup looks/ab/1/wallet.html) ───────────────────────────────────────
+   Look B's wallet on the kit: on the left the balance, the one lit panel on the site (.ds-lit and the dot-matrix
+   .ds-led), with Add funds, Withdraw and Refresh under it, and the address panel under that; on the right History,
+   Transactions (with Add funds and Withdrawals under them) or Earnings. Signed out or still starting, #w-body is one
+   panel across the screen. wallet.js and stats.js fill it with the ids they always used. Rules that adjust a kit class
+   carry #wallet-screen, because the kit is linked after this block. */
+#wallet-screen.wrap{padding-top:var(--ds-sp5);padding-bottom:var(--ds-sp7)}
+#wallet-screen>.head{margin:0 0 var(--ds-sp5)}
+#player-screen.wrap{max-width:824px}   /* the profile: the same graph at the same size it always had */
+.wgrid2{max-width:1180px}
+.wgrid2.in{display:grid;grid-template-columns:minmax(0,400px) minmax(0,1fr);gap:var(--ds-sp5);align-items:start}
+/* The balance stays in view while History scrolls past it. */
+.wgrid2.in>#w-body{display:flex;flex-direction:column;gap:var(--ds-sp4);position:sticky;top:calc(var(--ds-hdh) + var(--ds-sp5))}
+#w-hist[hidden]{display:none}
+
+/* The balance. The lit figure fits its panel: wallet.js puts the figure's length in --n, so "$1,234.56" sits
+   smaller than "$24.60" instead of running out of the bulbs. */
+#wallet-screen .wbal{container-type:inline-size}
+#w-bal{font-size:min(62px,calc(100cqi / (var(--n,6) * .74)))}
+/* The SOL under the dollars, small, with Convert beside it in USDC mode. A held height, so the buttons under it do not
+   jump when the figure arrives. */
+#wallet-screen .wsol{display:flex;flex-wrap:wrap;align-items:center;gap:var(--ds-sp2);min-height:18px;
+  font-size:var(--ds-fs-1);color:var(--ds-tx2);line-height:1.45}
+/* SOL mode's old USDC: its own small box in the panel, saying the figure above leaves it out, with its two actions on
+   their own line. Nothing is drawn while it is empty. */
+#wallet-screen .wusdc{display:block;margin-top:var(--ds-sp2);padding:var(--ds-sp3);border-radius:var(--ds-r2);
+  background:var(--ds-ink);box-shadow:var(--ds-edge);font-size:var(--ds-fs-2);line-height:1.45}
+#wallet-screen .wusdc:empty{display:none}
+#wallet-screen .wusdc b{color:var(--ds-gold);font-weight:700}
+#wallet-screen .wusdc-k::after{content:'';display:block;height:var(--ds-sp2)}
+#wallet-screen .wusdc .wcv{margin:0 var(--ds-sp2) 0 0}
+#wallet-screen .wacts{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:var(--ds-sp2);margin-top:var(--ds-sp4)}
+/* The two words get the mockup's marks, drawn here so the buttons stay just their words in wallet.js. */
+#wallet-screen .wa-add::before,#wallet-screen .wa-wd::before{content:'';width:18px;height:18px;flex:none;background:currentColor;
+  -webkit-mask:var(--ic) center/18px 18px no-repeat;mask:var(--ic) center/18px 18px no-repeat}
+#wallet-screen .wa-add{--ic:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.2' stroke-linecap='round'%3E%3Cpath d='M12 5v14M5 12h14'/%3E%3C/svg%3E")}
+#wallet-screen .wa-wd{--ic:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 4h14M12 20V9M7 13.5l5-5 5 5'/%3E%3C/svg%3E")}
 .wref.spin svg{animation:wspin .5s linear}
 @keyframes wspin{to{transform:rotate(360deg)}}
-/* One centred column for the whole Wallet tab on a big screen (Owen,
-   2026-10-15): the balance and the deposit panel sat in a narrow column while
-   the transactions and the graph ran the full page width. 760px of content. */
-#wallet-screen.wrap,#player-screen.wrap{max-width:824px}   /* the profile too: the same graph at the same size */
+/* Add from Phantom, while Privy's sheet has no Transfer from wallet (wallet.js addChip). */
+#wallet-screen .wadd{margin:var(--ds-sp1) 0 calc(-1 * var(--ds-sp2)) calc(-1 * var(--ds-sp3))}
+
+/* The address: the kit's address line, the Copy beside it; a linked wallet under it with a red-tint Unlink. */
+#wallet-screen .wdep{display:flex;flex-direction:column;gap:var(--ds-sp3)}
+#wallet-screen .wdep .ds-t-meta{margin:0;line-height:1.5}
+#wallet-screen .waddr{min-height:52px;padding:6px 6px 6px var(--ds-sp4);background:var(--ds-ink);box-shadow:var(--ds-edge)}
+#wallet-screen .waddr .cp{height:40px;min-width:88px;border-radius:var(--ds-r2);background:var(--ds-s3);color:var(--ds-bone);
+  box-shadow:var(--ds-edge);font-size:var(--ds-fs-2);font-weight:650}
+#wallet-screen .waddr .cp:hover{background:#332a1f;box-shadow:var(--ds-edge2)}
+#wallet-screen .waddr.done .cp{color:var(--ds-green)}
+#wallet-screen .wlink .cp{min-width:0;padding:0 var(--ds-sp4);background:var(--ds-red-t);color:var(--ds-red);box-shadow:none}
+#wallet-screen .wlink .cp:hover{background:rgba(239,116,97,.24)}
+#wallet-screen .wlinklab{margin-top:var(--ds-sp1)}
+
+/* Starting, and signed out: what the wallet is and the one Sign in, the shut balance beside it. */
+#wallet-screen .wstart{display:flex;align-items:center;gap:var(--ds-sp3);max-width:640px}
+#wallet-screen .wout h2{margin:0 0 var(--ds-sp3)}
+#wallet-screen .wout ul{list-style:none;padding:0;margin:var(--ds-sp4) 0 var(--ds-sp5);display:flex;flex-direction:column;gap:var(--ds-sp3)}
+#wallet-screen .wout li{display:flex;gap:var(--ds-sp3);align-items:flex-start;line-height:1.45}
+#wallet-screen .wout li svg{flex:none;margin-top:1px;color:var(--ds-bone)}
+#wallet-screen .wout .ds-hint{margin:var(--ds-sp3) 0 0}
+#wallet-screen .wout-what{font-size:var(--ds-fs-5);font-weight:750;font-stretch:var(--ds-wide);letter-spacing:-.01em;line-height:1.15;color:var(--ds-tx2)}
+#wallet-screen .ds-out-bal .ds-t-meta{margin:0}
+
+/* History: its title and the two views on one line; the view shown is #w-hist's data-view (wallet.js view). */
+.whist-hd{display:flex;align-items:center;justify-content:space-between;gap:var(--ds-sp3);flex-wrap:wrap;margin-bottom:var(--ds-sp4)}
+.whist-hd h2{font-size:var(--ds-fs-5);font-weight:800;font-stretch:var(--ds-wide);letter-spacing:-.01em;line-height:1.1}
+#w-hist[data-view="tx"] #w-earn,#w-hist[data-view="earn"] #w-txs,#w-hist[data-view="earn"] #w-moves{display:none}
+/* A part inside History: 15px, so the Wallet reads as one page and not four stacked ones (stage 3 audit). */
+#wallet-screen .whd{display:flex;align-items:baseline;justify-content:space-between;gap:var(--ds-sp3);flex-wrap:wrap;margin:var(--ds-sp5) 0 var(--ds-sp2)}
+#wallet-screen .whd h2,#wallet-screen .whd h3{font-size:var(--ds-fs-3);font-weight:700;letter-spacing:0;line-height:1.3}
+#w-earn .whd{margin-top:var(--ds-sp4)}
+/* Every empty or failed part of the Wallet looks the same: one quiet line in an ink box, Try again at its end. */
+#wallet-screen .wnone{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--ds-sp2) var(--ds-sp3);
+  padding:18px var(--ds-sp4);border-radius:var(--ds-r2);background:var(--ds-ink);box-shadow:var(--ds-edge);font-size:var(--ds-fs-2);color:var(--ds-tx2)}
+#s-chart{padding:var(--ds-sp3) var(--ds-sp2) var(--ds-sp2);border-radius:var(--ds-r2);background:var(--ds-ink);box-shadow:var(--ds-edge)}
 
 /* One row per transfer, and the row is a link out to the explorer: this is
    on-chain money and the receipt for it lives there, not here. */
+.txcard{background:var(--ds-ink);border-radius:var(--ds-r2);box-shadow:var(--ds-edge);padding:4px}
 .txl{display:flex;flex-direction:column}
-.tx{display:flex;align-items:center;gap:12px;padding:13px 4px;
-  border-bottom:1px solid var(--s2);text-decoration:none;transition:background .13s}
-.tx:last-child{border-bottom:none}
-.tx:hover{background:var(--s1)}
-.txi{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;
-  font-size:14px;font-weight:700;flex:none}
-.txi.in{background:rgba(142,208,129,.14);color:var(--live)}
-.txi.out{background:rgba(240,168,48,.14);color:var(--money)}
+.tx{display:flex;align-items:center;gap:12px;padding:13px 4px;border-radius:var(--ds-r1);text-decoration:none;color:inherit;
+  transition:background-color var(--ds-dur-1)}
+.txl>.tx+.tx{box-shadow:0 -1px 0 var(--ds-line)}
+.txl>.tx:hover,.txl>.tx:hover+.tx{box-shadow:none}
+.txi{width:36px;height:36px;border-radius:var(--ds-r2);display:grid;place-items:center;flex:none;background:var(--ds-s3);color:var(--ds-tx2)}
+.txi.in{background:var(--ds-green-t);color:var(--ds-green)}
 /* What it was over when, stacked, so the date survives a phone's width: with
    every game entry and payout listed, a row without its date says nothing. */
 .txw{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}
-.txn{font-size:13.5px;font-weight:600;color:var(--tx)}
-.txd{font-size:12px;color:var(--tx3)}
-.txa{font-size:13.5px;font-weight:650;min-width:88px;text-align:right}
-.txa.in{color:var(--live)}
-.txa.out{color:var(--tx2)}
-.txl .none{padding:18px 0;font-size:13px;color:var(--tx3)}
+.txn{font-size:var(--ds-fs-3);font-weight:600;color:var(--ds-bone);line-height:1.3}
+.txd{font-size:var(--ds-fs-2);color:var(--ds-tx2);line-height:1.35}
+.txa{font-size:var(--ds-fs-3);font-weight:700;font-variant-numeric:tabular-nums;min-width:88px;text-align:right;white-space:nowrap;color:var(--ds-bone)}
+.txa.in{color:var(--ds-green)}
+.txl .none{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--ds-sp2) var(--ds-sp3);
+  padding:18px 12px;font-size:var(--ds-fs-2);color:var(--ds-tx2)}
 /* Transactions and Add funds and Withdrawals (Owen, 2026-10-15): a card five
    rows tall that scrolls inside itself, the phone's own momentum and the
    wheel's own smoothing, nothing scripted over either. Every row is one
    height, so five rows is exactly what shows. The fade over the last row is
    there only while there is more below it (wallet.js edge).
-   Up and down only (Owen, 2026-10-15). The rows used to reach 12 px past the
-   list on each side (a negative margin, so the hover shade ran nearly to the
-   card's edge), and a box that scrolls one way scrolls the other too once
-   anything sticks out of it: both lists dragged 12 px sideways. Now the card's
-   own padding is the 4 px inset, every row fits the list exactly, the list
-   clips sideways and hands sideways drags to the page, and the text in a row
-   ends in an ellipsis instead of pushing it wider. */
-.txcard{background:var(--s1);border-radius:var(--r3);padding:4px}
+   Up and down only (Owen, 2026-10-15): the card's own padding is the 4 px inset, every row fits the list exactly, the
+   list clips sideways and hands sideways drags to the page, and the text in a row ends in an ellipsis instead of
+   pushing it wider. */
 .txl.sc{max-height:310px;overflow-x:hidden;overflow-y:auto;overscroll-behavior-x:none;
-  touch-action:pan-y pinch-zoom;scrollbar-width:thin;scrollbar-color:var(--s3) transparent}
+  touch-action:pan-y pinch-zoom;scrollbar-width:thin;scrollbar-color:var(--ds-s3) transparent}
 .txl.sc .tx{height:62px;flex:none;min-width:0;padding:0 12px}
-.txl.sc .tx:hover{background:var(--s2)}
+.txl.sc .tx:hover{background:var(--ds-s2)}
 .txl.sc .none{padding-left:12px;padding-right:12px}
 .txl.sc .txn,.txl.sc .txd{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .txl.sc .txa{flex:none}
 .txl.sc.more{-webkit-mask-image:linear-gradient(#000 calc(100% - 44px),transparent);
           mask-image:linear-gradient(#000 calc(100% - 44px),transparent)}
 .txl .txtail{flex:none}
-.txl .txretry{width:100%;text-align:left;color:var(--tx2);cursor:pointer}
-/* A row of Add funds and Withdrawals: what and when on the left (a link to
-   the explorer, like a transaction), the amount over the other wallet's
-   address and its copy button on the right. */
-.mvl{display:flex;align-items:center;gap:12px;flex:1;min-width:0;text-decoration:none;color:inherit}
-.mvr{display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex:none}
-.mvr .txa{min-width:0}
-.mvp{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--tx3);white-space:nowrap}
-.mvp code{font-family:var(--ds-fm);font-size:12px;color:var(--tx2)}
-.mcp{position:relative;display:grid;place-items:center;width:26px;height:26px;
-  border-radius:7px;color:var(--tx3);transition:color .14s,background .14s}
-.mcp::after{content:'';position:absolute;inset:-9px -6px}   /* a thumb-sized target */
-.mcp:hover{color:var(--tx);background:var(--s3)}
-.mvp.done .mcp,.mvp.done code{color:var(--live)}
+.txl .txretry{width:100%;text-align:left;color:var(--ds-tx2);cursor:pointer}
+.txl .txretry:hover{color:var(--ds-bone)}
+/* A row of Add funds and Withdrawals: what, when and how much (a link to the explorer, like a transaction), then the
+   other wallet's address and its copy button: beside it on a PC, under it on a phone. */
+.tx.mv{gap:var(--ds-sp4)}
+.mvl{display:flex;align-items:center;gap:12px;flex:1;min-width:0;align-self:stretch;text-decoration:none;color:inherit}
+.mvr{display:flex;align-items:center;flex:none;width:152px}   /* one width, so the amounts line up with or without a sender */
+.mvp{display:flex;align-items:center;gap:5px;font-size:var(--ds-fs-1);color:var(--ds-tx2);white-space:nowrap}
+.mvp code{font-family:var(--ds-fm);font-size:12px;color:var(--ds-tx2)}
+.mcp{position:relative;display:grid;place-items:center;width:28px;height:28px;border-radius:var(--ds-r1);color:var(--ds-tx2);
+  transition:color var(--ds-dur-1),background-color var(--ds-dur-1)}
+.mcp::after{content:'';position:absolute;inset:-8px -6px}   /* a thumb-sized target */
+.mcp:hover{color:var(--ds-bone);background:var(--ds-s3)}
+.mvp.done .mcp,.mvp.done code{color:var(--ds-green)}
 .mvp.full{white-space:normal}
 .mvp.full code{word-break:break-all;text-align:right}
 .txl.sc .tx.mv:has(.mvp.full){height:auto;padding-top:12px;padding-bottom:12px}
-@media(max-width:520px){
-  .wbal .bnum{font-size:44px}
-  .wacts .btn{min-width:0;flex:1}
-  .wacts .wref{flex:none}
+
+@media(min-width:761px) and (max-width:1100px){
+  .wgrid2.in{grid-template-columns:minmax(0,1fr)}
+  .wgrid2.in>#w-body{position:static}
+}
+@media(max-width:760px){
+  #wallet-screen.wrap{padding-top:var(--ds-sp4)}
+  #wallet-screen>.head{margin:0 0 var(--ds-sp4)}
+  .wgrid2.in{grid-template-columns:minmax(0,1fr);gap:var(--ds-sp4)}
+  .wgrid2.in>#w-body{position:static}
+  #w-bal{font-size:min(52px,calc(100cqi / (var(--n,6) * .74)))}
+  #wallet-screen .wacts{grid-template-columns:minmax(0,1fr) auto}
+  #wallet-screen .wa-add{grid-column:1/-1}
+  #w-hist{padding:var(--ds-sp4) var(--ds-sp3)}
+  .whist-hd{padding:0 var(--ds-sp1)}
+  .whist-hd .ds-seg{width:100%}
+  .whist-hd .ds-seg button{flex:1}
+  #wallet-screen .whd{padding:0 var(--ds-sp1)}
+  /* Add funds and Withdrawals on a phone (stage 3 audit: the line under each row was cut off right where the money
+     was): the row grows, the date and the SOL may take two lines, and the other wallet goes under them. */
+  #w-mv .tx.mv{height:auto;min-height:62px;flex-wrap:wrap;row-gap:2px;padding:10px 12px}
+  #w-mv .mvl{flex:1 1 100%}
+  #w-mv .mvr{width:auto;padding-left:48px}
+  #w-mv .mvr:empty{display:none}
+  #w-mv.txl.sc{max-height:430px}   /* its rows grow here, so about four show (it has no next page to ask for) */
+  #w-mv .txd{white-space:normal}
+  #wallet-screen .wout h2{font-size:25px}
+  #wallet-screen .wout .ds-btn-lg{width:100%}
 }
 
 .wgrid{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
@@ -1145,88 +1206,112 @@ body.ingame .win-live i,body.ingame .win-live i::before{animation-play-state:pau
    Drag anywhere across the plot and the readout follows. Touch is the primary
    case, so the whole plot is the target rather than each point: there is no
    hover on a phone and a per-point hit area is not findable with a thumb. */
-/* ── cash-out form ──────────────────────────────────────────────────── */
-.cashout{margin-top:16px}
-/* Both fields one height (the mono amount sat 2px shorter), and a ring on
-   focus, as on the name fields. */
-.fld{width:100%;height:46px;background:var(--bg);border:none;border-radius:var(--r2);
-  padding:0 14px;color:var(--tx);font-family:inherit;font-size:14px;
-  outline:none;margin-bottom:9px}
-.fld.num{font-family:var(--fm)}
-.fld::placeholder{color:var(--tx3)}
-.fld:focus{background:#0a0908;box-shadow:inset 0 0 0 1.5px var(--tx3)}
-.amtrow{display:flex;gap:8px;margin-bottom:9px}
-.amtrow .fld{margin:0;flex:1;min-width:0}
-.maxbtn{background:var(--s2);border:none;border-radius:var(--r2);padding:0 18px;
-  font-family:inherit;font-size:13px;font-weight:650;color:var(--tx2);
-  cursor:pointer;transition:background .15s,color .15s}
-.maxbtn:hover{background:var(--bone);color:var(--ink)}
-.cashout .note{margin:0 0 14px}
-.cashout code{font-family:var(--ds-fm);color:var(--tx)}
-/* One line held for the message, so an error appearing does not shove the
-   buttons down under your thumb; a refusal in the error red. */
-#co-msg,#ad-msg{min-height:1.6em}
-#co-msg[data-state="bad"],#ad-msg[data-state="bad"]{color:#e0705f}
-/* The whole destination on the confirm step, broken anywhere, in the money
-   mono: it is read character by character. */
-.cashout .cofull{display:block;margin:-6px 0 14px;padding:12px 14px;border-radius:var(--r2);
-  background:var(--bg);font-size:13.5px;line-height:1.55;word-break:break-all;color:var(--tx)}
-/* Send as USDC or SOL: two choices, one of them on, the words themselves the
-   control (Owen, 2026-10-15). */
-.payas{display:flex;align-items:center;gap:6px;margin:-4px 0 12px}
-.payas .k{font-size:13px;color:var(--tx3);margin-right:4px}
-.payas .pa{background:var(--s2);border:none;border-radius:var(--rf);padding:7px 15px;
-  font-family:inherit;font-size:13px;font-weight:650;color:var(--tx2);cursor:pointer;
-  transition:background .15s,color .15s}
-.payas .pa:hover{background:var(--s3)}
-.payas .pa.on{background:var(--bone);color:var(--ink)}
-.payas .pa:focus-visible{outline:2px solid var(--bone);outline-offset:2px}
-.cashout .pahint{margin:-4px 0 12px;font-size:12.5px}
-/* Withdraw "To Phantom": fills the address with the linked wallet (wallet.js linkChip). */
-.tolink{display:inline-flex;align-items:center;gap:8px;margin:-4px 0 10px;padding:7px 14px;border:none;
-  border-radius:var(--rf);background:var(--s2);font-family:inherit;font-size:13px;font-weight:650;color:var(--tx);cursor:pointer}
-.tolink .num{font-weight:500;color:var(--tx3)}
-.tolink:hover{background:var(--s3)}
-.tolink:focus-visible{outline:2px solid var(--bone);outline-offset:2px}
-/* Add from Phantom under Add funds, while Privy's sheet has no Transfer from wallet (wallet.js addChip). */
-.wadd{margin-top:12px}
-.wadd .tolink{margin:0}
-.wdep .wlinklab{margin-top:14px}
-/* The Convert sheet's three figures: what is converted, the floor, what stays. */
-.cvfacts{list-style:none;margin:0 0 14px;padding:0}
-.cvfacts li{display:flex;justify-content:space-between;gap:12px;padding:9px 0;font-size:13.5px;
-  color:var(--tx2);border-top:1px solid var(--s2)}
-.cvfacts li:first-child{border-top:none}
-.cvfacts b{font-family:var(--fm);font-weight:600;color:var(--tx)}
-#cv-msg[data-state="bad"]{color:#e0705f}
-.mfig .v .cvu{font-size:.5em;letter-spacing:0;color:var(--tx2);margin-left:2px}
-.cashout .btn[disabled]{opacity:.55;cursor:default}
+/* ── the wallet's sheets: Withdraw, Add from a linked wallet, Convert (site redo stage 3) ──────────────────────
+   The kit's one sheet drawn over the lobby's .howveil and .howcard, which wallet.js, sheetFocus and the Escape and
+   backdrop handlers use (with .on): centred on a PC, a bottom sheet with a grab handle on a phone, opening with the
+   kit's fade and rise (stage 3 audit: these snapped in while Support slid). The ids lead every rule: the how-to-play
+   sheet shares .howveil, and the kit is linked after this block. */
+:is(#wdrveil,#adveil,#cvveil){padding:var(--ds-sp5);background:var(--ds-scrim);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+:is(#wdrveil,#adveil,#cvveil).on{animation:wsh-in .18s ease-out}
+:is(#wdrveil,#adveil,#cvveil) .howcard{position:relative;max-width:460px;padding:0;background:var(--ds-s1);border-radius:var(--ds-r3);
+  box-shadow:var(--ds-sh-pop);color:var(--ds-bone);max-height:calc(100dvh - 48px);animation:wsh-up var(--ds-dur-2) var(--ds-ease)}
+:is(#wdrveil,#adveil,#cvveil) .howtop{display:flex;align-items:center;gap:var(--ds-sp3);margin:0;padding:var(--ds-sp4) var(--ds-sp4) 0 var(--ds-sp5)}
+:is(#wdrveil,#adveil,#cvveil) .howtop h2{flex:1;font-size:var(--ds-fs-4);font-weight:700;letter-spacing:0;line-height:1.25}
+:is(#wdrveil,#adveil,#cvveil) .howx{width:44px;height:44px;margin:0;border-radius:var(--ds-r2);color:var(--ds-tx2);
+  transition:background-color var(--ds-dur-1),color var(--ds-dur-1)}
+:is(#wdrveil,#adveil,#cvveil) .howx:hover{background:var(--ds-s2);color:var(--ds-bone)}
+#wdr-body,#ad-body,#cv-body{padding:var(--ds-sp4) var(--ds-sp5) var(--ds-sp5)}
+@keyframes wsh-in{from{opacity:0}to{opacity:1}}
+@keyframes wsh-up{from{transform:translateY(14px) scale(.98)}to{transform:none}}
+@keyframes wsh-rise{from{transform:translateY(48px)}to{transform:none}}
+
+/* Inside: one column, the kit's spacing; every note quiet, a refusal in the error red. */
+:is(#wdr-body,#ad-body,#cv-body) .cashout{margin:0;display:flex;flex-direction:column;gap:var(--ds-sp4)}
+:is(#wdr-body,#ad-body,#cv-body) .note{margin:0;font-size:var(--ds-fs-2);line-height:1.5;color:var(--ds-tx2)}
+:is(#wdr-body,#ad-body,#cv-body) .note b{color:var(--ds-bone);font-weight:700}
+:is(#wdr-body,#ad-body,#cv-body) code{font-family:var(--ds-fm);color:var(--ds-bone)}
+/* One line held for the message, so an error appearing does not shove the buttons down under your thumb. */
+#co-msg,#ad-msg{min-height:1.5em;margin-top:calc(-1 * var(--ds-sp2))}
+#co-msg[data-state="bad"],#ad-msg[data-state="bad"],#cv-msg[data-state="bad"]{color:var(--ds-red)}
+/* The confirm step: the sentence at reading size, then the whole destination in the address mono, broken anywhere:
+   it is read character by character. */
+#wdr-body .cashout>.note:first-child{font-size:var(--ds-fs-3);color:var(--ds-bone)}
+#wdr-body .cofull{display:block;margin:0;padding:var(--ds-sp4);border-radius:var(--ds-r2);background:var(--ds-ink);box-shadow:var(--ds-edge);
+  font-size:15px;line-height:1.6;word-break:break-all}
+/* The boxes: the kit's input; the amount in the money size with its unit inside it and Max at its end. */
+:is(#wdr-body,#ad-body) .ds-field .ds-input{margin:0}
+#co-to{font-family:var(--ds-fm);font-size:15px}
+:is(#wdr-body,#ad-body) .amtrow .ds-input{flex:1;min-width:0}
+:is(#wdr-body,#ad-body) .amtrow:has(.co-unit) .ds-input{padding-right:128px}
+:is(#wdr-body,#ad-body) .co-unit{position:absolute;right:76px;font-size:var(--ds-fs-3);font-weight:700;color:var(--ds-tx2);pointer-events:none}
+/* Max: the kit's small secondary button at the box's end (its class stays maxbtn: the wallet tests read it). */
+:is(#wdr-body,#ad-body) .maxbtn{position:absolute;right:8px;display:inline-flex;align-items:center;justify-content:center;height:36px;
+  padding:0 var(--ds-sp3);border-radius:var(--ds-r2);background:var(--ds-s3);color:var(--ds-bone);box-shadow:var(--ds-edge);
+  font-size:var(--ds-fs-2);font-weight:650;cursor:pointer;transition:background-color var(--ds-dur-1),box-shadow var(--ds-dur-1)}
+:is(#wdr-body,#ad-body) .maxbtn:hover:not(:disabled){background:#332a1f;box-shadow:var(--ds-edge2)}
+:is(#wdr-body,#ad-body) .maxbtn:disabled{background:var(--ds-s2);color:var(--ds-tx3);cursor:not-allowed}
+:is(#wdr-body,#ad-body) .maxbtn:focus-visible{outline:2px solid var(--ds-bone);outline-offset:2px}
+:is(#wdr-body,#ad-body) .ds-avail .cvu{font-size:.8em}
+:is(#wdr-body,#ad-body) .ds-field .tolink{align-self:flex-start}
+:is(#wdr-body,#ad-body) .tolink .num{font-family:var(--ds-fm);font-weight:500;color:var(--ds-tx2)}
+/* Send as: the kit's segmented control, its words beside it. */
+#wdr-body .payas{display:flex;align-items:center;justify-content:space-between;gap:var(--ds-sp3)}
+#wdr-body .payas .k{font-size:var(--ds-fs-2);font-weight:600;color:var(--ds-tx2)}
+#wdr-body .payas .ds-seg button{min-width:76px}
+#wdr-body .pahint{margin-top:calc(-1 * var(--ds-sp2))}
+/* The linked wallet's figure: the Withdraw sheet's Available row, its name on the left. */
+#ad-body .mfig{display:flex;flex-direction:row-reverse;justify-content:space-between;align-items:baseline;gap:var(--ds-sp3);margin:0;
+  padding:var(--ds-sp3) var(--ds-sp4);border-radius:var(--ds-r2);background:var(--ds-s2);box-shadow:var(--ds-edge);text-align:left}
+#ad-body .mfig .k{font-size:var(--ds-fs-2);color:var(--ds-tx2)}
+#ad-body .mfig .v{margin:0;font-size:17px;font-weight:800;font-stretch:var(--ds-wide);letter-spacing:0;color:var(--ds-gold);font-variant-numeric:tabular-nums}
+/* Convert: the question filled in, large, then the floor in the kit's summary rows. */
+#cv-body .mfig{margin:0;padding:var(--ds-sp4);border-radius:var(--ds-r2);background:var(--ds-ink);box-shadow:var(--ds-edge);text-align:center}
+#cv-body .mfig .k{font-size:var(--ds-fs-2);color:var(--ds-tx2)}
+#cv-body .mfig .v{margin-top:4px;font-size:34px;font-weight:800;font-stretch:var(--ds-wide);letter-spacing:-.01em;line-height:1.1;
+  color:var(--ds-gold);font-variant-numeric:tabular-nums}
+#cv-body .mfig .v .cvu{font-size:.5em;letter-spacing:0;color:var(--ds-tx2);margin-left:2px}
+#cv-body .cvfacts{list-style:none;margin:0;padding:2px var(--ds-sp4);border-radius:var(--ds-r2);background:var(--ds-ink);box-shadow:var(--ds-edge)}
+#cv-body .cvfacts li{display:flex;justify-content:space-between;gap:var(--ds-sp3);padding:var(--ds-sp3) 0;font-size:var(--ds-fs-3);color:var(--ds-tx2);border:0}
+#cv-body .cvfacts li+li{box-shadow:0 -1px 0 var(--ds-line)}
+#cv-body .cvfacts b{font-weight:700;color:var(--ds-bone);font-variant-numeric:tabular-nums}
+/* The way forward full width, the way back quiet under it. */
+:is(#wdr-body,#ad-body,#cv-body) .brow{display:flex;flex-direction:column;gap:var(--ds-sp2);margin:0}
+@media(max-width:760px){
+  :is(#wdrveil,#adveil,#cvveil){padding:0;align-items:flex-end}
+  :is(#wdrveil,#adveil,#cvveil) .howcard{max-width:none;max-height:92dvh;border-radius:var(--ds-r3) var(--ds-r3) 0 0;
+    padding-bottom:env(safe-area-inset-bottom);animation-name:wsh-rise}
+  :is(#wdrveil,#adveil,#cvveil) .howtop{padding:var(--ds-sp2) var(--ds-sp3) 0 var(--ds-sp4)}
+  #wdr-body,#ad-body,#cv-body{padding:var(--ds-sp3) var(--ds-sp4) var(--ds-sp5)}
+  :is(#wdr-body,#ad-body) .maxbtn{height:44px;right:4px}
+}
 
 .chartbox{position:relative}
-.chartbox svg.v2chart{display:block;width:100%;height:auto;
+.chartbox svg.v2chart{display:block;width:100%;height:auto;cursor:crosshair;
   -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
-.chartTip{position:absolute;top:8px;pointer-events:none;opacity:0;transition:opacity .1s;
-  background:var(--s3);border-radius:var(--r2);padding:7px 11px;white-space:nowrap;
-  box-shadow:0 10px 30px rgba(0,0,0,.55);z-index:4;display:flex;
-  flex-direction:column;line-height:1.3}
+/* The graph's figures in the kit's Archivo with even digits (chart.js no longer names a font). */
+svg.v2chart text{font-family:var(--ds-f);font-variant-numeric:tabular-nums;font-weight:500}
+.chartTip{position:absolute;top:6px;left:0;z-index:4;display:flex;flex-direction:column;gap:1px;padding:6px 10px;
+  border-radius:var(--ds-r1);background:var(--ds-s3);box-shadow:inset 0 0 0 1px var(--ds-line2),0 8px 20px rgba(0,0,0,.6);
+  pointer-events:none;opacity:0;white-space:nowrap;line-height:1.3;transition:opacity .1s}
 .chartTip.on{opacity:1}
-.chartTip b{font-family:var(--fm);font-weight:600;font-size:14px;color:var(--money)}
-.chartTip span{font-size:11px;color:var(--tx2)}   /* tx3 on the tip's s3 was 4.1:1 */
+.chartTip b{font-size:15px;font-weight:800;font-stretch:var(--ds-wide);color:var(--ds-gold);font-variant-numeric:tabular-nums;line-height:1.2}
+.chartTip span{font-size:var(--ds-fs-1);color:var(--ds-tx2)}
 .scrub,.scrubdot{pointer-events:none;transition:opacity .1s}
 /* Zoom, under the graph (chart.js): what is on screen on the left, − + and
-   Reset on the right. A zoomed graph can be dragged with a mouse. */
+   Reset on the right, as the kit's small controls. A zoomed graph can be dragged with a mouse. */
 .chartbox svg.v2chart.zoomed{cursor:grab}
 .chartbox svg.v2chart.panning{cursor:grabbing}
-.chartZoom{display:flex;align-items:center;gap:6px;margin-top:10px;min-height:32px}
-.czr{flex:1;min-width:0;font-size:12px;color:var(--tx3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.czb{flex:none;height:32px;min-width:32px;padding:0 9px;border-radius:var(--r2);background:var(--s2);
-  color:var(--tx2);font:600 12.5px/1 var(--f);display:grid;place-items:center;transition:background .13s,color .13s}
-.czb svg{width:14px;height:14px;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;fill:none}
-.czb:hover:not(:disabled){background:var(--s3);color:var(--tx)}
-.czb:disabled{opacity:.4;cursor:default}
-.czb:focus-visible{outline:2px solid var(--money);outline-offset:2px}
+.chartZoom{display:flex;align-items:center;gap:6px;padding:var(--ds-sp2) var(--ds-sp2) 0;min-height:36px}
+.czr{flex:1;min-width:0;font-size:var(--ds-fs-1);color:var(--ds-tx2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.czb{flex:none;height:36px;min-width:36px;padding:0 10px;border-radius:var(--ds-r1);background:var(--ds-s2);box-shadow:var(--ds-edge);
+  color:var(--ds-bone);font:650 var(--ds-fs-2)/1 var(--ds-f);display:grid;place-items:center;
+  transition:background-color var(--ds-dur-1),color var(--ds-dur-1)}
+.czb svg{width:16px;height:16px;stroke:currentColor;stroke-width:2;stroke-linecap:round;fill:none}
+.czb:hover:not(:disabled){background:var(--ds-s3)}
+.czb:disabled{color:var(--ds-tx3);background:transparent;box-shadow:none;cursor:default}
+.czb:focus-visible{outline:2px solid var(--ds-bone);outline-offset:2px}
 .czb[hidden]{display:none}
-@media(pointer:coarse){.czb{height:38px;min-width:38px}}
+@media(pointer:coarse){.czb{height:44px;min-width:44px}}
 
 /* Add-to-home-screen hint, iOS only, shown once. */
 .a2hs{position:fixed;left:12px;right:12px;z-index:200;display:flex;align-items:center;
@@ -2909,8 +2994,9 @@ function openSwimHow(){
 
 <div id="wdrveil" class="howveil" role="dialog" aria-modal="true" aria-label="Withdraw">
   <div class="howcard mcard">
+    <span class="ds-sheet-grab" aria-hidden="true"></span>
     <div class="howtop"><h2>Withdraw</h2>
-      <button type="button" class="howx" onclick="V2Wallet.cancelCash()" aria-label="Close">&#10005;</button>
+      <button type="button" class="howx" onclick="V2Wallet.cancelCash()" aria-label="Close"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
     </div>
     <div id="wdr-body"></div>
   </div>
@@ -2920,8 +3006,9 @@ function openSwimHow(){
      dollars, shown in SOL, then one approval in that wallet. wallet.js sets the title. -->
 <div id="adveil" class="howveil" role="dialog" aria-modal="true" aria-label="Add funds">
   <div class="howcard mcard">
+    <span class="ds-sheet-grab" aria-hidden="true"></span>
     <div class="howtop"><h2 id="ad-title">Add funds</h2>
-      <button type="button" class="howx" onclick="V2Wallet.cancelAdd()" aria-label="Close">&#10005;</button>
+      <button type="button" class="howx" onclick="V2Wallet.cancelAdd()" aria-label="Close"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
     </div>
     <div id="ad-body"></div>
   </div>
@@ -2933,8 +3020,9 @@ function openSwimHow(){
      into SOL (wallet.js sets the title). -->
 <div id="cvveil" class="howveil" role="dialog" aria-modal="true" aria-label="Convert to USDC">
   <div class="howcard mcard">
+    <span class="ds-sheet-grab" aria-hidden="true"></span>
     <div class="howtop"><h2 id="cv-title">Convert to USDC</h2>
-      <button type="button" class="howx" onclick="V2Wallet.cancelConvert()" aria-label="Close">&#10005;</button>
+      <button type="button" class="howx" onclick="V2Wallet.cancelConvert()" aria-label="Close"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
     </div>
     <div id="cv-body"></div>
   </div>
@@ -3063,23 +3151,37 @@ function openSwimHow(){
 
 <!-- ══ WALLET ══ -->
 <main id="wallet-screen" class="wrap">
-  <div class="head"><div><h2>Wallet</h2></div></div>
+  <div class="head"><div><h2 class="ds-t-page">Wallet</h2></div></div>
 
-  <!-- Filled by public/js/v2/wallet.js. -->
-  <div id="w-body"></div>
+  <!-- Layout 1's wallet (site redo stage 3, mockup looks/ab/1/wallet.html): the lit balance and the address on the
+       left, History on the right. Signed out or still starting, #w-body is the whole screen and History is hidden
+       (wallet.js render sets .in and the hidden flag). -->
+  <div class="wgrid2" id="w-grid">
+    <!-- Filled by public/js/v2/wallet.js. -->
+    <div id="w-body"></div>
 
-  <!-- Stats used to be its own tab. It was one chart and one list, both about
-       money, sitting one tab away from the screen that holds the money — so
-       what you have and what you made were never on screen together. Filled by
-       public/js/v2/stats.js, which kept its ids. -->
-  <div id="w-earn" hidden>
-    <div class="head"><div><h2>Earnings</h2></div></div>
-    <div id="s-body" class="ph-no-capture"></div>
+    <section class="ds-panel whist" id="w-hist" data-view="tx" aria-labelledby="w-hist-t" hidden>
+      <div class="whist-hd"><h2 id="w-hist-t">History</h2>
+        <div class="ds-seg" role="group" aria-label="Show">
+          <button type="button" data-hv="tx" aria-pressed="true" onclick="V2Wallet.view('tx')">Transactions</button>
+          <button type="button" data-hv="earn" aria-pressed="false" onclick="V2Wallet.view('earn')">Earnings</button>
+        </div>
+      </div>
+
+      <!-- Stats used to be its own tab. It was one chart and one list, both about
+           money, sitting one tab away from the screen that holds the money, so
+           what you have and what you made were never on screen together. Filled by
+           public/js/v2/stats.js, which kept its ids. Shown under Earnings. -->
+      <div id="w-earn" hidden>
+        <div id="s-body" class="ph-no-capture"></div>
+      </div>
+
+      <!-- Transactions, five rows tall (wallet.js render), then Add funds and Withdrawals, in place of Recent payouts
+           (Owen, 2026-10-15; wallet.js loadMoves). Shown under Transactions. -->
+      <div id="w-txs"></div>
+      <div id="w-moves"></div>
+    </section>
   </div>
-
-  <!-- Add funds and Withdrawals, in place of Recent payouts (Owen,
-       2026-10-15). Filled by wallet.js loadMoves. -->
-  <div id="w-moves"></div>
 </main>
 
 <!-- ══ STATS ══ -->
