@@ -2,6 +2,23 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-11-02-a-new-look",
+      "date": "2026-11-02",
+      "tag": "new",
+      "title": "A new look for the whole site",
+      "body": "DuelSeries has a new look, on every screen. The lobby, your wallet, Events, Leaderboards, Settings and every game's end screen now share one style on a true black background, with gold kept for money.\n\nOn a computer, the games, the live rooms and the Battle Royale clock sit in a sidebar on the left. On a phone, three games fit across the screen, and Home, Wallet, Events, Leaderboards and Settings are in the bar at the bottom.\n\nYour wallet shows your balance in dollars, with your earnings chart under History. Refer a friend and Support now have their own pages.",
+      "image": {
+        "src": "/updates/new-look-lobby.webp",
+        "alt": "The new lobby on a computer: the sidebar, the Battle Royale banner and all 16 games"
+      },
+      "gallery": [
+        {
+          "src": "/updates/new-look-phone.webp",
+          "alt": "The new lobby on a phone: three games across and the bar at the bottom"
+        }
+      ]
+    },
+    {
       "id": "2026-11-01-lobby-opens-faster",
       "date": "2026-11-01",
       "tag": "fix",
