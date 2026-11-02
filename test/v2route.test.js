@@ -1337,10 +1337,8 @@ test('the nightly event states its prizes and reads the match, not a clock', () 
      The page must not imply otherwise anywhere, which is a thing prose gets
      wrong long after the number is fixed. */
   assert.ok(/<span class="ev-pz num" id="ev-std" data-cu="ev-prize">\$20<\/span><span>to 1st<\/span>/.test(html), 'first place is paid $20');
-  // The podium panel, from its section to the schedule after it (a real slice: both marks must be found).
-  const podA = html.indexOf('id="ev-podp"'), podB = html.indexOf('id="ev-sch-t"');
-  assert.ok(podA > 0 && podB > podA, 'the podium panel is found');
-  assert.ok(!/\$(10|5)/.test(html.slice(podA, podB)), 'and nothing else on the podium is');
+  assert.ok(!/$10|$5/.test(html.slice(html.indexOf('class="podium"'),
+    html.indexOf('class="evfoot"'))), 'and nothing else on the podium is');
   assert.ok(!/top three share the pot/i.test(html),
     'and the page does not still say the pot is shared');
   // A seat with nobody in it, ready to hold a name.

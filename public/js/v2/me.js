@@ -119,7 +119,7 @@
     if (!n) return;
     close();
     if (typeof window.go === 'function') window.go('social');
-    if (window.V2Social) window.V2Social.openPlayer(n, { own: true });
+    if (window.V2Social) window.V2Social.openPlayer(n);
   }
 
   document.addEventListener('keydown', e => {

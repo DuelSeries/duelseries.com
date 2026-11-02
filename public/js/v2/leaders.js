@@ -74,8 +74,7 @@
   function mine(name) {
     const w = window.duelWallet || {};
     const me = window.V2Play && window.V2Play.savedName ? window.V2Play.savedName() : '';
-    /* Never a sample player, whose made-up name a real player can also hold (review 2026-11-02). */
-    return !!(w.authenticated && me && !SAMPLE() && String(name).toLowerCase() === me.toLowerCase());
+    return !!(w.authenticated && me && String(name).toLowerCase() === me.toLowerCase());
   }
   const you = name => mine(name) ? ' <span class="ds-chip lb-you">You</span>' : '';
   const sub = r => [r.game, r.n ? plural(r.n, 'cash-out') : ''].filter(Boolean).join(', ');
@@ -118,12 +117,6 @@
     drawMarks();
     if (!periods().includes(period)) period = 'all';
     const h = $('lb-top-t'); if (h) h.textContent = 'Top 10 ' + WORD[period];
-    /* The sample players are tagged on the board itself, and How the board works (real players only) steps
-       aside while they show (review 2026-11-02: config.js SAMPLE_BOARD shows them to everyone). */
-    const tg = $('lb-top-tag');
-    if (SAMPLE() && h && !tg) h.insertAdjacentHTML('afterend', '<span class="ds-chip lb-sample" id="lb-top-tag">' + P().tag + '</span>');
-    else if (!SAMPLE() && tg) tg.remove();
-    const how = document.querySelector('.lb-how'); if (how) how.hidden = SAMPLE();
     if (!data && !P()) {
       box.innerHTML = failed
         ? '<div class="ds-panel lb-none" role="status"><b>Could not load the board.</b><p class="ds-hint">It tries again every minute. ' +

@@ -247,14 +247,13 @@
   const isMine = name => !!(L() && L().mine(name));
 
   /* A search result, in the board's own row: the player's main game, where they stand all time, and what they have
-     taken home when the board knows it. A sample player says so. With no known place it claims none (the board may
-     not have loaded, or show sample players): its main game, or where the row goes (review 2026-11-02). */
+     taken home when the board knows it. A sample player says so; a real one off the top 10 says that. */
   function rowHTML(name) {
     const amt = knownAmount(name), rank = knownRank(name), pv = PV();
     const sample = !!(pv && pv.profile(name));
     const game = sample ? (pv.board(50).top.find(x => x.name === name) || {}).game : (L() ? L().gameOf(name) : null);
     const img = art(game);
-    const sub = rank ? ord(rank) + ' all time' + (game ? ', mostly ' + game : '') : game ? 'Mostly ' + game : 'Open their profile';
+    const sub = rank ? ord(rank) + ' all time' + (game ? ', mostly ' + game : '') : 'Not in the top 10';
     return '<button type="button" class="ds-row prow" data-name="' + esc(name) + '">' +
       '<span class="ds-row-ic">' + (img ? '<img src="' + img + '" alt="" decoding="async" draggable="false">' : PERSON) + '</span>' +
       '<span class="ds-row-main"><b><span>' + esc(name) + '</span>' +
@@ -337,14 +336,13 @@
     if (typeof window.openHow === 'function') window.openHow('How a win is counted', steps);
   }
 
-  async function openPlayer(name, opt) {
+  async function openPlayer(name) {
     /* Only a good answer is kept. A server error used to be cached as the
        profile, so that player stayed broken until the page was reloaded; and
        the messages are the lobby's toast, not browser alert boxes. A sample
        player from the preview link is made here and never asked for. */
     const pv = PV();
-    /* Your own profile (me.js, opt.own) is always the real one, even when a sample player shares your name. */
-    let p = (!(opt && opt.own) && pv && pv.profile(name)) || PROFILES.get(name);
+    let p = (pv && pv.profile(name)) || PROFILES.get(name);
     if (!p) {
       try {
         const r = await fetch('/api/profile/' + encodeURIComponent(name));
