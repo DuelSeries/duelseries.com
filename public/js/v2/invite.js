@@ -76,12 +76,12 @@
     const g = SHARE.byGame(id);
     copyText(url, () => {
       flip(btn);
-      const btn = document.getElementById('invbtn'), label = document.getElementById('invlabel');
-      if (btn && label) {
-        btn.classList.add('done');
+      const inv = document.getElementById('invbtn'), label = document.getElementById('invlabel');
+      if (inv && label) {
+        inv.classList.add('done');
         label.textContent = 'Link copied';
-        clearTimeout(btn._t);
-        btn._t = setTimeout(() => { btn.classList.remove('done'); label.textContent = 'Invite a friend'; }, 2200);
+        clearTimeout(inv._t);
+        inv._t = setTimeout(() => { inv.classList.remove('done'); label.textContent = 'Invite a friend'; }, 2200);
       }
       if (window.DSToast) DSToast.show({ kind: 'ok', title: 'Invite link copied', detail: 'Send it to a friend to play ' + g.name + ' together' });
     });
