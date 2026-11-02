@@ -39,64 +39,128 @@ function ldJson(obj) {
   return JSON.stringify(obj).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
 }
 
-const FONT = 'https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;650;700&display=swap';
-
-/* The lobby's tokens (public/v2.html :root), set for one readable page. */
+const FONT = 'https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&display=swap';
+/* The site kit (public/css/ds-tokens.css and ds-kit.css, site redo 2026-11-02, layout 1 "Sidebar" standalone pages),
+   the few parts these pages use, inlined so the page stays one request: true black, warm panels, bone actions, gold
+   for money only, Archivo with its wide display cut, the kit's game cards, buttons, chips and panels. */
 const CSS = [
-  ':root{--bg:#100e0b;--s1:#17140f;--s2:#1f1b15;--s3:#282219;--tx:#f5f1e8;--tx2:#a89c8a;--tx3:#8d8171;--bone:#f4f1ea;',
-  '--money:#f0a830;--r2:10px;--r3:18px;',
-  "--f:'Archivo',ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif}",
+  ':root{--ds-ink:#000;--ds-s1:#0d0b08;--ds-s2:#1a1611;--ds-s3:#272018;--ds-line:#36291a;--ds-line2:#5a4630;',
+  '--ds-bone:#f4f1ea;--ds-tx2:#b3a792;--ds-tx3:#988b78;--ds-gold:#f0a830;--ds-gold-t:rgba(240,168,48,.14);',
+  '--ds-edge:inset 0 0 0 1px var(--ds-line);--ds-r1:6px;--ds-r2:10px;--ds-r3:18px;--ds-gc-r:16px;--ds-wide:118%;',
+  "--ds-f:'Archivo','Segoe UI',system-ui,-apple-system,Roboto,'Helvetica Neue',Arial,sans-serif}",
   '*{box-sizing:border-box;margin:0;padding:0}',
   'html{-webkit-text-size-adjust:100%}',
-  'body{background:var(--bg);color:var(--tx2);font-family:var(--f);font-size:16px;line-height:1.65;',
-  '-webkit-font-smoothing:antialiased;padding:0 16px 72px}',
-  'a{color:var(--tx);text-decoration-color:var(--tx3);text-underline-offset:3px}',
-  ':focus-visible{outline:2px solid var(--bone);outline-offset:3px;border-radius:4px}',
-  '.w{max-width:960px;margin:0 auto}',
-  '.top{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:20px 0}',
-  '.brand{font-size:19px;font-weight:700;letter-spacing:-.6px;color:var(--tx);text-decoration:none}',
-  '.brand span{color:var(--tx2)}',
-  '.nav{font-size:14px;font-weight:600;color:var(--tx2);text-decoration:none;padding:8px 0}',
-  '.nav:hover{color:var(--tx)}',
-  '.hero{display:grid;grid-template-columns:240px 1fr;gap:40px;align-items:center;margin-top:24px}',
-  '.art{display:block;width:240px;height:360px;border-radius:var(--r3);object-fit:cover;background:var(--s1)}',
-  'h1{font-size:48px;line-height:1.05;font-weight:700;letter-spacing:-1.6px;color:var(--tx)}',
-  '.lede{margin-top:14px;font-size:19px;line-height:1.5;color:var(--tx);max-width:34em}',
-  '.facts{margin-top:10px;font-size:14px;color:var(--tx3)}',
-  '.cta{display:flex;flex-wrap:wrap;gap:12px;align-items:stretch;margin-top:28px}',
-  '.play{display:inline-flex;align-items:center;justify-content:center;min-width:240px;padding:18px 36px;',
-  'border-radius:var(--r2);background:var(--bone);color:var(--bg);font-size:21px;font-weight:700;text-decoration:none}',
-  '.play:hover{background:#fff}',
-  '.paid{display:inline-flex;flex-direction:column;justify-content:center;padding:10px 20px;border-radius:var(--r2);',
-  'background:var(--s2);color:var(--tx);font-size:15px;font-weight:650;line-height:1.35;text-decoration:none}',
-  '.paid:hover{background:var(--s3)}',
-  '.paid small{font-size:13px;font-weight:500;color:var(--money)}',
-  'h2{margin:56px 0 14px;font-size:24px;line-height:1.25;font-weight:650;letter-spacing:-.4px;color:var(--tx)}',
+  'body{background:var(--ds-ink);color:var(--ds-tx2);font-family:var(--ds-f);font-size:16px;line-height:1.65;',
+  '-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}',
+  'a{color:var(--ds-bone);text-decoration-color:var(--ds-tx3);text-underline-offset:3px}',
+  'a:hover{text-decoration-color:var(--ds-bone)}',
+  ':focus-visible{outline:2px solid var(--ds-bone);outline-offset:3px;border-radius:4px}',
+  '.w{max-width:1180px;margin:0 auto;padding:0 32px}',
+  /* the header: the lobby header's height, black glass, the wordmark and one action */
+  '.top{position:sticky;top:0;z-index:50;height:64px;background:rgba(0,0,0,.88);-webkit-backdrop-filter:blur(12px);',
+  'backdrop-filter:blur(12px);box-shadow:inset 0 -1px 0 var(--ds-line)}',
+  '.top .w{height:100%;display:flex;align-items:center;justify-content:space-between;gap:12px}',
+  '.brand{display:inline-flex;align-items:center;height:44px;font-size:20px;font-weight:800;font-stretch:var(--ds-wide);',
+  'letter-spacing:-.02em;line-height:1;color:var(--ds-bone);text-decoration:none}',
+  '.brand span{color:var(--ds-tx2);font-weight:600}',
+  /* the kit's one button family */
+  '.nav,.play,.paid,.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:0 16px;',
+  'border-radius:var(--ds-r2);font-family:var(--ds-f);font-size:15px;font-weight:650;line-height:1;text-decoration:none;',
+  'white-space:nowrap;transition:background-color .14s,box-shadow .14s,transform .08s}',
+  '.nav{background:var(--ds-s3);color:var(--ds-bone);box-shadow:var(--ds-edge)}',
+  '.nav:hover,.paid:hover{background:#332a1f;box-shadow:inset 0 0 0 1px var(--ds-line2)}',
+  '.nav:active,.play:active,.paid:active{transform:translateY(1px) scale(.985)}',
+  '.play{min-height:68px;min-width:240px;padding:0 32px;background:var(--ds-bone);color:#000;font-size:20px;font-weight:700;',
+  'font-stretch:108%}',
+  '.play:hover{background:#fff;box-shadow:0 0 0 4px rgba(244,241,234,.14)}',
+  '.play svg{width:20px;height:20px;flex:none}',
+  '.paid{min-height:68px;min-width:240px;padding:0 28px;flex-direction:column;gap:5px;background:var(--ds-s3);',
+  'color:var(--ds-bone);font-size:18px;font-stretch:108%;box-shadow:var(--ds-edge)}',
+  '.paid small{font-size:13px;font-weight:600;font-stretch:100%;color:var(--ds-gold)}',
+  'main{display:block;padding:32px 0 48px}',
+  /* one game: its art large, a plain heading, Play right there */
+  '.hero{display:grid;grid-template-columns:280px minmax(0,1fr);gap:48px;align-items:center;padding:12px 0 48px}',
+  '.art{display:block;width:280px;height:420px;border-radius:var(--ds-r3);object-fit:cover;background:var(--ds-s1);',
+  'box-shadow:0 30px 60px -28px #000,var(--ds-edge)}',
+  'h1{font-size:68px;line-height:1;font-weight:800;font-stretch:var(--ds-wide);letter-spacing:-.025em;color:var(--ds-bone)}',
+  '.lede{margin-top:16px;font-size:20px;line-height:1.5;color:var(--ds-bone);max-width:40ch}',
+  '.facts{list-style:none;display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}',
+  '.facts li{display:inline-flex;align-items:center;height:24px;padding:0 8px;border-radius:var(--ds-r1);background:var(--ds-s3);',
+  'color:var(--ds-tx2);font-size:12px;font-weight:650;line-height:1;white-space:nowrap}',
+  '.cta{display:flex;flex-wrap:wrap;gap:12px;align-items:stretch;margin-top:32px}',
+  /* the words a crawler reads, and the two ways to play beside them */
+  '.cols{display:grid;grid-template-columns:minmax(0,1fr) 400px;gap:48px;align-items:start;padding-top:32px;',
+  'box-shadow:inset 0 1px 0 var(--ds-line)}',
+  'h2{margin:0 0 16px;font-size:22px;line-height:1.15;font-weight:800;font-stretch:var(--ds-wide);letter-spacing:-.01em;color:var(--ds-bone)}',
+  '.read section+section{margin-top:48px}',
   'p{max-width:66ch}',
   'p+p{margin-top:12px}',
-  '.how{list-style:none;counter-reset:s;display:grid;gap:10px;max-width:720px}',
-  '.how li{counter-increment:s;position:relative;padding:14px 18px 14px 54px;background:var(--s1);border-radius:var(--r2)}',
-  '.how li::before{content:counter(s);position:absolute;left:16px;top:15px;width:24px;height:24px;border-radius:50%;',
-  'background:var(--s3);color:var(--tx);font-size:13px;font-weight:700;line-height:24px;text-align:center}',
-  '.how b{color:var(--tx);font-weight:650}',
-  '.modes{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}',
-  '.mode{background:var(--s1);border-radius:var(--r3);padding:20px 22px}',
-  '.mode.money{box-shadow:inset 3px 0 0 var(--money)}',
-  '.mode h3{margin-bottom:6px;font-size:17px;font-weight:650;color:var(--tx)}',
-  '.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:16px}',
-  '.grid a{display:block;color:var(--tx);font-weight:650;font-size:15px;text-decoration:none}',
-  '.grid img{display:block;width:100%;height:auto;aspect-ratio:2/3;object-fit:cover;border-radius:var(--r2);',
-  'background:var(--s1);margin-bottom:8px}',
-  '.grid span{display:block;margin-top:2px;font-size:13px;font-weight:400;line-height:1.45;color:var(--tx3)}',
-  'footer{margin-top:72px;padding-top:22px;border-top:1px solid var(--s2);font-size:13px;color:var(--tx3)}',
-  'footer nav{display:flex;flex-wrap:wrap;gap:8px 22px;margin-bottom:12px}',
-  'footer a{color:var(--tx2);text-decoration:none}',
-  'footer a:hover{color:var(--tx)}',
-  '@media(max-width:720px){.hero{grid-template-columns:1fr;gap:22px;margin-top:8px}.art{width:160px;height:240px}',
-  'h1{font-size:38px}.lede{font-size:17px}.play{width:100%}.paid{width:100%}.modes{grid-template-columns:1fr}',
-  '.grid{grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:12px}}',
+  '.how{list-style:none;max-width:720px}',
+  '.how li{display:grid;grid-template-columns:170px minmax(0,1fr);gap:16px;padding:12px 0;line-height:1.6}',
+  '.how li+li{box-shadow:0 -1px 0 var(--ds-line)}',
+  '.how b{color:var(--ds-bone);font-weight:700}',
+  '.modes{position:sticky;top:88px;display:flex;flex-direction:column;gap:12px}',
+  '.modes h2{margin-bottom:4px}',
+  '.mode{background:var(--ds-s1);border-radius:var(--ds-r3);padding:24px;box-shadow:var(--ds-edge)}',
+  '.mode.money{box-shadow:inset 0 0 0 1px var(--ds-line2)}',
+  '.mode h3{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px;',
+  'font-size:18px;font-weight:750;line-height:1.25;color:var(--ds-bone)}',
+  '.mode p{font-size:15px;line-height:1.6}',
+  '.chip{display:inline-flex;align-items:center;height:24px;padding:0 8px;border-radius:var(--ds-r1);font-size:12px;',
+  'font-weight:650;line-height:1;white-space:nowrap;background:var(--ds-gold-t);color:var(--ds-gold)}',
+  '.more{margin-top:48px;padding-top:32px;box-shadow:inset 0 1px 0 var(--ds-line)}',
+  /* the kit's game cards, each a link to its page with the name and one line under it */
+  '.grid{display:grid;grid-template-columns:repeat(var(--cols,5),minmax(0,1fr));gap:24px 16px}',
+  '.grid a{display:flex;flex-direction:column;gap:4px;min-width:0;color:var(--ds-bone);font-size:15px;font-weight:700;',
+  'line-height:1.25;text-decoration:none;border-radius:var(--ds-gc-r)}',
+  '.grid img{display:block;width:100%;height:auto;aspect-ratio:2/3;object-fit:cover;border-radius:var(--ds-gc-r);',
+  'background:var(--ds-s2);box-shadow:var(--ds-edge);margin-bottom:8px;transition:transform .18s cubic-bezier(.2,.8,.2,1),box-shadow .18s}',
+  '.grid a:hover img{transform:translateY(-4px);box-shadow:0 16px 34px -14px rgba(0,0,0,.9),0 0 0 2px var(--ds-bone)}',
+  '.grid a:active img{transform:translateY(-1px) scale(.99)}',
+  '.grid span{display:block;font-size:13px;font-weight:400;line-height:1.45;color:var(--ds-tx2)}',
+  /* /games: the heading, the lobby, three live cards fanned and still */
+  '.ix{display:grid;grid-template-columns:minmax(0,1fr) 380px;align-items:center;gap:32px;padding:24px 0 48px}',
+  '.ix h1{font-size:60px;max-width:13ch}',
+  '.ix .lede{color:var(--ds-tx2);font-size:19px;max-width:54ch}',
+  '.ix .play{min-width:260px}',
+  '.fan{position:relative;height:330px}',
+  '.fan img{position:absolute;top:20px;width:180px;height:270px;object-fit:cover;border-radius:var(--ds-gc-r);',
+  'box-shadow:0 24px 50px -20px #000,var(--ds-edge);background:var(--ds-s2)}',
+  '.fan img:nth-child(1){left:0;transform:rotate(-9deg)}',
+  '.fan img:nth-child(2){left:100px;top:0;z-index:2;width:190px;height:285px}',
+  '.fan img:nth-child(3){left:200px;transform:rotate(9deg)}',
+  '.sec{display:flex;align-items:baseline;justify-content:space-between;gap:16px;margin-bottom:24px}',
+  '.sec h2{margin:0}',
+  '.sec small{font-size:13px;font-weight:600;color:var(--ds-tx2)}',
+  '.ixg{--cols:6}',
+  /* the footer: the crawl links and the small print */
+  'footer{padding:16px 0 48px;box-shadow:inset 0 1px 0 var(--ds-line);font-size:13px;line-height:1.55;color:var(--ds-tx2)}',
+  'footer nav{display:flex;flex-wrap:wrap;gap:2px 4px;margin:0 0 12px -12px}',
+  'footer a{display:inline-flex;align-items:center;min-height:36px;padding:0 12px;border-radius:var(--ds-r2);color:var(--ds-tx2);',
+  'font-size:13px;font-weight:650;text-decoration:none}',
+  'footer a:hover{background:var(--ds-s2);color:var(--ds-bone)}',
+  'footer p{max-width:80ch}',
+  '@media(min-width:761px) and (max-width:1100px){.w{padding:0 24px}.grid{--cols:4}.ix{grid-template-columns:1fr}.fan{display:none}',
+  '.hero{grid-template-columns:220px minmax(0,1fr);gap:32px}.art{width:220px;height:330px}h1{font-size:52px}',
+  '.cols{grid-template-columns:1fr}.modes{position:static}}',
+  '@media(max-width:760px){.w{padding:0 16px}.top{height:60px}.top .w{padding:0 12px 0 16px}.brand{font-size:19px}',
+  'main{padding:24px 0 32px}',
+  '.hero{grid-template-columns:116px minmax(0,1fr);gap:16px;align-items:end;padding:0 0 32px}',
+  '.art{width:116px;height:174px;border-radius:var(--ds-r2)}.txt{display:contents}',
+  'h1{font-size:36px;align-self:end;padding-bottom:4px}.hero .lede,.facts,.cta{grid-column:1/-1;margin-top:0}',
+  '.lede{font-size:17px}.cta{flex-direction:column;gap:8px;margin-top:8px}',
+  '.play,.paid{width:100%;min-width:0;min-height:60px}',
+  '.cols{grid-template-columns:1fr;gap:32px;padding-top:24px}.read section+section{margin-top:32px}.read{font-size:15.5px}',
+  '.how li{grid-template-columns:1fr;gap:2px}.modes{position:static}.mode{padding:16px}',
+  '.more{margin-top:32px;padding-top:24px}',
+  '.grid,.ixg{--cols:3;gap:16px 10px}.grid a{font-size:13px}.grid img{margin-bottom:4px}.grid span{font-size:12px}',
+  '.grid a:hover img{transform:none}',
+  '.ix{grid-template-columns:1fr;padding:8px 0 32px}.ix h1{font-size:38px}.ix .lede{font-size:17px}.ix .cta{margin-top:24px}',
+  '.ix .play{width:100%}.fan{display:none}.sec{margin-bottom:16px}',
+  'footer{padding-bottom:calc(32px + env(safe-area-inset-bottom))}footer nav{margin-left:-8px}footer a{min-height:44px;padding:0 8px}}',
+  '@media(prefers-reduced-motion:reduce){.grid img{transition-duration:.01s}}',
 ].join('');
-
+const PLAY_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z" fill="currentColor"/></svg>';
 /* Play pressed: one planned event (shared/trackPlan.js), sent through the one helper. The link still works with
    tracking blocked or not yet loaded. */
 const PLAY_JS = "document.addEventListener('click',function(e){var a=e.target&&e.target.closest&&e.target.closest('a[data-play]');"
@@ -110,7 +174,7 @@ function head({ title, description, canonical, image, alt, ld }) {
     '<head>',
     '<meta charset="UTF-8">',
     '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">',
-    '<meta name="theme-color" content="#100e0b">',
+    '<meta name="theme-color" content="#000000">',
   ].concat(metaLines({ title, blurb: description, url: canonical, canonical, image, alt }), [
     '<link rel="icon" type="image/png" sizes="32x32" href="/img/favicon-32.png">',
     '<link rel="icon" type="image/png" sizes="16x16" href="/img/favicon-16.png">',
@@ -128,24 +192,22 @@ function head({ title, description, canonical, image, alt, ld }) {
 }
 
 function topBar(here) {
-  return '<header class="top"><a class="brand" href="/">Duel<span>Series</span></a>'
+  return '<header class="top"><div class="w"><a class="brand" href="/">Duel<span>Series</span></a>'
     + (here === 'index' ? '<a class="nav" href="/">Open the lobby</a>' : '<a class="nav" href="/games">All games</a>')
-    + '</header>';
+    + '</div></header>';
 }
-
 function foot() {
-  return '<footer><nav>'
+  return '<footer><nav aria-label="Site">'
     + '<a href="/">Lobby</a><a href="/games">All games</a>'
     + '<a href="/terms.html">Terms of service</a><a href="/privacy.html">Privacy policy</a>'
     + '<a href="/responsible-play.html">Responsible play</a>'
     + '</nav><p>&copy; 2026 DuelSeries. ' + esc(DATA.DISCLAIMER) + '</p></footer>';
 }
-
 /* The other live games, as cards: what keeps a visitor (and a crawler) moving to the next page. */
-function cards(pages) {
-  return '<div class="grid">' + pages.map((p) => '<a href="/games/' + p.page + '">'
+function cards(pages, cls) {
+  return '<div class="grid' + (cls ? ' ' + cls : '') + '">' + pages.map((p) => '<a href="/games/' + p.page + '">'
     + '<img src="' + cardArt(p.game) + '" alt="' + esc(p.name) + ' card art" width="360" height="540" loading="lazy" decoding="async">'
-    + esc(p.name) + '<span>' + esc(p.short) + '</span></a>').join('') + '</div>';
+    + '<b>' + esc(p.name) + '</b><span>' + esc(p.short) + '</span></a>').join('') + '</div>';
 }
 
 const playHref = (p, paid) => '/play/' + p.share + '?from=page' + (paid ? '&pick=1' : '');
@@ -195,33 +257,38 @@ function renderPage(p, live) {
   return [
     head({ title: p.title + ' | DuelSeries', description: p.description, canonical: url, image, alt: p.name + ' on DuelSeries', ld }),
     '<body>',
-    '<div class="w">',
     topBar('page'),
+    '<div class="w">',
     '<main>',
     '<section class="hero">',
     '<img class="art" src="' + cardArt(p.game) + '" alt="' + esc(p.name) + ' card art" width="360" height="540" fetchpriority="high">',
-    '<div>',
+    '<div class="txt">',
     '<h1>' + esc(p.name) + '</h1>',
     '<p class="lede">' + esc(p.lede) + '</p>',
-    '<p class="facts">' + esc(kind.facts) + '</p>',
+    '<ul class="facts" aria-label="About this game">' + String(kind.facts).split(' · ').map((f) => '<li>' + esc(f) + '</li>').join('') + '</ul>',
     '<div class="cta">',
-    '<a class="play" href="' + playHref(p, false) + '" data-play="free" data-game="' + esc(p.game) + '">Play free</a>',
-    '<a class="paid" href="' + playHref(p, true) + '" data-play="paid" data-game="' + esc(p.game) + '">Play for money'
+    '<a class="play" href="' + playHref(p, false) + '" data-play="free" data-game="' + esc(p.game) + '">' + PLAY_ICON + 'Play free</a>',
+    '<a class="paid" href="' + playHref(p, true) + '" data-play="paid" data-game="' + esc(p.game) + '"><span>Play for money</span>'
       + '<small>' + esc(kind.paidTag) + '</small></a>',
     '</div>',
     '</div>',
     '</section>',
-    '<h2>About ' + esc(p.name) + '</h2>',
+    '<div class="cols">',
+    '<div class="read">',
+    '<section><h2>About ' + esc(p.name) + '</h2>',
     p.about.map((t) => '<p>' + esc(t) + '</p>').join('\n'),
-    '<h2>How to play ' + esc(p.name) + '</h2>',
-    '<ol class="how">' + p.how.map(([b, t]) => '<li><b>' + esc(b) + '.</b> ' + esc(t) + '</li>').join('') + '</ol>',
-    '<h2>Free or for money</h2>',
-    '<div class="modes">',
-    '<div class="mode"><h3>Play free</h3><p>' + esc(kind.free) + '</p></div>',
-    '<div class="mode money"><h3>Play for money</h3><p>' + esc(kind.paid) + ' '
-      + 'See the <a href="/terms.html">terms</a> and <a href="/responsible-play.html">responsible play</a>.</p></div>',
+    '</section>',
+    '<section><h2>How to play ' + esc(p.name) + '</h2>',
+    '<ol class="how">' + p.how.map(([b, t]) => '<li><b>' + esc(b) + '</b><span>' + esc(t) + '</span></li>').join('') + '</ol>',
+    '</section>',
     '</div>',
-    others.length ? '<h2>More games</h2>\n' + cards(others) : '',
+    '<section class="modes"><h2>Free or for money</h2>',
+    '<div class="mode"><h3>Play free</h3><p>' + esc(kind.free) + '</p></div>',
+    '<div class="mode money"><h3>Play for money <span class="chip">' + esc(kind.paidTag) + '</span></h3><p>' + esc(kind.paid) + ' '
+      + 'See the <a href="/terms.html">terms</a> and <a href="/responsible-play.html">responsible play</a>.</p></div>',
+    '</section>',
+    '</div>',
+    others.length ? '<section class="more"><h2>More games</h2>\n' + cards(others) + '</section>' : '',
     '</main>',
     foot(),
     '</div>',
@@ -249,14 +316,23 @@ function renderIndex(live) {
     head({ title: DATA.INDEX.title + ' | DuelSeries', description: DATA.INDEX.description, canonical: url,
       image: SITE + SHARE.HOME.image, alt: 'DuelSeries games', ld }),
     '<body>',
-    '<div class="w">',
     topBar('index'),
+    '<div class="w">',
     '<main>',
+    '<section class="ix">',
+    '<div>',
     '<h1>' + esc(DATA.INDEX.h1) + '</h1>',
     '<p class="lede">' + esc(DATA.INDEX.lede) + '</p>',
     '<div class="cta"><a class="play" href="/">Open the lobby</a></div>',
-    '<h2>Pick a game</h2>',
-    cards(live),
+    '</div>',
+    /* three live cards fanned beside the heading, still (pictures only: the list below carries the words) */
+    live.length >= 3 ? '<div class="fan" aria-hidden="true">' + [live[1], live[0], live[2]].map((p) => '<img src="' + cardArt(p.game)
+      + '" alt="" width="360" height="540" decoding="async">').join('') + '</div>' : '',
+    '</section>',
+    '<section>',
+    '<div class="sec"><h2>Pick a game</h2><small>' + live.length + (live.length === 1 ? ' game' : ' games') + '</small></div>',
+    cards(live, 'ixg'),
+    '</section>',
     '</main>',
     foot(),
     '</div>',
