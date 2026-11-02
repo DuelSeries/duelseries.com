@@ -2,8 +2,10 @@
    The same page head, padding and 1180px width as Clips and Updates (stage 3 audit: the three PC-only tabs had three
    widths and alignments, and this one a 36px heading). A hand of playable games beside the Discord and the clip team
    as two equal kit option rows; four ways to help; the newest update as a kit row; the socials and the email at the
-   foot. Brand colour lives only inside the brand marks, the way game colour lives only in the game art; the chrome
-   is the kit's (ds-tokens.css, ds-kit.css). Everything sits under #join-screen. PC only, like Clips and Updates. */
+   foot. The marks are plain kit icons in bone on a raised tile, as the mockup draws them (Stage 3 check: the Discord
+   blurple and the Whop orange were the only saturated blue, purple and orange on the site); game colour lives only
+   in the game art. The chrome is the kit's (ds-tokens.css, ds-kit.css). Everything sits under #join-screen. PC only,
+   like Clips and Updates. */
 #join-screen{display:none}
 @media(max-width:760px),(hover:none) and (pointer:coarse){#join-screen{display:none!important}}
 
@@ -37,20 +39,15 @@
 #join-screen a.jn-lb:hover .jn-go{color:var(--ds-bone)}
 #join-screen .jn-soon{flex:none;display:inline-flex;align-items:center;height:24px;padding:0 var(--ds-sp2);border-radius:var(--ds-r1);
   background:var(--ds-s3);color:var(--ds-tx2);font-size:var(--ds-fs-1);font-weight:650;white-space:nowrap}
-#join-screen .jn-m{width:64px;height:64px;border-radius:var(--ds-r3);flex:none;position:relative;overflow:hidden}
-#join-screen .soon .jn-m{filter:saturate(.35) brightness(.65)}
+#join-screen .jn-m{width:64px;height:64px;border-radius:var(--ds-r3);flex:none;position:relative;overflow:hidden;
+  background:var(--ds-s3);box-shadow:var(--ds-edge)}
+#join-screen .soon .jn-m{opacity:.6}
 
-/* The brand marks, drawn here rather than shipped as images. */
-#join-screen .jn-dc{background:radial-gradient(130% 120% at 30% 0,#6b77ff 0,#5865f2 42%,#4752c4 100%)}
-/* A few slither food pellets round the edge: the DuelSeries side of the Discord mark. */
-#join-screen .jn-dc::before{content:"";position:absolute;left:0;top:0;width:3px;height:3px;border-radius:50%;
-  box-shadow:9px 8px 0 .5px #ffd84a,52px 9px 0 0 #7cf2ff,7px 50px 0 0 #ff7ad9,54px 53px 0 .5px #a4ff7a,31px 57px 0 0 rgba(255,255,255,.9),58px 30px 0 0 #ff9d4a}
-#join-screen .jn-dc svg{position:absolute;left:50%;top:50%;width:34px;height:34px;transform:translate(-50%,-50%);fill:#fff;
-  filter:drop-shadow(0 4px 8px rgba(20,18,90,.45))}
-#join-screen .jn-wh{background:radial-gradient(130% 120% at 70% 0,#ff7a45 0,#fa4616 45%,#d93a0e 100%)}
-#join-screen .jn-phone{position:absolute;left:50%;top:50%;height:48px;aspect-ratio:9/16;overflow:hidden;border-radius:5px;background:#1a1240;
-  transform:translate(-50%,-50%) rotate(-6deg);box-shadow:0 4px 10px rgba(80,14,0,.4),0 0 0 2px rgba(255,255,255,.92)}
-#join-screen .jn-phone img{display:block;width:100%;height:100%;object-fit:cover}
+/* The marks: the Discord mark in bone, and a phone playing a DuelSeries clip for the clip team (mockup join.css). */
+#join-screen .jn-dc svg{position:absolute;left:50%;top:50%;width:30px;height:30px;transform:translate(-50%,-50%);fill:var(--ds-bone)}
+#join-screen .jn-phone{position:absolute;left:50%;top:50%;width:30px;height:50px;padding:2px;box-sizing:border-box;border-radius:7px;
+  background:var(--ds-bone);transform:translate(-50%,-50%)}
+#join-screen .jn-phone img{display:block;width:100%;height:100%;object-fit:cover;object-position:50% 30%;border-radius:5px}
 
 /* More ways to help: four kit buttons across. */
 #join-screen .jn-h{margin:0 0 var(--ds-sp4);font-size:var(--ds-fs-5);font-weight:800;font-stretch:var(--ds-wide);letter-spacing:-.01em;line-height:1.1}
@@ -75,16 +72,15 @@
 #join-screen .jn-soclbl{margin:0;font-size:var(--ds-fs-2);color:var(--ds-tx2)}
 #join-screen .jn-soc{display:flex;gap:var(--ds-sp2)}
 #join-screen .jn-soc:empty{display:none}
-#join-screen .jn-sc{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;position:relative}
-#join-screen .jn-sc>svg{width:20px;height:20px;fill:#fff}
-#join-screen .jn-x,#join-screen .jn-tiktok{background:#000;box-shadow:inset 0 0 0 1px rgba(255,255,255,.16)}
-#join-screen .jn-youtube{background:#ff0033}
+/* Each one the kit's secondary icon button with its mark in bone (mockup join.html), not the brand's own colours. */
+#join-screen .jn-sc{width:44px;height:44px;border-radius:var(--ds-r2);display:grid;place-items:center;position:relative;
+  background:var(--ds-s3);box-shadow:var(--ds-edge);transition:background-color var(--ds-dur-1),box-shadow var(--ds-dur-1)}
+#join-screen .jn-sc>svg{width:20px;height:20px;fill:var(--ds-bone)}
 #join-screen .jn-ttm{position:relative;display:block;width:20px;height:20px}
 #join-screen .jn-ttm svg{position:absolute;inset:0;width:100%;height:100%}
-#join-screen .jn-ttm .c{fill:#25f4ee;transform:translate(-5%,-4%)}
-#join-screen .jn-ttm .r{fill:#fe2c55;transform:translate(5%,4%)}
-#join-screen .jn-ttm .w{fill:#fff}
-#join-screen a.jn-sc:hover{filter:brightness(1.15)}
+#join-screen .jn-ttm .c,#join-screen .jn-ttm .r{display:none}
+#join-screen .jn-ttm .w{fill:var(--ds-bone)}
+#join-screen a.jn-sc:hover{background:#332a1f;box-shadow:var(--ds-edge2)}
 #join-screen .jn-mail{margin-left:auto;font-size:var(--ds-fs-2);text-decoration:none}
 #join-screen .jn-mail svg{width:16px;height:16px}
 

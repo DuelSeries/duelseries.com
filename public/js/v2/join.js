@@ -102,7 +102,7 @@
     return m;
   }
   function whopArt() {
-    // A phone playing a DuelSeries clip on Whop orange: the clip team in one picture.
+    // A phone playing a DuelSeries clip: the clip team in one picture.
     const m = el('span', 'jn-m jn-wh');
     const ph = el('span', 'jn-phone');
     const img = el('img');
