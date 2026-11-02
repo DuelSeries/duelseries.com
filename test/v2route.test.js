@@ -1100,8 +1100,11 @@ test('every tab owns its own screen node, so a swipe between neighbours has two 
   /* Clips and Updates are PC only (Owen 2026-10-16): a phone never shows them,
      so the swipe, which is the phone's, leaves them out on purpose. */
   const PC_ONLY = ['clips-screen', 'updates-screen', 'join-screen'];
+  /* Refer a friend and Support (site redo stage 3) are pages under the sidebar's foot and Settings' About, not tabs:
+     like a game's screen or a profile, a swipe from them goes nowhere. */
+  const NOT_TABS = ['refer-screen', 'support-screen'];
   for (const id of ids) {
-    if (PC_ONLY.includes(id)) assert.ok(!sw.includes("'" + id + "'"), id + ' is not in the phone swipe');
+    if (PC_ONLY.includes(id) || NOT_TABS.includes(id)) assert.ok(!sw.includes("'" + id + "'"), id + ' is not in the phone swipe');
     else assert.ok(sw.includes("'" + id + "'"), 'the swipe knows ' + id);
   }
   assert.ok(!/id="stub2?"/.test(html), 'and the shared placeholder is gone for good');

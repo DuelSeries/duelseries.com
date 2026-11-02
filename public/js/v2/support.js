@@ -21,62 +21,76 @@
       + (body ? '&body=' + encodeURIComponent(body) : '');
   }
 
+  /* The kit's one sheet (site redo stage 3, ds-kit.css .ds-scrim and .ds-sheet), drawn here so the legal pages,
+     which may not load the kit, get the same sheet: every value is a --ds- token with the kit's own value as its
+     fallback. Centred on a PC, a bottom sheet with a grab handle on a phone. */
   var CSS =
-    '.sup-ov{position:fixed;inset:0;z-index:210;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;' +
-      'opacity:0;transition:opacity .18s;font-family:var(--f,inherit)}' +
+    '.sup-ov{position:fixed;inset:0;z-index:210;background:rgba(0,0,0,.78);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);' +
+      'display:flex;align-items:center;justify-content:center;padding:24px;opacity:0;transition:opacity .18s;' +
+      'font-family:var(--ds-f,Archivo,"Segoe UI",system-ui,sans-serif)}' +
     '.sup-ov.in{opacity:1}' +
-    '.sup{width:min(400px,calc(100vw - 32px));background:var(--s1,#17140f);border:1px solid var(--s3,#282219);border-radius:14px;' +
-      'padding:16px 16px 18px;color:var(--tx2,#a89c8a);line-height:1.4;transform:translateY(12px);transition:transform .2s}' +
+    '.sup{position:relative;width:min(460px,100%);max-height:calc(100dvh - 48px);overflow:auto;overscroll-behavior:contain;' +
+      'background:var(--ds-s1,#0d0b08);border-radius:var(--ds-r3,18px);color:var(--ds-bone,#f4f1ea);line-height:1.5;' +
+      'box-shadow:0 28px 70px rgba(0,0,0,.8),0 0 0 1px var(--ds-line,#36291a);transform:translateY(14px) scale(.98);' +
+      'transition:transform var(--ds-dur-2,.24s) var(--ds-ease,cubic-bezier(.2,.8,.2,1))}' +
     '.sup-ov.in .sup{transform:none}' +
-    '.sup-hd{display:flex;align-items:center;gap:8px}' +
-    '.sup h3{margin:0;font-size:17px;font-weight:700;letter-spacing:-.01em;color:var(--tx,#f5f1e8)}' +
-    '.sup-x{margin-left:auto;border:0;background:var(--s2,#1f1b15);color:var(--tx2,#a89c8a);width:30px;height:30px;border-radius:8px;' +
-      'font:400 17px/1 var(--f,inherit);cursor:pointer;transition:background .15s,color .15s}' +
-    '.sup-x:hover{background:var(--s3,#282219);color:var(--tx,#f5f1e8)}' +
-    '@media(pointer:coarse){.sup-x{width:40px;height:40px}}' +
-    '.sup-sub{margin:6px 0 14px;font-size:13.5px;color:var(--tx3,#8d8171)}' +
-    /* the address is the point of the panel: big enough to read off and type in */
-    '.sup-addr{display:flex;align-items:center;gap:10px;min-height:54px;padding:0 6px 0 14px;background:var(--bg,#100e0b);' +
-      'border:1px solid var(--s3,#282219);border-radius:10px}' +
-    '.sup-addr svg{width:18px;height:18px;flex:none;color:var(--tx3,#8d8171)}' +
-    '.sup-mail{flex:1;min-width:0;font-size:15.5px;font-weight:600;letter-spacing:-.01em;color:var(--tx,#f5f1e8);' +
+    '.sup-hd{display:flex;align-items:center;gap:12px;padding:16px 16px 0 24px}' +
+    '.sup h3{flex:1;margin:0;font-size:18px;font-weight:700;line-height:1.25;color:var(--ds-bone,#f4f1ea)}' +
+    '.sup-x{flex:none;display:grid;place-items:center;width:44px;height:44px;border:0;border-radius:var(--ds-r2,10px);background:transparent;' +
+      'color:var(--ds-tx2,#b3a792);cursor:pointer;transition:background-color .14s,color .14s}' +
+    '.sup-x:hover{background:var(--ds-s2,#1a1611);color:var(--ds-bone,#f4f1ea)}' +
+    '.sup-bd{display:flex;flex-direction:column;gap:16px;padding:12px 24px 24px}' +
+    '.sup-sub{margin:0;font-size:13px;color:var(--ds-tx2,#b3a792)}' +
+    /* the address is the point of the sheet: big enough to read off and type in */
+    '.sup-addr{display:flex;align-items:center;gap:12px;min-height:60px;padding:6px 6px 6px 16px;background:var(--ds-ink,#000);' +
+      'border-radius:var(--ds-r2,10px);box-shadow:inset 0 0 0 1px var(--ds-line,#36291a)}' +
+    '.sup-addr>svg{width:20px;height:20px;flex:none;color:var(--ds-tx2,#b3a792)}' +
+    '.sup-mail{flex:1;min-width:0;font-size:17px;font-weight:700;letter-spacing:-.005em;color:var(--ds-bone,#f4f1ea);' +
       'overflow-wrap:anywhere;user-select:all;-webkit-user-select:all}' +
-    '.sup-cp{flex:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;height:40px;min-width:78px;padding:0 12px;' +
-      'border:0;border-radius:8px;background:var(--s2,#1f1b15);color:var(--tx,#f5f1e8);font:600 13.5px/1 var(--f,inherit);cursor:pointer;' +
-      'transition:background .15s}' +
-    '.sup-cp:hover{background:var(--s3,#282219)}' +
-    '.sup-cp svg{width:15px;height:15px;color:inherit}' +
+    '.sup-cp{flex:none;display:inline-flex;align-items:center;justify-content:center;gap:8px;height:36px;min-width:92px;padding:0 12px;' +
+      'border:0;border-radius:var(--ds-r2,10px);background:var(--ds-s3,#272018);color:var(--ds-bone,#f4f1ea);' +
+      'box-shadow:inset 0 0 0 1px var(--ds-line,#36291a);font:650 13px/1 var(--ds-f,inherit);cursor:pointer;transition:background-color .14s,box-shadow .14s}' +
+    '.sup-cp:hover{background:#332a1f;box-shadow:inset 0 0 0 1px var(--ds-line2,#5a4630)}' +
+    '.sup-cp svg{width:16px;height:16px;color:inherit}' +
     '.sup-cp .ok{display:none}' +
-    '.sup-cp.done{color:var(--live,#8ed081)}' +
     '.sup-cp.done .cp{display:none}' +
-    '.sup-cp.done .ok{display:block}' +
-    '.sup-go{display:flex;flex-direction:column;gap:8px;margin-top:10px}' +
-    '.sup-b{display:flex;align-items:center;justify-content:center;gap:9px;min-height:46px;padding:0 14px;border-radius:10px;' +
-      'font:600 14px/1 var(--f,inherit);text-decoration:none;transition:background .15s,color .15s,transform .15s}' +
+    '.sup-cp.done .ok{display:block;color:var(--ds-green,#8ed081)}' +
+    /* what Gmail opens with, for a bug or an idea */
+    '.sup-pre{display:flex;flex-direction:column;gap:6px;padding:12px 16px;border-radius:var(--ds-r2,10px);background:var(--ds-s2,#1a1611);' +
+      'box-shadow:inset 0 0 0 1px var(--ds-line,#36291a)}' +
+    '.sup-pre span{font-size:13px;font-weight:600;color:var(--ds-tx2,#b3a792)}' +
+    '.sup-pre b{font-size:15px;font-weight:650;color:var(--ds-bone,#f4f1ea)}' +
+    '.sup-pre pre{margin:0;font:inherit;font-size:13px;line-height:1.6;color:var(--ds-tx2,#b3a792);white-space:pre-wrap}' +
+    '.sup-go{display:flex;flex-direction:column;gap:8px;padding:0 24px 24px;margin-top:-4px}' +
+    '.sup-b{display:flex;align-items:center;justify-content:center;gap:8px;min-height:52px;padding:0 24px;border-radius:var(--ds-r2,10px);' +
+      'font:650 16px/1 var(--ds-f,inherit);text-decoration:none;transition:background-color .14s,box-shadow .14s}' +
     '.sup-b svg{width:18px;height:18px;flex:none}' +
-    '.sup-b.pri{background:var(--bone,#f4f1ea);color:var(--ink,#100e0b)}' +
-    '.sup-b.pri:hover{transform:translateY(-1px)}' +
-    '.sup-b.sec{background:var(--s2,#1f1b15);color:var(--tx2,#a89c8a)}' +
-    '.sup-b.sec:hover{background:var(--s3,#282219);color:var(--tx,#f5f1e8)}' +
-    '.sup svg{stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}' +
-    '.sup svg.fill{fill:currentColor;stroke:none}' +
-    '.sup :focus-visible{outline:2px solid var(--bone,#f4f1ea);outline-offset:2px}' +
+    '.sup-b.pri{background:var(--ds-bone,#f4f1ea);color:var(--ds-on-bone,#000);font-weight:700}' +
+    '.sup-b.pri:hover{background:#fff;box-shadow:0 0 0 4px rgba(244,241,234,.14)}' +
+    '.sup-b.sec{background:var(--ds-s3,#272018);color:var(--ds-bone,#f4f1ea);box-shadow:inset 0 0 0 1px var(--ds-line,#36291a)}' +
+    '.sup-b.sec:hover{background:#332a1f;box-shadow:inset 0 0 0 1px var(--ds-line2,#5a4630)}' +
+    '.sup svg{stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}' +
+    '.sup :focus-visible{outline:2px solid var(--ds-bone,#f4f1ea);outline-offset:2px}' +
     '.sup-grab{display:none}' +
     '@media(max-width:760px){' +
-      '.sup-ov{align-items:flex-end}' +
-      '.sup{width:100%;border-radius:20px 20px 0 0;border-bottom:0;padding-bottom:calc(20px + env(safe-area-inset-bottom));' +
-        'transform:translateY(40px)}' +
-      '.sup-grab{display:block;width:38px;height:4px;border-radius:2px;background:var(--s3,#282219);margin:0 auto 12px}' +
-      '.sup-b{min-height:50px}' +
+      '.sup-ov{align-items:flex-end;padding:0}' +
+      '.sup{width:100%;max-height:92dvh;border-radius:var(--ds-r3,18px) var(--ds-r3,18px) 0 0;padding-bottom:env(safe-area-inset-bottom);transform:translateY(48px)}' +
+      '.sup-grab{display:block;width:40px;height:4px;border-radius:999px;background:var(--ds-line2,#5a4630);margin:8px auto 0}' +
+      '.sup-hd{padding:8px 12px 0 16px}' +
+      '.sup-bd{padding:12px 16px 16px}' +
+      '.sup-go{padding:0 16px 24px}' +
+      '.sup-cp{height:44px}' +
+      '.sup-mail{font-size:16px}' +
     '}' +
     '@media(prefers-reduced-motion:reduce){.sup-ov,.sup,.sup-b{transition:none}}';
 
   var ICON = {
-    mail: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3.5 6.5 8.5 6 8.5-6"/></svg>',
+    mail: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>',
+    x: '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>',
     copy: '<svg class="cp" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></svg>',
     ok: '<svg class="ok" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>',
     open: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>',
-    discord: '<svg class="fill" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.3 4.4a19.8 19.8 0 0 0-4.9-1.5l-.6 1.3a18.4 18.4 0 0 0-5.5 0L8.7 2.9a19.7 19.7 0 0 0-4.9 1.5C.5 9 -.3 13.6.1 18.1a19.9 19.9 0 0 0 6 3l1.3-2a12.9 12.9 0 0 1-1.9-.9l.4-.3a14.2 14.2 0 0 0 12.1 0l.4.3c-.6.4-1.2.7-1.9.9l1.2 2a19.8 19.8 0 0 0 6-3c.5-5.2-.8-9.7-3.5-13.7zM8 15.3c-1.2 0-2.2-1.1-2.2-2.4s1-2.4 2.2-2.4 2.2 1.1 2.2 2.4-1 2.4-2.2 2.4zm8 0c-1.2 0-2.2-1.1-2.2-2.4s1-2.4 2.2-2.4 2.2 1.1 2.2 2.4-1 2.4-2.2 2.4z"/></svg>'
+    discord: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 7.5c2.3-.7 4.7-.7 7 0M7.5 16.5c2.8 1 6.2 1 9 0"/><path d="M6.8 6.4C5 9 4.2 12 4.4 15.5c1.4 1.1 2.8 1.8 4.3 2.2l.9-1.6M17.2 6.4C19 9 19.8 12 19.6 15.5c-1.4 1.1-2.8 1.8-4.3 2.2l-.9-1.6"/><circle cx="9.5" cy="12.5" r="1.1"/><circle cx="14.5" cy="12.5" r="1.1"/></svg>'
   };
 
   function esc(s) {
@@ -86,12 +100,17 @@
 
   var ov = null, back = null, styled = false;
 
-  function copy(btn) {
+  /* The sheet's Copy (and the Support page's Copy address, copyFrom): the address to the clipboard, the button says
+     Copied for a moment, and a toast says so. */
+  function copy(btn, onPage) {
+    var lbl = btn.querySelector('.sup-cl');
+    var was = lbl ? lbl.textContent : 'Copy';
+    var mark = onPage ? 'is-done' : 'done';
     var done = function () {
-      btn.classList.add('done');
-      btn.querySelector('.sup-cl').textContent = 'Copied';
+      btn.classList.add(mark);
+      if (lbl) lbl.textContent = 'Copied';
       clearTimeout(btn._t);
-      btn._t = setTimeout(function () { btn.classList.remove('done'); btn.querySelector('.sup-cl').textContent = 'Copy'; }, 1800);
+      btn._t = setTimeout(function () { btn.classList.remove(mark); if (lbl) lbl.textContent = was; }, 1800);
       if (window.DSToast) DSToast.show({ kind: 'ok', title: 'Email copied', detail: MAIL });
       track('copy');
     };
@@ -105,7 +124,8 @@
       if (ok) return done();
       // Nothing would copy: leave the address selected so Ctrl+C (or a long press) takes it.
       var r = document.createRange(), sel = window.getSelection();
-      r.selectNodeContents(ov.querySelector('.sup-mail'));
+      var text = onPage ? document.getElementById('sup-big') : ov && ov.querySelector('.sup-mail');
+      if (text) r.selectNodeContents(text);
       sel.removeAllRanges(); sel.addRange(r);
       var touch = window.matchMedia && matchMedia('(hover:none)').matches;
       if (window.DSToast) DSToast.show({ kind: 'info', title: 'Copy the address', detail: touch ? 'It is selected, tap Copy in the menu' : 'It is selected, press Ctrl+C' });
@@ -130,15 +150,18 @@
     var sub = o.sub || 'Email us, or ask in the Discord.';
     ov = document.createElement('div');
     ov.className = 'sup-ov';
+    // A bug report or an idea says what Gmail opens with, so nobody wonders what the button will write.
+    var pre = o.subject ? '<div class="sup-pre"><span>Gmail opens with this filled in</span><b>Subject: ' + esc(o.subject) + '</b>' +
+      (o.body ? '<pre>' + esc(String(o.body).trim()) + '</pre>' : '') + '</div>' : '';
     ov.innerHTML =
       '<div class="sup" role="dialog" aria-modal="true" aria-labelledby="sup-t">' +
         '<div class="sup-grab" aria-hidden="true"></div>' +
         '<div class="sup-hd"><h3 id="sup-t">' + esc(title) + '</h3>' +
-          '<button class="sup-x" type="button" aria-label="Close">×</button></div>' +
-        '<p class="sup-sub">' + esc(sub) + '</p>' +
-        '<div class="sup-addr">' + ICON.mail + '<span class="sup-mail">' + MAIL + '</span>' +
+          '<button class="sup-x" type="button" aria-label="Close">' + ICON.x + '</button></div>' +
+        '<div class="sup-bd"><p class="sup-sub">' + esc(sub) + '</p>' +
+        '<div class="sup-addr">' + ICON.mail + '<span class="sup-mail">' + MAIL.replace('@', '<wbr>@') + '</span>' +
           '<button class="sup-cp" type="button" aria-label="Copy the email address">' + ICON.copy + ICON.ok +
-          '<span class="sup-cl" aria-live="polite">Copy</span></button></div>' +
+          '<span class="sup-cl" aria-live="polite">Copy</span></button></div>' + pre + '</div>' +
         '<div class="sup-go">' +
           '<a class="sup-b pri" href="' + esc(gmail(o.subject, o.body)) + '" target="_blank" rel="noopener noreferrer" data-a="gmail">' +
             ICON.open + 'Open in Gmail</a>' +
@@ -194,5 +217,8 @@
     open({ title: a.dataset.title, sub: a.dataset.sub, subject: a.dataset.subject, body: a.dataset.body });
   });
 
-  window.DSSupport = { open: open, close: close, gmail: gmail, MAIL: MAIL };
+  /* The Support page's Copy address (v2.html #support-screen). */
+  function copyFrom(btn) { if (btn) copy(btn, true); }
+
+  window.DSSupport = { open: open, close: close, gmail: gmail, copyFrom: copyFrom, MAIL: MAIL };
 })();

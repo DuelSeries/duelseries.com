@@ -29,7 +29,8 @@ test('Settings and the footer link to the legal pages and a real contact, no dea
     for (const href of ['/terms.html', '/privacy.html', '/responsible-play.html'])
       assert.ok(block.includes('href="' + href + '"'), 'links ' + href);
     // Contact opens the Support panel (support.js) over a Gmail compose link, never mailto:.
-    assert.ok(block.includes('href="https://mail.google.com/mail/?view=cm&amp;to=playduelseries@gmail.com" target="_blank" rel="noopener noreferrer" data-support>Contact</a>'), 'Contact opens Support');
+    // (Settings' rows are the kit's list rows since the site redo: the word sits in the row's own markup.)
+    assert.ok(/href="https:\/\/mail\.google\.com\/mail\/\?view=cm&amp;to=playduelseries@gmail\.com" target="_blank" rel="noopener noreferrer" data-support>(<span class="ds-row-main"><b>)?Contact</.test(block), 'Contact opens Support');
   }
   assert.ok(!/href="#" onclick="return false"/.test(footer), 'the footer\'s dead links are gone');
   for (const f of ['public/terms.html', 'public/privacy.html', 'public/responsible-play.html'])
@@ -51,7 +52,8 @@ test('the player\'s own address is shown short, on one line, with a Copy button,
   assert.ok(/addrRow\('w-addr', addr\)/.test(w), 'the Wallet tab');
   // Add funds opens the payment options straight away: no second sheet repeating the address.
   assert.ok(/onclick="V2Wallet\.fund\(\)">Add funds<\/button>/.test(w) && !/depveil/.test(v2()), 'no Add funds sheet');
-  assert.ok(/V2Wallet\.addrRow\('set-addr'/.test(v2()), 'and Settings');
+  // Settings draws the address as one of its kit rows (site redo stage 3): the same short form and the same Copy.
+  assert.ok(/id="set-addr"[\s\S]{0,400}V2Wallet\.copy\('set-addr'\)/.test(v2()) && /a\.slice\(0,4\)\+'…'\+a\.slice\(-4\)/.test(v2()), 'and Settings');
   assert.ok(!/<code>' \+ esc\(addr\) \+ '<\/code>/.test(w), 'the full address is never printed');
   const css = v2().match(/\.waddr code\{[^}]*\}/)[0];
   assert.ok(/white-space:nowrap/.test(css), 'one line');

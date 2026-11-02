@@ -191,7 +191,7 @@ test('whole screen: off by default, PC only, asks at a click or P, this tab only
   const js = rec();
   const html = read('public/v2.html');
   assert.match(html, /id="set-tab" role="switch" aria-checked="false"/, 'off until chosen');
-  assert.match(html, /<section class="panel set-pc" aria-labelledby="set-clip-h">[\s\S]*id="set-tab"[\s\S]*<\/section>/, 'in the PC-only Clips group');
+  assert.match(html, /<div class="set-grp set-pc" role="group" aria-labelledby="set-clip-h">[\s\S]*id="set-tab"[\s\S]*<\/section>/, 'in the PC-only Clips group');
   assert.match(html, /if\(C&&C\.top\)\{if\(on\)C\.start\(true\);else C\.stop\(\)\}/, 'the switch itself asks for the tab');
   /* The lobby's copy comes after the page has loaded (DSLater, lobby first load 2026-11-01), mp4mux first, with the
      attributes its tag had: data-game="other" data-top="1" (document.currentScript.dataset is read the same way). */

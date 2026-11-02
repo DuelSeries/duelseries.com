@@ -116,7 +116,7 @@ a{color:inherit;text-decoration:none}
      reduced motion. These keep their own speed and keep turning (the shared popup's ring,
      dsDialog.js, carries its own !important pair for the same reason). */
   .nameact[data-state="saving"] .i-spin{animation-duration:.7s!important;animation-iteration-count:infinite!important}
-  .toast .t-ic.spin,.bs-msg.busy::before{animation-duration:.8s!important;animation-iteration-count:infinite!important}
+  .toast .t-ic.spin::after,.bs-msg.busy::before{animation-duration:.8s!important;animation-iteration-count:infinite!important}
   .wref.spin svg{animation-duration:.5s!important}
 }
 /* The column is capped so text lines stay readable, but on a big monitor a
@@ -276,59 +276,235 @@ header{position:sticky;top:0;z-index:50;background:rgba(0,0,0,.88);
 }
 
 
-/* ── settings ───────────────────────────────────────────────────────── */
-/* Two groups, Account and About, one under the other in a single column
-   centred on the page (Owen, 2026-10-16), at every width. The heading sits in
-   the same column, so its first letter lines up with the panels' edge; the
-   column is a phone's width on a PC and the whole screen on a phone.
+/* ── settings (site redo stage 3, layout 1; mockup looks/ab/1/settings.html) ─────────────────────────────────
+   Who you are on the left (400px, it stays in view), the preferences and About on the right, 1180px at most: the
+   Wallet's own columns, so the page width no longer jumps between the two tabs (stage 3 audit: 560px against 824px).
+   Rules that adjust a kit class carry #settings-screen, because the kit is linked after this block. */
+#settings-screen.wrap{padding-top:var(--ds-sp5);padding-bottom:var(--ds-sp7)}
+#settings-screen>.head{margin:0 0 var(--ds-sp5)}
+.setgrid{display:grid;grid-template-columns:minmax(0,400px) minmax(0,1fr);gap:var(--ds-sp5);align-items:start;max-width:1180px}
+.set-left{position:sticky;top:calc(var(--ds-hdh) + var(--ds-sp5))}
+.set-right{display:flex;flex-direction:column;gap:var(--ds-sp4);min-width:0}
+/* who you are here: the initial, the name, and where the name is changed */
+.who{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:var(--ds-sp4)}
+.who-av{width:72px;height:72px;border-radius:var(--ds-rf);background:var(--ds-bone);color:var(--ds-on-bone);display:grid;place-items:center;
+  font-size:32px;font-weight:800;font-stretch:var(--ds-wide);line-height:1}
+.who-av.is-q{background:var(--ds-s3);color:var(--ds-tx2);box-shadow:var(--ds-edge)}
+.who-t{min-width:0}
+.who-nm{font-size:var(--ds-fs-6);font-weight:800;font-stretch:var(--ds-wide);letter-spacing:-.015em;line-height:1.05;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.who-nm.is-q{color:var(--ds-tx2);font-size:24px}
+.who-sub{margin:6px 0 0;font-size:var(--ds-fs-2);color:var(--ds-tx2);line-height:1.45}
+.who-edit{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;gap:var(--ds-sp3);
+  padding:var(--ds-sp3) var(--ds-sp3) var(--ds-sp3) var(--ds-sp4);border-radius:var(--ds-r2);background:var(--ds-ink);box-shadow:var(--ds-edge)}
+.who-edit p{margin:0;font-size:var(--ds-fs-2);color:var(--ds-tx2);line-height:1.45}
+#settings-screen .who-edit .ds-btn{flex:none}
+#settings-screen .set-alist{margin:var(--ds-sp4) calc(-1 * var(--ds-sp3)) 0}
+#set-addr code{display:block;font-size:14px;color:var(--ds-bone);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#set-addr.done .cp{color:var(--ds-green)}
+#settings-screen .acctbtn.out{margin-top:var(--ds-sp4)}
+.set-bye{margin:var(--ds-sp2) 0 0;text-align:center}
+.set-out-h{margin:0;font-size:var(--ds-fs-5);font-weight:800;font-stretch:var(--ds-wide);letter-spacing:-.01em;line-height:1.15}
+#settings-screen .set-out .ds-t-body{margin-top:var(--ds-sp2)}
+#settings-screen .set-out .acctbtn{margin-top:var(--ds-sp4)}
+/* Rows that leave for a page or a sheet end in a chevron, the way a phone's own settings do. */
+.set-chev{display:block;width:8px;height:8px;margin-right:6px;border:solid var(--ds-tx3);border-width:2px 2px 0 0;transform:rotate(45deg);
+  transition:border-color var(--ds-dur-1)}
+.set-link:hover .set-chev,.ds-opt:hover .set-chev{border-color:var(--ds-bone)}
+/* the preferences: one panel, three groups, rows like a phone's own settings */
+#settings-screen .set-prefs{padding-top:var(--ds-sp4);padding-bottom:var(--ds-sp3)}
+.set-grp+.set-grp{margin-top:var(--ds-sp4);padding-top:var(--ds-sp4);box-shadow:0 -1px 0 var(--ds-line)}
+.set-grp-h{display:flex;align-items:baseline;gap:var(--ds-sp3);margin:0 0 var(--ds-sp1);padding:0 var(--ds-sp3);
+  font-size:var(--ds-fs-4);font-weight:750;line-height:1.25}
+.set-grp-h small{font-size:var(--ds-fs-1);font-weight:600;color:var(--ds-tx2)}
+#settings-screen .set-prefs .ds-list{margin:0 calc(-1 * var(--ds-sp2))}
+#settings-screen .set-row{grid-template-columns:minmax(0,1fr) auto;min-height:68px;gap:var(--ds-sp4)}
+#settings-screen .set-row .ds-row-main b{white-space:normal}
+#settings-screen .set-row .ds-row-main span{margin-top:2px;max-width:56ch}
+#settings-screen .set-row.is-off .ds-row-main b,#settings-screen .set-row.is-off .ds-row-main span{color:var(--ds-tx3)}
+#settings-screen .set-row .ds-seg button{min-width:58px;padding:0 var(--ds-sp4)}
+/* On | Off: one switch (role=switch) drawn as the kit's two-part control, the chosen half raised. */
+.sw{display:inline-flex;gap:2px;margin:0;padding:4px;border:0;border-radius:var(--ds-r2);background:var(--ds-ink);box-shadow:var(--ds-edge);
+  cursor:pointer;font-family:var(--ds-f);-webkit-tap-highlight-color:transparent}
+.sw>span{display:grid;place-items:center;min-width:58px;min-height:36px;padding:0 var(--ds-sp4);border-radius:var(--ds-r1);
+  color:var(--ds-tx2);font-size:var(--ds-fs-2);font-weight:650;line-height:1;
+  transition:background-color var(--ds-dur-1),color var(--ds-dur-1),box-shadow var(--ds-dur-1)}
+.sw:hover>span{color:var(--ds-bone)}
+.sw[aria-checked="true"]>span:first-child,.sw[aria-checked="false"]>span:last-child{background:var(--ds-s3);color:var(--ds-bone);box-shadow:var(--ds-edge2)}
+.sw:disabled{cursor:not-allowed}
+.sw[role]:disabled>span{color:var(--ds-tx3)}
+.sw:focus-visible{outline:2px solid var(--ds-bone);outline-offset:2px}
+/* Volume: a range in the kit's colours, 44px tall to the touch (stage 3 audit: the old slider was 26px). */
+.vol-wrap{display:inline-flex;align-items:center;gap:var(--ds-sp3)}
+.vol{-webkit-appearance:none;appearance:none;width:180px;height:44px;margin:0;background:transparent;cursor:pointer;--v:70%}
+.vol::-webkit-slider-runnable-track{height:6px;border-radius:var(--ds-rf);background:linear-gradient(90deg,var(--ds-bone) var(--v),var(--ds-s3) var(--v));box-shadow:var(--ds-edge)}
+.vol::-moz-range-track{height:6px;border-radius:var(--ds-rf);background:linear-gradient(90deg,var(--ds-bone) var(--v),var(--ds-s3) var(--v))}
+.vol::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;margin-top:-8px;border-radius:var(--ds-rf);background:var(--ds-bone);border:0;box-shadow:0 0 0 4px rgba(0,0,0,.6)}
+.vol::-moz-range-thumb{width:22px;height:22px;border-radius:var(--ds-rf);background:var(--ds-bone);border:0}
+.vol:hover::-webkit-slider-thumb{box-shadow:0 0 0 4px rgba(244,241,234,.16)}
+.vol:focus-visible{outline:none}
+.vol:focus-visible::-webkit-slider-thumb{box-shadow:0 0 0 2px var(--ds-ink),0 0 0 4px var(--ds-bone)}
+.vol:disabled{cursor:not-allowed}
+.vol:disabled::-webkit-slider-runnable-track{background:var(--ds-s2)}
+.vol:disabled::-webkit-slider-thumb{background:var(--ds-tx3)}
+.vol-n{min-width:4ch;text-align:right;font-weight:700;font-variant-numeric:tabular-nums;color:var(--ds-bone)}
+.is-off .vol-n{color:var(--ds-tx3)}
+/* About: rows that leave for a page */
+#settings-screen .set-about{padding:var(--ds-sp4) var(--ds-sp3) var(--ds-sp3)}
+#settings-screen .set-about .set-grp-h{margin-bottom:var(--ds-sp2)}
+#settings-screen .set-about .ds-row{grid-template-columns:minmax(0,1fr) auto;min-height:56px}
+#settings-screen .set-about .ds-row-main b{font-weight:550}
+.set-acct svg,#lkpick .howx svg{fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+/* Customize from Settings: which game (setLooks), on the kit's sheet like the wallet's */
+#lkpick{padding:var(--ds-sp5);background:var(--ds-scrim);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+#lkpick.on{animation:wsh-in .18s ease-out}
+#lkpick .howcard{position:relative;max-width:460px;padding:0;background:var(--ds-s1);border-radius:var(--ds-r3);
+  box-shadow:var(--ds-sh-pop);color:var(--ds-bone);max-height:calc(100dvh - 48px);animation:wsh-up var(--ds-dur-2) var(--ds-ease)}
+#lkpick .howtop{display:flex;align-items:center;gap:var(--ds-sp3);margin:0;padding:var(--ds-sp4) var(--ds-sp4) 0 var(--ds-sp5)}
+#lkpick .howtop h2{flex:1;font-size:var(--ds-fs-4);font-weight:700;letter-spacing:0;line-height:1.25}
+#lkpick .howx{width:44px;height:44px;margin:0;border-radius:var(--ds-r2);color:var(--ds-tx2);transition:background-color var(--ds-dur-1),color var(--ds-dur-1)}
+#lkpick .howx:hover{background:var(--ds-s2);color:var(--ds-bone)}
+.lkp-bd{padding:var(--ds-sp3) var(--ds-sp5) var(--ds-sp5);display:flex;flex-direction:column;gap:var(--ds-sp3)}
+.lkp-bd .ds-hint{margin:0}
+.lkp-list{display:flex;flex-direction:column;gap:var(--ds-sp2)}
+#lkpick .ds-opt{min-height:64px;padding:var(--ds-sp2) var(--ds-sp3) var(--ds-sp2) var(--ds-sp2)}
+#lkpick .ds-opt-ic{overflow:hidden;background:var(--ds-s3)}
+#lkpick .ds-opt-ic img{width:100%;height:100%;object-fit:cover;object-position:50% 30%}
+@media(min-width:761px) and (max-width:1100px){
+  .setgrid{grid-template-columns:minmax(0,1fr)}
+  .set-left{position:static}
+}
+@media(max-width:760px){
+  #settings-screen.wrap{padding-top:var(--ds-sp4)}
+  #settings-screen>.head{margin:0 0 var(--ds-sp4)}
+  .setgrid{grid-template-columns:minmax(0,1fr);gap:var(--ds-sp3)}
+  .set-left{position:static}
+  .set-right{gap:var(--ds-sp3)}
+  .who{gap:var(--ds-sp3)}
+  .who-av{width:60px;height:60px;font-size:26px}
+  .who-nm{font-size:26px}
+  .who-nm.is-q{font-size:21px}
+  .who-edit{flex-direction:column;align-items:stretch;padding:var(--ds-sp3)}
+  #settings-screen .who-edit .ds-btn{width:100%}
+  #settings-screen .set-alist{margin:var(--ds-sp3) calc(-1 * var(--ds-sp2)) 0}
+  #settings-screen .set-prefs{padding:var(--ds-sp3) var(--ds-sp2) var(--ds-sp2)}
+  #settings-screen .set-prefs .ds-list{margin:0}
+  .set-grp-h{padding:0 var(--ds-sp2)}
+  #settings-screen .set-row{gap:var(--ds-sp3);min-height:72px}
+  .sw>span,#settings-screen .set-row .ds-seg button{min-width:52px;min-height:44px;padding:0 var(--ds-sp3)}
+  #settings-screen .set-vrow{grid-template-columns:minmax(0,1fr);gap:0}
+  #settings-screen .set-vrow .ds-row-end{text-align:left}
+  .vol-wrap{display:flex;width:100%}
+  .vol{flex:1;width:auto}
+  #settings-screen .set-about{padding:var(--ds-sp3) var(--ds-sp2) var(--ds-sp2)}
+  #settings-screen .set-about .set-grp-h{padding:0 var(--ds-sp2)}
+  .lkp-bd{padding:var(--ds-sp3) var(--ds-sp4) var(--ds-sp5)}
+  #lkpick{padding:0;align-items:flex-end}
+  #lkpick .howcard{max-width:none;max-height:92dvh;border-radius:var(--ds-r3) var(--ds-r3) 0 0;padding-bottom:env(safe-area-inset-bottom);animation-name:wsh-rise}
+  #lkpick .howtop{padding:var(--ds-sp2) var(--ds-sp3) 0 var(--ds-sp4)}
+}
 
-   One row height for the whole page: the name field, the address, the
-   button and every link are 48px, so nothing on the page is a different
-   size from its neighbour for no reason (they were 39, 48, 44 and 46).
-   Three type roles: the group heading, a value or link in the page's own
-   white, and a small grey label over a field. */
-#settings-screen{--setrow:48px}
-#settings-screen>.head,.setgrid{max-width:560px;margin-left:auto;margin-right:auto}
-.setgrid{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;padding-bottom:70px}
-.sh{font-size:16px;font-weight:650;line-height:20px;margin-bottom:16px}
-.slbl{display:block;font-size:13px;font-weight:550;line-height:16px;color:var(--tx3);margin-bottom:8px}
-/* The gap between two fields is bigger than the gap from a label to its own
-   field, so each label visibly belongs to the field under it. */
-#set-acct .slbl{margin-top:20px}
-#set-name{display:block;height:var(--setrow);margin:0;padding:0 14px;
-  font-size:15px;text-align:left}   /* left, like the address under it; the game screen's field stays centred */
-/* Under 16px iOS zooms the whole page in when the field is tapped. */
-@media(hover:none) and (pointer:coarse){#set-name{font-size:16px}}
-#set-name-msg{font-size:13px;line-height:18px;margin-top:8px;color:var(--tx3)}
-#set-name-msg:empty{display:none}
-/* A taken or refused name in the same red the game screen uses for it, and a
-   saved one in the live green, so the outcome reads before the words do. */
-#set-name-msg[data-state="bad"]{color:#e0705f}
-#set-name-msg[data-state="ok"]{color:var(--live)}
-/* Sign in is the one primary (bone) button when signed out. Sign out is the
-   one destructive control, so it is the one red one, but as red words on a
-   red tint: a solid red slab was the loudest thing on the page, louder than
-   the setting it sits under. */
-#set-acct .acctbtn{display:block;width:100%;min-height:var(--setrow);padding:0 14px;font-size:14px;font-weight:650}   /* over .btn, which comes later in this sheet */
-#set-acct>.acctbtn:first-child{margin-top:20px}
-#set-acct .waddr+.acctbtn{margin-top:12px}
-.acctbtn.out{background:rgba(224,112,95,.13);color:#ec8674}
-.acctbtn.out:hover{background:rgba(224,112,95,.2)}
-.acctbtn.out:disabled{opacity:.6;cursor:default}
-/* Rows, not buttons: each one leaves for a page, so it reads as a list with
-   a chevron, the way a phone's own settings do. The list sits 4px under the
-   heading and 16px is lost below the last row, so the first and last words
-   are the same distance from the heading and the panel edge as the fields
-   are in Account. */
-.setlinks .sh{margin-bottom:4px}
-.slink{display:flex;align-items:center;justify-content:space-between;gap:12px;
-  min-height:var(--setrow);font-size:15px;font-weight:500;color:var(--tx);
-  box-shadow:inset 0 -1px 0 var(--s2)}
-.slink:last-child{box-shadow:none;margin-bottom:-15px}
-.slink::after{content:'';width:7px;height:7px;flex:none;margin-right:4px;
-  border:solid var(--tx3);border-width:2px 2px 0 0;transform:rotate(45deg);transition:border-color .13s}
-.slink:hover::after{border-color:var(--tx)}
-@media(max-width:520px){.setgrid{padding-bottom:30px}}
+/* ── Refer a friend and Support (site redo stage 3, layout 1; mockups looks/ab/1/refer.html, support.html) ─────
+   Two pages the PC sidebar's foot opens (Settings' About reaches Refer a friend on a phone). Each leads with the one
+   thing it is for, set large: the lobby link, our email address. Hidden until routed to, like every screen. */
+#refer-screen,#support-screen{display:none}
+:is(#refer-screen,#support-screen).wrap{padding-top:var(--ds-sp5);padding-bottom:var(--ds-sp7)}
+:is(#refer-screen,#support-screen)>.head{margin:0 0 var(--ds-sp5)}
+.pg-sub{margin:var(--ds-sp2) 0 0;max-width:62ch;font-size:var(--ds-fs-3);line-height:1.5;color:var(--ds-tx2)}
+.ref,.sup-pg{max-width:1180px}
+/* the sidebar's two page rows, marked like a tab while their page is up */
+@media(min-width:761px) and (min-height:501px){
+  .sb-it.on{color:var(--tx);background:var(--s3);box-shadow:var(--ds-edge)}
+}
+/* a Copy button: the copy mark, then a tick and Copied for a moment after a press (invite.js flip, support.js) */
+.ref-i-ok{display:none}
+.is-done>.ref-i-cp{display:none}
+.is-done>.ref-i-ok{display:inline-block;color:var(--ds-green)}
+.ds-btn-primary.is-done>.ref-i-ok{color:var(--ds-on-bone)}
+/* Refer a friend: the lobby link is the one big thing on the page */
+#refer-screen .ref-hero{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,380px);gap:var(--ds-sp6);align-items:center;
+  padding:var(--ds-sp6) var(--ds-sp6) var(--ds-sp6) 40px;margin-bottom:var(--ds-sp4)}
+.ref-main{display:flex;flex-direction:column;align-items:flex-start;gap:var(--ds-sp3);min-width:0}
+.ref-main h3{margin:0}
+.ref-url{margin:2px 0 var(--ds-sp2);font-size:60px;font-weight:800;font-stretch:125%;letter-spacing:-.035em;line-height:1;overflow-wrap:anywhere}
+#refer-screen .ref-main .ds-btn{min-width:210px}
+.ref-fine{max-width:50ch;margin:2px 0 0;font-size:var(--ds-fs-2)}
+/* the link as it lands in a chat: the message, then the site's own link preview under it */
+.ref-msg{margin:0;display:flex;flex-direction:column;gap:var(--ds-sp2);padding:var(--ds-sp4);border-radius:var(--ds-r3);background:var(--ds-ink);box-shadow:var(--ds-edge);min-width:0}
+.ref-msg figcaption{margin-bottom:2px}
+.ref-bub{align-self:flex-start;max-width:100%;padding:9px 14px;border-radius:16px 16px 16px 4px;background:var(--ds-s3);font-size:var(--ds-fs-2);font-weight:600;
+  color:var(--ds-bone);text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--ds-tx3);overflow-wrap:anywhere}
+.ref-embed{border-radius:var(--ds-r2);overflow:hidden;background:var(--ds-s1);box-shadow:var(--ds-edge)}
+.ref-art{display:block;width:100%;height:auto;aspect-ratio:1200/630;object-fit:cover}
+.ref-embed-txt{display:flex;flex-direction:column;gap:3px;padding:var(--ds-sp3) var(--ds-sp4) var(--ds-sp4)}
+.ref-embed-txt small{font-size:var(--ds-fs-1);color:var(--ds-tx2)}
+.ref-embed-txt b{font-size:var(--ds-fs-3);font-weight:700;line-height:1.3}
+.ref-embed-txt span{font-size:var(--ds-fs-2);color:var(--ds-tx2);line-height:1.45}
+/* a link per game, and what happens when a friend opens one */
+.ref-low{display:grid;grid-template-columns:minmax(0,7fr) minmax(0,5fr);gap:var(--ds-sp4);align-items:start}
+#refer-screen .ref-games .ds-panel-head{margin-bottom:var(--ds-sp1)}
+.ref-lead{margin:0 0 var(--ds-sp3);font-size:var(--ds-fs-2)}
+#refer-screen .ref-row .ds-row-main .ref-u{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#refer-screen .ref-row .ds-row-main .ref-k{display:none}
+.ref-end{display:flex;align-items:center;gap:var(--ds-sp4)}
+.ref-n{display:inline-flex;align-items:center;gap:6px;font-size:var(--ds-fs-2);font-weight:650;color:var(--ds-green)}
+.ref-n .ds-dot{width:6px;height:6px}
+#refer-screen .ref-end .ds-btn{min-width:100px}
+.ref-none{margin:var(--ds-sp3) 0 0;padding:var(--ds-sp3) var(--ds-sp3) 0;box-shadow:0 -1px 0 var(--ds-line);font-size:var(--ds-fs-2)}
+.ref-none:empty{display:none}
+#refer-screen .ref-how{position:sticky;top:calc(var(--ds-hdh) + var(--ds-sp5))}
+#refer-screen .ref-how .ds-steps{grid-template-columns:minmax(0,1fr);gap:var(--ds-sp5)}
+/* Support: the address is the point of the page */
+.sup-grid{display:grid;grid-template-columns:minmax(0,7fr) minmax(0,5fr);gap:var(--ds-sp4);align-items:stretch}
+#support-screen .sup-mailp{display:flex;flex-direction:column;align-items:flex-start;padding:var(--ds-sp6) 40px}
+.sup-mailp h3{margin:0}
+.sup-big{margin:var(--ds-sp3) 0 var(--ds-sp5);font-size:36px;font-weight:800;font-stretch:112%;letter-spacing:-.025em;line-height:1.1;color:var(--ds-bone);
+  max-width:100%;-webkit-user-select:all;user-select:all}
+.sup-acts{display:flex;flex-wrap:wrap;gap:var(--ds-sp2)}
+#support-screen .sup-acts .sup-pcp{min-width:176px}
+.sup-note{margin:auto 0 0;padding-top:var(--ds-sp4);font-size:var(--ds-fs-2);max-width:56ch}
+.sup-top{display:flex;flex-direction:column}
+.sup-opts{display:flex;flex-direction:column;gap:var(--ds-sp2)}
+#support-screen .sup-opts .ds-opt{text-decoration:none}
+#support-screen .sup-opts .ds-opt-ic{color:var(--ds-tx2)}
+.sup-opts .ds-opt svg,.sup-acts svg,.ref-cp svg,.sup-pcp svg{fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.sup-more{display:flex;align-items:center;gap:var(--ds-sp2) var(--ds-sp4);flex-wrap:wrap;margin-top:var(--ds-sp5);padding:var(--ds-sp3) var(--ds-sp3) 0}
+.sup-more h3{margin:0}
+.sup-links{display:flex;flex-wrap:wrap;gap:var(--ds-sp1)}
+#support-screen .sup-links .ds-btn{font-size:var(--ds-fs-2)}
+@media(min-width:761px) and (max-width:1100px){
+  #refer-screen .ref-hero{grid-template-columns:minmax(0,1fr);padding:var(--ds-sp5)}
+  .ref-msg{max-width:440px}
+  .ref-url{font-size:52px}
+  .ref-low,.sup-grid{grid-template-columns:minmax(0,1fr)}
+  #refer-screen .ref-how{position:static}
+  #support-screen .sup-mailp{padding:var(--ds-sp5)}
+}
+@media(max-width:760px){
+  :is(#refer-screen,#support-screen).wrap{padding-top:var(--ds-sp4)}
+  :is(#refer-screen,#support-screen)>.head{margin:0 0 var(--ds-sp4)}
+  #refer-screen .ref-hero{grid-template-columns:minmax(0,1fr);gap:var(--ds-sp5);padding:var(--ds-sp5) var(--ds-sp4) var(--ds-sp4)}
+  .ref-url{font-size:34px;margin-bottom:var(--ds-sp1);white-space:nowrap}
+  #refer-screen .ref-main .ds-btn{width:100%}
+  .ref-msg{padding:var(--ds-sp3)}
+  .ref-low{grid-template-columns:minmax(0,1fr)}
+  #refer-screen .ref-how{position:static}
+  #refer-screen .ref-games{padding:var(--ds-sp4) var(--ds-sp2) var(--ds-sp3)}
+  #refer-screen .ref-games .ds-panel-head,.ref-lead{padding:0 var(--ds-sp2)}
+  #refer-screen .ref-row .ds-row-main .ref-u,.ref-n{display:none}
+  #refer-screen .ref-row .ds-row-main .ref-k{display:block}
+  #refer-screen .ref-end .ds-btn{min-width:92px}
+  .sup-grid{grid-template-columns:minmax(0,1fr)}
+  #support-screen .sup-mailp{padding:var(--ds-sp5) var(--ds-sp4) var(--ds-sp4)}
+  .sup-big{font-size:25px;margin:var(--ds-sp2) 0 var(--ds-sp4)}
+  .sup-acts{flex-direction:column;align-self:stretch}
+  #support-screen .sup-acts .ds-btn{width:100%}
+  .sup-note{padding-top:var(--ds-sp3)}
+  .sup-more{flex-direction:column;align-items:stretch;gap:var(--ds-sp1);padding:var(--ds-sp2) 0 0}
+  .sup-more h3{padding:0 var(--ds-sp3)}
+  .sup-links{flex-direction:column}
+  #support-screen .sup-links .ds-btn{justify-content:flex-start;width:100%;font-size:var(--ds-fs-3)}
+}
 
 /* ── placeholder screens ────────────────────────────────────────────── */
 #stub{display:none}
@@ -1347,38 +1523,10 @@ svg.v2chart text{font-family:var(--ds-f);font-variant-numeric:tabular-nums;font-
 @media(max-width:760px),(hover:none) and (pointer:coarse){
   .ni.pconly,#clips-screen,#updates-screen,.set-pc{display:none!important}
 }
-/* Settings' Clips group: two switches for the in-game recorder (public/js/clip/clipRec.js). */
-.swrow{display:flex;align-items:center;gap:16px;min-height:var(--setrow);padding:8px 0}
-.swrow+.swrow{border-top:1px solid var(--s2)}
-.swrow>div{flex:1;min-width:0}
-.swrow b{display:block;font-size:14.5px;font-weight:600}
-.swrow span{display:block;font-size:12.5px;color:var(--tx3);margin-top:3px;line-height:1.4}
-.sw{flex:none;width:44px;height:26px;border-radius:var(--rf);background:var(--s3);position:relative;transition:background .15s}
-.sw::after{content:"";position:absolute;left:3px;top:3px;width:20px;height:20px;border-radius:50%;background:var(--tx2);
-  transition:transform .18s,background .15s}
-.sw[aria-checked="true"]{background:var(--bone)}
-.sw[aria-checked="true"]::after{transform:translateX(18px);background:var(--ink)}
-.sw:disabled{opacity:.4;cursor:default}
-.sw:focus-visible{outline:2px solid var(--bone);outline-offset:2px}
-/* Settings' Graphics group: two choices in one pill, the chosen one in bone like an on switch. */
-.gfxrow{flex-wrap:wrap}
-.gfxrow>div:first-child{min-width:190px}
-.gfxrow>.seg{flex:none}
-.seg{flex:none;display:inline-flex;gap:2px;padding:3px;border-radius:var(--rf);background:var(--s3)}
-.seg button{padding:6px 12px;border-radius:var(--rf);font-size:13px;font-weight:600;color:var(--tx2);white-space:nowrap;transition:background .15s,color .15s}
-.seg button[aria-pressed="true"]{background:var(--bone);color:var(--ink)}
-.seg button:focus-visible{outline:2px solid var(--bone);outline-offset:2px}
-/* Fingers: switches, segment buttons and the game screen's Back were 26-30px tall on a phone.
-   The hit area grows, the drawing does not (site sweep 2026-10-28). */
+/* Fingers: the game screen's Back was 26-30px tall on a phone. The hit area grows, the drawing does not (site sweep 2026-10-28). */
 @media(pointer:coarse){
-  .sw::before{content:"";position:absolute;inset:-9px -6px}
-  .seg button{padding:10px 14px}
   #detail .back{width:44px;height:44px}
-  .ap-back-btn{min-height:40px}   /* Customize's only way out was 35px tall */
 }
-/* Settings' Sound group: the volume slider sits where a switch would. */
-.vol{flex:none;width:min(170px,42vw);height:26px;margin:0;accent-color:var(--bone);cursor:pointer}
-.vol:disabled{opacity:.4;cursor:default}
 /* Something new behind a tab: a small red dot on its icon. */
 .ni.isnew::after{content:"";position:absolute;left:26px;top:9px;width:7px;height:7px;border-radius:50%;
   background:#e5534b;box-shadow:0 0 0 2px var(--bg)}
@@ -1702,73 +1850,56 @@ body.no-foot footer{display:none}
 @keyframes npop{0%{transform:scale(.4);opacity:0}60%{transform:scale(1.25)}100%{transform:scale(1)}}
 @keyframes nshake{0%,100%{transform:translateX(0)}25%{transform:translateX(-3px)}75%{transform:translateX(3px)}}
 
-/* Bottom right, out of the way of the form it is about. */
-/* ── what just happened ──────────────────────────────────────────────────
-   Bottom right, stacked, newest at the bottom. There was ONE toast element and
-   a second message overwrote the first mid-read; a stack means two things
-   happening close together are both readable.
-
-   Green for done, red for wrong. The colour is the first thing seen and often
-   the only thing read, so it carries the outcome on its own — the words are
-   there for what specifically happened. */
-/* Owen's pick C (2026-10-15): the whole card takes the outcome's colour, a
-   title says what happened and one line under it says how much or where.
-   Green done, gold money, red wrong, bone still running. The tint sits on a
-   near-solid dark base so it reads the same over a game as over the lobby.
-   public/js/v2/toasts.js builds them and decides where they go. */
-.toasts{position:fixed;right:18px;bottom:18px;z-index:220;width:320px;
-  max-width:calc(100vw - 36px);
-  display:flex;flex-direction:column;align-items:stretch;gap:9px;
-  pointer-events:none}
-.toast{--tc:#e0705f;--tint:rgba(224,112,95,.14);--edge:rgba(224,112,95,.5);
-  pointer-events:auto;cursor:pointer;display:flex;gap:11px;align-items:flex-start;
-  padding:12px 16px 12px 14px;border-radius:14px;color:var(--tx);
-  background:linear-gradient(var(--tint),var(--tint)),rgba(23,20,15,.94);
-  border:1px solid var(--edge);box-shadow:0 10px 30px rgba(0,0,0,.5);
-  -webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);
-  opacity:0;transform:translateX(26px);
-  transition:opacity .22s,transform .3s cubic-bezier(.2,.9,.3,1)}
+/* ── what just happened (DSToast, public/js/v2/toasts.js) ───────────────────
+   The kit's one toast (site redo stage 3, ds-kit.css .ds-toast): a raised card, the outcome in a small tinted
+   square with its mark (a tick for done, a cross for wrong, a dollar for money, a bell for news, a turning ring for
+   a step still running), a title that says what happened and one line under it that says how much or where. The
+   mark repeats the colour's answer, so the outcome never rests on telling two colours apart. Bottom right on a PC,
+   stacked newest at the bottom; above the bottom bar on a phone; top centre over a game. The class names are
+   toasts.js's own (toast, ok, money, err, info, t-ic, t-title, t-line), kept so the module and its tests stand. */
+.toasts{position:fixed;right:var(--ds-sp5);bottom:var(--ds-sp5);z-index:var(--ds-z-toast);width:min(360px,calc(100vw - 32px));
+  display:flex;flex-direction:column;align-items:stretch;gap:var(--ds-sp2);pointer-events:none}
+.toast{pointer-events:auto;cursor:pointer;display:grid;grid-template-columns:32px minmax(0,1fr);gap:var(--ds-sp3);align-items:center;
+  padding:var(--ds-sp3) var(--ds-sp4) var(--ds-sp3) var(--ds-sp3);border-radius:var(--ds-r2);color:var(--ds-bone);
+  background:var(--ds-s2);box-shadow:var(--ds-sh-pop);font-family:var(--ds-f);
+  opacity:0;transform:translateY(10px);transition:opacity .22s,transform .26s var(--ds-ease)}
 .toast.on{opacity:1;transform:none}
-.toast.out{opacity:0;transform:translateX(26px);transition-duration:.2s}
-.toast.ok{--tc:var(--live);--tint:rgba(142,208,129,.14);--edge:rgba(142,208,129,.45)}
-.toast.money{--tc:var(--money);--tint:rgba(240,168,48,.13);--edge:rgba(240,168,48,.45)}
-.toast.info{--tc:var(--tx);--tint:rgba(245,241,232,.07);--edge:rgba(245,241,232,.2)}
-/* The icon repeats the colour's answer (tick, dollar, cross), so the outcome
-   never rests on telling two colours apart. */
-.toast .t-ic{flex:none;width:15px;text-align:center;color:var(--tc);
-  font-size:15px;font-weight:800;line-height:19px}
-.toast .t-ic.spin{width:15px;height:15px;margin-top:2px;border-radius:50%;
-  border:2px solid rgba(245,241,232,.22);border-top-color:var(--tx);
-  animation:tspin .8s linear infinite}
+.toast.out{opacity:0;transform:translateY(6px);transition-duration:.2s}
+.toast.err{box-shadow:var(--ds-sh-pop),inset 0 0 0 1px rgba(239,116,97,.4)}
+.toast.money{box-shadow:var(--ds-sh-pop),var(--ds-edge-gold)}
+.toast .t-ic{width:32px;height:32px;border-radius:var(--ds-r1);display:grid;place-items:center;background:var(--ds-bone-t);color:var(--ds-bone)}
+.toast .t-ic svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.toast.ok .t-ic{background:var(--ds-green-t);color:var(--ds-green)}
+.toast.err .t-ic{background:var(--ds-red-t);color:var(--ds-red)}
+.toast.money .t-ic{background:var(--ds-gold-t);color:var(--ds-gold)}
+/* still running: the kit's ring in the icon's square */
+.toast .t-ic.spin::after{content:"";width:16px;height:16px;border-radius:50%;border:2px solid;border-color:var(--ds-bone) var(--ds-bone) transparent transparent;
+  animation:tspin .7s linear infinite}
 @keyframes tspin{to{transform:rotate(360deg)}}
-.toast .t-body{min-width:0;flex:1}
-.toast .t-title{display:block;font-size:14px;font-weight:620;line-height:19px}
-.toast .t-line{display:block;margin-top:2px;font-size:12.5px;line-height:1.45;
-  color:var(--tx2);overflow-wrap:anywhere}
-.toast .t-amt{font-family:var(--fm);font-weight:600;color:var(--money)}
-.toast .t-addr{font-family:var(--ds-fm);font-weight:500;color:var(--tx)}
-/* A phone: centred above the bottom bar, out of the thumb's way. */
+.toast .t-body{min-width:0}
+.toast .t-title{display:block;font-size:var(--ds-fs-3);font-weight:650;line-height:1.3}
+.toast .t-line{display:block;margin-top:1px;font-size:var(--ds-fs-2);line-height:1.4;color:var(--ds-tx2);overflow-wrap:anywhere}
+.toast .t-amt{font-weight:800;font-stretch:var(--ds-wide);font-variant-numeric:tabular-nums;color:var(--ds-gold)}
+.toast .t-addr{font-family:var(--ds-fm);font-weight:500;color:var(--ds-bone)}
+/* A phone: full width between the gutters, above the bottom bar, out of the thumb's way. */
 @media(max-width:760px){
-  .toasts{right:auto;left:50%;transform:translateX(-50%);
-    width:min(420px,calc(100vw - 24px));max-width:none;
-    bottom:calc(var(--navh,60px) + 14px + env(safe-area-inset-bottom))}
-  .toast,.toast.out{transform:translateY(14px)}
-  .toast.on{transform:none}
+  .toasts{left:var(--ds-sp4);right:var(--ds-sp4);width:auto;
+    bottom:calc(var(--ds-bbh) + 12px + env(safe-area-inset-bottom))}
 }
 /* A game is open (the frame sits at z 300): top centre, where no game here
    keeps its controls, and above the frame. */
 .toasts.top{top:calc(10px + env(safe-area-inset-top));bottom:auto;
   right:auto;left:50%;transform:translateX(-50%);z-index:400;
-  width:min(340px,calc(100vw - 24px));max-width:none}
-.toasts.top .toast,.toasts.top .toast.out{transform:translateY(-14px)}
+  width:min(360px,calc(100vw - 24px))}
+.toasts.top .toast,.toasts.top .toast.out{transform:translateY(-10px)}
 .toasts.top .toast.on{transform:none}
 /* Announcements over a game on a phone: compact, text only, so a stack of up
    to four stays a thin strip at the top and off the game's HUD. */
 @media(max-width:760px),(max-height:500px){
   .toasts.top{width:min(300px,calc(100vw - 24px));gap:6px}
-  .toasts.top .toast.ann{padding:7px 12px;border-radius:11px;gap:8px}
+  .toasts.top .toast.ann{display:block;padding:7px 12px;border-radius:var(--ds-r2)}
   .toasts.top .toast.ann .t-ic,.toasts.top .toast.ann .t-title{display:none}
-  .toasts.top .toast.ann .t-line{margin:0;font-size:12.5px;line-height:1.35;color:var(--tx)}
+  .toasts.top .toast.ann .t-line{margin:0;font-size:12.5px;line-height:1.35;color:var(--ds-bone)}
 }
 @media(prefers-reduced-motion:reduce){
   .toast,.toast.out,.toasts.top .toast,.toasts.top .toast.out{transform:none;transition:opacity .15s}
@@ -3511,66 +3642,66 @@ function openSwimHow(){
      a single shared stub is the same node on both sides of a swipe, so the
      drag had nothing to move and the gesture did nothing between them. -->
 <!-- ══ SETTINGS ══ -->
-<!-- Only settings that do something: a switch that changes nothing is worse
-     than no switch. -->
+<!-- Settings (site redo stage 3, layout 1; mockup looks/ab/1/settings.html): who you are on the left (your name,
+     which changes only in the header card, the wallet address with Copy, Customize, Sign out or Sign in), and on the
+     right one panel of preferences (Sound, Graphics, Clips on a PC) with About under it. The same two columns as the
+     Wallet, so switching between the two never changes the page width. Only settings that do something: a switch
+     that changes nothing is worse than no switch. Each On / Off is one switch (role=switch, the same ids and
+     handlers as before) drawn as the kit's two-part control. -->
 <main id="settings-screen" class="wrap">
-  <div class="head"><div><h2>Settings</h2></div></div>
+  <div class="head"><div><h2 class="ds-t-page">Settings</h2></div></div>
   <div class="setgrid">
-    <!-- Name and wallet are one group: both are who you are here. -->
-    <section class="panel" aria-labelledby="set-acct-h">
-      <h3 class="sh" id="set-acct-h">Account</h3>
-      <label class="slbl" for="set-name">Name</label>
-      <!-- The rule lives in the empty field rather than on a line of its own. -->
-      <input class="pname" id="set-name" maxlength="16" autocomplete="off"
-             placeholder="Letters and numbers, up to 16">
-      <div id="set-name-msg" aria-live="polite"></div>
-      <div id="set-acct"></div>
-    </section>
-
-    <!-- The lobby's tap sounds (public/js/v2/sounds.js). Games keep their own. -->
-    <section class="panel" aria-labelledby="set-snd-h">
-      <h3 class="sh" id="set-snd-h">Sound</h3>
-      <div class="swrow"><div><b id="set-snd-l">Lobby sounds</b><span>A short sound when you tap. Games keep their own.</span></div>
-        <button type="button" class="sw" id="set-snd" role="switch" aria-checked="true" aria-labelledby="set-snd-l" onclick="setSnd(this)"></button></div>
-      <div class="swrow"><div><b id="set-vol-l">Volume</b></div>
-        <input type="range" class="vol" id="set-vol" min="0" max="100" step="5" value="70" aria-labelledby="set-vol-l"></div>
-      <div class="swrow set-pc"><div><b id="set-hov-l">Hover sounds</b><span>A soft tick when the mouse moves onto a button.</span></div>
-        <button type="button" class="sw" id="set-hov" role="switch" aria-checked="true" aria-labelledby="set-hov-l" onclick="setHov(this)"></button></div>
-    </section>
-
-    <!-- Graphics quality (Owen 2026-10-21): slither's own low quality, stored in
-         its own key "qual" ('0' is Low). High is today's look. An open game
-         picks a change up at once (public/js/slx/slxQuality.js). -->
-    <section class="panel" aria-labelledby="set-gfx-h">
-      <h3 class="sh" id="set-gfx-h">Graphics</h3>
-      <div class="swrow gfxrow"><div><b id="set-gfx-l">Quality</b><span>Low turns off the food glow in Slither.io so big fights stay smooth on slower devices.</span></div>
-        <div class="seg" id="set-gfx" role="group" aria-labelledby="set-gfx-l">
-          <button type="button" data-q="1" aria-pressed="true" onclick="setGfx(this)">High (default)</button>
-          <button type="button" data-q="0" aria-pressed="false" onclick="setGfx(this)">Low (faster)</button>
+    <div class="set-left">
+      <section class="ds-panel set-acct" aria-labelledby="set-acct-h">
+        <h3 class="ds-sr" id="set-acct-h">Account</h3>
+        <div id="set-acct"></div>
+      </section>
+    </div>
+    <div class="set-right">
+      <section class="ds-panel set-prefs" aria-label="Preferences">
+        <!-- The lobby's tap sounds (public/js/v2/sounds.js). Games keep their own. -->
+        <div class="set-grp" role="group" aria-labelledby="set-snd-h"><h3 class="set-grp-h" id="set-snd-h">Sound</h3><div class="ds-list">
+          <div class="ds-row set-row"><div class="ds-row-main"><b id="set-snd-l">Lobby sounds</b><span>A short sound when you tap. Games keep their own.</span></div>
+            <div class="ds-row-end"><button type="button" class="sw" id="set-snd" role="switch" aria-checked="true" aria-labelledby="set-snd-l" onclick="setSnd(this)"><span>On</span><span>Off</span></button></div></div>
+          <div class="ds-row set-row set-vrow" id="set-vol-row"><div class="ds-row-main"><b id="set-vol-l">Volume</b><span>Letting go plays a tap at the new level.</span></div>
+            <div class="ds-row-end"><span class="vol-wrap"><input type="range" class="vol" id="set-vol" min="0" max="100" step="5" value="70" aria-labelledby="set-vol-l"><b class="vol-n" id="set-vol-n" aria-hidden="true">70%</b></span></div></div>
+          <div class="ds-row set-row set-pc" id="set-hov-row"><div class="ds-row-main"><b id="set-hov-l">Hover sounds</b><span>A soft tick when the mouse moves onto a button.</span></div>
+            <div class="ds-row-end"><button type="button" class="sw" id="set-hov" role="switch" aria-checked="true" aria-labelledby="set-hov-l" onclick="setHov(this)"><span>On</span><span>Off</span></button></div></div>
         </div></div>
-    </section>
+        <!-- Graphics quality (Owen 2026-10-21): slither's own low quality, stored in its own key "qual" ('0' is Low).
+             High is today's look. An open game picks a change up at once (public/js/slx/slxQuality.js). -->
+        <div class="set-grp" role="group" aria-labelledby="set-gfx-h"><h3 class="set-grp-h" id="set-gfx-h">Graphics</h3><div class="ds-list">
+          <div class="ds-row set-row"><div class="ds-row-main"><b id="set-gfx-l">Quality</b><span>High is the default. Low turns off the food glow in Slither.io so big fights stay smooth on slower devices.</span></div>
+            <div class="ds-row-end"><div class="ds-seg" id="set-gfx" role="group" aria-labelledby="set-gfx-l">
+              <button type="button" data-q="1" aria-pressed="true" onclick="setGfx(this)">High</button>
+              <button type="button" data-q="0" aria-pressed="false" onclick="setGfx(this)">Low</button>
+            </div></div></div>
+        </div></div>
+        <!-- The in-game clip recorder (public/js/clip/clipRec.js) reads these when a game opens. PC only, like the
+             recorder. -->
+        <div class="set-grp set-pc" role="group" aria-labelledby="set-clip-h"><h3 class="set-grp-h" id="set-clip-h">Clips<small>On a computer only</small></h3><div class="ds-list">
+          <div class="ds-row set-row"><div class="ds-row-main"><b id="set-clips-l">Save clips with P</b><span>The last 30 seconds of a game as an MP4 in your Downloads, with the end card, chat and HUD in it.</span></div>
+            <div class="ds-row-end"><button type="button" class="sw" id="set-clips" role="switch" aria-checked="true" aria-labelledby="set-clips-l" onclick="setClips(this)"><span>On</span><span>Off</span></button></div></div>
+          <div class="ds-row set-row" id="set-mic-row"><div class="ds-row-main"><b id="set-mic-l">Add my mic</b><span>Your voice in saved clips. Your browser asks first.</span></div>
+            <div class="ds-row-end"><button type="button" class="sw" id="set-mic" role="switch" aria-checked="false" aria-labelledby="set-mic-l" onclick="setMic(this)"><span>On</span><span>Off</span></button></div></div>
+          <div class="ds-row set-row" id="set-tab-row"><div class="ds-row-main"><b id="set-tab-l">Record the whole screen</b><span>Adds the lobby, its tabs and your mouse. Your browser asks once per visit and shows its sharing bar.</span></div>
+            <div class="ds-row-end"><button type="button" class="sw" id="set-tab" role="switch" aria-checked="false" aria-labelledby="set-tab-l" onclick="setClipTab(this)"><span>On</span><span>Off</span></button></div></div>
+        </div></div>
+      </section>
 
-    <!-- The in-game clip recorder (public/js/clip/clipRec.js) reads these when a
-         game opens. PC only, like the recorder. -->
-    <section class="panel set-pc" aria-labelledby="set-clip-h">
-      <h3 class="sh" id="set-clip-h">Clips</h3>
-      <div class="swrow"><div><b id="set-clips-l">Save clips with P</b><span>The last 30 seconds of a game as an MP4 in your Downloads, with the end card, chat and HUD in it.</span></div>
-        <button type="button" class="sw" id="set-clips" role="switch" aria-checked="true" aria-labelledby="set-clips-l" onclick="setClips(this)"></button></div>
-      <div class="swrow"><div><b id="set-mic-l">Add my mic</b><span>Your voice in saved clips. Your browser asks first.</span></div>
-        <button type="button" class="sw" id="set-mic" role="switch" aria-checked="false" aria-labelledby="set-mic-l" onclick="setMic(this)"></button></div>
-      <div class="swrow"><div><b id="set-tab-l">Record the whole screen</b><span>Adds the lobby, its tabs and your mouse. Your browser asks once per visit and shows its sharing bar.</span></div>
-        <button type="button" class="sw" id="set-tab" role="switch" aria-checked="false" aria-labelledby="set-tab-l" onclick="setClipTab(this)"></button></div>
-    </section>
-
-    <!-- The pages a real-money site owes its players, one tap from Settings.
-         They were dead "#" links in a footer that phones never show. -->
-    <nav class="panel setlinks" aria-label="About DuelSeries">
-      <h3 class="sh">About</h3>
-      <a class="slink" href="/terms.html">Terms of service</a>
-      <a class="slink" href="/privacy.html">Privacy policy</a>
-      <a class="slink" href="/responsible-play.html">Responsible play</a>
-      <a class="slink" id="set-contact" href="https://mail.google.com/mail/?view=cm&amp;to=playduelseries@gmail.com" target="_blank" rel="noopener noreferrer" data-support>Contact</a>
-    </nav>
+      <!-- The pages a real-money site owes its players, one tap from Settings, and Refer a friend, which has no
+           bottom bar tab, so a phone reaches it here. Contact opens the Support sheet (support.js). -->
+      <nav class="ds-panel set-about" aria-label="About DuelSeries">
+        <h3 class="set-grp-h">About</h3>
+        <div class="ds-list">
+          <button type="button" class="ds-row set-link" onclick="go('refer')"><span class="ds-row-main"><b>Refer a friend</b><span>Send a friend a link to a free game</span></span><span class="ds-row-end set-chev" aria-hidden="true"></span></button>
+          <a class="ds-row set-link" href="/terms.html"><span class="ds-row-main"><b>Terms of service</b></span><span class="ds-row-end set-chev" aria-hidden="true"></span></a>
+          <a class="ds-row set-link" href="/privacy.html"><span class="ds-row-main"><b>Privacy policy</b></span><span class="ds-row-end set-chev" aria-hidden="true"></span></a>
+          <a class="ds-row set-link" href="/responsible-play.html"><span class="ds-row-main"><b>Responsible play</b></span><span class="ds-row-end set-chev" aria-hidden="true"></span></a>
+          <a class="ds-row set-link" id="set-contact" href="https://mail.google.com/mail/?view=cm&amp;to=playduelseries@gmail.com" target="_blank" rel="noopener noreferrer" data-support><span class="ds-row-main"><b>Contact</b><span>Email or Discord</span></span><span class="ds-row-end set-chev" aria-hidden="true"></span></a>
+        </div>
+      </nav>
+    </div>
   </div>
 </main>
 
@@ -3602,6 +3733,88 @@ function openSwimHow(){
 <!-- Join us (public/js/v2/join.js, public/css/join.css): the Discord, the Whop clip team, socials. PC only. -->
 <main id="join-screen" class="wrap"></main>
 
+<!-- Refer a friend (site redo stage 3, layout 1; mockup looks/ab/1/refer.html; filled by invite.js V2Invite.page).
+     The PC sidebar's row and Settings' About open it. The lobby link with Copy (the old one-click copy, now with the
+     link and its preview in view), then a free link per game. Free only: nothing is promised for inviting. -->
+<main id="refer-screen" class="wrap">
+  <div class="head"><div><h2 class="ds-t-page">Refer a friend</h2>
+    <p class="pg-sub">Send a friend a link to a free game. It opens in their browser, with nothing to download and no sign up.</p></div></div>
+  <div class="ref">
+    <section class="ds-panel ref-hero" aria-labelledby="ref-t">
+      <div class="ref-main">
+        <h3 class="ds-t-label" id="ref-t">The lobby link</h3>
+        <p class="ref-url" id="ref-url">duelseries.com</p>
+        <button type="button" class="ds-btn ds-btn-primary ds-btn-lg ref-cp" id="ref-copy" data-done="Link copied" onclick="window.V2Invite&&V2Invite.home(this)"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" class="ref-i-cp"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></svg><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" class="ref-i-ok"><path d="M5 12l5 5 9-10"/></svg><span class="ref-cl">Copy link</span></button>
+        <p class="ds-t-meta ref-fine">Opens the lobby, where they pick any free game. There is no referral reward: it is just a link to play together.</p>
+      </div>
+      <figure class="ref-msg">
+        <figcaption class="ds-t-label">What your friend sees</figcaption>
+        <span class="ref-bub" id="ref-bub">https://duelseries.com/</span>
+        <div class="ref-embed" aria-hidden="true">
+          <img class="ref-art" src="/og/home.jpg" alt="" width="1200" height="630" loading="lazy" decoding="async" draggable="false">
+          <div class="ref-embed-txt"><small id="ref-host">duelseries.com</small><b>DuelSeries: free multiplayer browser games</b>
+            <span>Snake, Paper, Cells, Chomp, 1v1 duels and a battle royale. Free in your browser, no download.</span></div>
+        </div>
+      </figure>
+    </section>
+    <div class="ref-low">
+      <section class="ds-panel ref-games" aria-labelledby="ref-g-t">
+        <div class="ds-panel-head"><h2 id="ref-g-t">Invite to one game</h2></div>
+        <p class="ds-t-meta ref-lead">Each link opens that game on Free.</p>
+        <div class="ds-list" id="ref-list"></div>
+        <p class="ds-t-meta ref-none" id="ref-none"></p>
+      </section>
+      <section class="ds-panel ref-how" aria-labelledby="ref-h-t">
+        <div class="ds-panel-head"><h2 id="ref-h-t">When they open a game link</h2></div>
+        <ol class="ds-steps">
+          <li><b>1</b><div>They open it on any phone or PC<span>In the browser they already have. Nothing to download.</span></div></li>
+          <li><b>2</b><div>The free game starts<span>It opens on Free and starts by itself, signed in or as a guest.</span></div></li>
+          <li><b>3</b><div>Paid stays their choice<span>A link never picks a paid room and never carries money. Paying to play is always something they choose.</span></div></li>
+        </ol>
+      </section>
+    </div>
+  </div>
+</main>
+
+<!-- Support (site redo stage 3, layout 1; mockup looks/ab/1/support.html). The PC sidebar's Support opens this page:
+     the address set large with Open in Gmail (a new tab, never mailto:), Copy and Ask on Discord, and the three ways in
+     that open the Support sheet (support.js) with Gmail prefilled. Settings' Contact and every other write-to-us link
+     still open that sheet directly. -->
+<main id="support-screen" class="wrap">
+  <div class="head"><div><h2 class="ds-t-page">Support</h2><p class="pg-sub">Email us, or ask in the Discord.</p></div></div>
+  <div class="sup-pg">
+    <div class="sup-grid">
+      <section class="ds-panel sup-mailp" aria-labelledby="sup-mail-t">
+        <h3 class="ds-t-label" id="sup-mail-t">Our email</h3>
+        <p class="sup-big" id="sup-big">playduelseries<wbr>@gmail.com</p>
+        <div class="sup-acts">
+          <a class="ds-btn ds-btn-primary ds-btn-lg" href="https://mail.google.com/mail/?view=cm&amp;to=playduelseries@gmail.com" target="_blank" rel="noopener noreferrer" data-sup-a="gmail"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>Open in Gmail</a>
+          <button type="button" class="ds-btn ds-btn-secondary ds-btn-lg sup-pcp" id="sup-copy" onclick="window.DSSupport&&DSSupport.copyFrom(this)"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" class="ref-i-cp"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></svg><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" class="ref-i-ok"><path d="M5 12l5 5 9-10"/></svg><span class="sup-cl">Copy address</span></button>
+          <a class="ds-btn ds-btn-secondary ds-btn-lg" href="https://discord.gg/TkFaefHDFr" target="_blank" rel="noopener noreferrer" data-sup-a="discord"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M8.5 7.5c2.3-.7 4.7-.7 7 0M7.5 16.5c2.8 1 6.2 1 9 0"/><path d="M6.8 6.4C5 9 4.2 12 4.4 15.5c1.4 1.1 2.8 1.8 4.3 2.2l.9-1.6M17.2 6.4C19 9 19.8 12 19.6 15.5c-1.4 1.1-2.8 1.8-4.3 2.2l-.9-1.6"/><circle cx="9.5" cy="12.5" r="1.1"/><circle cx="14.5" cy="12.5" r="1.1"/></svg>Ask on Discord</a>
+        </div>
+        <p class="ds-t-meta sup-note">Gmail opens in a new tab with our address filled in, so you do not need a mail app.</p>
+      </section>
+      <section class="ds-panel sup-top" aria-labelledby="sup-top-t">
+        <div class="ds-panel-head"><h2 id="sup-top-t">What is it about?</h2></div>
+        <div class="sup-opts">
+          <a class="ds-opt" href="https://mail.google.com/mail/?view=cm&amp;to=playduelseries@gmail.com" target="_blank" rel="noopener noreferrer" data-support data-title="Report a bug" data-sub="Tell us which game, what happened and roughly when." data-subject="Bug report" data-body="Which game:&#10;What happened:&#10;Roughly when:&#10;"><span class="ds-opt-ic"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="7" y="8" width="10" height="12" rx="5"/><path d="M12 8V5M9 5l1 3M15 5l-1 3M3 13h4M17 13h4M4 19l3-2M20 19l-3-2M4 8l3 2M20 8l-3 2"/></svg></span><span><b>Report a bug</b><small>Which game, what happened and roughly when.</small></span><span class="set-chev" aria-hidden="true"></span></a>
+          <a class="ds-opt" href="https://mail.google.com/mail/?view=cm&amp;to=playduelseries@gmail.com" target="_blank" rel="noopener noreferrer" data-support data-title="Send an idea" data-sub="Tell us what you would add or change." data-subject="Idea for DuelSeries"><span class="ds-opt-ic"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-4 10.5c.8.8 1 1.5 1 2.5h6c0-1 .2-1.7 1-2.5A6 6 0 0 0 12 3z"/></svg></span><span><b>Send an idea</b><small>What you would add or change.</small></span><span class="set-chev" aria-hidden="true"></span></a>
+          <a class="ds-opt" href="https://mail.google.com/mail/?view=cm&amp;to=playduelseries@gmail.com" target="_blank" rel="noopener noreferrer" data-support><span class="ds-opt-ic"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.2a2.5 2.5 0 1 1 3.2 2.4c-.5.2-.8.7-.8 1.2v.6M12 17h.01"/></svg></span><span><b>Something else</b><small>Your wallet, a game, your account, anything.</small></span><span class="set-chev" aria-hidden="true"></span></a>
+        </div>
+      </section>
+    </div>
+    <nav class="sup-more" aria-labelledby="sup-more-t">
+      <h3 class="ds-t-label" id="sup-more-t">Other pages</h3>
+      <div class="sup-links">
+        <a class="ds-btn ds-btn-quiet" href="/games">Game guides</a>
+        <a class="ds-btn ds-btn-quiet" href="/terms.html">Terms of service</a>
+        <a class="ds-btn ds-btn-quiet" href="/privacy.html">Privacy policy</a>
+        <a class="ds-btn ds-btn-quiet" href="/responsible-play.html">Responsible play</a>
+      </div>
+    </nav>
+  </div>
+</main>
+
 <div id="clveil" class="howveil" role="dialog" aria-modal="true" aria-label="Clip">
   <div id="clbox" class="clbox"></div>
 </div>
@@ -3625,6 +3838,16 @@ function openSwimHow(){
         <button type="submit" class="btn pri" id="cl-send">Send link</button>
       </div>
     </form>
+  </div>
+</div>
+
+<!-- Customize from Settings (setLooks): which game's look to change. Each row opens that game's own Customize. -->
+<div id="lkpick" class="howveil" role="dialog" aria-modal="true" aria-labelledby="lkpick-t">
+  <div class="howcard">
+    <div class="howtop"><h2 id="lkpick-t">Customize</h2>
+      <button type="button" class="howx" onclick="closeLkPick()" aria-label="Close"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div class="lkp-bd"><p class="ds-hint">Looks only. A look never changes how the game plays.</p><div class="lkp-list" id="lkpick-list"></div></div>
   </div>
 </div>
 
@@ -5969,9 +6192,9 @@ function drawNav(){
     +`<section class="sbx sb-live" aria-labelledby="sb-lh"><div class="sb-lhd"><span id="sb-lh">Live games</span><span class="sbx sb-stat" id="sb-stat" hidden></span></div><div class="sb-list" id="sb-list"></div></section>`
     +`<div class="sb-pin">`
     +`<button class="sbx sb-br" id="sb-br" type="button" onclick="go('events')" hidden><span class="sb-bri">${SBI(SB_P.trophy)}</span><b class="sb-brn">Battle Royale</b><span class="sb-m"></span><b class="sb-cd" id="sb-cd"></b><span class="sb-fr" id="sb-fr"></span><i class="sb-bar" aria-hidden="true"></i></button>`
-    +`<button class="sb-it sbx" type="button" onclick="window.V2Invite&&V2Invite.home()">${SBI(SB_P.refer)}<span>Refer a friend</span></button>`
+    +`<button class="sb-it sbx${route==='refer'?' on':''}" type="button" data-tab="refer" onclick="go('refer')"${route==='refer'?' aria-current="page"':''}>${SBI(SB_P.refer)}<span>Refer a friend</span></button>`
     +navBtn(pin('join'))
-    +`<a class="sb-it sbx" href="https://mail.google.com/mail/?view=cm&amp;to=playduelseries@gmail.com" target="_blank" rel="noopener noreferrer" data-support>${SBI(SB_P.support)}<span>Support</span></a>`
+    +`<button class="sb-it sbx${route==='support'?' on':''}" type="button" data-tab="support" onclick="go('support')"${route==='support'?' aria-current="page"':''}>${SBI(SB_P.support)}<span>Support</span></button>`
     +navBtn(pin('settings'))
     +`</div>`;
   if(window.V2Side)V2Side.paint();
@@ -6076,7 +6299,7 @@ window.V2Side=V2Side;
    showing underneath another. The player profile has no nav slot of its
    own: it is reached from the board and keeps Social lit while it is up. */
 const SCREENS=['home','allgames','detail','settings-screen',
-               'wallet-screen','events-screen','social-screen','join-screen','player-screen',
+               'wallet-screen','events-screen','social-screen','join-screen','refer-screen','support-screen','player-screen',
                'clips-screen','updates-screen'];
 /* dir: +1 the new screen arrives from the right (you swiped forward), -1 from
    the left, 0 or omitted for no animation. Taps on the nav pass 0 on purpose:
@@ -6145,7 +6368,7 @@ function showScreen(id,dir){
    it away. Three calls, so swipe.js never has to know the screen ids or which
    module loads what. */
 const SCREEN_FOR={play:'home',wallet:'wallet-screen',events:'events-screen',
-                  social:'social-screen',join:'join-screen',settings:'settings-screen',clips:'clips-screen',updates:'updates-screen'};
+                  social:'social-screen',join:'join-screen',refer:'refer-screen',support:'support-screen',settings:'settings-screen',clips:'clips-screen',updates:'updates-screen'};
 window.V2_SCREEN_FOR=SCREEN_FOR;
 /* Product tracking (shared/trackPlan.js): one lobby_tab_viewed for every real
    change of tab, the first tab on load included. A re-render, a second tap on
@@ -6170,6 +6393,7 @@ function fillScreen(tab){
   else if(tab==='clips'&&window.V2Clips)V2Clips.render();
   else if(tab==='updates'&&window.V2Updates)V2Updates.render();
   else if(tab==='join'&&window.V2Join)V2Join.render();
+  else if(tab==='refer'&&window.V2Invite&&V2Invite.page)V2Invite.page();
   /* Asked on arrival, not on the interval's own schedule. The page only polls
      while its screen is up, so opening the tab used to show a row of dashes
      until the first tick landed.
@@ -6182,10 +6406,16 @@ function fillScreen(tab){
 }
 
 /* ── settings ──────────────────────────────────────────────────────────── */
-
+/* Layout 1's Settings (site redo stage 3): the account panel is drawn here (drawAcct), the preferences are the
+   static switches above with the same ids and handlers they always had. The name is no longer a field here: it is
+   changed only in the header card (me.js), which "Open profile card" opens, so the two can never disagree. */
+const SET_IC={
+  wallet:'<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="3" y="6" width="18" height="14" rx="3"/><path d="M16 13h2M3 10h18"/></svg>',
+  look:'<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18c1 0 1.6-.7 1.6-1.6 0-.4-.2-.8-.4-1.1-.3-.3-.5-.7-.5-1.1 0-.9.7-1.6 1.6-1.6H16a5 5 0 0 0 5-5C21 6.3 17 3 12 3z"/><circle cx="7.5" cy="11.5" r="1"/><circle cx="9.5" cy="7.5" r="1"/><circle cx="14.5" cy="7.5" r="1"/></svg>',
+  copy:'<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></svg>',
+};
+const setEsc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]);
 function drawSettings(){
-  const inp=document.getElementById('set-name');
-  try{ inp.value=localStorage.getItem('duelseries_playername')||'' }catch(_){}
   /* Read-only on purpose. This screen does not sign, send or spend; the wallet
      tab owns every one of those and there is only one implementation. */
   drawAcct();
@@ -6209,6 +6439,9 @@ function setGfx(b){
    where the player chose it, so a game never pops a permission prompt. */
 const lsGet=k=>{try{return localStorage.getItem(k)}catch(_){return null}};
 const lsPut=(k,v)=>{try{v===null?localStorage.removeItem(k):localStorage.setItem(k,v)}catch(_){}};
+/* A row whose switch is shut by another (sound off shuts volume and hover, clips off shuts mic and whole screen) is
+   drawn quiet, words and all. */
+const setRowOff=(id,off)=>{const r=document.getElementById(id);if(r)r.classList.toggle('is-off',!!off)};
 function drawClipSet(){
   const on=lsGet('dsClipsOn')!=='0', mic=lsGet('dsClipsMic')==='1';
   const a=document.getElementById('set-clips'), m=document.getElementById('set-mic');
@@ -6216,6 +6449,7 @@ function drawClipSet(){
   if(m){m.setAttribute('aria-checked',String(on&&mic));m.disabled=!on}
   const t=document.getElementById('set-tab');
   if(t){t.setAttribute('aria-checked',String(on&&lsGet('dsClipsTab')==='1'));t.disabled=!on}
+  setRowOff('set-mic-row',!on);setRowOff('set-tab-row',!on);
 }
 /* Sound: the switch and the volume live in sounds.js (dsSnd, dsSndVol). Letting
    go of the slider plays a tap at the new level, so you hear what you chose. */
@@ -6223,9 +6457,16 @@ function drawSndSet(){
   const S=window.DSSound; if(!S)return;
   const b=document.getElementById('set-snd'), v=document.getElementById('set-vol');
   if(b)b.setAttribute('aria-checked',String(S.on()));
-  if(v){v.value=String(Math.round(S.vol()*100));v.disabled=!S.on()}
+  if(v){v.value=String(Math.round(S.vol()*100));v.disabled=!S.on();volPaint()}
   const h=document.getElementById('set-hov');
   if(h){h.setAttribute('aria-checked',String(S.hover()));h.disabled=!S.on()}
+  setRowOff('set-vol-row',!S.on());setRowOff('set-hov-row',!S.on());
+}
+/* The track fills to the level (the kit's bone over the raised colour) and the figure beside it says it. */
+function volPaint(){
+  const v=document.getElementById('set-vol'), n=document.getElementById('set-vol-n'); if(!v)return;
+  v.style.setProperty('--v',v.value+'%');
+  if(n)n.textContent=v.value+'%';
 }
 function setHov(b){
   if(!window.DSSound)return;
@@ -6239,9 +6480,17 @@ function setSnd(b){
 }
 (()=>{
   const v=document.getElementById('set-vol'); if(!v||!window.DSSound)return;
-  v.addEventListener('input',()=>DSSound.setVol(v.value/100));
+  v.addEventListener('input',()=>{DSSound.setVol(v.value/100);volPaint()});
   v.addEventListener('change',()=>DSSound.play('tap'));
 })();
+/* Each switch is drawn as On | Off. A press on the half that is already chosen leaves it as it is, like the kit's
+   two-part control; a press on the other half, or Space and Enter on the switch, flips it. */
+document.addEventListener('click',e=>{
+  const half=e.target&&e.target.closest&&e.target.closest('#settings-screen .sw>span');
+  if(!half)return;
+  const sw=half.parentElement, onHalf=half===sw.firstElementChild;
+  if((sw.getAttribute('aria-checked')==='true')===onHalf){e.stopPropagation();e.preventDefault()}
+},true);
 function setClips(b){
   const on=b.getAttribute('aria-checked')!=='true';
   lsPut('dsClipsOn',on?'1':'0');
@@ -6283,22 +6532,62 @@ async function setMic(b){
   }
   drawClipSet();
 }
-/* The account box alone, so a wallet change can redraw it without resetting
-   the name field someone may be typing in. Sign out shows only when there is
-   a session to end. */
+/* The account panel alone, so a wallet or name change can redraw it. Signed in: your initial and name (or "No name
+   yet" with Set your name), the profile card where the name is changed, the address in the one form it has
+   everywhere (first and last four, with Copy), Customize, and Sign out in the kit's red tint. Signed out: what
+   signing in is for, the one Sign in, and Customize, which works without it. */
 function drawAcct(){
   const w=window.duelWallet||{};
   const box=document.getElementById('set-acct'); if(!box)return;
-  /* The address in the one form it has everywhere (wallet.js addrRow): the
-     first and last four on one line, with Copy. */
-  /* Real buttons at the page's row height: Sign in in the primary bone,
-     Sign out in the one red. They were 32px toggles, and a grey Sign in read
-     as switched off. No "Not signed in." over the button: it says so. */
-  box.innerHTML=(w.authenticated&&w.address&&window.V2Wallet&&V2Wallet.addrRow)
-    ? `<div class="slbl">Wallet</div>${V2Wallet.addrRow('set-addr',w.address)}
-       <button type="button" class="btn acctbtn out" id="set-signout" onclick="signOut(this)">Sign out</button>`
-    : `<button type="button" class="btn pri acctbtn" onclick="window.duelWalletLogin&&window.duelWalletLogin('settings')">Sign in</button>`;
+  const look=`<button type="button" class="ds-row set-link" onclick="setLooks()"><span class="ds-row-ic">${SET_IC.look}</span><span class="ds-row-main"><b>Customize</b><span>Your look in each game</span></span><span class="ds-row-end set-chev" aria-hidden="true"></span></button>`;
+  if(!(w.authenticated&&w.address)){
+    box.innerHTML=`<div class="set-out"><h3 class="set-out-h">You are signed out</h3>
+      <p class="ds-t-body">Sign in to play paid rooms and use your wallet. Free rooms and the Battle Royale work without it.</p>
+      <button type="button" class="ds-btn ds-btn-primary ds-btn-lg ds-btn-block acctbtn" onclick="window.duelWalletLogin&&window.duelWalletLogin('settings')">Sign in</button></div>
+      <div class="ds-list set-alist">${look}</div>`;
+    return;
+  }
+  let n='';
+  try{n=window.V2Play&&V2Play.savedName?V2Play.savedName():String(localStorage.getItem('duelseries_playername')||'').replace(/[^a-zA-Z0-9]/g,'').slice(0,16)}catch(_){}
+  const a=w.address, sh=a.length>10?a.slice(0,4)+'…'+a.slice(-4):a;
+  box.innerHTML=`<div class="who"><div class="who-av${n?'':' is-q'}" aria-hidden="true">${n?setEsc(n[0].toUpperCase()):'?'}</div>
+      <div class="who-t"><div class="who-nm${n?'':' is-q'}">${n?setEsc(n):'No name yet'}</div>
+      <p class="who-sub">${n?'Signed in on this device.':'Pick one before your first game: letters and numbers, 3 to 16.'}</p></div>
+      <div class="who-edit"><p>${n?'Your name is changed in your profile card.':'Names are set in your profile card.'}</p>
+      <button type="button" class="ds-btn ds-btn-secondary ds-btn-sm" onclick="setCard(event)">${n?'Open profile card':'Set your name'}</button></div></div>
+    <div class="ds-list set-alist">
+      <div class="ds-row waddr" id="set-addr"><span class="ds-row-ic">${SET_IC.wallet}</span><span class="ds-row-main"><b>Wallet address</b><code class="ds-mono ph-no-capture" title="${setEsc(a)}">${setEsc(sh)}</code></span>
+        <span class="ds-row-end"><button type="button" class="ds-btn ds-btn-secondary ds-btn-sm cp" onclick="V2Wallet.copy('set-addr')" aria-label="Copy wallet address">${SET_IC.copy}<span>Copy</span></button></span></div>
+      ${look}</div>
+    <button type="button" class="ds-btn ds-btn-danger ds-btn-block acctbtn out" id="set-signout" onclick="signOut(this)">Sign out</button>
+    <p class="ds-t-meta set-bye">Your name, looks and settings stay on this device.</p>`;
 }
+/* The header card is the one place a name changes (Owen). Opened from here after this press has finished, so the
+   press itself is not read as a click outside the card. */
+function setCard(e){
+  if(e)e.stopPropagation();
+  setTimeout(()=>{if(window.V2Me)V2Me.open();const f=document.getElementById('play-name');if(f&&!f.value)try{f.focus()}catch(_){}},0);
+}
+/* The name changes in the card while Settings is up: the panel follows it. */
+document.addEventListener('input',e=>{if(e.target&&e.target.id==='play-name'&&route==='settings')drawAcct()});
+document.addEventListener('focusout',e=>{if(e.target&&e.target.id==='play-name'&&route==='settings')setTimeout(drawAcct,600)});
+/* Customize from Settings: looks belong to a game, so this asks which one, then opens that game's own Customize
+   (the reel, its previews and Unlock exactly as from the game's screen). Back from it lands on that game. */
+function setLooks(){
+  const list=document.getElementById('lkpick-list'); if(!list)return;
+  const games=GAMES.filter(g=>!g.soon&&hasLook(g));
+  list.innerHTML=games.map(g=>`<button type="button" class="ds-opt" data-look="${g.id}"><span class="ds-opt-ic"><img src="${artSrc(g.id)}" alt="" draggable="false"></span><span><b>${setEsc(g.name)}</b><small>${g.id==='swim'?'Your car':'Your skin'}</small></span><span class="set-chev" aria-hidden="true"></span></button>`).join('');
+  document.getElementById('lkpick').classList.add('on');
+  const f=list.querySelector('button'); if(f)f.focus();
+}
+function closeLkPick(){document.getElementById('lkpick').classList.remove('on')}
+document.getElementById('lkpick').addEventListener('click',e=>{
+  if(e.target.id==='lkpick'){closeLkPick();return}
+  const b=e.target.closest('[data-look]'); if(!b)return;
+  closeLkPick();
+  open_(b.dataset.look,'settings');
+  openLook();
+});
 /* Everything this browser holds that says who you are or what you paid for.
    The widget already drops the two token copies when Privy reports signed
    out; doing it here as well means nothing waits on that re-render. The
@@ -6333,36 +6622,6 @@ window.addEventListener('duelwallet:change',()=>{
   wasAuthed=now;
   drawAcct();
 });
-/* Cleaned as it is typed, the same way the game screen cleans it, so the two
-   can never disagree about what your name is. */
-document.addEventListener('input',e=>{
-  if(e.target.id!=='set-name')return;
-  const v=String(e.target.value||'').replace(/[^a-zA-Z0-9]/g,'').slice(0,16);
-  e.target.value=v;
-  /* typedName also marks it for the account, so a failed save on blur is sent
-     again at the next launch instead of being overwritten (play.js pullName). */
-  if(v.length>=3&&window.V2Play&&V2Play.typedName)V2Play.typedName(v);
-  else try{localStorage.setItem('duelseries_playername',v)}catch(_){}
-  const live=document.getElementById('play-name'); if(live)live.value=v;
-  const m=document.getElementById('set-name-msg');
-  m.textContent=v.length>=3?'':'At least three characters to play.';
-  m.dataset.state=v.length>=3?'':'bad';
-});
-/* Committed on blur, not on every keystroke: this field writes to the ACCOUNT
-   now, and a name is only free or taken once you have finished typing it.
-   Without this the two name fields did different things — the game screen
-   claimed the name, this one only ever changed the label on this browser. */
-document.addEventListener('blur',async e=>{
-  if(e.target.id!=='set-name')return;
-  const v=String(e.target.value||'').replace(/[^a-zA-Z0-9]/g,'').slice(0,16);
-  const msg=document.getElementById('set-name-msg');
-  if(v.length<3){if(msg){msg.textContent='At least three characters to play.';msg.dataset.state='bad'}return}
-  /* pushName returns true or a reason; V2Play.nameWhy turns the reason into the
-     same sentence the game screen shows, so the two fields cannot disagree about
-     what just happened. */
-  const res=await V2Play.pushName(v);
-  if(msg){msg.textContent=res===true?'Saved.':V2Play.nameWhy(res);msg.dataset.state=res===true?'ok':'bad'}
-},true);
 
 /* Show a tab's screen and load its data without changing the route. */
 function prepareScreen(tab){
@@ -6549,6 +6808,7 @@ document.addEventListener('keydown',e=>{
   if(isOn('cvveil'))return V2Wallet.cancelConvert();
   if(buyOpen())return closeBuy();
   if(isOn('lookveil'))return closeLook(false);
+  if(isOn('lkpick'))return closeLkPick();
   /* The game's sheet: Escape is its Back, unless a card of its own is up (the profile card, a wallet or
      sign-in window, a DSDialog). */
   const det=document.getElementById('detail');

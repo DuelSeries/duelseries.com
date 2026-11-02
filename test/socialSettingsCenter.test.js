@@ -29,15 +29,17 @@ test('Player winnings (layout 1, site redo 2026-11-01): label and Live on one li
     'and the +$X is drawn inside the figure\'s box');
 });
 
-test('Settings is one centred column: About directly under Account, the heading in the same column', () => {
+test('Settings (layout 1, site redo 2026-11-01): the Wallet\'s two columns, account left, preferences and About right', () => {
+  /* Was one centred 560px column (Owen, 2026-10-16); the redo's layout 1 mockup (site-redo/looks/ab/1/settings.html)
+     gives Settings the Wallet's own columns, so the page width no longer jumps between the two tabs (stage 3 audit). */
   const html = v2();
-  const both = rule(html, '#settings-screen>.head,.setgrid');
-  assert.ok(/max-width:\d+px/.test(both) && /margin-left:auto/.test(both) && /margin-right:auto/.test(both),
-    'heading and panels share one centred width');
   const grid = rule(html, '.setgrid');
-  assert.ok(/grid-template-columns:minmax\(0,1fr\)/.test(grid) && !/auto-fit/.test(grid), 'one column at every width, never side by side');
+  assert.ok(/grid-template-columns:minmax\(0,400px\) minmax\(0,1fr\)/.test(grid) && /max-width:1180px/.test(grid), 'the Wallet\'s 400px and the rest, 1180px at most');
+  assert.ok(/\.wgrid2\{max-width:1180px\}/.test(html) && /grid-template-columns:minmax\(0,400px\) minmax\(0,1fr\)/.test(rule(html, '.wgrid2.in')), 'the same as the Wallet');
   const s = html.slice(html.indexOf('<main id="settings-screen"'), html.indexOf('</main>', html.indexOf('<main id="settings-screen"')));
-  assert.ok(s.indexOf('id="set-acct-h"') < s.indexOf('aria-label="About DuelSeries"'), 'Account first, About under it');
-  for (const id of ['set-name', 'set-name-msg', 'set-acct', 'set-contact'])
+  assert.ok(s.indexOf('id="set-acct-h"') < s.indexOf('aria-label="Preferences"') && s.indexOf('aria-label="Preferences"') < s.indexOf('aria-label="About DuelSeries"'), 'Account, then the preferences, then About');
+  for (const id of ['set-acct', 'set-contact', 'set-snd', 'set-vol', 'set-hov', 'set-gfx', 'set-clips', 'set-mic', 'set-tab'])
     assert.ok(s.includes('id="' + id + '"'), id + ' is still there');
+  // The name is changed only in the header card (Owen): Settings opens that card instead of keeping a field of its own.
+  assert.ok(!s.includes('id="set-name"') && /V2Me\.open\(\)/.test(html.slice(html.indexOf('function setCard('), html.indexOf('function setCard(') + 300)), 'no second name field');
 });

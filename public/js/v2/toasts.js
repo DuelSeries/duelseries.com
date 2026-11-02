@@ -25,7 +25,14 @@
 (function () {
   'use strict';
   const FRAMES = ['game-frame', 'agar-frame'];
-  const ICON = { ok: '✓', money: '$', err: '✕', info: 'i' };
+  /* The kit's marks (site redo stage 3): a tick, a dollar, a cross, a bell, each a stroke in a small tinted square. */
+  const svg = (d) => '<svg viewBox="0 0 24 24" aria-hidden="true">' + d + '</svg>';
+  const ICON = {
+    ok: svg('<path d="M5 12l5 5 9-10"/>'),
+    money: svg('<path d="M12 3v18M16.5 7.5c0-1.9-2-3-4.5-3S7.5 5.7 7.5 7.6c0 4.4 9 2.4 9 6.9 0 2-2 3.4-4.5 3.4s-4.5-1.2-4.5-3.2"/>'),
+    err: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
+    info: svg('<path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 21h4"/>'),
+  };
   const STAY = { ok: 3400, money: 4000, info: 3400, err: 4800 };
   const $ = id => document.getElementById(id);
   const frameOpen = () => FRAMES.some(id => { const f = $(id); return !!f && f.style.display === 'block'; });
@@ -61,7 +68,7 @@
     const busy = kind === 'info' && !!o.sticky;     // still running: a turning ring, not a letter
     ic.className = 't-ic' + (busy ? ' spin' : '');
     ic.setAttribute('aria-hidden', 'true');
-    ic.textContent = busy ? '' : ICON[kind];
+    ic.innerHTML = busy ? '' : ICON[kind];
     const body = document.createElement('div');
     body.className = 't-body';
     if (o.title) {
