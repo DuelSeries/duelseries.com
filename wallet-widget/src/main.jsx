@@ -17,6 +17,7 @@ import { SEND_FEE_LAMPORTS, leavesReserve } from './solReserve.mjs';
 import { WALLETS, detectedWallets, walletFor, accountFor, signTransactionWith, signMessageWith, isRefusal } from './browserWallets.mjs';
 import { DEVICE_ACTIONS, loadDeviceKey, createDeviceKey, forgetDeviceKey, signWithDeviceKey } from './deviceKey.mjs';
 import { linkedOf, linkWith, addProblem, maxAddLamports, buildAdd } from './linkedWallet.mjs';
+import { privyAppIdFor } from './privyApp.mjs';
 // The shared gold popup card (public/js/shared/dsDialog.js), bundled so the lobby needs no extra tag.
 import '../../public/js/shared/dsDialog.js';
 // Privy's own windows in the site's look (site redo stage 3): a stylesheet only, added once as a <style> tag below.
@@ -40,7 +41,8 @@ async function moneyConfig() {
 // moves the entry fee from the player's embedded wallet into the escrow (one-tap Confirm),
 // the server verifies it on-chain and issues the entry token the game already consumes.
 // See docs/self-custody-migration.md.
-const APP_ID = 'cmpnepg0100f20cl10wdig1fr';
+// The live Privy app on duelseries.com, the dev app everywhere else (localhost, tests): privyApp.mjs.
+const APP_ID = privyAppIdFor(typeof window !== 'undefined' ? window.location.hostname : '');
 // RPC goes through our own backend proxy so the browser doesn't hit a public RPC that
 // 403s browser origins. (WSS is confirmation-only; the stake is verified server-side too.)
 const RPC_HTTP = (typeof window !== 'undefined' ? window.location.origin : '') + '/api/rpc';
