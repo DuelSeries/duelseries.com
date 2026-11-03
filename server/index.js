@@ -261,9 +261,16 @@ app.use((req, res, next) => {
 let PrivyClient = null;
 try { ({ PrivyClient } = require('@privy-io/server-auth')); }
 catch (e) { console.warn('[AUTH] @privy-io/server-auth unavailable — owner token auth disabled:', e.message); }
+/* Tokens are checked with Privy's PUBLIC key set (server/privyKeys.js), which needs only the app id: the secret
+   going bad on 2026-11-01 refused every sign-in for two days. privyServer (the secret) is now used for one
+   thing, naming the wallet behind an access token that came without an identity token. */
+const { createPrivyKeys, kindOf: privyKindOf } = require('./privyKeys');
+const privyKeys = process.env.PRIVY_APP_ID ? createPrivyKeys({ appId: process.env.PRIVY_APP_ID }) : null;
+if (privyKeys) privyKeys.refresh();   // at boot; a failure is logged, and the first token asks again
 const privyServer = (PrivyClient && process.env.PRIVY_APP_ID && process.env.PRIVY_APP_SECRET)
   ? new PrivyClient(process.env.PRIVY_APP_ID, process.env.PRIVY_APP_SECRET)
   : null;
+const authAlarm = require('./authAlarm').createAuthAlarm({ push: notify.pushOwner, region: REGION });
 /* Owner's embedded game wallet — what the Privy login resolves to. Public, not
    a secret: it is an address, and it is on-chain anyway.
 
@@ -321,9 +328,12 @@ if (PAPER_DEV_TOKENS) {
   console.warn('[PAPER] PAPER_DEV_TOKENS=1: unbacked dev entry tokens and a fake Paper withdraw. Not for production.');
 }
 
-if (!privyServer) {
-  console.warn('[AUTH] PRIVY_APP_ID / PRIVY_APP_SECRET not set — every token check will fail, '
+if (!privyKeys) {
+  console.warn('[AUTH] PRIVY_APP_ID not set — every token check will fail, '
     + 'so nothing that needs a signed-in player (naming, owner actions) can work.');
+} else if (!privyServer) {
+  console.warn('[AUTH] PRIVY_APP_SECRET not set — tokens are still checked, but an access token that comes '
+    + 'without an identity token cannot be matched to its wallet.');
 }
 
 // userId -> Solana wallet. getUser(userId) is documented as "subject to strict rate
@@ -344,13 +354,16 @@ const _noWalletAt = new Map();
 const NO_WALLET_HOLD_MS = 60 * 1000;
 /* The [AUTH] warnings below, at most one per 30 s, naming how many more there were (night review 2026-10-29):
    one per rejected token let any caller turn a junk string into a log line, unbounded, until the disk filled. */
+/* Every one is also counted by the [AUTH] alarm (server/authAlarm.js), which tells Owen when they pile up. */
 let _authWarnAt = 0, _authWarnHeld = 0;
-function authWarn(what, e) {
+function authWarn(what, e, kind) {
+  const why = kind || privyKindOf(e);
+  authAlarm.note(why);
   const now = Date.now();
   if (now - _authWarnAt < 30000) { _authWarnHeld++; return; }
   const held = _authWarnHeld;
   _authWarnAt = now; _authWarnHeld = 0;
-  const msg = e && e.message;
+  const msg = (e && e.message) + ' [' + why + ']';
   if (held) console.warn('[AUTH] ' + what + ':', msg, '(+' + held + ' more in the last 30 s)');
   else console.warn('[AUTH] ' + what + ':', msg);
 }
@@ -362,13 +375,22 @@ function authWarn(what, e) {
  * "your token expired", "Privy throttled us" and "this account has no Solana wallet"
  * were the same answer, and the player was told the same useless thing for all four.
  *
- * Two tokens are accepted. The identity token is preferred because getUser({idToken})
- * carries the linked accounts with it and is not rate limited; the access token is the
- * fallback, since identity tokens have to be switched on for the app and an older
- * cached login only has the access one. */
+ * Two tokens are accepted, both checked here with Privy's public keys (privyKeys), so
+ * neither needs the app secret or a network call per sign-in. The identity token is
+ * preferred because its linked accounts name the wallet outright; the access token is
+ * the fallback, since identity tokens have to be switched on for the app and an older
+ * cached login only has the access one. An access token names only the Privy user, so
+ * its wallet comes from the cache below (filled by any identity token that user has
+ * shown) or from one Privy REST lookup, the one step that still needs the secret. */
 /* opts.holdMiss: answer a wallet-less account from _noWalletAt for a minute instead of asking Privy again. */
+function rememberWallet(userId, wallet) {
+  _noWalletAt.delete(userId);
+  _walletForUser.delete(userId);   // re-set, so the Map stays oldest first
+  _walletForUser.set(userId, { wallet, at: Date.now() });
+  if (_walletForUser.size > 5000) _walletForUser.delete(_walletForUser.keys().next().value);
+}
 async function walletFromIdToken(accessToken, identityToken, opts) {
-  if (!privyServer) return { wallet: null, reason: 'privy-not-configured' };
+  if (!privyKeys) return { wallet: null, reason: 'privy-not-configured' };
   if (!accessToken && !identityToken) return { wallet: null, reason: 'no-token' };
 
   /* The Privy wallet first, then any other Solana wallet (a Connect wallet player's Phantom): the same rule the
@@ -383,8 +405,12 @@ async function walletFromIdToken(accessToken, identityToken, opts) {
 
   if (identityToken) {
     try {
-      const wallet = solanaOf(await privyServer.getUser({ idToken: identityToken }));
-      if (wallet) return { wallet, reason: 'ok' };
+      const idt = await privyKeys.verifyIdentity(identityToken);   // signature, issuer, audience, expiry
+      const wallet = solanaOf(idt);
+      if (wallet) {
+        rememberWallet(idt.userId, wallet);
+        return { wallet, reason: 'ok' };
+      }
       return { wallet: null, reason: 'no-solana-wallet' };
     } catch (e) {
       // Fall through to the access token rather than failing here: an identity token
@@ -401,7 +427,7 @@ async function walletFromIdToken(accessToken, identityToken, opts) {
   const bearer = accessToken || identityToken;
   let claims;
   try {
-    claims = await privyServer.verifyAuthToken(bearer);        // local JWT check
+    claims = await privyKeys.verifyAccess(bearer);             // local JWT check, public key
   } catch (e) {
     authWarn('access token rejected', e);
     return { wallet: null, reason: accessToken ? 'bad-token' : 'bad-identity-token' };
@@ -410,6 +436,10 @@ async function walletFromIdToken(accessToken, identityToken, opts) {
   if (hit && Date.now() - hit.at < WALLET_CACHE_MS) return { wallet: hit.wallet, reason: 'ok' };
   const missAt = opts && opts.holdMiss ? _noWalletAt.get(claims.userId) : 0;
   if (missAt && Date.now() - missAt < NO_WALLET_HOLD_MS) return { wallet: null, reason: 'no-solana-wallet' };
+  if (!privyServer) {
+    authWarn('access token has no wallet', new Error('no app secret to look the user up with'), 'no-lookup');
+    return { wallet: null, reason: 'privy-not-configured' };
+  }
   try {
     const wallet = solanaOf(await privyServer.getUser(claims.userId));
     if (!wallet) {
@@ -418,11 +448,10 @@ async function walletFromIdToken(accessToken, identityToken, opts) {
       if (_noWalletAt.size > 5000) _noWalletAt.delete(_noWalletAt.keys().next().value);
       return { wallet: null, reason: 'no-solana-wallet' };
     }
-    _noWalletAt.delete(claims.userId);
-    _walletForUser.set(claims.userId, { wallet, at: Date.now() });
+    rememberWallet(claims.userId, wallet);
     return { wallet, reason: 'ok' };
   } catch (e) {
-    authWarn('getUser failed', e);
+    authWarn('getUser failed', e, 'lookup-failed');
     return { wallet: null, reason: 'privy-lookup-failed' };
   }
 }
@@ -2619,7 +2648,9 @@ app.post('/api/owner/diagnose', sigLimiter, async (req, res) => {
   const { access, identity } = tokensFrom(req);
   const out = {
     session: auth.via === 'session' ? { device: auth.device, exp: auth.exp, who: auth.who } : null,
-    privyConfigured: !!privyServer,
+    privyConfigured: !!privyKeys,
+    privySecretSet: !!privyServer,
+    privyKeys: privyKeys ? privyKeys.status() : null,
     serverAppId: process.env.PRIVY_APP_ID || null,
     ownerWallets: [...OWNER_WALLETS],
     sentAccessToken: !!access,
