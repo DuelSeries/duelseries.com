@@ -9,15 +9,33 @@ jobs:
   deploy-na:
     runs-on: ubuntu-latest
     steps:
+      # 2026-11-02: the Privy app secret on the box went bad and nobody could fix it without SSH. It now lives in the
+      # repo secret PRIVY_APP_SECRET (Settings > Secrets and variables > Actions) and goes into .env here, before the
+      # restart below loads it; empty or unset leaves .env's own secret. It travels on ssh's STDIN to
+      # scripts/privy-env.sh, never in the remote command: ssh-action's `envs` puts an export of it in the remote
+      # shell's arguments, readable in /proc by anything on the box for the whole deploy (Fable review 2026-11-02).
+      # The host key is pinned, so the secret only ever goes to this box. (Read from the box's own
+      # /etc/ssh/ssh_host_ed25519_key.pub on 11-02; if the box is ever replaced, put the new one here.) A failure
+      # here never stops the deploy: tokens are checked without the secret (server/privyKeys.js).
+      - name: Privy secret into NA .env
+        continue-on-error: true
+        env:
+          PRIVY_APP_SECRET: ${{ secrets.PRIVY_APP_SECRET }}
+          EC2_KEY: ${{ secrets.EC2_KEY }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+        run: |
+          umask 077
+          mkdir -p ~/.ssh
+          echo '16.54.23.244 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAGJVosN2pigRXPNWGf2jjTAa+4s2rWD0akduD4+hGro' > ~/.ssh/known_hosts
+          printf '%s\n' "$EC2_KEY" > ~/.ssh/deploy_key
+          printf '%s\n' "$PRIVY_APP_SECRET" | ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=20 "$EC2_USER@16.54.23.244" \
+            'cd /home/ubuntu/duelseries && git fetch -q origin main </dev/null && bash <(git show origin/main:scripts/privy-env.sh </dev/null)'
+          rm -f ~/.ssh/deploy_key
+
       - name: Deploy to NA (Canada)
         uses: appleboy/ssh-action@v1.0.3
-        env:
-          # 2026-11-02: the Privy app secret on the box went bad and nobody could fix it without SSH. It now lives in
-          # the repo secret PRIVY_APP_SECRET (Settings > Secrets and variables > Actions) and is written into .env on
-          # every deploy. Empty or unset: .env's secret is left as it is.
-          PRIVY_APP_SECRET: ${{ secrets.PRIVY_APP_SECRET }}
         with:
-          envs: PRIVY_APP_SECRET
           # Elastic IP, set 2026-09-02. Deploys broke when the server was resized
           # to t3.micro: that released its auto-assigned address, and the EC2_HOST
           # secret still held the old one, so SSH went nowhere.
@@ -38,34 +56,6 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
             npm install --production
-            # .env (2026-11-02): one PRIVY_APP_ID line (the last, the one dotenv was using) and one PRIVY_APP_SECRET
-            # line: the repo secret when it is set, else the last line already there. Nothing from .env is printed:
-            # this repo and its Actions logs are public. The secret reaches awk through its environment, never on a
-            # command line another process could read.
-            (
-              umask 077
-              if [ -f .env ]; then
-                awk '
-                  { line[NR] = $0 }
-                  /^PRIVY_APP_ID=/ { lastId = NR }
-                  /^PRIVY_APP_SECRET=/ { lastSec = NR }
-                  END {
-                    sec = ENVIRON["PRIVY_APP_SECRET"]
-                    for (i = 1; i <= NR; i++) {
-                      l = line[i]
-                      if (l ~ /^PRIVY_APP_ID=/ && i != lastId) continue
-                      if (l ~ /^PRIVY_APP_SECRET=/) {
-                        if (i != lastSec) continue
-                        if (sec != "") l = "PRIVY_APP_SECRET=" sec
-                      }
-                      print l
-                    }
-                    if (!lastSec && sec != "") print "PRIVY_APP_SECRET=" sec
-                  }' .env > .env.deploy-tmp
-                if cmp -s .env .env.deploy-tmp; then rm -f .env.deploy-tmp; echo ".env: Privy lines unchanged"
-                else mv .env.deploy-tmp .env && echo ".env: Privy lines updated"; fi
-              fi
-            )
             pm2 restart duelseries
             # Backend pass 2026-10-30: pm2 restart returns 0 even when the new build never comes up, so the deploy
             # push said "deployed" either way. The job now fails (and the push says FAILED) unless the server answers
@@ -89,16 +79,14 @@ jobs:
   #   2. Update the EC2_EU_HOST GitHub secret with its NEW public IP (the IP changes on start).
   #   3. Uncomment the deploy-eu job below, AND restore "deploy-eu" in the notify job's
   #      `needs:` list and status check.
+  #   4. Copy the NA job's "Privy secret into NA .env" step in front of it, with EU's host, host key and EC2_EU_* secrets.
   #   (The next push then runs `git reset --hard`, so EU auto-catches-up no matter how stale.)
   # deploy-eu:
   #   runs-on: ubuntu-latest
   #   steps:
   #     - name: Deploy to EU (Ireland)
   #       uses: appleboy/ssh-action@v1.0.3
-  #       env:
-  #         PRIVY_APP_SECRET: ${{ secrets.PRIVY_APP_SECRET }}
   #       with:
-  #         envs: PRIVY_APP_SECRET
   #         host: ${{ secrets.EC2_EU_HOST }}
   #         username: ${{ secrets.EC2_EU_USER }}
   #         key: ${{ secrets.EC2_EU_KEY }}
@@ -107,7 +95,6 @@ jobs:
   #           git fetch origin main
   #           git reset --hard origin/main
   #           npm install --production
-  #           (copy the NA job's ".env" block here, unchanged, so EU's .env gets the same one secret line)
   #           pm2 restart duelseries-eu
 
   notify:

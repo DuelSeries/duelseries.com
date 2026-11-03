@@ -160,6 +160,9 @@ function createPrivyKeys(opts) {
     } catch (e) {
       const k = kindOf(e);
       if ((k === 'unknown-key' || k === 'no-keys' || k === 'bad-signature') && await refresh()) return attempt();
+      /* A kid we do not hold while Privy's key set will not load: Privy may have rotated and we cannot follow.
+         Ours to fix, so the [AUTH] alarm counts it (an unknown kid alone is anyone's to send). */
+      if (k === 'unknown-key' && lastError) throw fail('keys-stale', 'unknown key and the key set will not load: ' + lastError);
       throw e;
     }
   }

@@ -203,23 +203,50 @@ test('Privy\'s real published key set parses', () => {
   assert.strictEqual(pem, 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAELzWGJ09f4y5CEYLRvWp0vPHj8fRQfzQNtdTzUTJSUCpb1BX8OsoAXPEnvr1drvr8z/1+1dyrJqaI2J5MVWP6+g==');
 });
 
-test('authAlarm: more than 20 refusals in 10 minutes tells the owner once an hour, with the causes', () => {
+test('a kid we do not hold while the key set will not load is ours to fix (keys-stale), not just an unknown key', async () => {
+  const a = await keyPair('k1');
+  const b = await keyPair('k2');
+  const h = harness([{ keys: [a.jwk] }, new Error('jwks http 503')]);
+  await h.keys.refresh();
+  h.tick(REFETCH_COOLDOWN_MS + 1);
+  assert.strictEqual(await kindOfRejection(h.keys.verifyAccess(await sign(b))), 'keys-stale');
+  assert.strictEqual((await h.keys.verifyAccess(await sign(a))).userId, 'did:privy:player', 'the held key still works');
+  const h2 = harness([{ keys: [a.jwk] }]);
+  await h2.keys.refresh();
+  assert.strictEqual(await kindOfRejection(h2.keys.verifyAccess(await sign(b))), 'unknown-key', 'with a healthy set it is just a stranger');
+});
+
+test('authAlarm: more than 20 of OUR failures in 10 minutes tells the owner once an hour, with every cause', () => {
   let t = 0;
   const pushes = [];
   const al = createAuthAlarm({ push: (text, o) => pushes.push({ text, o }), now: () => t, log: quiet, region: 'na' });
-  for (let i = 0; i < 20; i++) { al.note(i < 15 ? 'no-keys' : 'expired'); t += 1000; }
+  for (let i = 0; i < 5; i++) al.note('expired');
+  for (let i = 0; i < 20; i++) { al.note('no-keys'); t += 1000; }
   assert.strictEqual(pushes.length, 0, '20 is not more than 20');
   al.note('no-keys');
   assert.strictEqual(pushes.length, 1);
-  assert.match(pushes[0].text, /^Sign-in checks failed 21 times in 10 min on NA \(no-keys 16, expired 5\)/);
+  assert.match(pushes[0].text, /^Sign-in checks failed 21 times in 10 min on NA \(no-keys 21, expired 5\)/);
   assert.deepStrictEqual(pushes[0].o, { title: 'Sign-in checks failing', priority: 'high' });
-  for (let i = 0; i < 5000; i++) al.note('bad-signature');   // a junk-token flood
+  for (let i = 0; i < 50; i++) al.note('lookup-failed');
   assert.strictEqual(pushes.length, 1, 'once an hour at most');
   t += 61 * 60 * 1000;
-  al.note('x');
+  al.note('lookup-failed');
   assert.strictEqual(pushes.length, 1, 'the old ones aged out of the window');
   for (let i = 0; i < 21; i++) al.note('lookup-failed');
   assert.strictEqual(pushes.length, 2);
+});
+
+test('authAlarm: anyone\'s junk never buzzes the phone, and a flood of it cannot hide our own failures', () => {
+  let t = 0;
+  const pushes = [];
+  const al = createAuthAlarm({ push: (text) => pushes.push(text), now: () => t, log: quiet });
+  for (const k of ['malformed', 'bad-signature', 'wrong-alg', 'unknown-key', 'expired', 'wrong-aud', 'wrong-typ', 'not-identity']) {
+    for (let i = 0; i < 1000; i++) al.note(k);
+  }
+  assert.strictEqual(pushes.length, 0, 'forged, expired and other-app tokens are anyone\'s to send');
+  for (let i = 0; i < 21; i++) { al.note('no-lookup'); for (let j = 0; j < 100; j++) al.note('malformed'); }
+  assert.strictEqual(pushes.length, 1, '21 real failures among 2100 junk ones still count');
+  assert.match(pushes[0], /failed 21 times/);
 });
 
 test('authAlarm: refusals spread out over time never alarm, and a throwing push is swallowed', () => {
