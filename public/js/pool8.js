@@ -208,9 +208,21 @@ function placeOverlays() {
   const under = VIEW.rot ? 4 : Math.round(VIEW.oy + (Art.LAYOUT.hint.y2 + 26) * VIEW.s);
   const note = $('botNote'); if (note) note.style.top = under + 'px';
   const line = $('watchLine'); if (line) line.style.top = (top + 4) + 'px';
+  document.body.classList.toggle('p8-rot', VIEW.rot);
   if (typeof chat !== 'undefined' && chat && chat.el) {
-    chat.el.style.setProperty('--dsc-t', (top + 8) + 'px');
-    chat.el.style.setProperty('--dsc-b', '70px');
+    /* Clear of the power strip (the whole left side under the top bar, public/js/pool8/p8Controls.js), so a thumb
+       going for the pull never lands on the chat: a sideways phone puts the button in the margin beside the top bar
+       (in the bar, right of the menu, when there is no margin), an upright one at the right end of the band above
+       the table (pool8.css), a computer under the power slot. */
+    const s = VIEW.s, P = Art.LAYOUT.power;
+    if (chat.el.classList.contains('dsc-phone')) {
+      let t = 10, l = 10;
+      if (!VIEW.rot && VIEW.ox < 58) { t = Math.round(VIEW.oy + 30 * s); l = Math.round(VIEW.ox + 84 * s); }
+      else if (!VIEW.rot) t = Math.max(4, Math.round(VIEW.oy + 8));
+      chat.el.style.setProperty('--dsc-t', t + 'px');
+      chat.el.style.setProperty('--dsc-l', l + 'px');
+    }
+    chat.el.style.setProperty('--dsc-b', Math.max(4, Math.round(VIEW.h - VIEW.oy - (P.y + P.h) * s - 34)) + 'px');
   }
 }
 
