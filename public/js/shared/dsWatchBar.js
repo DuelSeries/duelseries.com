@@ -72,20 +72,20 @@
     // Phones, either way up (Owen 2026-11-04: "make it like slither.io's: out of the way, off to the side, small"): the
     // arrows and the name sit together at the very bottom left, as small as a thumb allows (46 px), the name only as
     // wide as it needs, so the middle of the screen, the bottom right (minimaps, the ping readout) and every owner
-    // control stay clear. The Lobby chip is smaller too. Upright, the cluster stops 134 px short of the right edge
+    // control stay clear. The Lobby chip is smaller too. Upright, the cluster stops 132 px short of the right edge
     // (Paper's minimap and the ping readout); sideways the name is at most 180 px, clear of a bottom-centre scoreboard.
     '@media (max-width:600px),(pointer:coarse) and (max-height:600px){',
     '.dsw-switch{left:calc(var(--dsw-left,10px) + env(safe-area-inset-left,0px));right:auto;transform:none;',
     'bottom:calc(10px + env(safe-area-inset-bottom,0px));justify-content:flex-start;gap:6px;}',
     '.dsw-round{width:46px;height:46px;box-shadow:inset 0 0 0 1px var(--ds-line,#36291a),0 4px 12px rgba(0,0,0,.28);}',
     '.dsw-round svg{width:20px;height:20px;}',
-    '.dsw-plate{min-width:88px;max-width:max(88px,calc(100vw - 248px));flex:none;height:46px;padding:0 12px;border-radius:14px;',
+    '.dsw-plate{min-width:88px;max-width:max(88px,calc(100vw - 238px - var(--dsw-left,10px)));flex:none;height:46px;padding:0 12px;border-radius:14px;',
     'box-shadow:inset 0 0 0 1px var(--ds-line,#36291a),0 4px 12px rgba(0,0,0,.28);}',
     '.dsw-name{font-size:14px;}',
     '.dsw-empty .dsw-name,.dsw-wait .dsw-name{font-size:13px;}',
     // nobody to follow: the arrows do nothing, so on a phone the plate alone says so, in full
     '.dsw-empty .dsw-round{display:none;}',
-    '.dsw-empty .dsw-plate{max-width:max(88px,calc(100vw - 150px));}',
+    '.dsw-empty .dsw-plate{max-width:max(88px,calc(100vw - 140px - var(--dsw-left,10px)));}',
     '.dsw-lobby{left:calc(10px + env(safe-area-inset-left,0px));top:calc(10px + env(safe-area-inset-top,0px));height:36px;',
     'padding:0 12px 0 8px;gap:6px;border-radius:9px;font-size:13px;}',
     '.dsw-lobby svg{width:16px;height:16px;}}',
