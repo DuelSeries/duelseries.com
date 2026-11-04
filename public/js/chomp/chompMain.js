@@ -400,10 +400,12 @@
           else if (e.id !== myId && fruitTaken === e.m) unBoost();
         } else if (!e.on && fruitTaken === e.m) unBoost();
         if (fruitTaken === e.m) fruitTaken = -1;
-        // Owen 2026-10-30: every cherry shouts SPEED where it was taken; ours (or one on our screen) whooshes
+        // Owen 2026-11-04: a cherry is points only again: its points where it was taken (the SPEED! cue only if a
+        // boost ever comes back)
         if (!e.on && e.pts && (mine || e.id !== myId)) {
           var fx = m.ox + Maze.FRUIT.x, fy = m.oy + Maze.FRUIT.y;
-          boostCue(fx, fy, mine ? 1 : nearCam(fx, fy) ? 0.45 : 0);
+          if (R.FRUIT_BOOST_S > 0) boostCue(fx, fy, mine ? 1 : nearCam(fx, fy) ? 0.45 : 0);
+          else { pop(fx, fy, String(e.pts), '#ffb8ff', 1000, false); if (mine) Snd.play('ch.fruit'); }
         }
       } else if (e.k === 'life') {
         if (e.id === myId) Snd.play('ch.life');

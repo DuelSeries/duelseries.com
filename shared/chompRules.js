@@ -28,7 +28,8 @@
     PAC_SPEED: 0.80,             // DOSSIER "Pac-Man Speed" 80%
     // Owen 2026-10-30: powered, your Pac-Man moves clearly faster, so it can catch a player running from it (the
     // arcade's "Fright. Pac-Man Speed" is 90%, too close to 80% to catch anybody in an arena of chompers)
-    PAC_FRIGHT_SPEED: 1.05,      // CHOSEN: 31% faster than 80% while your power pellet lasts
+    // Owen 2026-11-04 "get rid of a lot of the boosts": powered is the arcade's own 90% again (1.05 from 10-30)
+    PAC_FRIGHT_SPEED: 0.90,      // DOSSIER "Fright. Pac-Man Speed" 90%
     GHOST_SPEED: 0.75,           // DOSSIER "Ghost Speed" 75%
     GHOST_TUNNEL_SPEED: 0.40,    // DOSSIER "Ghost Tunnel Speed" 40%
     GHOST_FRIGHT_SPEED: 0.50,    // DOSSIER "Fright. Ghost Speed" 50%
@@ -38,8 +39,9 @@
     // frame" per dot, its ~71% "Pac-Man Dots Speed"): each dot gives DOT_BUMP for DOT_BUMP_TICKS, renewed by the next.
     DOT_PAUSE_TICKS: 0,          // CHOSEN (the arcade's is 1)
     ENERGIZER_PAUSE_TICKS: 3,    // DOSSIER: "three frames" per energizer
-    DOT_BUMP: 1.08,              // CHOSEN: 8% faster for a moment
-    DOT_BUMP_TICKS: 20,          // CHOSEN: a third of a second (a run of dots keeps it, an empty corridor drops it)
+    // Owen 2026-11-04: no dot bump any more (1.08 for 20 ticks from 10-30)
+    DOT_BUMP: 1,                 // CHOSEN: none
+    DOT_BUMP_TICKS: 0,           // CHOSEN: none
 
     // ---- cornering (DOSSIER Chapter 3): pre-turn and post-turn windows of 3 to 4 px on an 8 px tile, i.e. a turn
     // pressed anywhere in the tile that has the opening is taken, and Pac-Man cuts the corner diagonally.
@@ -86,8 +88,9 @@
     FRUIT_AT: [70, 170],
     FRUIT_S: [9, 10],
     // Owen 2026-10-30: a cherry is a BIG speed boost for a few seconds (2026-10-26 to 10-30 a small 10% for 3 s)
-    FRUIT_BOOST: 1.45,           // CHOSEN: 45% faster (80% -> 116% of full speed; powered 105% -> 152%, 0.24 tile a tick)
-    FRUIT_BOOST_S: 4,
+    // Owen 2026-11-04: a cherry is points only again (FRUIT_POINTS), no speed (x1.45 for 4 s from 10-30)
+    FRUIT_BOOST: 1,              // CHOSEN: none
+    FRUIT_BOOST_S: 0,
 
     // ---- the arena (all ARENA / CHOSEN)
     MODULES_X: 2,                // Owen 2026-10-26: the arena starts at 2 x 2 modules (each 28 x 31 tiles with its own
