@@ -22,7 +22,8 @@
 //    socket with no token is refused 'entry' by the door.
 // 3. Drawing. One .slx-cash canvas between their game canvas (z-index 5) and their HUD (7), with slxHold's camera
 //    math (slxHold.js screenX, screenY): a turning gold coin (slxCoin.js, Owen's pick 2026-10-15) on every cash pellet,
-//    a plain #FFD700 disc while no coin frame is ready, and $x.xx in #14F195 over every paid head. Their client draws
+//    a plain #FFD700 disc while no coin frame is ready, and $x.xx on a small dark gold tag over every paid head (Owen's
+//    "W1 Gold tag", 2026-11-04). Their client draws
 //    food under the snakes but this canvas is above theirs, so what is drawn here is cut away under every live body and
 //    head. Two looks (CASH_LOOK, Owen 2026-10-15; slx.paid.look() switches them live): 'gold', their own pellet in gold
 //    (its core and glow sprites swapped for their recipe, slDrawWorld buildFoodSprites, made here in gold) that slowly
@@ -32,8 +33,9 @@
 //    client keeps rad byte / 5 as the food's sz (slApply.js newFood), so cash is sz >= 13.6; in a paid room every
 //    death drop is cash and nothing else reaches it (test/slPaidBytes.test.js). Worths come in sl:x {t: 'w', id, v}
 //    (server/sl/slRoom.js _worthAll, _worthOnView), the own one with its delta d: a "+$0.01" pop rises over the own
-//    head on d > 0 (slxSound plays the old money chime on the same message). The HUD line says "Your snake $0.53,
-//    hold Q to cash out" while the own snake is alive.
+//    head on d > 0 (slxSound plays the old money chime on the same message). The top line shows "Your snake", the
+//    worth in gold and the room ($0.50 room) while the own snake is alive; a computer adds "Q Hold to cash out" at the
+//    bottom centre.
 // 4. The results card (slxCard's cardLines, beforeAgain and beforeLobby hooks): lost (the worth dropped as gold),
 //    cashed (gross, the house's 10%, what the player receives, then GET /api/sl/cashout/:cid every POLL_MS for
 //    POLL_FOR_MS: pending, sent or delayed), closed (refunded in full), refused by its why with the refund line, a
@@ -84,7 +86,18 @@
   var CID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;   // slPaidBoot isCashoutId
   var GOLD = '#FFD700';
   var GOLD_EDGE = '#8C5A00';
-  var GREEN = '#14F195';
+  // The worth over each paid head (Owen's pick "W1 Gold tag", 2026-11-04, over the old #14F195 green figure): the
+  // kit's gold on a small dark tag, yours with a bone edge. Sizes are a computer's px; a phone draws them at TAG_PHONE
+  // of that, in its own px (slx.hud.zoom(): their 0.7 page).
+  var TAG_GOLD = '#f0a830';
+  var TAG_FILL = 'rgba(8, 7, 5, 0.68)';
+  var TAG_EDGE = 'rgba(240, 168, 48, 0.26)';
+  var TAG_EDGE_OWN = 'rgba(244, 241, 234, 0.75)';
+  var TAG_FONT = '"Archivo", "Segoe UI", Arial, sans-serif';
+  var TAG_SIZE = 12.5;                           // CHOSEN (the W1 mockup): px, another snake's tag
+  var TAG_SIZE_OWN = 14;                         // CHOSEN: px, your own tag
+  var TAG_PHONE = 0.86;                          // CHOSEN: a phone's tags against a computer's
+  var HUD_PHONE = 0.8;                           // CHOSEN: a phone's top line against a computer's
   var CASH_Z = '6';                              // between their game canvas (5) and their HUD (7), as slxHold's rings
   var PI2 = 2 * Math.PI;
   // Head radius in world units: their body is 29 x sc wide (slxHold HEAD_HALF).
@@ -161,9 +174,10 @@
     againSlow: 'Waiting for your wallet...',
     againSlowLine: 'Your wallet has not answered yet. If you approved the stake, wait here: the round starts once it lands.',
     againFailed: 'Stake failed',
-    hudHead: 'Your snake ',
-    hudKeys: ', hold Q to cash out',
-    hudTouch: ', hold CASH OUT to cash out',
+    hudLabel: 'Your snake',
+    hudRoom: function (stake) { return dollars(stake * 1e6) + ' room'; },
+    hintKey: 'Q',
+    hintKeys: 'Hold to cash out',
     lockKeys: 'Hold Q to cash out first',
     lockTouch: 'Hold CASH OUT to cash out first',
     lockWallet: 'Finish the stake in your wallet first',
@@ -664,23 +678,43 @@
   var hudText = '';
   var hudW = 0;
   var hudTop = -1;
+  var hudK = -1;
   var canvas = null;
   var ctx = null;
+  // The top line (W1): "Your snake", the worth big in gold, the room under it. A computer gets "Q Hold to cash out" at
+  // the bottom centre while the line shows; a phone has its CASH OUT button there instead.
+  var hint = null;
   if (body) {
     hud = doc.createElement('div');
     hud.className = 'slx-paid-hud';
     hud.setAttribute('aria-live', 'off');
-    var hudHead = doc.createElement('span');
-    hudHead.textContent = TEXT.hudHead;
-    hudValue = doc.createElement('span');
+    var hudHead = doc.createElement('small');
+    hudHead.className = 'slx-paid-hud-l';
+    hudHead.textContent = TEXT.hudLabel;
+    hudValue = doc.createElement('strong');
     hudValue.className = 'slx-paid-hud-v';
     hudTail = doc.createElement('span');
-    hudTail.textContent = S.is_mobile ? TEXT.hudTouch : TEXT.hudKeys;
+    hudTail.className = 'slx-paid-hud-r';
+    hudTail.textContent = TEXT.hudRoom(st.stake);
     hud.appendChild(hudHead);
     hud.appendChild(hudValue);
     hud.appendChild(hudTail);
     hud.style.display = 'none';
     body.appendChild(hud);
+    if (!S.is_mobile) {
+      hint = doc.createElement('div');
+      hint.className = 'slx-paid-hint';
+      hint.setAttribute('aria-hidden', 'true');
+      var key = doc.createElement('b');
+      key.className = 'slx-paid-hint-k';
+      key.textContent = TEXT.hintKey;
+      hint.appendChild(key);
+      var hintWords = doc.createElement('span');
+      hintWords.textContent = TEXT.hintKeys;
+      hint.appendChild(hintWords);
+      hint.style.display = 'none';
+      body.appendChild(hint);
+    }
     canvas = doc.createElement('canvas');
     canvas.className = 'slx-cash';
     var cs = canvas.style;
@@ -975,23 +1009,80 @@
     return ((v ^ (v >>> 16)) >>> 0) / 4294967296;
   }
 
-  function label(text, x, y, size, colour) {
-    ctx.font = 'bold ' + size + 'px Arial, "Helvetica Neue", Helvetica, sans-serif';
-    ctx.lineWidth = Math.max(2, size / 5);
-    ctx.strokeStyle = 'rgba(0, 0, 0, 0.65)';
+  // A phone draws the tags and the top line smaller, in its own px: their page is at 0.7 there (slxHud zoom()).
+  function phoneScale(f) {
+    var hs = slx.hud;
+    var ph = hs && typeof hs.phone === 'function' ? hs.phone() : !!S.is_mobile;
+    var z = hs && typeof hs.zoom === 'function' ? hs.zoom() : 1;
+    return ph ? f * (z > 0 ? z : 1) : 1;
+  }
+
+  // Text widths for the tags, kept per font and text (a worth changes a few times a second at most).
+  var widths = {};
+  var widthCount = 0;
+  function textWidth(text, size) {
+    var key = size + '|' + text;
+    var w = widths[key];
+    if (w === undefined) {
+      var m = typeof ctx.measureText === 'function' ? ctx.measureText(text) : null;
+      w = m && m.width > 0 ? m.width : text.length * size * 0.58;
+      if (++widthCount > 400) {
+        widths = {};
+        widthCount = 0;
+      }
+      widths[key] = w;
+    }
+    return w;
+  }
+
+  // One gold tag: its bottom edge at y, centred on x.
+  function tag(text, x, y, size, own) {
+    ctx.font = '750 ' + size + 'px ' + TAG_FONT;
+    var w = textWidth(text, size) + size * 1.1;
+    var h = size * 1.58;
+    var r = Math.min(h / 2, size * 0.56);
+    var x0 = x - w / 2, y0 = y - h;
+    ctx.beginPath();
+    ctx.moveTo(x0 + r, y0);
+    ctx.lineTo(x0 + w - r, y0);
+    ctx.quadraticCurveTo(x0 + w, y0, x0 + w, y0 + r);
+    ctx.lineTo(x0 + w, y0 + h - r);
+    ctx.quadraticCurveTo(x0 + w, y0 + h, x0 + w - r, y0 + h);
+    ctx.lineTo(x0 + r, y0 + h);
+    ctx.quadraticCurveTo(x0, y0 + h, x0, y0 + h - r);
+    ctx.lineTo(x0, y0 + r);
+    ctx.quadraticCurveTo(x0, y0, x0 + r, y0);
+    ctx.closePath();
+    ctx.fillStyle = TAG_FILL;
+    ctx.fill();
+    ctx.lineWidth = own ? 1.5 : 1;
+    ctx.strokeStyle = own ? TAG_EDGE_OWN : TAG_EDGE;
+    ctx.stroke();
+    ctx.fillStyle = TAG_GOLD;
+    ctx.fillText(text, x, y0 + h * 0.53);
+    return h;
+  }
+
+  // The +$ pop over the own tag: gold on a dark edge, no tag.
+  function pop(text, x, y, size) {
+    ctx.font = '700 ' + size + 'px ' + TAG_FONT;
+    ctx.lineWidth = Math.max(2, size / 4);
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.6)';
     ctx.strokeText(text, x, y);
-    ctx.fillStyle = colour;
+    ctx.fillStyle = TAG_GOLD;
     ctx.fillText(text, x, y);
   }
 
-  // $x.xx over each paid head (a snake their list holds, alive, with a worth), and the own pops above its own.
+  // A gold tag with $x.xx over each paid head (a snake their list holds, alive, with a worth), the own pops above its
+  // own.
   function drawLabels(k) {
     var list = S.slithers;
     if (!list || !list.length) return 0;
     var me = S.slither;
     var count = 0;
+    var f = phoneScale(TAG_PHONE);
     ctx.textAlign = 'center';
-    ctx.textBaseline = 'bottom';
+    ctx.textBaseline = 'middle';
     for (var i = 0; i < list.length; i++) {
       var o = list[i];
       if (!o || o.dead || !has.call(st.worth, o.id)) continue;
@@ -999,17 +1090,19 @@
       var x = screenX(o.xx + (o.fx || 0));
       var y = screenY(o.yy + (o.fy || 0)) - HEAD_HALF * sc * k - LABEL_GAP;
       if (x < -80 || y < -40 || x > cw + 80 || y > ch + 60) continue;
-      var size = Math.max(12, Math.min(22, Math.round(10 + 6 * sc * k)));
+      var own = o === me;
+      var size = Math.round((own ? TAG_SIZE_OWN : TAG_SIZE) * f * 10) / 10;
       ctx.globalAlpha = 1;
-      label(dollars(st.worth[o.id]), x, y, size, GREEN);
+      var h = tag(dollars(st.worth[o.id]), x, y, size, own);
       count++;
-      if (o === me && pops.length) {
+      if (own && pops.length) {
         var t = slx.now();
+        var ps = Math.round((TAG_SIZE_OWN - 1.5) * f * 10) / 10;
         for (var p = 0; p < pops.length; p++) {
           var u = (t - pops[p].t0) / POP_MS;
           if (!(u >= 0 && u < 1)) continue;
           ctx.globalAlpha = 1 - u;
-          label(pops[p].text, x, y - size - 4 - POP_RISE * u, Math.max(12, size - 2), GREEN);
+          pop(pops[p].text, x, y - h - ps * 0.8 - POP_RISE * u, ps);
         }
         ctx.globalAlpha = 1;
       }
@@ -1040,15 +1133,24 @@
     var want = v !== null;
     if (want !== hudShown) {
       hudShown = want;
-      hud.style.display = want ? 'block' : 'none';
+      hud.style.display = want ? 'flex' : 'none';
+      if (hint) hint.style.display = want ? 'flex' : 'none';
     }
     if (!want) return;
     var text = dollars(v);
     var hs = slx.hud;
+    var k = phoneScale(HUD_PHONE);
+    if (k !== hudK) {
+      hudK = k;
+      if (typeof hud.style.setProperty === 'function') hud.style.setProperty('--slx-k', String(k));
+      if (hint && typeof hint.style.setProperty === 'function') hint.style.setProperty('--slx-k', String(k));
+      hudText = '';                              // the width changes with the size
+    }
     if (text !== hudText) {
       hudText = text;
       hudValue.textContent = text;
-      hudW = hs ? hud.offsetWidth || 0 : 0;
+      var br = hs && typeof hud.getBoundingClientRect === 'function' ? hud.getBoundingClientRect() : null;
+      hudW = br && br.width > 0 ? br.width : hs ? hud.offsetWidth || 0 : 0;
     }
     // the top centre slot slxHud keeps clear of their leaderboard (under it on a phone held upright, Owen 2026-10-16)
     var top = hs && typeof hs.topSlot === 'function' ? hs.topSlot(hudW) : -1;
