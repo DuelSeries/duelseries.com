@@ -51,38 +51,30 @@
   };
 
   var BUILD = {
-    // A plump white chicken, wider than it is deep: big head forward, a comb of three spikes, wattle, yellow beak,
-    // orange legs, grey-tipped wings and a fan of three broad tail feathers standing up behind, so even from behind it is
-    // a wide body under a fan, never a narrow white column.
+    // A slim, upright voxel chicken (Owen 2026-11-04: the plump hen "looks fat"): one tall white block that is body
+    // and head together, a stepped two-block comb, an orange beak over a red wattle, eyes on the sides, small wings
+    // stepped at the tips, a short tail tuft behind and thin orange legs. About 0.5 wide, 0.95 tall and 0.65 deep, the
+    // same footprint as before, so the shadow and the hop are unchanged. Every box touches its neighbours without
+    // overlapping, so the lobby's 2D drawing (shopArt.js) can sort them front to back.
     chicken: function (p, L) {
       for (var sx = -1; sx <= 1; sx += 2) {
-        L.push(B(sx * 0.12, 0, 0.06, 0.05, 0.14, 0.05, p.leg));                                 // legs
-        L.push(B(sx * 0.12, 0, 0.0, 0.11, 0.035, 0.15, p.leg));                                 // feet, toes forward
-        L.push(B(sx * 0.31, 0.2, 0.09, 0.04, 0.22, 0.3, p.wing));                               // folded wings
-        L.push(B(sx * 0.312, 0.2, 0.19, 0.042, 0.1, 0.14, p.tip));                              // their tips
-        L.push(B(sx * 0.171, 0.57, -0.23, 0.012, 0.04, 0.05, p.blush));                          // cheeks
+        L.push(B(sx * 0.1, 0.03, 0.04, 0.05, 0.09, 0.05, p.leg));                                // legs
+        L.push(B(sx * 0.1, 0, -0.02, 0.1, 0.03, 0.14, p.leg));                                   // feet, toes forward
+        L.push(B(sx * 0.2325, 0.34, 0.05, 0.045, 0.22, 0.26, p.side));                           // small folded wings
+        L.push(B(sx * 0.2325, 0.3, 0.12, 0.045, 0.04, 0.12, p.wing));                            // stepped down at the tips
+        L.push(B(sx * 0.216, 0.62, -0.12, 0.012, 0.08, 0.07, BLACK));                            // eyes, one each side
+        L.push(B(sx * 0.2235, 0.665, -0.135, 0.003, 0.025, 0.025, WHITE));                       // with a glint
       }
-      L.push(B(0, 0.1, 0.08, 0.5, 0.03, 0.42, p.side));                                          // the body, rounded
-      L.push(B(0, 0.13, 0.08, 0.58, 0.36, 0.48, p.body, { sides: p.side }));
-      L.push(B(0, 0.49, 0.1, 0.5, 0.05, 0.4, p.body, { sides: p.side }));
-      L.push(B(0, 0.18, -0.18, 0.44, 0.26, 0.04, p.body));                                       // the puffed breast
-      L.push(B(0, 0.541, 0.13, 0.16, 0.006, 0.32, p.stripe));                                    // the back's stripe
-      L.push(B(0, 0.4, 0.35, 0.4, 0.14, 0.06, p.body, { sides: p.side }));                       // the tail: a base, then a fan
-      for (var f = -1; f <= 1; f++) {                                                             // of three broad feathers
-        var top = 0.86 - Math.abs(f) * 0.13;
-        L.push(B(f * 0.17, 0.52, 0.41, 0.11, top - 0.52, 0.05, p.body, { sides: p.side }));
-        L.push(B(f * 0.17, top, 0.41, 0.11, 0.07, 0.05, p.tip));
-      }
-      L.push(B(0, 0.48, -0.13, 0.34, 0.32, 0.3, p.body, { sides: p.side }));                     // the head, set forward
-      L.push(B(0, 0.8, -0.14, 0.1, 0.04, 0.24, p.comb2));                                        // the comb: three spikes
-      L.push(B(0, 0.84, -0.23, 0.08, 0.07, 0.06, p.comb), B(0, 0.84, -0.14, 0.08, 0.12, 0.06, p.comb), B(0, 0.84, -0.05, 0.08, 0.08, 0.06, p.comb));
-      L.push(B(0, 0.6, -0.32, 0.12, 0.05, 0.08, p.beak, { top: p.beakHi }));                    // the beak, upper and lower
-      L.push(B(0, 0.565, -0.31, 0.1, 0.035, 0.06, p.beakLo));
-      L.push(B(0, 0.45, -0.3, 0.09, 0.13, 0.05, p.comb));                                        // the wattle
-      for (var s2 = -1; s2 <= 1; s2 += 2) {                                                       // eyes, one each side
-        L.push(B(s2 * 0.171, 0.64, -0.19, 0.012, 0.08, 0.07, BLACK));
-        L.push(B(s2 * 0.172, 0.69, -0.21, 0.012, 0.025, 0.025, WHITE));
-      }
+      L.push(B(0, 0.12, 0.02, 0.34, 0.04, 0.38, p.side));                                        // the underside, stepped in
+      L.push(B(0, 0.16, 0.02, 0.42, 0.66, 0.46, p.body, { sides: p.side }));                     // body and head, one block
+      L.push(B(0, 0.82, -0.07, 0.09, 0.07, 0.18, p.comb2));                                      // the comb: a long base
+      L.push(B(0, 0.89, -0.1, 0.09, 0.06, 0.08, p.comb));                                        // and a step up at the front
+      L.push(B(0, 0.56, -0.255, 0.13, 0.09, 0.09, p.beak, { top: p.beakHi }));                  // the beak, upper and lower
+      L.push(B(0, 0.52, -0.24, 0.11, 0.04, 0.06, p.beakLo));
+      L.push(B(0, 0.42, -0.225, 0.07, 0.1, 0.03, p.comb));                                       // the wattle
+      L.push(B(0, 0.5, 0.29, 0.24, 0.16, 0.08, p.body, { sides: p.side }));                      // the tail: a short tuft
+      L.push(B(0, 0.66, 0.3, 0.12, 0.08, 0.06, p.body, { sides: p.side }));
+      L.push(B(0, 0.74, 0.3, 0.12, 0.02, 0.06, p.wing));                                         // tipped grey
     },
     // An orange tabby: stripes over the back, white paws and muzzle, green eyes, pointed ears, tail curled up.
     cat: function (p, L) {
