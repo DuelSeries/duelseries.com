@@ -447,12 +447,13 @@ button.ds-row:hover, a.ds-row:hover { background: var(--ds-s2); }
 .ds-opens b { color: var(--ds-bone); font-weight: 700; }
 
 /* ---------- wallet: the balance ---------- */
-/* A clean solid card (Owen 2026-11-03: the bulb edge read as "lights for some reason" and the dot-matrix figure as
-   pixelated). .ds-lit and .ds-led keep their names so the markup and tests stay put; the bulbs and the 4px dot mask
-   are gone. The figure is solid gold type, crisp at any zoom or devicePixelRatio. */
-.ds-balp { display: flex; flex-direction: column; gap: var(--ds-sp2); padding: 30px 32px 28px; }
-.ds-lit { background: var(--ds-s1); box-shadow: var(--ds-edge); }
-.ds-led { display: block; font-size: 62px; font-weight: var(--ds-w-display); font-stretch: var(--ds-wide); letter-spacing: -.02em; line-height: 1.05; color: var(--ds-gold); white-space: nowrap; font-variant-numeric: tabular-nums; padding: 2px 0; }
+/* Owen 2026-11-03: the bulb ring read as "lights for some reason" and the 4px dot mask made the figure look
+   pixelated. Both are gone, and the glow with them; size, weight and spacing are as they were. .ds-lit and .ds-led
+   keep their names so the markup and tests stay put. */
+.ds-balp { display: flex; flex-direction: column; gap: var(--ds-sp2); padding: 34px 32px 30px; }
+.ds-lit { isolation: isolate; }
+.ds-led { display: block; font-size: 62px; font-weight: 900; font-stretch: 125%; letter-spacing: .01em; line-height: 1; color: var(--ds-gold); white-space: nowrap; font-variant-numeric: tabular-nums;
+  padding: 4px 0; }
 .ds-led.is-off { color: #6b5739; }
 .ds-addr-line { display: flex; align-items: center; gap: var(--ds-sp2); padding: 6px 6px 6px var(--ds-sp4); border-radius: var(--ds-r2); background: var(--ds-ink); box-shadow: var(--ds-edge); }
 .ds-addr-line .ds-mono { flex: 1; min-width: 0; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -515,7 +516,7 @@ button.ds-row:hover, a.ds-row:hover { background: var(--ds-s2); }
   .ds-bigclock i { font-size: 30px; line-height: 72px; }
   .ds-clockbox b { font-size: 30px; }
   .ds-steps { grid-template-columns: 1fr; }
-  .ds-balp { padding: 26px 22px 22px; }
+  .ds-balp { padding: 30px 26px 26px; }
   .ds-led { font-size: 52px; }
   .ds-out { grid-template-columns: 1fr; padding: var(--ds-sp5) var(--ds-sp4); gap: var(--ds-sp5); }
 }
