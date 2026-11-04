@@ -958,6 +958,28 @@ async function walletsWithStakes(wallets) {
   return new Set(r.rows.map((x) => x.google_id));
 }
 
+// One wallet's paid play on one Toronto calendar day (Control's Spent today tab: what the owner's own wallet staked and
+// won). day: 'YYYY-MM-DD'. -> { stakes: [{ game, amount, n }], won: { amount, n } }. Read only.
+async function walletDay(wallet, day) {
+  if (typeof wallet !== 'string' || !wallet || wallet.length > 64 || !/^\d{4}-\d{2}-\d{2}$/.test(String(day))) {
+    return { stakes: [], won: { amount: 0, n: 0 } };
+  }
+  const [s, e] = await Promise.all([
+    pool.query(
+      `SELECT COALESCE(game, '') AS game, COALESCE(SUM(amount), 0) AS total, COUNT(*) AS n FROM stakes_history
+        WHERE google_id = $1 AND (created_at AT TIME ZONE 'America/Toronto')::date = $2::date GROUP BY game`,
+      [wallet, day]),
+    pool.query(
+      `SELECT COALESCE(SUM(amount), 0) AS total, COUNT(*) AS n FROM earnings_history
+        WHERE google_id = $1 AND (created_at AT TIME ZONE 'America/Toronto')::date = $2::date`,
+      [wallet, day]),
+  ]);
+  return {
+    stakes: s.rows.map((r) => ({ game: r.game || 'other', amount: parseFloat(r.total) || 0, n: parseInt(r.n, 10) || 0 })),
+    won: { amount: parseFloat(e.rows[0] && e.rows[0].total) || 0, n: parseInt(e.rows[0] && e.rows[0].n, 10) || 0 },
+  };
+}
+
 // ─── House revenue (the owner's take: game rake + cosmetic sales) ────────────────
 // One append-only ledger of everything the house earns, so the owner can see total
 // take at a glance. Callers use .catch() — a missed revenue log must never break a
@@ -1425,7 +1447,7 @@ module.exports = {
   features, NO_USDC_ACCOUNT,
   recordEarnings,
   onEarningsRecorded,
-  recordStake, walletsWithStakes, getTopEarners,
+  recordStake, walletsWithStakes, walletDay, getTopEarners,
   getProfile, getMyProfile, getAccountName, setAccountName, searchPlayerNames, getGlobalWinnings, getGlobalWinningsSplit,
   addCosmetic, getOwnedCosmetics, ownsCosmetic,
   skinOpen, skinRow, skinSubmit, skinReopen, skinClose, skinGrant, skinDue, skinExpiredDue, skinExpire, skinExpireOpen,
