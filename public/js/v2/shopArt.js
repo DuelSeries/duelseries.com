@@ -434,7 +434,11 @@
     var g = ctx.createRadialGradient(w / 2, h / 2, 2, w / 2, h / 2, Math.max(w, h) * 0.6);
     g.addColorStop(0, cl.hi); g.addColorStop(0.55, cl.mid); g.addColorStop(1, cl.lo);
     ctx.fillStyle = g; ctx.fillRect(p, p, w - 2 * p, h - 2 * p);
-    var br = Math.min(w, h) * 0.085, bx = w * 0.8, by = h * 0.4;
+    /* A strip (the Customize reel, 420 x 104, and the row under Play, 150 x 56) lays the cue flat along the middle,
+       the cue ball at its tip, so the WHOLE cue fits (Owen 2026-11-04: "the pool cue is super big... it shows only a
+       tiny bit of it"); a squarer box keeps the cue running from the ball to the far corner. */
+    var strip = w / h > 2.2 || h < 90;
+    var br = strip ? h * 0.16 : Math.min(w, h) * 0.085, bx = strip ? w - p - br - h * 0.12 : w * 0.8, by = strip ? h / 2 : h * 0.4;
     ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.arc(bx + br * 0.25, by + br * 0.3, br, 0, Math.PI * 2); ctx.fill();
     var bg = ctx.createRadialGradient(bx - br * 0.35, by - br * 0.4, br * 0.1, bx, by, br);
     bg.addColorStop(0, '#ffffff'); bg.addColorStop(1, '#b9b6ad');
@@ -451,11 +455,14 @@
     var LK = root.DS_POOL8_LOOKS, ws = Math.max(5, Math.min(w, h) * 0.09) / 8.4;
     var Q = cu.style ? cu : { shaft: cu.shaft, joint: cu.joint, fore: cu.butt, wrap: cu.butt, wrapLine: cu.butt, sleeve: cu.butt, trim: cu.butt };
     if (!LK || !LK.paintCue) return;
-    if (w / h > 2.2 || h < 90) {
-      // Too small for the whole cue: its back half fills the strip, sliding with the same stroke.
-      var L2 = w * 1.9, ws2 = h * 0.5 / 8.4;
-      ctx.save(); ctx.translate(w + L2 * 0.42 + back * w * 0.08, h / 2); ctx.rotate(Math.PI);
-      LK.paintCue(ctx, L2, Q, ws2);
+    if (strip) {
+      // Flat, tip at the ball, the butt kept inside the cloth even at the full draw back.
+      var sg = br * 0.6, sp = Math.min(w * 0.05, br * 1.4), tip = bx - br - sg, butt = p + h * 0.06 + sp;
+      var sl = tip - butt, sws = Math.min(h * 0.2, sl / 18) / 8.4;
+      ctx.save();
+      ctx.translate(tip - back * sp, by); ctx.rotate(Math.PI);
+      ctx.fillStyle = 'rgba(0,0,0,0.22)'; ctx.fillRect(0, -sws * 7.5, sl, sws * 5);   // its shadow, under it on the cloth
+      LK.paintCue(ctx, sl, Q, sws);
       ctx.restore();
       return;
     }
