@@ -1,7 +1,6 @@
 /* Crossy Road's animals (Owen 2026-10-28: "proper voxel animals", a chicken by default, then a cat, a dog, a pig and
-   a frog). Every one is OUR OWN design, not Crossy Road's or anybody else's: the chicken is a plump hen with a big
-   round head set forward over its body, a three-lobed comb, grey-tipped wings and a stepped tail fan, never their
-   tall single block.
+   a frog). Every one is built by us out of boxes; the chicken follows Crossy Road's style and proportions (Owen
+   2026-11-04), the others are our own designs.
 
    One model per animal, as boxes, for both ends that draw it: the game builds them in three.js
    (public/js/crossy/crossyScene.js critterGeo) and the lobby's Customize draws the same boxes in 2D
@@ -27,10 +26,8 @@
 
   var COATS = {
     chicken: [
-      { body: 0xf8f8f3, side: 0xe7e9ec, wing: 0xd3dae3, tip: 0xa3afbf, stripe: 0xeceef1, comb: 0xe5323c, comb2: 0xc42531, beak: 0xffc21a, beakHi: 0xffd95e,
-        beakLo: 0xe9a512, leg: 0xff9a1f, blush: 0xffb7bf },
-      { body: 0xc98a4b, side: 0xb47738, wing: 0xa8682f, tip: 0xf3dfb5, stripe: 0x8a5426, comb: 0xe5323c, comb2: 0xc42531, beak: 0xffc21a, beakHi: 0xffd95e,
-        beakLo: 0xe9a512, leg: 0xff9a1f, blush: 0xf2a08f },
+      { body: 0xffffff, comb: 0xdf5b5b, beak: 0xe36943, leg: 0xe36943, eye: 0x3a1d16 },
+      { body: 0xc98a4b, comb: 0xdf5b5b, beak: 0xe36943, leg: 0xe36943, eye: 0x3a1d16 },
     ],
     cat: [
       { fur: 0xf2a046, side: 0xdf8b33, stripe: 0xc0661c, white: 0xfff4e6, pink: 0xff9fb2, eye: 0x86d14a },
@@ -51,30 +48,27 @@
   };
 
   var BUILD = {
-    // A slim, upright voxel chicken (Owen 2026-11-04: the plump hen "looks fat"): one tall white block that is body
-    // and head together, a stepped two-block comb, an orange beak over a red wattle, eyes on the sides, small wings
-    // stepped at the tips, a short tail tuft behind and thin orange legs. About 0.5 wide, 0.95 tall and 0.65 deep, the
-    // same footprint as before, so the shadow and the hop are unchanged. Every box touches its neighbours without
-    // overlapping, so the lobby's 2D drawing (shopArt.js) can sort them front to back.
+    // The chicken in Crossy Road's own style (Owen 2026-11-04: "make it look exactly like the real Crossy Road"), built
+    // by us out of boxes on a 0.05 grid, its proportions measured off the reference (game-refs/crossy/harness/redo
+    // henvox.js): a narrow body 6 voxels wide, its lower half 10 deep with the wings out to 10 wide, the upper half and
+    // head stepped in at the back, a 2 voxel comb on top, the beak 3 voxels out with the wattle under it, one dark voxel
+    // for each eye, 1 voxel legs 3 tall on 3 wide feet with two toes. Flat colours: the game's light does the shading.
+    // Same footprint as before (shadow, hop, hitbox and rules untouched). Boxes touch without overlapping, so the
+    // lobby's 2D Customize sprite can sort them.
     chicken: function (p, L) {
       for (var sx = -1; sx <= 1; sx += 2) {
-        L.push(B(sx * 0.1, 0.03, 0.04, 0.05, 0.09, 0.05, p.leg));                                // legs
-        L.push(B(sx * 0.1, 0, -0.02, 0.1, 0.03, 0.14, p.leg));                                   // feet, toes forward
-        L.push(B(sx * 0.2325, 0.34, 0.05, 0.045, 0.22, 0.26, p.side));                           // small folded wings
-        L.push(B(sx * 0.2325, 0.3, 0.12, 0.045, 0.04, 0.12, p.wing));                            // stepped down at the tips
-        L.push(B(sx * 0.216, 0.62, -0.12, 0.012, 0.08, 0.07, BLACK));                            // eyes, one each side
-        L.push(B(sx * 0.2235, 0.665, -0.135, 0.003, 0.025, 0.025, WHITE));                       // with a glint
+        L.push(B(sx * 0.125, 0, 0.025, 0.15, 0.05, 0.15, p.leg));                               // feet
+        L.push(B(sx * 0.175, 0, -0.1, 0.05, 0.05, 0.1, p.leg), B(sx * 0.075, 0, -0.1, 0.05, 0.05, 0.1, p.leg));   // two toes each
+        L.push(B(sx * 0.125, 0.05, 0.025, 0.05, 0.15, 0.05, p.leg));                            // legs
+        L.push(B(sx * 0.2, 0.25, 0.05, 0.1, 0.15, 0.3, p.body));                                // wings
+        L.push(B(sx * 0.1525, 0.7, -0.075, 0.005, 0.05, 0.05, p.eye));                          // eyes, one voxel each side
       }
-      L.push(B(0, 0.12, 0.02, 0.34, 0.04, 0.38, p.side));                                        // the underside, stepped in
-      L.push(B(0, 0.16, 0.02, 0.42, 0.66, 0.46, p.body, { sides: p.side }));                     // body and head, one block
-      L.push(B(0, 0.82, -0.07, 0.09, 0.07, 0.18, p.comb2));                                      // the comb: a long base
-      L.push(B(0, 0.89, -0.1, 0.09, 0.06, 0.08, p.comb));                                        // and a step up at the front
-      L.push(B(0, 0.56, -0.255, 0.13, 0.09, 0.09, p.beak, { top: p.beakHi }));                  // the beak, upper and lower
-      L.push(B(0, 0.52, -0.24, 0.11, 0.04, 0.06, p.beakLo));
-      L.push(B(0, 0.42, -0.225, 0.07, 0.1, 0.03, p.comb));                                       // the wattle
-      L.push(B(0, 0.5, 0.29, 0.24, 0.16, 0.08, p.body, { sides: p.side }));                      // the tail: a short tuft
-      L.push(B(0, 0.66, 0.3, 0.12, 0.08, 0.06, p.body, { sides: p.side }));
-      L.push(B(0, 0.74, 0.3, 0.12, 0.02, 0.06, p.wing));                                         // tipped grey
+      L.push(B(0, 0.2, 0.05, 0.3, 0.25, 0.5, p.body));                                            // the lower body
+      L.push(B(0, 0.3, 0.325, 0.2, 0.15, 0.05, p.body));                                          // the tail
+      L.push(B(0, 0.45, -0.025, 0.3, 0.4, 0.35, p.body));                                         // the upper body and head
+      L.push(B(0, 0.85, -0.05, 0.1, 0.1, 0.2, p.comb));                                           // the comb
+      L.push(B(0, 0.65, -0.275, 0.1, 0.1, 0.15, p.beak));                                         // the beak
+      L.push(B(0, 0.55, -0.25, 0.1, 0.1, 0.1, p.comb));                                           // the wattle
     },
     // An orange tabby: stripes over the back, white paws and muzzle, green eyes, pointed ears, tail curled up.
     cat: function (p, L) {
