@@ -1935,28 +1935,50 @@ function consoleGames(ko, bs, sw, hs, p8, ah, rt) {
       rungs: paidBotRows(rows(chompArenas.all(), []), 'chomp') }] : []),
     { id: 'knockout', name: 'Knockout', duel: true,
       paid: ownerConsole.paidDoor({ enabled: true, open: koPaidOpen, stopping: false }, koPaidSwitch.saved(), 'ko:paid'),
-      rungs: ownerConsole.duelRows(ko) },
+      rungs: duelBotRows(ownerConsole.duelRows(ko), 'knockout') },
     { id: 'battleship', name: 'Battleship', duel: true,
       paid: ownerConsole.paidDoor({ enabled: true, open: bsPaidOpen, stopping: false }, bsPaidSwitch.saved(), 'bs:paid'),
       soon: soonRow('battleship'),
       rungs: ownerConsole.duelRows(bs) },
     { id: 'swim', name: SWIM_NAME, duel: true,
       paid: ownerConsole.paidDoor({ enabled: true, open: swPaidOpen, stopping: false }, swPaidSwitch.saved(), 'sw:paid'),
-      rungs: ownerConsole.duelRows(sw) },
+      rungs: duelBotRows(ownerConsole.duelRows(sw), 'swim') },
     { id: 'headsoccer', name: 'Head Soccer', duel: true,
       paid: ownerConsole.paidDoor({ enabled: HS_PAID_ON, open: HS_PAID_ON && hsPaidOpen, stopping: false }, hsPaidSwitch.saved(), 'hs:paid'),
-      rungs: ownerConsole.duelRows(hs) },
+      rungs: duelBotRows(ownerConsole.duelRows(hs), 'headsoccer') },
     { id: 'pool8', name: '8 Ball Pool', duel: true,
       paid: ownerConsole.paidDoor({ enabled: P8_PAID_ON, open: P8_PAID_ON && p8PaidOpen, stopping: false }, p8PaidSwitch.saved(), 'p8:paid'),
-      rungs: ownerConsole.duelRows(p8) },
+      rungs: duelBotRows(ownerConsole.duelRows(p8), 'pool8') },
     { id: 'airhockey', name: 'Air Hockey', duel: true,
       paid: ownerConsole.paidDoor({ enabled: AH_PAID_ON, open: AH_PAID_ON && ahPaidOpen, stopping: false }, ahPaidSwitch.saved(), 'ah:paid'),
-      rungs: ownerConsole.duelRows(ah) },
+      rungs: duelBotRows(ownerConsole.duelRows(ah), 'airhockey') },
     { id: 'rooftop', name: 'Rooftop Snipers', duel: true,
       paid: ownerConsole.paidDoor({ enabled: RT_PAID_ON, open: RT_PAID_ON && rtPaidOpen, stopping: false }, rtPaidSwitch.saved(), 'rt:paid'),
-      rungs: ownerConsole.duelRows(rt) },
-    crossy.consoleRow(ownerConsole, ops.duelStatus([crossy.lobby])),
+      rungs: duelBotRows(ownerConsole.duelRows(rt), 'rooftop') },
+    withDuelBots(crossy.consoleRow(ownerConsole, ops.duelStatus([crossy.lobby])), 'crossy'),
   ];
+}
+
+/* The owner's paid duel bots on a duel's rows (server/duelBots.js): a paid rung's stepper sets how many bots WAIT
+   there ('duelbots:<game>:<rung>' for bots:set); bots is that number, botPlaying the ones at a table now. Usable only
+   while the kill switch is on and that game's paid tables are open. */
+function duelBotRows(rungs, game) {
+  if (typeof duelBots === 'undefined' || !duelBots || !Array.isArray(rungs)) return rungs;
+  const v = duelBots.view();
+  if (!v.games.includes(game)) return rungs;
+  const open = duelPaidDoors()[game] === true;
+  return rungs.map((row) => {
+    if (!(row && row.rung > 0)) return row;
+    const b = (v.rungs[game] || {})[String(row.rung)] || { waiting: 0, playing: 0 };
+    return Object.assign({}, row, {
+      room: 'duelbots:' + game + ':' + row.rung, bots: b.waiting, botPlaying: b.playing, botTarget: null,
+      botsAllowed: v.enabled && open, duelBot: true, botMax: v.max,
+      botsNote: !v.enabled ? 'Paid duel bots are off (Control, Paid duel bots)' : !open ? 'Paid tables are closed' : null,
+    });
+  });
+}
+function withDuelBots(row, game) {
+  return row && Array.isArray(row.rungs) ? Object.assign({}, row, { rungs: duelBotRows(row.rungs, game) }) : row;
 }
 
 /* A game's Coming soon switch for the console (server/comingSoon.js): on, and the action whose :on / :off flips it. */
@@ -2102,6 +2124,7 @@ function opsSnapshot(req, signed) {
     /* escrowAddress: where Owen sends USDC to top it up (the same address /wallet/info serves), read from the
        server's own escrow key, never typed into the page. */
     botBank: Object.assign(botBank.view(), { escrowAddress: consoleEscrowAddress() }),
+    duelBots: typeof duelBots !== 'undefined' && duelBots ? duelBots.view() : null,
     rooms,
     audit: ownerConsole.mergeAudit(ops.auditLog, ownerAuth.auditLog, 50),
   };
@@ -2257,6 +2280,16 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
        ownerConsole.setBots. Paid rooms refuse before anything is touched. */
     /* The bot bank (server/botBank.js): its own wallet, so a top-up is just a transfer to its address (no step
        here). Cap: the daily limit of seed handed out, in dollars. */
+    /* The kill switch for the owner's paid duel bots (server/duelBots.js). Off at every boot; Off removes every waiting
+       bot (its stake back to the Bot bank) and lets a match already on finish as a normal paid match. */
+    case 'duelbots:on':
+    case 'duelbots:off': {
+      const on = duelBots.setEnabled(action === 'duelbots:on');
+      broadcastLobbyState();
+      return done(on ? 'Paid duel bots are on. Use the + on a duel table ($0.50 or $1) to put a bot there for a minute.'
+        : 'Paid duel bots are off. Every waiting bot left and its stake went back to the Bot bank.');
+    }
+
     case 'botbank:cap': {
       const usd = typeof args.usd === 'number' ? args.usd : Number(String(args.usd || '').trim());
       if (!Number.isFinite(usd) || usd < 0 || usd > 1000) return refuse('Daily bot limit: a dollar amount from 0 to 1000');
@@ -2266,6 +2299,24 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
     }
 
     case 'bots:set': {
+      /* An owner's paid duel bot rung (server/duelBots.js): the count is how many bots wait there, each staking the
+         rung from the Bot bank for a minute. */
+      const db_ = typeof args.room === 'string'
+        ? /^duelbots:(knockout|swim|headsoccer|pool8|airhockey|rooftop|crossy):(0\.5|1)$/.exec(args.room) : null;
+      if (db_) {
+        const raw = args.auto === true ? 0 : typeof args.count === 'number' ? args.count
+          : typeof args.count === 'string' && /^\d{1,2}$/.test(args.count.trim()) ? Number(args.count.trim()) : NaN;
+        if (!Number.isInteger(raw) || raw < 0) return refuse('A whole number of bots');
+        const r = duelBots.setCount(db_[1], Number(db_[2]), raw);
+        broadcastLobbyState();
+        const gname = require('./duelBots').GAME_NAMES[db_[1]] || db_[1];
+        if (!r.ok) return refuse(r.why || 'Not done');
+        const bb = botBank.view();
+        const usd = '$' + Number(db_[2]).toFixed(2);
+        return done(gname + ' ' + usd + ': ' + r.waiting + ' bot' + (r.waiting === 1 ? '' : 's') + ' waiting for a person, '
+          + 'each staking ' + usd + ' from the Bot bank (now $' + bb.balance.toFixed(2) + '). A bot nobody plays leaves after a minute '
+          + 'and its stake goes back.' + (r.why ? ' Stopped short: ' + r.why + '.' : ''));
+      }
       const room = typeof args.room === 'string' ? ALL_ROOMS().find(r => r.lobbyType === args.room) : null;
       const r = ownerConsole.setBots(room, args);
       /* A paid row's id ('paidbots:...') names no room, so setBots above refused it
@@ -2997,6 +3048,8 @@ knockoutLobby.onSettled = ({ roomId, winnerId, why, pot, seats }) => {
   if (!roomId || !(pot > 0)) return;
   if (_koPaid.has(roomId)) return;
   _koPaid.add(roomId);
+  // A table where one seat is an owner's paid bot is paid by duelBots (the person exactly as against a person).
+  if (paidBotTable('knockout', '[KO]', { roomId, winnerId, why, pot, seats })) return;
 
   const winner = seats.find(s => s.id === winnerId) || null;
 
@@ -3063,6 +3116,7 @@ const _swPaid = new Set();
 swimLobby.onSettled = ({ roomId, winnerId, why, pot, seats }) => {
   if (!roomId || !(pot > 0) || _swPaid.has(roomId)) return;
   _swPaid.add(roomId);
+  if (paidBotTable('swim', '[SW]', { roomId, winnerId, why, pot, seats })) return;   // an owner's paid bot (duelBots)
   const winner = seats.find(s => s.id === winnerId) || null;
   if (!winner || !winner.wallet) {
     for (const s of seats) {
@@ -3103,6 +3157,7 @@ const _hsPaid = new Set();
 headSoccerLobby.onSettled = ({ roomId, winnerId, why, pot, seats }) => {
   if (!roomId || !(pot > 0) || _hsPaid.has(roomId)) return;
   _hsPaid.add(roomId);
+  if (paidBotTable('headsoccer', '[HS]', { roomId, winnerId, why, pot, seats })) return;   // an owner's paid bot (duelBots)
   const winner = seats.find(s => s.id === winnerId) || null;
   if (!winner || !winner.wallet) {
     for (const s of seats) {
@@ -3137,6 +3192,7 @@ const _p8Paid = new Set();
 pool8Lobby.onSettled = ({ roomId, winnerId, why, pot, seats }) => {
   if (!roomId || !(pot > 0) || _p8Paid.has(roomId)) return;
   _p8Paid.add(roomId);
+  if (paidBotTable('pool8', '[P8]', { roomId, winnerId, why, pot, seats })) return;   // an owner's paid bot (duelBots)
   const winner = seats.find(s => s.id === winnerId) || null;
   if (!winner || !winner.wallet) {
     for (const s of seats) {
@@ -3171,6 +3227,7 @@ const _ahPaid = new Set();
 airHockeyLobby.onSettled = ({ roomId, winnerId, why, pot, seats }) => {
   if (!roomId || !(pot > 0) || _ahPaid.has(roomId)) return;
   _ahPaid.add(roomId);
+  if (paidBotTable('airhockey', '[AH]', { roomId, winnerId, why, pot, seats })) return;   // an owner's paid bot (duelBots)
   const winner = seats.find(s => s.id === winnerId) || null;
   if (!winner || !winner.wallet) {
     for (const s of seats) {
@@ -3205,6 +3262,7 @@ const _rtPaid = new Set();
 rooftopLobby.onSettled = ({ roomId, winnerId, why, pot, seats }) => {
   if (!roomId || !(pot > 0) || _rtPaid.has(roomId)) return;
   _rtPaid.add(roomId);
+  if (paidBotTable('rooftop', '[RT]', { roomId, winnerId, why, pot, seats })) return;   // an owner's paid bot (duelBots)
   const winner = seats.find(s => s.id === winnerId) || null;
   if (!winner || !winner.wallet) {
     for (const s of seats) {
@@ -3345,7 +3403,11 @@ if (REGION === 'na' && process.env.ESCROW_PRIVATE_KEY) {
     console.error('[BOTBANK] CRITICAL Bot bank wallet not opened (bots wait, nothing moves): ' + (e && e.message));
   }
 }
-const botBank = require('./botBank').createBotBank({ file: path.join(path.dirname(agJournal.file), 'bot-bank.json'), chain: botWallet });
+/* What Owen spent today (server/ownerSpend.js, Control's Spent today tab): every saved Bot bank move, per Toronto day
+   and game. Display only. */
+const ownerSpend = require('./ownerSpend').createOwnerSpend({ file: path.join(path.dirname(agJournal.file), 'owner-spend.json') });
+const botBank = require('./botBank').createBotBank({ file: path.join(path.dirname(agJournal.file), 'bot-bank.json'), chain: botWallet,
+  onMove: (ev) => ownerSpend.bank(ev) });
 /* Product analytics (server/analytics.js): the owner's wallets are marked is_owner, the bot bank's never sent, and a
    box minting dev entry tokens (PAPER_DEV_TOKENS, fake money) sends nothing at all. */
 analytics.configure({ isOwner: (w) => OWNER_WALLETS.has(w), isBot: (w) => !!(botWallet && w === botWallet.address), region: REGION,
@@ -3427,8 +3489,55 @@ const hsPaidSwitch = createPaidSwitchStore({
 let hsPaidOpen = !hsPaidSwitch.closedAtBoot().closed;
 /* Crossy Road: its lobby, its settling (Knockout's split, through koSend), and its saved paid door. */
 const crossy = crossyWire.create({ io, koSend, trackEarning, sweepRake, houseCut: KO_HOUSE_CUT, region: REGION,
-  createPaidSwitchStore, journalDir: path.dirname(agJournal.file) });
+  createPaidSwitchStore, journalDir: path.dirname(agJournal.file), paidBotTable: (g, t, o) => paidBotTable(g, t, o) });
 trackDuelLobby(crossy.lobby, 'crossy');
+
+/* THE OWNER'S PAID DUEL BOTS (server/duelBots.js, Owen 2026-11-04): Control puts a bot on a duel's $0.50 or $1 table,
+   its stake from the Bot bank; it waits a minute for a person the lobby showed it to ("Bot opponent waiting"), then
+   leaves and its stake goes home. Off at every boot (the kill switch, Control's "Paid duel bots"). Battleship is not
+   here: its bot would need the other side's ships, which no person can see. */
+const duelBots = require('./duelBots').createDuelBots({
+  bank: botBank,
+  lobbies: { knockout: knockoutLobby, swim: swimLobby, headsoccer: headSoccerLobby, pool8: pool8Lobby,
+    airhockey: airHockeyLobby, rooftop: rooftopLobby, crossy: crossy.lobby },
+  doorOpen: (game) => duelPaidDoors()[game] === true,
+  onChange: () => { try { broadcastLobbyState(); } catch (_) { /* display only */ } },
+});
+/* A paid duel table with one of those bots at it is paid by duelBots: the person EXACTLY as against a person (the pot
+   less the same cut through koSend, or their own refund on a draw), the bot's side through the bank. -> false for
+   every other table, which each lobby's onSettled pays as before. */
+/* One Toronto day for Control's Spent today tab. Display only: every figure is read from a record the server already
+   keeps (server/ownerSpend.js for the Bot bank's moves, stakes_history and earnings_history for the owner wallet's
+   own play, the battle royale's prize journal for its house prizes). Fees: each landed Bot bank transfer pays the
+   network fee (botWallet.js: 5000 lamports a signature and its priority fee); shown in SOL. */
+const BOT_TX_FEE_LAMPORTS = 5000 + Math.ceil((100000 * 80000) / 1e6);   // botWallet CU_PRICE x CU_LIMIT, one signature
+async function spendDay(which) {
+  const v = ownerSpend.view(which);
+  let own = null;
+  try {
+    const w = await db.walletDay(OWNER_WALLET, v.day);
+    const staked = w.stakes.reduce((a, x) => a + x.amount, 0);
+    own = { stakes: w.stakes, staked, won: w.won.amount, net: staked - w.won.amount };
+  } catch (e) { own = { error: 'not available' }; }
+  let prizes = { paid: 0, n: 0 };
+  try {
+    for (const p of brJournal.prizes()) {
+      if (!p || p.state !== 'paid' || !p.at) continue;
+      const t = Date.parse(p.at);
+      if (Number.isFinite(t) && ownerSpend.torontoDay(t) === v.day) { prizes.paid += Number(p.amount) || 0; prizes.n++; }
+    }
+  } catch (_) { prizes = null; }
+  const feeSol = (v.transfers * BOT_TX_FEE_LAMPORTS) / 1e9;
+  let usdPerSol = null;
+  try { usdPerSol = money.price && typeof money.price.usdPerSol === 'function' ? money.price.usdPerSol() : null; } catch (_) { usdPerSol = null; }
+  const feeUsd = Number.isFinite(usdPerSol) ? feeSol * usdPerSol : null;
+  const total = v.net + (own && Number.isFinite(own.net) ? own.net : 0) + (prizes ? prizes.paid : 0) + (feeUsd || 0);
+  return Object.assign(v, { fees: { transfers: v.transfers, sol: feeSol, usd: feeUsd }, own, prizes, total,
+    unit: money.unit || 'USDC' });
+}
+function paidBotTable(game, tag, o) {
+  return duelBots.settleTable(o, { game, tag, koSend, trackEarning, sweepRake, houseCut: KO_HOUSE_CUT, region: REGION });
+}
 if (!hsPaidOpen) console.warn("[HS] paid door CLOSED at boot: the owner's hs:paid:off outlived the restart");
 /* Paid 8 Ball Pool: P8_PAID_ON is the build switch (paid rungs exist at all), p8:paid:off the owner's door on top
    of it, saved like the other two. */
@@ -4537,23 +4646,28 @@ function liveExtras() {
      people playing it. The free row is always there (the board pins it); a paid rung is listed only
      while somebody is waiting or playing at it, carries its stake (so the board sorts it first and the
      deploy check sees a human on a paid table), and says closed under the owner's ko:/bs:paid:off. */
+  /* botWaiting: the owner's paid bots waiting at a paid rung (server/duelBots.js), which the lobby shows on that rung as
+     "Bot opponent waiting" BEFORE anybody pays (the dispatcher's rule a). A rung with only a bot waiting is listed too,
+     with players 0, so the deploy check's paid scan (people only) never counts a bot. */
   const duelRows = (game, lobby, paidOpen) => {
     const inGame = {};
-    let waiting = {};
+    let waiting = {}, botsW = {};
     try {
       for (const r of lobby.rooms.values()) {
         const k = String(r.stake || 0);
         for (const id of r.players.keys()) if (!String(id).startsWith('bot_')) inGame[k] = (inGame[k] || 0) + 1;
       }
       waiting = lobby.waitingByRung();
+      botsW = typeof duelBots !== 'undefined' && duelBots ? duelBots.waitingByRung(game) : {};
     } catch (_) {}
     out.push({ id: game + ':free', game, region: REGION,
       players: (waiting['0'] || 0) + (inGame['0'] || 0), waiting: waiting['0'] || 0, bots: 0 });
-    for (const k of new Set(Object.keys(waiting).concat(Object.keys(inGame)))) {
+    for (const k of new Set(Object.keys(waiting).concat(Object.keys(inGame), Object.keys(botsW)))) {
       const stake = Number(k);
       if (!(stake > 0)) continue;
       out.push({ id: game + ':s' + k, game, region: REGION, stake,
         players: (waiting[k] || 0) + (inGame[k] || 0), waiting: waiting[k] || 0, bots: 0,
+        botWaiting: paidOpen ? (botsW[k] || 0) : 0,
         state: paidOpen ? 'open' : 'closed' });
     }
   };
@@ -5944,6 +6058,14 @@ io.on('connection', (socket) => {
     livePlayers.dayStats(which).then((v) => socket.emit('owner:live:today', v),
       (e) => socket.emit('owner:live:today', { error: String((e && e.message) || 'not available') }));
   });
+  /* The Spent today tab (owner sockets only): ownerSpend's bot money for the Toronto day, the owner wallet's own paid
+     play from the database, and the battle royale's house prizes paid that day. */
+  on('owner:spend', (q) => {
+    if (socket._ownerAlerts !== true || !socketRL(socket, 'ownerspend', 1000)) return;
+    const which = q && q.day === 'yesterday' ? 'yesterday' : 'today';
+    spendDay(which).then((v) => socket.emit('owner:spend', v),
+      (e) => socket.emit('owner:spend', { error: String((e && e.message) || 'not available') }));
+  });
 
   /* walletAddress and googleId are the client's claims and are NOT used for identity or for
      any payout (security review items e and 5): the socket's wallet comes from idProof (or a
@@ -6503,7 +6625,7 @@ io.on('connection', (socket) => {
      clamped there rather than believed, so a patched client that sends a pull
      of ten thousand gets the same shot as a player who dragged to the edge of
      their screen. */
-  on('ko:queue', ({ name, wallet, stake, entryToken, shop, skinPass, resume } = {}) => {
+  on('ko:queue', ({ name, wallet, stake, entryToken, shop, skinPass, resume, botOk } = {}) => {
     if (!socketRL(socket, 'koq', 1000)) return;
     if (ops.get().maintenance) { socket.emit('maintenance', ops.get()); return; }
     /* Already at a table that is still being played: refused before anything else, hs:queue's rule (night review
@@ -6580,7 +6702,8 @@ io.on('connection', (socket) => {
       let took;
       try {
         took = knockoutLobby.enqueue(socket, sanitizeName(name),
-          worth > 0 ? payTo : (strOr(wallet, null) || socket._walletAddress || null), rung, worth, undefined, paid, skin);
+          worth > 0 ? payTo : (strOr(wallet, null) || socket._walletAddress || null), rung, worth, undefined, paid, skin,
+          { botOk: botOk === true });   // shown "Bot opponent waiting" before paying (server/duelBots.js)
       } catch (e) {
         console.error('[KO] queue threw:', e && e.stack ? e.stack : e);
         took = knockoutLobby.holds(socket.id);
@@ -6684,7 +6807,7 @@ io.on('connection', (socket) => {
      A real-time duel. The queue and the paid door are Knockout's, line for line (the handler below is that one
      with hs: names); the room runs the physics and the client only says what it is pressing: held arrows and
      counts of jump, kick and power presses (HeadSoccerRoom.setInput clamps all of it). */
-  on('hs:queue', ({ name, wallet, stake, entryToken, shop, skinPass, resume, head } = {}) => {
+  on('hs:queue', ({ name, wallet, stake, entryToken, shop, skinPass, resume, head, botOk } = {}) => {
     if (!socketRL(socket, 'hsq', 1000)) return;
     if (ops.get().maintenance) { socket.emit('maintenance', ops.get()); return; }
     /* Already at a table that is still being played: a second seat from the same socket would leave the first table
@@ -6758,7 +6881,8 @@ io.on('connection', (socket) => {
       let took;
       try {
         took = headSoccerLobby.enqueue(socket, sanitizeName(name),
-          worth > 0 ? payTo : (strOr(wallet, null) || socket._walletAddress || null), rung, worth, undefined, paid, skin);
+          worth > 0 ? payTo : (strOr(wallet, null) || socket._walletAddress || null), rung, worth, undefined, paid, skin,
+          { botOk: botOk === true });   // shown "Bot opponent waiting" before paying (server/duelBots.js)
       } catch (e) {
         console.error('[HS] queue threw:', e && e.stack ? e.stack : e);
         took = headSoccerLobby.holds(socket.id);
@@ -6839,7 +6963,7 @@ io.on('connection', (socket) => {
      A turn-based duel. The queue and the paid door are Knockout's, line for line (the handler below is Head
      Soccer's with p8: names); the room plays every shot through on the server and the client only says how it
      aimed (Pool8Room.shoot checks all of it). */
-  on('p8:queue', ({ name, wallet, stake, entryToken, shop, skinPass, resume, look } = {}) => {
+  on('p8:queue', ({ name, wallet, stake, entryToken, shop, skinPass, resume, look, botOk } = {}) => {
     if (!socketRL(socket, 'p8q', 1000)) return;
     if (ops.get().maintenance) { socket.emit('maintenance', ops.get()); return; }
     /* Already at a table that is still being played: a second seat from the same socket would leave the first table
@@ -6913,7 +7037,8 @@ io.on('connection', (socket) => {
       let took;
       try {
         took = pool8Lobby.enqueue(socket, sanitizeName(name),
-          worth > 0 ? payTo : (strOr(wallet, null) || socket._walletAddress || null), rung, worth, undefined, paid, skin);
+          worth > 0 ? payTo : (strOr(wallet, null) || socket._walletAddress || null), rung, worth, undefined, paid, skin,
+          { botOk: botOk === true });   // shown "Bot opponent waiting" before paying (server/duelBots.js)
       } catch (e) {
         console.error('[P8] queue threw:', e && e.stack ? e.stack : e);
         took = pool8Lobby.holds(socket.id);
@@ -7020,7 +7145,7 @@ io.on('connection', (socket) => {
      A real-time duel. The queue and the paid door are Knockout's, line for line (the handler below is that one
      with hs: names); the room runs the physics and the client only says where it is pointing, a few samples stamped with the steps
      they are for (AirHockeyRoom.setInput clamps all of it). */
-  on('ah:queue', ({ name, wallet, stake, entryToken, shop, skinPass, resume } = {}) => {
+  on('ah:queue', ({ name, wallet, stake, entryToken, shop, skinPass, resume, botOk } = {}) => {
     if (!socketRL(socket, 'ahq', 1000)) return;
     if (ops.get().maintenance) { socket.emit('maintenance', ops.get()); return; }
     /* Already at a table that is still being played: a second seat from the same socket would leave the first table
@@ -7090,7 +7215,8 @@ io.on('connection', (socket) => {
       let took;
       try {
         took = airHockeyLobby.enqueue(socket, sanitizeName(name),
-          worth > 0 ? payTo : (strOr(wallet, null) || socket._walletAddress || null), rung, worth, undefined, paid, skin);
+          worth > 0 ? payTo : (strOr(wallet, null) || socket._walletAddress || null), rung, worth, undefined, paid, skin,
+          { botOk: botOk === true });   // shown "Bot opponent waiting" before paying (server/duelBots.js)
       } catch (e) {
         console.error('[AH] queue threw:', e && e.stack ? e.stack : e);
         took = airHockeyLobby.holds(socket.id);
@@ -7171,7 +7297,7 @@ io.on('connection', (socket) => {
      A real-time duel on the same queue and paid door as Head Soccer (the handler below is that one with rt: names);
      the room runs the physics and the client only says what it is pressing: running counts of jump presses and of
      the shoot button going down and up, and how long the last shot was held (RooftopRoom.setInput clamps it). */
-  on('rt:queue', ({ name, wallet, stake, entryToken, shop, skinPass, resume, look } = {}) => {
+  on('rt:queue', ({ name, wallet, stake, entryToken, shop, skinPass, resume, look, botOk } = {}) => {
     if (!socketRL(socket, 'rtq', 1000)) return;
     if (ops.get().maintenance) { socket.emit('maintenance', ops.get()); return; }
     /* Already at a table that is still being played: a second seat from the same socket would leave the first table
@@ -7246,7 +7372,8 @@ io.on('connection', (socket) => {
       let took;
       try {
         took = rooftopLobby.enqueue(socket, sanitizeName(name),
-          worth > 0 ? payTo : (strOr(wallet, null) || socket._walletAddress || null), rung, worth, undefined, paid, skin);
+          worth > 0 ? payTo : (strOr(wallet, null) || socket._walletAddress || null), rung, worth, undefined, paid, skin,
+          { botOk: botOk === true });   // shown "Bot opponent waiting" before paying (server/duelBots.js)
       } catch (e) {
         console.error('[RT] queue threw:', e && e.stack ? e.stack : e);
         took = rooftopLobby.holds(socket.id);
@@ -7526,7 +7653,7 @@ io.on('connection', (socket) => {
     socket.emit('se:state', swimEvent.publicState(true));
   });
 
-  on('sw:queue', ({ name, wallet, stake, entryToken, resume, v, car } = {}) => {
+  on('sw:queue', ({ name, wallet, stake, entryToken, resume, v, car, botOk } = {}) => {
     if (!socketRL(socket, 'swq', 1000)) return;
     if (ops.get().maintenance) { socket.emit('maintenance', ops.get()); return; }
     /* A page from before a deploy runs an older step: turned away before anything is spent (an unused token refunds itself). */
@@ -7569,7 +7696,7 @@ io.on('connection', (socket) => {
       try {
         took = swimLobby.enqueue(socket, sanitizeName(name),
           worth > 0 ? payTo : (strOr(wallet, null) || socket._walletAddress || null), rung, worth, undefined, paid, null,
-          { car });   // the car, a look only, cleaned by SwimLooks.clean in the lobby and the room (a colour is ignored)
+          { car }, { botOk: botOk === true });   // shown "Bot opponent waiting" before paying (server/duelBots.js)   // the car, a look only, cleaned by SwimLooks.clean in the lobby and the room (a colour is ignored)
       } catch (e) {
         console.error('[SW] queue threw:', e && e.stack ? e.stack : e);
         took = swimLobby.holds(socket.id);

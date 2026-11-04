@@ -842,9 +842,10 @@ class KnockoutRoom {
       maxPull: KO.MAX_PULL,
       phaseMs: Math.max(0, this.phaseEndsAt - Date.now()),
       aimMs: KO.AIM_MS,
-      /* The opponent is the lobby's bot (a free table after a minute alone). Said, not hidden (Owen 2026-10-21:
-         the player has to know it is a bot), so the screen can say "Playing a bot". */
-      vsBot: !!this.bot,
+      /* The opponent is an owner's PAID bot (server/duelBots.js), which can win this player's money: always said,
+         so the screen says "Playing a bot" (Owen 2026-11-04). A free table's stand-in is not named a bot any more
+         (Owen 2026-11-04: "get rid of the whole bot name"); nothing rides on it. */
+      vsBot: !!(this.bot && this.bot.paidBot),   // only an owner's paid bot is named a bot (Owen 2026-11-04)
       players: [...this.players.entries()].map(([id, p]) => ({
         id: this.publicId(id), name: p.name, side: p.side, left: this.piecesOf(id).length,
         /* The bought skin this seat wears, or null: how every screen (watchers too) dresses its pieces. */

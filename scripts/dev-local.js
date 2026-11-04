@@ -149,6 +149,7 @@ const dbStub = {
   NO_USDC_ACCOUNT: ledgerDb.NO_USDC_ACCOUNT,
   recordEarnings: async (id, name, amount) => { const a = acct(id, name); a.name = name || a.name; a.totalEarnings += Number(amount) || 0; },
   recordStake: async () => {},
+  walletDay: async () => ({ stakes: [], won: { amount: 0, n: 0 } }),   // Control's Spent today: the owner wallet's own play
   getTopEarners: async (n) => [...accounts.values()].filter(a => a.totalEarnings > 0)
     .sort((x, y) => y.totalEarnings - x.totalEarnings).slice(0, n)
     .map((a, i) => ({ rank: i + 1, name: a.name, earnings: a.totalEarnings })),

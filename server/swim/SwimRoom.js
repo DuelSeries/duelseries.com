@@ -136,15 +136,17 @@ class SwimRoom {
 
   /* The free-table stand-in: a seat with no socket to send to and a driver
      that makes its inputs (server/swim/swimBot.js). */
-  addBot(name) {
-    const botSocket = { id: 'bot_' + this.id, join() {}, emit() {} };
-    if (!this.addPlayer(botSocket, name, null)) return false;
+  /* paid (server/duelBots.js): an owner's paid bot, { socket, worth, paid }: its own stub socket and the stake the Bot
+     bank paid in; the screen says it is a bot (vsBot). A free table's bot passes nothing. */
+  addBot(name, paid) {
+    const botSocket = paid && paid.socket ? paid.socket : { id: 'bot_' + this.id, join() {}, emit() {} };
+    if (!this.addPlayer(botSocket, name, null, paid ? paid.worth : 0, paid ? paid.paid : undefined)) return false;
     const seat = this.players.get(botSocket.id);
     seat.bot = new SwimBot(S.rng(this.seed ^ 0x5bd1e995), { budget: SERVER_BUDGET });   // one CPU budget for every bot (swimBot.js)
     /* The bot wears one of the listed looks, chosen by the room's seed (a look only, it changes no step). */
     const k = this.seed >>> 0;
     seat.look = SwimLooks.clean({ car: SwimLooks.CARS[k % 3].id });
-    this.bot = { id: botSocket.id };
+    this.bot = paid ? { id: botSocket.id, paidBot: true } : { id: botSocket.id };
     return true;
   }
 
@@ -285,7 +287,7 @@ class SwimRoom {
       goAt: this.goAt,
       now: nowOr(now),
       tick: this.clock,
-      vsBot: !!this.bot,
+      vsBot: !!(this.bot && this.bot.paidBot),   // only an owner's paid bot is named a bot (Owen 2026-11-04)
       stake: this.stake,
       pot: this.pot(),
       players: [...this.players.entries()].map(([id, p]) => ({

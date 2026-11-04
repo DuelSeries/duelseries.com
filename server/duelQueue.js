@@ -37,6 +37,22 @@ function samePerson(a, b) {
   return !!(a && b && a.wallet && b.wallet && a.wallet === b.wallet);
 }
 
+/* AN OWNER'S PAID BOT (server/duelBots.js, Owen 2026-11-04) is a queue entry like a person's, with entry.paidBot set
+   and its stake taken from the Bot bank. It meets ONLY a person who was shown it before they paid: that person's page
+   said so when it queued (entry.botOk, the lobby's "Bot opponent waiting" on the rung they pressed), and the bot was
+   already waiting when they queued (it was the one on the card, or one just like it at the same rung). A person who
+   queued without seeing a bot, or before this bot existed, waits for people exactly as before. Two bots never meet. */
+const isPaidBot = (e) => !!(e && e.paidBot);
+function botMayMeet(bot, human) {
+  return human.botOk === true && !isPaidBot(human) && (bot.since || 0) <= (human.since || 0);
+}
+function mayPair(a, b) {
+  if (isPaidBot(a) && isPaidBot(b)) return false;
+  if (isPaidBot(a)) return botMayMeet(a, b);
+  if (isPaidBot(b)) return botMayMeet(b, a);
+  return true;
+}
+
 /* Every pair the queue can make right now, oldest first: same rung, two
    different people. Matched by rung because two seats that paid different
    amounts have no honest way to split a pot. */
@@ -48,7 +64,7 @@ function pairUp(queue) {
     if (used.has(a)) continue;
     for (let j = i + 1; j < queue.length; j++) {
       const b = queue[j];
-      if (used.has(b) || (a.stake || 0) !== (b.stake || 0) || samePerson(a, b)) continue;
+      if (used.has(b) || (a.stake || 0) !== (b.stake || 0) || samePerson(a, b) || !mayPair(a, b)) continue;
       used.add(a); used.add(b);
       pairs.push([a, b]);
       break;
@@ -58,17 +74,28 @@ function pairUp(queue) {
 }
 
 /* How many PEOPLE are waiting at each rung: { '0': 1, '0.5': 2 }. Two tabs of
-   one wallet are one person. Bots never queue, so there is nothing to leave out. */
+   one wallet are one person. An owner's paid bot is not a person and is left out (botsWaitingByRung counts it). */
 function waitingByRung(queue) {
   const seen = new Map();
   for (const e of queue || []) {
-    if (!e || !e.socket) continue;
+    if (!e || !e.socket || isPaidBot(e)) continue;
     const k = String(e.stake || 0);
     if (!seen.has(k)) seen.set(k, new Set());
     seen.get(k).add(e.wallet ? 'w:' + e.wallet : 's:' + e.socket.id);
   }
   const out = {};
   for (const [k, who] of seen) out[k] = who.size;
+  return out;
+}
+
+/* The owner's paid bots waiting at each rung: { '0.5': 1 } (the lobby's "Bot opponent waiting"). */
+function botsWaitingByRung(queue) {
+  const out = {};
+  for (const e of queue || []) {
+    if (!isPaidBot(e) || e.refunded) continue;
+    const k = String(e.stake || 0);
+    out[k] = (out[k] || 0) + 1;
+  }
   return out;
 }
 
@@ -110,11 +137,19 @@ function shutdownRows(lobby, game, why) {
     }
     rows.push(row);
   };
+  /* An owner's paid bot (server/duelBots.js) is owed nothing through a row: its stake goes back to the Bot bank,
+     once, saved there before this returns (lobby.paidBots.back). Without a manager (or if it refuses) the stake stays
+     in the bank's in-flight count, which the bank gives back to itself at the next boot. */
+  const botBack = (id) => {
+    try { if (lobby.paidBots && typeof lobby.paidBots.back === 'function') lobby.paidBots.back(id, tag === 'crash' ? 'crash' : 'restart'); }
+    catch (_) { /* never into a shutdown */ }
+  };
   lobby.stopping = true;
   if (typeof lobby.stop === 'function') lobby.stop();
   for (const e of lobby.queue || []) {
     if (!(e.worth > 0) || e.refunded) continue;
     e.refunded = true;
+    if (isPaidBot(e)) { botBack(e.socket.id); continue; }
     owe(e.wallet, e.worth, e.paid, e.name, 'while queued', game + ':queue');
   }
   lobby.queue = [];
@@ -122,7 +157,7 @@ function shutdownRows(lobby, game, why) {
     if (!(room.stake > 0) || room.settled) continue;
     room.settled = true;
     for (const [id, p] of room.players) {
-      if (String(id).startsWith('bot_')) continue;
+      if (String(id).startsWith('bot_')) { if (room.bot && room.bot.paidBot && room.bot.id === id) botBack(id); continue; }
       owe(p.wallet, room.worth ? room.worth.get(id) : 0, p.paid, p.name, 'mid-match', room.id);
     }
   }
@@ -193,5 +228,6 @@ function noteRefund(lobby, entry, now) {
    for it). Past it, the drop is the walk-out it always was. */
 const RECONNECT_GRACE_MS = 5000;
 
-module.exports = { FREE_WAIT_MS, PAID_WAIT_MS, PAID_GIVE_UP_MS, samePerson, pairUp, waitingByRung, shutdownRows,
+module.exports = { FREE_WAIT_MS, PAID_WAIT_MS, PAID_GIVE_UP_MS, samePerson, pairUp, waitingByRung, botsWaitingByRung,
+                   isPaidBot, mayPair, shutdownRows,
                    newResumeKey, resumeSeat, noteRefund, isKey, RECONNECT_GRACE_MS, RESUME_REMEMBER_MS };
