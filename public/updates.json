@@ -2,6 +2,13 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-11-04-swim-phone-spectate",
+      "date": "2026-11-04",
+      "tag": "fix",
+      "title": "Swim on phones, and a smaller Spectate bar",
+      "body": "Swim and the Swim Race: the cars beside you no longer jump during the countdown, and nothing moves until GO. The countdown now sits small at the top, the waiting line is one slim bar, and the screen stays clear until the race starts. On a phone, Brake is bottom left and Gas bottom right, both the same big size.\n\nSpectating on a phone: the arrows and the player's name now sit small in the bottom left corner in every game, out of the middle of the screen."
+    },
+    {
       "id": "2026-11-04-pool-controls",
       "date": "2026-11-04",
       "tag": "fix",
