@@ -194,6 +194,11 @@ let watchReady = [];          // which seats have locked in this turn, as seatId
    around it so a piece sailing off the edge is still visible while it goes,
    because watching it leave is the best part of the turn. */
 let VIEW = { s: 1, cx: 0, cy: 0, dpr: 1 };
+/* The "Big hits" look (public/js/knockoutFx.js, a dev prototype behind ?fx=1): the camera tilts, so the floor is
+   squashed to TILT of its height. One number, used by both directions of the transform, so a drag still lands
+   exactly where the arrow is drawn. Off, TILT is 1 and nothing below changes. */
+const FX = !!(window.KnockoutFx && window.KnockoutFx.on);
+const TILT = FX ? window.KnockoutFx.TILT : 1;
 
 function fit() {
   const dpr = (window.DSQuality ? DSQuality.dpr(2) : Math.min(window.devicePixelRatio || 1, 2));
@@ -207,14 +212,14 @@ function fit() {
      disc shrinking, not like the camera pushing in. */
   const R = 420;
   const pad = 1.34;                      // the margin a piece falls out into
-  const usable = Math.min(w, h - 92);    // the strip and the bar own the rest
-  VIEW = { s: (usable / 2) / (R * pad), cx: w / 2, cy: h / 2, dpr };
+  const usable = FX ? Math.min(w, (h - 92) / (TILT + 0.16)) : Math.min(w, h - 92);    // the strip and the bar own the rest
+  VIEW = { s: (usable / 2) / (R * pad), cx: w / 2, cy: FX ? h / 2 - 10 : h / 2, dpr };
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 const toScreenX = (x) => VIEW.cx + (flip ? -x : x) * VIEW.s;
-const toScreenY = (y) => VIEW.cy + (flip ? -y : y) * VIEW.s;
+const toScreenY = (y) => VIEW.cy + (flip ? -y : y) * VIEW.s * TILT;
 const toWorldX = (px) => { const v = (px - VIEW.cx) / VIEW.s; return flip ? -v : v; };
-const toWorldY = (py) => { const v = (py - VIEW.cy) / VIEW.s; return flip ? -v : v; };
+const toWorldY = (py) => { const v = (py - VIEW.cy) / (VIEW.s * TILT); return flip ? -v : v; };
 
 window.addEventListener('resize', fit);
 window.addEventListener('orientationchange', fit);
@@ -263,7 +268,27 @@ const mine = (p) => p.owner === me;
 
 /* ── drawing ───────────────────────────────────────────────────────────── */
 
+/* A bumpers table's posts (server/KnockoutRoom.js KO.BUMPERS, a dev prototype): drawn wherever the state says, and a
+   post the ring has reached sinks over 600 ms from the moment this screen first sees it gone. */
+let postGone = new Map();    // post index -> when it was first seen sunk
+function drawPosts(now) {
+  if (!st || !st.bumpers || !window.KnockoutFx) return [];
+  const out = [];
+  st.bumpers.forEach((b, i) => {
+    let sink = 0;
+    if (!b.alive) {
+      if (!postGone.has(i)) postGone.set(i, now);
+      sink = (now - postGone.get(i)) / 600;
+      if (sink >= 1) return;
+    }
+    const x = toScreenX(b.x), y = toScreenY(b.y), r = b.r * VIEW.s * (1 - sink * 0.6);
+    out.push({ y, draw: () => { ctx.save(); ctx.globalAlpha = 1 - sink; KnockoutFx.post(ctx, x, y, r, b.litAt, now, !FX); ctx.restore(); } });
+  });
+  return out;
+}
+
 function draw() {
+  if (FX) { drawFx(); return; }
   const w = cv.width / VIEW.dpr, h = cv.height / VIEW.dpr;
   ctx.clearRect(0, 0, w, h);
   if (!st) return;
@@ -295,6 +320,8 @@ function draw() {
   ctx.strokeStyle = '#f0a830'; ctx.lineWidth = 2.5; ctx.stroke();
   ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2);
   ctx.strokeStyle = 'rgba(240,168,48,0.16)'; ctx.lineWidth = 10; ctx.stroke();
+
+  for (const post of drawPosts(performance.now())) post.draw();
 
   const pieces = livePieces();
   const pr = st.pieceR * VIEW.s;
@@ -380,6 +407,70 @@ function draw() {
   }
 }
 
+/* The same board in the "Big hits" look (public/js/knockoutFx.js). The same pieces, the same falls, the same arrows
+   as draw() above, read from the same state and tape; only the drawing differs. Things are drawn back to front by
+   where they stand on screen, so a nearer puck overlaps a farther one under the tilted camera. */
+function drawFx() {
+  const F = window.KnockoutFx;
+  const w = cv.width / VIEW.dpr, h = cv.height / VIEW.dpr, now = performance.now();
+  ctx.clearRect(0, 0, w, h);
+  if (!st) return;
+  F.beginShake(ctx, now);
+  const R = drawR * VIEW.s;
+  F.disc(ctx, VIEW.cx, VIEW.cy, R, VIEW.s, Math.max(0, drawR - 220) * VIEW.s);
+  const pieces = livePieces();
+  const pr = st.pieceR * VIEW.s;
+  const items = drawPosts(now);
+  const trail = [];
+  const prev = tape ? tape.frames[Math.max(0, Math.min(tapeAt, tape.frames.length - 1) - 1)] : null;
+  pieces.forEach((p) => {
+    const dropping = ringFall.get(p.id);
+    if (!p.alive && !p.falling && dropping === undefined) return;
+    let fall = -1;
+    if (p.falling) {
+      const since = tapeAt - ((tape.out || []).find(o => o.id === p.id) || {}).frame;
+      fall = Math.min(1, Math.max(0, since / 30));
+    } else if (dropping !== undefined) {
+      fall = Math.min(1, Math.max(0, (now - dropping) / 480));
+    }
+    if (fall >= 1) return;
+    const x = toScreenX(p.x), y = toScreenY(p.y), isMine = mine(p);
+    let moving = false;
+    if (prev && tape) {
+      const i = tape.order.indexOf(p.id);
+      if (i >= 0) moving = Math.hypot(prev[i * 2] - p.x, prev[i * 2 + 1] - p.y) > 2;
+    }
+    if (fall < 0) trail.push({ id: p.id, x, y: y - pr * 0.45, mine: isMine, moving });
+    const skin = skinOf(p.owner);
+    const top = skin ? (c, sx, sy, r) => {
+      window.DS_SHOP_SKINS.knockoutPiece(c, skin, sx, sy, r, isMine ? 0.13 : 0.20);
+      const rw = Math.max(1.5, r * 0.16);
+      c.beginPath(); c.arc(sx, sy, Math.max(0.5, r - rw / 2), 0, Math.PI * 2);
+      c.strokeStyle = isMine ? '#f4f1ea' : '#e0705f'; c.lineWidth = rw; c.stroke();
+    } : null;
+    items.push({ y, draw: () => F.puck(ctx, x, y, pr, isMine, fall, top) });
+  });
+  F.drawTrails(ctx, trail, pr);
+  items.sort((a, b) => a.y - b.y).forEach(it => it.draw());
+
+  if (!tape && !reveal && st.state === 'aiming') {
+    for (const p of pieces) {
+      if (!mine(p) || !p.alive) continue;
+      const a = drag && drag.pieceId === p.id ? { ax: drag.x - p.x, ay: drag.y - p.y } : aims.get(p.id);
+      if (a) drawArrow(p, a, true);
+    }
+  }
+  if (reveal) {
+    for (const a of reveal) {
+      const p = pieces.find(q => q.id === a.pieceId);
+      if (!p || !p.alive) continue;
+      drawArrow(p, a, a.owner === me);
+    }
+  }
+  F.overlay(ctx, toScreenX, toScreenY, pr, now, w, h);
+  ctx.restore();
+}
+
 /* The arrow. Length is power, so it is drawn at its true length and the head
    sits where the piece is being sent — clamped, and shown clamped, because a
    drag past the cap that keeps growing on screen is the screen lying about how
@@ -391,8 +482,10 @@ function drawArrow(p, a, isMine) {
   const pull = Math.min(len, maxPull);
   const ux = a.ax / len, uy = a.ay / len;
 
-  const x0 = toScreenX(p.x), y0 = toScreenY(p.y);
-  const x1 = toScreenX(p.x + ux * pull), y1 = toScreenY(p.y + uy * pull);
+  /* In the Big hits look the arrow leaves from the top of the puck, so it is lifted by the puck's height. */
+  const lift = FX ? (st.pieceR || 26) * VIEW.s * 0.45 : 0;
+  const x0 = toScreenX(p.x), y0 = toScreenY(p.y) - lift;
+  const x1 = toScreenX(p.x + ux * pull), y1 = toScreenY(p.y + uy * pull) - lift;
   const full = pull >= maxPull - 0.5;
   /* Their arrow is their colour. During the reveal both are on screen at once
      and telling them apart is the entire thing you are looking at. */
@@ -457,8 +550,22 @@ function frame() {
     tapeAt = 0;
     if (now >= revealUntil) { reveal = null; tapeStartedAt = now; }
   } else if (tape && tapeStartedAt) {
-    tapeAt = Math.floor((now - tapeStartedAt) / (1000 / 60));
+    /* The Big hits look may hold the tape back on this screen (slow motion, a hit stop), inside the slack the
+       server leaves after every tape; off, the lag is nothing and this is the wall clock as before. */
+    const lag = FX ? KnockoutFx.lagFor(tape, now) : 0;
+    tapeAt = Math.floor((now - tapeStartedAt - lag) / (1000 / 60));
     if (tapeAt >= tape.frames.length + 30) { tape = null; tapeAt = 0; }
+  }
+  if (FX && st) {
+    if (tape && !reveal && tapeStartedAt) {
+      KnockoutFx.onTape(tape, tapeAt, {
+        pieceR: st.pieceR || 26, bumpers: st.bumpers, me,
+        ownerOf: (id) => ((st.pieces || []).find(p => p.id === id) || {}).owner,
+        // The state that came with this tape is the board after it: a side with nothing left means it decides.
+        decides: (st.players || []).some(p => p.left === 0),
+      });
+    }
+    if (Math.abs(drawR - wantR) > 0.8) KnockoutFx.ringClosing(drawR);
   }
   paintClock();
   if (window.KnockoutSound) KnockoutSound.frame(tape, tapeAt, reveal, ringFall);
@@ -843,7 +950,8 @@ socket.on('ko:start', (raw) => {
   me = WATCH ? seatId(0) : socket.id;
   matchAt = Date.now();
   aims.clear(); drag = null; locked = false; tape = null;
-  reveal = null; ringFall.clear(); drawR = 0;
+  reveal = null; ringFall.clear(); drawR = 0; postGone.clear();
+  if (window.KnockoutFx) KnockoutFx.reset();
   apply(state);
   runCountdown(state.phaseMs || 3000);
   if (!WATCH && raw) trackStep('start', { vs_bot: !!raw.vsBot, room: raw.id });
@@ -1363,7 +1471,7 @@ socket.on('ko:watching', (m) => {
   watchLastId = m.match.id;
   overShown = false;
   aims.clear(); drag = null; locked = false; tape = null; reveal = null;
-  ringFall.clear(); drawR = 0; st = null; watchReady = [];
+  ringFall.clear(); drawR = 0; st = null; watchReady = []; postGone.clear();
   const state = fromWatch(m.state);
   if (state.state === 'resolving') state.ringOut = [];
   apply(state);
