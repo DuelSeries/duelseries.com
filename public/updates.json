@@ -2,6 +2,23 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-11-04-road-hop-new-chicken",
+      "date": "2026-11-04",
+      "tag": "new",
+      "title": "A new chicken in Crossy Road",
+      "body": "The Crossy Road chicken has a new look: tall and slim, with a red comb, an orange beak, little wings and thin orange legs.\n\nIt hops exactly the same as before, it just looks a lot better doing it.",
+      "image": {
+        "src": "/updates/crossy-new-chicken.webp",
+        "alt": "The new white chicken hopping across the grass in Crossy Road"
+      },
+      "gallery": [
+        {
+          "src": "/updates/crossy-new-chicken-close.webp",
+          "alt": "The new chicken up close"
+        }
+      ]
+    },
+    {
       "id": "2026-11-04-paid-snake-gold-tags",
       "date": "2026-11-04",
       "tag": "new",
