@@ -213,9 +213,9 @@ test('walls are drawn by the arcade rules measured from the 1x captures (docs/ch
   for (let y = 0; y < w.PH - 1; y++) for (let x = 0; x < w.PW - 1; x++) {
     assert.ok(!(at(x, y) === 1 && at(x + 1, y) === 1 && at(x, y + 1) === 1 && at(x + 1, y + 1) === 1), `2x2 wall at ${x},${y}`);
   }
-  // a block (rows 2-5, cols 2-4): top/left edges 4 px into the tile, bottom/right 3 px, corners cut by one diagonal pixel
-  assert.deepStrictEqual(rows(19, 19, 18, 26), [
-    '..................', '...BBBBBBBBBBBB...', '..B............B..'].concat(new Array(20).fill('.B..............B.'),
+  // a block (rows 2-3, cols 2-4, the 2026-11-04 module): top/left edges 4 px into the tile, bottom/right 3 px, corners cut by one diagonal pixel
+  assert.deepStrictEqual(rows(19, 19, 18, 10), [
+    '..................', '...BBBBBBBBBBBB...', '..B............B..'].concat(new Array(4).fill('.B..............B.'),
     ['..B............B..', '...BBBBBBBBBBBB...', '..................']));
   // the double line runs straight along the top border over the middle (the outer line on the frame's first row)
   for (let x = 96; x < 128; x++) assert.strictEqual(at(x, 0), 1, `outer line along the top at x ${x}`);
