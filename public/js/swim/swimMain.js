@@ -126,27 +126,34 @@ addEventListener('keydown', (e) => {
 });
 addEventListener('keyup', (e) => { const k = KEYMAP[e.code]; if (k) keys.delete(k); });
 addEventListener('blur', () => keys.clear());
-const touch = { steer: 0, id: null, x0: 0, gas: false, brake: false };
+const touch = { steer: 0, id: null, x0: 0, dead: 0, gas: false, brake: false };
 function pads() {
   const zone = $('steerZone'), knob = $('steerKnob');
-  zone.addEventListener('pointerdown', (e) => {
-    touch.id = e.pointerId; touch.x0 = e.clientX; touch.steer = 0;
+  /* Owen 2026-11-04: Gas bottom right, Brake bottom left, the same size. The left thumb steers: a drag anywhere on
+     the left, or on the Brake while it is held (8 px of thumb roll on the Brake do not steer). */
+  const grab = (el, e, dead) => {
+    touch.id = e.pointerId; touch.x0 = e.clientX; touch.dead = dead; touch.steer = 0;
     knob.style.left = e.clientX + 'px'; knob.style.top = (e.clientY - zone.getBoundingClientRect().top) + 'px';
     knob.classList.add('on');
-    try { zone.setPointerCapture(e.pointerId); } catch (_) {}
-  });
-  zone.addEventListener('pointermove', (e) => {
-    if (e.pointerId !== touch.id) return;
-    touch.steer = Math.max(-1, Math.min(1, (e.clientX - touch.x0) / 56));
-  });
-  const end = (e) => { if (e.pointerId !== touch.id) return; touch.id = null; touch.steer = 0; knob.classList.remove('on'); };
-  zone.addEventListener('pointerup', end); zone.addEventListener('pointercancel', end);
-  const hold = (btn, key) => {
-    const on = (v) => (e) => { touch[key] = v; btn.classList.toggle('on', v); if (e && e.cancelable) e.preventDefault(); };
-    btn.addEventListener('pointerdown', on(true));
-    btn.addEventListener('pointerup', on(false)); btn.addEventListener('pointercancel', on(false)); btn.addEventListener('pointerleave', on(false));
+    try { el.setPointerCapture(e.pointerId); } catch (_) {}
   };
-  hold($('gas'), 'gas'); hold($('brake'), 'brake');
+  const move = (e) => {
+    if (e.pointerId !== touch.id) return;
+    const dx = e.clientX - touch.x0, m = Math.max(0, Math.abs(dx) - (touch.dead || 0));
+    touch.steer = Math.max(-1, Math.min(1, (dx < 0 ? -m : m) / 56));
+  };
+  const end = (e) => { if (e.pointerId !== touch.id) return; touch.id = null; touch.steer = 0; knob.classList.remove('on'); };
+  zone.addEventListener('pointerdown', (e) => grab(zone, e, 0));
+  for (const el of [zone, $('brake')]) {
+    el.addEventListener('pointermove', move); el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end);
+  }
+  const hold = (btn, key, steers) => {
+    const on = (v) => (e) => { touch[key] = v; btn.classList.toggle('on', v); if (e && e.cancelable) e.preventDefault(); };
+    btn.addEventListener('pointerdown', (e) => { on(true)(e); if (steers) grab(btn, e, 8); });
+    btn.addEventListener('pointerup', on(false)); btn.addEventListener('pointercancel', on(false));
+    if (!steers) btn.addEventListener('pointerleave', on(false));   // the Brake keeps its thumb while it steers
+  };
+  hold($('gas'), 'gas', false); hold($('brake'), 'brake', true);
 }
 pads();
 function controls() {
@@ -305,7 +312,7 @@ function crashed(r) {
 /* ── one frame ─────────────────────────────────────────────────────────── */
 let lastFrame = performance.now();
 const fpsWin = [];
-let idleZ = 0;
+let idleZ = 0, preWas = false;
 function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.1, Math.max(0, (now - lastFrame) / 1000));
@@ -331,9 +338,11 @@ function frame(now) {
       const a = r.me, p = r.hist[(a.tick - 1 + R) % R];
       const alpha = Math.max(0, Math.min(1, tickF - (a.tick - 1)));
       const brake = r.state === 'racing' && (r.pedal || 0) < 0;
+      /* The start line: no speed until go (the step starts the car at V0 on tick 0, the server's too). */
+      const av = r.state === 'countdown' ? 0 : a.v, avx = r.state === 'countdown' ? 0 : a.vx;
       follow = p && p.tick === a.tick - 1 && a.alive
-        ? { z: p.z + (a.z - p.z) * alpha, x: p.x + (a.x - p.x) * alpha, v: a.v, vx: a.vx, alive: a.alive, brake }
-        : { z: a.z, x: a.x, v: a.v, vx: a.vx, alive: a.alive, brake };
+        ? { z: p.z + (a.z - p.z) * alpha, x: p.x + (a.x - p.x) * alpha, v: av, vx: avx, alive: a.alive, brake }
+        : { z: a.z, x: a.x, v: av, vx: avx, alive: a.alive, brake };
       followSide = r.side;
       other = remote(r, 1 - r.side, a.tick - 1 + alpha, dt);
       steer = r.steer || 0;
@@ -350,7 +359,7 @@ function frame(now) {
       if (!follow) { follow = other; other = null; followSide = 1 - followSide; }
     }
     if (follow) {
-      r.traffic.prune(Math.min(follow.z, other ? other.z : follow.z) - 120, Math.floor(tickF));
+      r.traffic.prune(Math.min(follow.z, other ? other.z : follow.z) - 120, Math.max(0, Math.floor(tickF)));   // never before go
       hud(r, follow, other);
     }
   }
@@ -367,7 +376,11 @@ function frame(now) {
     others: soundOthers(r, follow, other, followSide) });
   const st = SOUND.state ? SOUND.state() : null;
   if (r && r.me && st) engineMoments(r, st);
-  if (scene) scene.frame({ follow, other, followSide, traffic: r ? r.traffic : EMPTY, tick: tickF, dt, steer,
+  /* The traffic waits on the road until go, as on the server: never drawn on a tick before 0. */
+  /* Before go only the countdown, the rev counter and the pedals are up (swim.css body.pre). */
+  const pre = !!(r && r.state === 'countdown');
+  if (pre !== preWas) { preWas = pre; document.body.classList.toggle('pre', pre); }
+  if (scene) scene.frame({ follow, other, followSide, traffic: r ? r.traffic : EMPTY, tick: Math.max(0, tickF), dt, steer,
     rev: revving ? r.rev : 0 });
   if (r) tach(r, st, follow);
   publish(r, follow, other);
@@ -420,6 +433,12 @@ function tach(r, st, f) {
 function remote(r, side, at, dt) {
   const row = r.rows[side];
   if (!row) return null;
+  /* Before go nothing has moved (Owen 2026-11-04: gas in the countdown made the bot jump). A start-line row is drawn
+     exactly where it is, at no speed: carried forward, it sat off the line and every slow frame pushed it on. */
+  if (at <= 0 && row[1] <= 0) {
+    r.disp[side] = { z: row[2], x: row[3] };
+    return { z: row[2], x: row[3], v: 0, vx: 0, alive: !!row[6], brake: false };
+  }
   const ahead = row[6] ? Math.max(-6, Math.min(30, at - row[1])) : 0;
   const tz = row[2] + row[4] * ahead * S.DT;
   const tx = Math.max(-S.WALL, Math.min(S.WALL, row[3] + row[5] * Math.min(ahead, 8) * S.DT));
@@ -444,7 +463,7 @@ function putStyle(el, k, v) {
 function hud(r, f, o) {
   const kmh = Math.round(f.v * 3.6);
   put($('spdNum'), String(kmh));
-  put($('distText'), f.z >= 1000 ? (f.z / 1000).toFixed(2) + ' km' : Math.max(0, Math.round(f.z)) + ' m');
+  put($('distText'), r.state === 'countdown' ? 'On the start line' : f.z >= 1000 ? (f.z / 1000).toFixed(2) + ' km' : Math.max(0, Math.round(f.z)) + ' m');
   if (!o) return;
   const gap = f.z - o.z;
   const a = Math.min(1, Math.abs(gap) / S.BEHIND_LOSE);
@@ -467,18 +486,25 @@ function hud(r, f, o) {
   } else if (!warn.hidden) warn.hidden = true;
 }
 
+/* The countdown, slither.io's (Owen 2026-11-04: the same as slither): "Starting in N" in a small block at the top
+   centre, over who you race and how to drive, then GO for a moment before it fades. */
+let goTimer = 0;
 function countdown(r, tickF) {
   const left = Math.ceil(-tickF * S.TICK_MS / 1000);
-  const box = $('count'), num = $('countNum');
+  const box = $('count');
   if (left > 0 && left <= 3) {
     if (left !== r.countShown) {
       r.countShown = left;
-      box.hidden = false; num.textContent = String(left);
-      num.style.animation = 'none'; void num.offsetWidth; num.style.animation = '';
+      clearTimeout(goTimer); box.classList.remove('fade'); box.hidden = false;
+      put($('countNum'), 'Starting in ' + left);
       SOUND.play('g.tick');
     }
+    put($('countSub'), r.side === null ? r.names[0] + ' vs ' + r.names[1] : 'vs ' + r.names[1 - r.side] + ' · ' + (TOUCH ? 'drag on the left to steer' : 'W gas · S brake · A D steer'));
   } else if (left <= 0 && r.countShown !== 0) {
-    r.countShown = 0; box.hidden = true; SOUND.play('g.go');
+    r.countShown = 0; SOUND.play('g.go');
+    put($('countNum'), 'GO'); box.classList.remove('fade'); box.hidden = false;
+    clearTimeout(goTimer);
+    goTimer = setTimeout(() => { box.classList.add('fade'); goTimer = setTimeout(() => { box.hidden = true; box.classList.remove('fade'); }, 500); }, 1200);
   }
 }
 
@@ -523,7 +549,7 @@ const WAIT_MS = window.DS_DUEL_WAIT_MS;   // shared/duelWait.js, the server's nu
 let waiting = false, waitPaid = false, waitEndsAt = 0, waitFrom = 0, waitTimer = 0, resumeKey = null, overShown = false, lastOver = null;
 /* The seat's secret for a reconnect mid-race (sw:seat, sent to this socket only, new after every rejoin). */
 let seatKey = null;
-let restake = null, restakeLine = '', restakeTimer = 0, firstRace = true;
+let restake = null, restakeLine = '', restakeTimer = 0;
 function clockText(ms) { const s = Math.max(0, Math.ceil(ms / 1000)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
 function paintWait() {
   if (!waiting) return;
@@ -651,15 +677,7 @@ function showRaceUi(r) {
   $('pads').hidden = !TOUCH || WATCH;
   $('youName').textContent = r.side === null ? r.names[0] : r.names[r.side];
   $('themName').textContent = r.side === null ? r.names[1] : r.names[1 - r.side];
-  chatShow(true);
-  if (!WATCH && firstRace) {
-    firstRace = false;
-    const k = $('keys');
-    k.innerHTML = TOUCH ? 'Drag on the left to steer. Hold Gas or Brake on the right.'
-      : 'Hold <kbd>W</kbd> to speed up, <kbd>S</kbd> to brake, <kbd>A</kbd> <kbd>D</kbd> to steer';
-    k.hidden = false;
-    setTimeout(() => { k.hidden = true; }, 7000);
-  }
+  chatShow(true);   // how to drive is the countdown's second line
 }
 
 socket.on('sw:start', (m) => {

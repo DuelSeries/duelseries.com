@@ -113,15 +113,6 @@ html, body {
 }
 #warn[hidden] { display: none; }
 
-#keys {
-  position: fixed; left: 50%; bottom: calc(118px + env(safe-area-inset-bottom)); z-index: 10;
-  transform: translateX(-50%); pointer-events: none; white-space: nowrap;
-  padding: 8px 14px; border-radius: 10px; background: rgba(0, 0, 0, 0.74); box-shadow: inset 0 0 0 1px #36291a;
-  font-size: 13px; font-weight: 600; color: var(--tx2);
-}
-#keys[hidden] { display: none; }
-#keys kbd { display: inline-grid; place-items: center; min-width: 22px; height: 22px; font-family: var(--f); font-size: 12px; font-weight: 700; color: var(--tx2); padding: 0 6px; border-radius: 5px; background: #272018; box-shadow: inset 0 0 0 1px #5a4630, inset 0 -2px 0 rgba(0,0,0,.5); margin: 0 1px; }
-
 /* The edge flash: gold on a close pass, red on a crash. */
 #flash {
   position: fixed; inset: 0; z-index: 9; pointer-events: none; opacity: 0;
@@ -132,6 +123,8 @@ html, body {
 @keyframes swflash { 0% { opacity: 1; } 100% { opacity: 0; } }
 
 /* ── phone pedals ────────────────────────────────────────────────────────── */
+/* Owen 2026-11-04: Gas bottom right, Brake bottom left, the same size, a big thumb each. The left thumb steers:
+   drag anywhere on the left, the Brake included (held, it brakes and steers at once). */
 #pads { position: fixed; inset: 0; z-index: 8; pointer-events: none; }
 #pads[hidden] { display: none; }
 #steerZone { position: absolute; left: 0; top: 70px; bottom: 0; width: 56%; pointer-events: auto; }
@@ -141,17 +134,19 @@ html, body {
 }
 #steerKnob.on { display: block; }
 #pads button {
-  position: absolute; bottom: calc(22px + env(safe-area-inset-bottom)); pointer-events: auto;
-  font-family: var(--f); font-weight: 700; color: var(--tx); cursor: pointer;
-  border-radius: 18px; border: 0; background: rgba(0, 0, 0, 0.6); box-shadow: inset 0 0 0 1px #5a4630;
-  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  position: absolute; bottom: calc(30px + env(safe-area-inset-bottom)); pointer-events: auto;   /* 30: over the ping readout */
+  width: 104px; height: 104px; font-family: var(--f); font-size: 16px; font-weight: 700; color: var(--tx); cursor: pointer;
+  border-radius: 22px; border: 0; background: rgba(0, 0, 0, 0.6); box-shadow: inset 0 0 0 1px #5a4630;
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); touch-action: none;
 }
-#gas { right: calc(18px + env(safe-area-inset-right)); width: 92px; height: 120px; font-size: 16px; }
-#brake { right: calc(122px + env(safe-area-inset-right)); width: 78px; height: 78px; font-size: 14px; }
+#gas { right: calc(16px + env(safe-area-inset-right)); }
+#brake { left: calc(16px + env(safe-area-inset-left)); }
+/* A phone held sideways: a little smaller, the road is short. */
+@media (max-height: 500px) { #pads button { width: 96px; height: 96px; } }
 #pads button.on { background: rgba(244, 241, 234, 0.24); box-shadow: inset 0 0 0 2px #f4f1ea; }
 #brake.on { background: rgba(239, 116, 97, 0.3); box-shadow: inset 0 0 0 2px #ef7461; }
-/* On a phone the speed sits on the left of the pedals, clear of both thumbs. */
-body.touch #dash { left: auto; right: calc(222px + env(safe-area-inset-right)); transform: none; }
+/* On a phone held sideways (or a tablet) the speed sits left of the Gas, clear of both thumbs and the car. */
+body.touch #dash { left: auto; right: calc(136px + env(safe-area-inset-right)); transform: none; }
 body.touch #close { bottom: calc(150px + env(safe-area-inset-bottom)); }
 @media (max-width: 600px) {
   #top { gap: 8px; padding-left: 12px; padding-right: 12px; }
@@ -160,23 +155,33 @@ body.touch #close { bottom: calc(150px + env(safe-area-inset-bottom)); }
   body.touch #dash { right: auto; left: 50%; transform: translateX(-50%); bottom: auto; top: calc(66px + env(safe-area-inset-top)); }
   body.touch #dash .spd b { font-size: 30px; }
   body.touch #warn { top: calc(124px + env(safe-area-inset-top)); }
-  /* Under the speed (66 px down, about 60 tall), not on it; the hint clears the 142 px tall Gas pedal. */
+  /* Under the speed (66 px down, about 60 tall), not on it. */
   body.touch #botNote { top: calc(140px + env(safe-area-inset-top)); }
-  body.touch #keys { bottom: calc(154px + env(safe-area-inset-bottom)); }
+  /* Before go: the countdown (or the waiting banner) has the top, the rev counter sits just under it. */
+  body.touch.pre #dash { top: calc(76px + env(safe-area-inset-top)); }
 }
 
-/* ── the overlays every duel shares (knockout.css) ───────────────────────── */
-#count { position: fixed; inset: 0; z-index: 18; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+/* ── before go (Owen 2026-11-04: "really filled out") ──────────────────────
+   Only what a player needs before the start: the countdown, the rev counter, the pedals, and the way out. The
+   standings and the gap wait for go; how to drive is the countdown's second line. */
+body.pre #board, body.pre #feed, body.pre #top, body.pre #warn { display: none !important; }
+
+/* ── the countdown: slither.io's (public/js/slx/slxBr.js .slx-br-hud, Owen 2026-11-04) ─────────────────────
+   One small block at the top centre, never the middle of the screen: "Starting in N" over a line saying who is in
+   and how to drive, then GO for a moment. Its glass, type and sizes are slither's (at 1, as in the lobby's frame). */
+#count {
+  position: fixed; z-index: 18; left: 50%; top: calc(8px + env(safe-area-inset-top)); transform: translateX(-50%);
+  width: max-content; max-width: calc(100vw - 24px); padding: 5px 14px 6px; border-radius: 12px;
+  background: rgba(0, 0, 0, 0.42); text-align: center; color: #fff; font: 13px Arial, "Helvetica Neue", Helvetica, sans-serif;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9); pointer-events: none; opacity: 1; transition: opacity 0.5s ease-out;
+}
 #count[hidden] { display: none; }
-#count span {
-  font-family: var(--fm); font-size: 110px; font-weight: 600; color: var(--tx);
-  text-shadow: 0 10px 40px rgba(0,0,0,0.8); animation: swbeat 1s ease-out infinite;
-}
-@keyframes swbeat {
-  0%   { transform: scale(1.25); opacity: 0; }
-  25%  { transform: scale(1);    opacity: 1; }
-  100% { transform: scale(0.92); opacity: 0.25; }
-}
+#count.fade { opacity: 0; }
+#count .cHead { font-weight: bold; font-size: 24px; line-height: 29px; white-space: nowrap; }
+#count .cSub { margin-top: 1px; line-height: 17px; opacity: 0.92; }
+#count .cSub:empty { display: none; }
+/* Watching on a phone: the Lobby chip has the top left, the block goes under it. */
+@media (max-width: 600px) { body.watching #count { top: calc(54px + env(safe-area-inset-top)); } }
 #wait, #nogl {
   position: fixed; inset: 0; z-index: 20;
   display: flex; align-items: center; justify-content: center; padding: 24px;
@@ -215,7 +220,7 @@ body.touch #close { bottom: calc(150px + env(safe-area-inset-bottom)); }
 
 /* Watching: nothing on screen is yours to drive. The shared Spectate bar
    (dsWatchBar.js) sits top left, so the strip makes room for it. */
-body.watching #pads, body.watching #keys, body.watching #close, body.watching #warn { display: none; }
+body.watching #pads, body.watching #close, body.watching #warn { display: none; }
 /* A computer: the Spectate bar's arrows and name take the bottom centre (24 px up, 56 tall), so the speed sits above
    them, not under. On a phone they are 116 px up and the speed already clears them (dsWatchBar.js's phone rule). */
 @media (min-width: 601px) and (pointer: fine), (min-width: 601px) and (min-height: 601px) {
@@ -226,5 +231,5 @@ body.watching #top { padding-left: 126px; padding-right: 126px; }
 
 /* The spinner keeps spinning under reduced motion (knockout.css says why); the rest is calmed. */
 @media (prefers-reduced-motion: reduce) {
-  #count span { animation: none; }
+  #count { transition: none; }
 }

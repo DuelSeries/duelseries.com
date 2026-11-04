@@ -113,24 +113,34 @@ addEventListener('keydown', (e) => {
 });
 addEventListener('keyup', (e) => { const k = KEYMAP[e.code]; if (k) keys.delete(k); });
 addEventListener('blur', () => keys.clear());
-const touch = { steer: 0, id: null, x0: 0, gas: false, brake: false };
+const touch = { steer: 0, id: null, x0: 0, dead: 0, gas: false, brake: false };
 (function pads() {
   const zone = $('steerZone'), knob = $('steerKnob');
-  zone.addEventListener('pointerdown', (e) => {
-    touch.id = e.pointerId; touch.x0 = e.clientX; touch.steer = 0;
+  /* Owen 2026-11-04: Gas bottom right, Brake bottom left, the same size. The left thumb steers: a drag anywhere on
+     the left, or on the Brake while it is held (8 px of thumb roll on the Brake do not steer). */
+  const grab = (el, e, dead) => {
+    touch.id = e.pointerId; touch.x0 = e.clientX; touch.dead = dead; touch.steer = 0;
     knob.style.left = e.clientX + 'px'; knob.style.top = (e.clientY - zone.getBoundingClientRect().top) + 'px';
     knob.classList.add('on');
-    try { zone.setPointerCapture(e.pointerId); } catch (_) {}
-  });
-  zone.addEventListener('pointermove', (e) => { if (e.pointerId === touch.id) touch.steer = Math.max(-1, Math.min(1, (e.clientX - touch.x0) / 56)); });
-  const end = (e) => { if (e.pointerId !== touch.id) return; touch.id = null; touch.steer = 0; knob.classList.remove('on'); };
-  zone.addEventListener('pointerup', end); zone.addEventListener('pointercancel', end);
-  const hold = (btn, key) => {
-    const on = (v) => (e) => { touch[key] = v; btn.classList.toggle('on', v); if (e && e.cancelable) e.preventDefault(); };
-    btn.addEventListener('pointerdown', on(true));
-    btn.addEventListener('pointerup', on(false)); btn.addEventListener('pointercancel', on(false)); btn.addEventListener('pointerleave', on(false));
+    try { el.setPointerCapture(e.pointerId); } catch (_) {}
   };
-  hold($('gas'), 'gas'); hold($('brake'), 'brake');
+  const move = (e) => {
+    if (e.pointerId !== touch.id) return;
+    const dx = e.clientX - touch.x0, m = Math.max(0, Math.abs(dx) - (touch.dead || 0));
+    touch.steer = Math.max(-1, Math.min(1, (dx < 0 ? -m : m) / 56));
+  };
+  const end = (e) => { if (e.pointerId !== touch.id) return; touch.id = null; touch.steer = 0; knob.classList.remove('on'); };
+  zone.addEventListener('pointerdown', (e) => grab(zone, e, 0));
+  for (const el of [zone, $('brake')]) {
+    el.addEventListener('pointermove', move); el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end);
+  }
+  const hold = (btn, key, steers) => {
+    const on = (v) => (e) => { touch[key] = v; btn.classList.toggle('on', v); if (e && e.cancelable) e.preventDefault(); };
+    btn.addEventListener('pointerdown', (e) => { on(true)(e); if (steers) grab(btn, e, 8); });
+    btn.addEventListener('pointerup', on(false)); btn.addEventListener('pointercancel', on(false));
+    if (!steers) btn.addEventListener('pointerleave', on(false));   // the Brake keeps its thumb while it steers
+  };
+  hold($('gas'), 'gas', false); hold($('brake'), 'brake', true);
 })();
 function controls() {
   /* A headless check's driver (scripts/swimEventPerf.js) can steer this page's own car; it is only ever this page's
@@ -271,20 +281,30 @@ function remote(r, seat, at, dt) {
   const row = r.rows.get(seat);
   if (!row) return null;
   const going = !!row[6];
-  const ahead = going ? Math.max(-6, Math.min(30, at - row[1])) : 0;
-  const tz = row[2] + row[4] * ahead * S.DT;
-  const tx = Math.max(r.traffic.wallL, Math.min(r.traffic.wallR, row[3] + row[5] * Math.min(ahead, 8) * S.DT));
+  /* Before go nothing has moved (Owen 2026-11-04: gas in the countdown made the bots jump). A start-line row is
+     drawn exactly where it is, at no speed: carried forward, it was drawn 2 to 3 m behind the line and pushed back
+     up by every slow frame (revving makes them), so the cars beside ours popped in and out of view. */
+  const parked = at <= 0 && row[1] <= 0;
   let d = r.disp.get(seat);
-  if (!d || Math.abs(d.z - tz) > 40) { d = { z: tz, x: tx }; r.disp.set(seat, d); }
-  else {
-    d.z += row[4] * dt * (going ? 1 : 0); d.x += row[5] * dt * (going ? 1 : 0);
-    d.z += (tz - d.z) * 0.22; d.x += (tx - d.x) * 0.22;
+  if (parked) {
+    if (!d) { d = { z: row[2], x: row[3] }; r.disp.set(seat, d); }
+    else { d.z = row[2]; d.x = row[3]; }
+  } else {
+    const ahead = going ? Math.max(-6, Math.min(30, at - row[1])) : 0;
+    const tz = row[2] + row[4] * ahead * S.DT;
+    const tx = Math.max(r.traffic.wallL, Math.min(r.traffic.wallR, row[3] + row[5] * Math.min(ahead, 8) * S.DT));
+    if (!d || Math.abs(d.z - tz) > 40) { d = { z: tz, x: tx }; r.disp.set(seat, d); }
+    else {
+      d.z += row[4] * dt * (going ? 1 : 0); d.x += row[5] * dt * (going ? 1 : 0);
+      d.z += (tz - d.z) * 0.22; d.x += (tx - d.x) * 0.22;
+    }
   }
   /* One object per seat, written in place each frame (no garbage at 60 a second for 50 cars). */
   const s = r.seats.get(seat);
   let o = r.views.get(seat);
   if (!o) { o = { z: 0, x: 0, v: 0, vx: 0, alive: true, brake: false, look: null, seat, d: 0 }; r.views.set(seat, o); }
-  o.z = d.z; o.x = d.x; o.v = row[4]; o.vx = row[5]; o.alive = going; o.brake = going && !!r.slowing.get(seat); o.look = s ? s.look : null;
+  o.z = d.z; o.x = d.x; o.v = parked ? 0 : row[4]; o.vx = parked ? 0 : row[5]; o.alive = going;
+  o.brake = !parked && going && !!r.slowing.get(seat); o.look = s ? s.look : null;
   return o;
 }
 
@@ -307,7 +327,7 @@ function standings(r, myZ) {
 /* ── one frame ─────────────────────────────────────────────────────────── */
 let lastFrame = performance.now();
 const fpsWin = [];
-let idleZ = 0;
+let idleZ = 0, preWas = false;
 const EMPTY = new S.Traffic(8);
 const othersBuf = [], candBuf = [];
 function frame(now) {
@@ -330,14 +350,17 @@ function frame(now) {
     if (r.state === 'countdown' && tickF >= 0) { r.state = 'racing'; r.startedAt = performance.now(); }
     if (r.state === 'racing' && r.car && !r.out) drive(r);
     const at = tickF - 4;
+    /* The start line: our car shows no speed until go (the step starts it at V0 on tick 0, the server's too). */
+    const parked = r.state === 'countdown';
     /* My own car, and for a moment after I am out, my crash. */
     if (r.car && (!r.out || performance.now() - r.outAt < 1300)) {
       const a = r.car, p = r.hist[(a.tick - 1 + R) % R];
       const alpha = Math.max(0, Math.min(1, tickF - (a.tick - 1)));
       const brake = r.state === 'racing' && r.pedal < 0;
+      const av = parked ? 0 : a.v;
       follow = p && p.tick === a.tick - 1 && a.alive
-        ? { z: p.z + (a.z - p.z) * alpha, x: p.x + (a.x - p.x) * alpha, v: a.v, vx: a.vx, alive: a.alive, brake }
-        : { z: a.z, x: a.x, v: a.v, vx: a.vx, alive: a.alive, brake };
+        ? { z: p.z + (a.z - p.z) * alpha, x: p.x + (a.x - p.x) * alpha, v: av, vx: a.vx, alive: a.alive, brake }
+        : { z: a.z, x: a.x, v: av, vx: parked ? 0 : a.vx, alive: a.alive, brake };
       steer = r.steer || 0;
     } else {
       /* Watching (or out): the chosen car, else whoever leads. */
@@ -370,7 +393,9 @@ function frame(now) {
       for (let i = 0; i < Math.min(GHOSTS, cand.length); i++) othersBuf.push(cand[i]);
       let minZ = Infinity;
       for (const [seat, row] of r.rows) if (row[6] && !(r.seats.get(seat) || {}).out) minZ = Math.min(minZ, row[2]);
-      if (Number.isFinite(minZ)) r.traffic.prune(Math.min(minZ, follow.z) - 150, Math.floor(tickF));
+      /* Never on a tick before go: the traffic only starts moving at go, as on the server (prune at tick -600 dropped
+         cars the fast lanes would have carried back past the start line, ones the server still has ahead). */
+      if (Number.isFinite(minZ)) r.traffic.prune(Math.min(minZ, follow.z) - 150, Math.max(0, Math.floor(tickF)));
       hud(r, follow);
     }
   }
@@ -387,6 +412,9 @@ function frame(now) {
     LOB.rev += ((gas ? 1 : 0) - LOB.rev) * (1 - Math.exp(-dt / (gas ? 0.22 : 0.35)));
     LOB.gas = gas;
   } else LOB.rev = 0;
+  /* Before go (waiting on the start line, or the countdown) only what a player needs is up (swim.css body.pre). */
+  const pre = inLobby || !!(r && r.state === 'countdown');
+  if (pre !== preWas) { preWas = pre; document.body.classList.toggle('pre', pre); }
   const revving = !!(r && r.revving) || inLobby;
   const racingSound = !!(r && r.state === 'racing' && follow && follow.alive);
   const soundOn = racingSound || revving;
@@ -397,7 +425,8 @@ function frame(now) {
     others: racingSound ? sndBuf : sndNone });
   const st = SOUND.state ? SOUND.state() : null;
   if (st && (inLobby || (r && r.car && !r.out))) engineMoments(inLobby ? LOB : r, st, inLobby);
-  if (scene) scene.frame({ follow, others: othersBuf, followSide: 0, traffic: r && !lobbyOn ? r.traffic : EMPTY, tick: tickF, dt, steer,
+  /* The traffic is drawn where it is on the tick shown, never before tick 0: it waits on the road until go too. */
+  if (scene) scene.frame({ follow, others: othersBuf, followSide: 0, traffic: r && !lobbyOn ? r.traffic : EMPTY, tick: Math.max(0, tickF), dt, steer,
     rev: inLobby ? LOB.rev : revving ? r.rev : 0 });
   if (inLobby) lobbyTach(st);
   else if (r) tach(r, st, follow);
@@ -516,7 +545,7 @@ function put(el, text) {
 }
 function hud(r, f) {
   put($('spdNum'), String(Math.round(f.v * 3.6)));
-  put($('distText'), metres(f.z));
+  put($('distText'), r.state === 'countdown' ? 'On the start line' : metres(f.z));
   const t = performance.now();
   if (t - hudAt < 120) return;                      // the board eight times a second is plenty
   hudAt = t;
@@ -580,17 +609,27 @@ function feed(k) {
   setTimeout(() => { li.classList.add('gone'); setTimeout(() => li.remove(), 700); }, 5000);
 }
 
+/* The countdown, slither.io's (Owen 2026-11-04: the same as slither): "Starting in N" in a small block at the top
+   centre, over how many race and how to drive (a watcher: what wins), then GO for a moment before it fades. */
+let goTimer = 0;
 function countdown(r, tickF) {
   const left = Math.ceil(-tickF * S.TICK_MS / 1000);
-  const box = $('count'), num = $('countNum');
+  const box = $('count');
   if (left > 0 && left <= 10) {
     if (left !== r.countShown) {
       r.countShown = left;
-      box.hidden = false; num.textContent = String(left);
-      num.style.animation = 'none'; void num.offsetWidth; num.style.animation = '';
+      clearTimeout(goTimer); box.classList.remove('fade'); box.hidden = false;
+      put($('countNum'), 'Starting in ' + left);
       if (left <= 3) SOUND.play('g.tick');
     }
-  } else if (left <= 0 && r.countShown !== 0) { r.countShown = 0; box.hidden = true; SOUND.play('g.go'); }
+    const n = r.seats.size + (r.seats.size === 1 ? ' racer · ' : ' racers · ');
+    put($('countSub'), n + (r.car && !r.out ? (TOUCH ? 'drag on the left to steer' : 'W gas · S brake · A D steer') : 'first ' + Math.round(r.winLead) + ' m clear wins'));
+  } else if (left <= 0 && r.countShown !== 0) {
+    r.countShown = 0; SOUND.play('g.go');
+    put($('countNum'), 'GO'); box.classList.remove('fade'); box.hidden = false;
+    clearTimeout(goTimer);
+    goTimer = setTimeout(() => { box.classList.add('fade'); goTimer = setTimeout(() => { box.hidden = true; box.classList.remove('fade'); }, 500); }, 1200);
+  }
 }
 
 let publishAt = 0;
@@ -634,7 +673,7 @@ function paintLobby() {
   $('wait').hidden = noGl || joined;
   $('lobbyBar').hidden = noGl || !joined;
   $('lbCount').textContent = n === 1 ? '1 joined' : n + ' joined';
-  $('lbClock').textContent = secs === null ? '' : 'Starts in ' + clockText(secs);
+  $('lbClock').textContent = secs === null ? '' : clockText(secs);   // "Starts in" on a computer (swimrace.css)
   $('lbTest').hidden = !lobby.test;
   if (joined) return;
   $('seClock').textContent = clockText(secs);
@@ -830,7 +869,6 @@ socket.on('se:you', (m) => {
     seatMe(race, m.seat);
     leaveWatch();
     showRaceUi();
-    if (!race.firstShown) { race.firstShown = true; keysHint(); }
     track('start', { room: race.id, players: race.seats.size });
   }
 });
@@ -886,13 +924,6 @@ function showRaceUi() {
   $('board').hidden = false; $('dash').hidden = false;
   $('pads').hidden = !TOUCH || !(race.car && !race.out);
   if (window.DSEnd) DSEnd.hide();
-}
-function keysHint() {
-  const k = $('keys');
-  k.innerHTML = TOUCH ? 'Drag on the left to steer. Hold Gas or Brake on the right.'
-    : 'Hold <kbd>W</kbd> to speed up, <kbd>S</kbd> to brake, <kbd>A</kbd> <kbd>D</kbd> to steer';
-  k.hidden = false;
-  setTimeout(() => { k.hidden = true; }, 7000);
 }
 function knockedOut(k) {
   const r = race;

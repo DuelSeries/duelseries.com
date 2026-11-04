@@ -2,8 +2,8 @@
 // so there should be next buttons that instantly swap to the next person, there should be the Lobby button every
 // time"). His pick from the picker (look B, "Split", with his changes): a Lobby chip top left, and at the bottom
 // centre a big round previous button, a plate with just the watched player's name, and a big round next button. No
-// dot and no "3 of 12" on the plate. PC: Left arrow is previous, Right arrow and Space are next. Phones: bigger round
-// buttons, lifted clear of the games' minimaps. An empty table (nobody to follow) shows the whole map behind it
+// dot and no "3 of 12" on the plate. PC: Left arrow is previous, Right arrow and Space are next. Phones (2026-11-04,
+// like slither.io's): small, together at the very bottom left, out of the middle and off the owner controls. An empty table (nobody to follow) shows the whole map behind it
 // (public/js/shared/dsEmptyArena.js, bare) and says so on the plate, with the arrows off. A game with no map to show
 // (Knockout, Battleship, Crossy Road: emptyArt) shows its own card art instead, zoomed, blurred and darkened the way the
 // lobby's game screen does (public/v2.html .gbg), so an empty Watch never looks like a dead page (Owen 2026-10-28).
@@ -69,14 +69,39 @@
     '-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);box-shadow:inset 0 0 0 1px var(--ds-line,#36291a),0 6px 18px rgba(0,0,0,.3);}',
     '.dsw-name{font-weight:700;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
     '.dsw-empty .dsw-name,.dsw-wait .dsw-name{font-weight:600;font-size:15px;color:var(--ds-tx2,#b3a792);}',
-    // phones: thumbs, and clear of the minimaps at the bottom right
+    // Phones, either way up (Owen 2026-11-04: "make it like slither.io's: out of the way, off to the side, small"): the
+    // arrows and the name sit together at the very bottom left, as small as a thumb allows (46 px), the name only as
+    // wide as it needs, so the middle of the screen, the bottom right (minimaps, the ping readout) and every owner
+    // control stay clear. The Lobby chip is smaller too. Upright, the cluster stops 134 px short of the right edge
+    // (Paper's minimap and the ping readout); sideways the name is at most 180 px, clear of a bottom-centre scoreboard.
     '@media (max-width:600px),(pointer:coarse) and (max-height:600px){',
-    '.dsw-switch{left:12px;right:var(--dsw-right,12px);transform:none;bottom:calc(var(--dsw-lift,116px) + env(safe-area-inset-bottom,0px));',
+    '.dsw-switch{left:calc(10px + env(safe-area-inset-left,0px));right:auto;transform:none;',
+    'bottom:calc(10px + env(safe-area-inset-bottom,0px));justify-content:flex-start;gap:6px;}',
+    '.dsw-round{width:46px;height:46px;box-shadow:inset 0 0 0 1px var(--ds-line,#36291a),0 4px 12px rgba(0,0,0,.28);}',
+    '.dsw-round svg{width:20px;height:20px;}',
+    '.dsw-plate{min-width:88px;max-width:max(88px,calc(100vw - 248px));flex:none;height:46px;padding:0 12px;border-radius:14px;',
+    'box-shadow:inset 0 0 0 1px var(--ds-line,#36291a),0 4px 12px rgba(0,0,0,.28);}',
+    '.dsw-name{font-size:14px;}',
+    '.dsw-empty .dsw-name,.dsw-wait .dsw-name{font-size:13px;}',
+    '.dsw-lobby{left:calc(10px + env(safe-area-inset-left,0px));top:calc(10px + env(safe-area-inset-top,0px));height:36px;',
+    'padding:0 12px 0 8px;gap:6px;border-radius:9px;font-size:13px;}',
+    '.dsw-lobby svg{width:16px;height:16px;}}',
+    '@media (pointer:coarse) and (max-height:600px) and (min-width:601px){.dsw-plate{max-width:180px;}}',
+    // A page that measured its own corner (slither.io and its battle royale, drawn at 0.7 in the lobby: phoneRight)
+    // keeps the bar it placed: along the bottom, stopping that far from the right edge, at its own size.
+    '@media (max-width:600px),(pointer:coarse) and (max-height:600px){',
+    '.dsw-fit .dsw-switch{left:12px;right:var(--dsw-right,12px);bottom:calc(var(--dsw-lift,12px) + env(safe-area-inset-bottom,0px));',
     'justify-content:space-between;gap:8px;}',
-    '.dsw-round{width:var(--dsw-size,64px);height:var(--dsw-size,64px);}',
-    '.dsw-plate{min-width:0;max-width:none;flex:1;height:var(--dsw-size,64px);padding:0 14px;}',
-    '.dsw-name{font-size:16px;}',
-    '.dsw-lobby{height:max(44px,calc(var(--dsw-size,64px) * .66));padding:0 14px 0 10px;}}',
+    '.dsw-fit .dsw-round{width:var(--dsw-size,64px);height:var(--dsw-size,64px);',
+    'box-shadow:inset 0 0 0 1px var(--ds-line,#36291a),0 6px 18px rgba(0,0,0,.3);}',
+    '.dsw-fit .dsw-round svg{width:24px;height:24px;}',
+    '.dsw-fit .dsw-plate{min-width:0;max-width:none;flex:1;height:var(--dsw-size,64px);padding:0 14px;border-radius:18px;',
+    'box-shadow:inset 0 0 0 1px var(--ds-line,#36291a),0 6px 18px rgba(0,0,0,.3);}',
+    '.dsw-fit .dsw-name{font-size:16px;}',
+    '.dsw-fit .dsw-empty .dsw-name,.dsw-fit .dsw-wait .dsw-name{font-size:15px;}',
+    '.dsw-fit .dsw-lobby{left:calc(16px + env(safe-area-inset-left,0px));top:calc(16px + env(safe-area-inset-top,0px));',
+    'height:max(44px,calc(var(--dsw-size,64px) * .66));padding:0 14px 0 10px;gap:8px;border-radius:10px;font-size:15px;}',
+    '.dsw-fit .dsw-lobby svg{width:18px;height:18px;}}',
     '@media (prefers-reduced-motion:reduce){.dsw-round:active:not(:disabled){transform:none;}}',
     // the empty table's card art (emptyArt): the lobby's game screen, zoomed, blurred and dark on true black
     '.dsw-art{position:fixed;inset:0;z-index:' + ART_Z + ';overflow:hidden;pointer-events:none;background:#000;display:none;}',
@@ -198,7 +223,10 @@
   function paint() {
     if (!built) return;
     var body = doc.body;
-    if (body && body.classList) body.classList.toggle('dsw-on', on);
+    if (body && body.classList) {
+      body.classList.toggle('dsw-on', on);
+      body.classList.toggle('dsw-fit', on && opts.phoneRight > 0);   // the page placed the bar itself (slither.io)
+    }
     sw.classList.toggle('dsw-empty', isEmpty);
     sw.classList.toggle('dsw-wait', !isEmpty && name === null);
     var text = isEmpty ? WORDS.empty : name === null ? WORDS.finding : (name || WORDS.unnamed);
@@ -235,9 +263,9 @@
   }
 
   root.DSWatchBar = {
-    // o.phoneLift, o.phoneSize (px, optional): a page drawn smaller on phones (the lobby shows /sl at 0.7) lifts the
-    // bar clear of its own minimap and keeps the buttons a thumb's size. o.phoneRight (px, optional): the bar sits low
-    // and stops this far from the right edge instead, clear of a minimap in that corner.
+    // o.phoneRight (px, optional): a page that measured its own corner (the lobby shows /sl at 0.7) has the bar along
+    // the bottom, o.phoneLift up and stopping this far from the right edge, its buttons o.phoneSize, clear of its own
+    // minimap. Without it a phone gets the small bar at the bottom left (phoneLift alone is no longer used there).
     open: function (o) {
       opts = o || {};
       if (!build()) return false;

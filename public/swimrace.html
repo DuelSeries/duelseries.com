@@ -37,7 +37,6 @@
 <div id="close" hidden><b>Close</b><span id="closeCount"></span></div>
 <!-- Nearly too far behind the leader to stay in (1 km). -->
 <div id="warn" hidden>Catch up</div>
-<div id="keys" hidden></div>
 <div id="pads" hidden>
   <div id="steerZone" aria-label="Steer: drag left or right"><i id="steerKnob"></i></div>
   <button type="button" id="brake" aria-label="Brake">Brake</button>
@@ -60,10 +59,11 @@
   </div>
 </div>
 
-<!-- Joined and waiting: our car is parked on the start line behind this. -->
+<!-- Joined and waiting: our car is parked on the start line behind this one small line (Owen 2026-11-04: much
+     smaller on a phone, it sat on the speed). -->
 <div id="lobbyBar" hidden role="status">
-  <b>Waiting for players to join</b>
-  <div class="lbLine"><span id="lbCount">1 joined</span><span id="lbClock">Starts in 0:00</span><i id="lbTest" hidden>Test race</i></div>
+  <b>Waiting for players</b>
+  <span id="lbCount">1 joined</span><span id="lbClock">0:00</span><i id="lbTest" hidden>Test</i>
   <button type="button" id="lbLeave">Leave</button>
 </div>
 
@@ -75,8 +75,8 @@
   <button type="button" id="ownStop" hidden>Stop the race</button>
 </div>
 
-<!-- The 10 seconds on the start line. -->
-<div id="count" hidden><span id="countNum">10</span></div>
+<!-- The 10 seconds on the start line: slither.io's countdown block (Owen 2026-11-04), top centre. -->
+<div id="count" hidden role="timer" aria-live="off"><div class="cHead" id="countNum">Starting in 10</div><div class="cSub" id="countSub"></div></div>
 <div id="botNote" role="status" hidden></div>
 
 <div id="nogl" hidden>
