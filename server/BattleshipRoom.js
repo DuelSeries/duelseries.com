@@ -541,7 +541,7 @@ class BattleshipRoom {
       you: me ? { name: me.name, side: me.side, skin: me.skin || null } : null,
       them: foe ? { name: foe.name, side: foe.side, skin: foe.skin || null } : null,
       // The opponent is the lobby's bot: said, not hidden (Owen 2026-10-21), so the screen says "Playing a bot".
-      vsBot: !!this.bot,
+      vsBot: !!(this.bot && this.bot.paidBot),   // only an owner's paid bot is named a bot (Owen 2026-11-04)
       yourTurn: this.state === 'playing' && this.turn === socketId,
       placed: !!(myBoard && myBoard.placed),
       theyPlaced: !!(foeBoard && foeBoard.placed),

@@ -20,7 +20,8 @@ const { CrossyLobby } = require('./CrossyLobby');
 const S = require('../../shared/crossySim');
 const LOOKS = require('../../shared/crossyLooks');
 
-/* deps (from index.js): io, koSend, trackEarning, sweepRake, houseCut, region, createPaidSwitchStore, journalDir. */
+/* deps (from index.js): io, koSend, trackEarning, sweepRake, houseCut, region, createPaidSwitchStore, journalDir,
+   paidBotTable (game, tag, settle) -> true when an owner's paid bot sat at that table and server/duelBots.js paid it. */
 function create(deps) {
   const { io, koSend, trackEarning, sweepRake, houseCut, region } = deps;
   const lobby = new CrossyLobby(io);
@@ -29,6 +30,7 @@ function create(deps) {
   lobby.onSettled = ({ roomId, winnerId, why, pot, seats }) => {
     if (!roomId || !(pot > 0) || paidRooms.has(roomId)) return;
     paidRooms.add(roomId);
+    if (typeof deps.paidBotTable === 'function' && deps.paidBotTable('crossy', '[CR]', { roomId, winnerId, why, pot, seats })) return;
     const winner = seats.find(s => s.id === winnerId) || null;
     if (!winner || !winner.wallet) {
       for (const s of seats) {
@@ -86,7 +88,7 @@ function create(deps) {
 
   /* The sockets. `h` is index.js's own helpers (see the call there). */
   function sockets(socket, on, h) {
-    on('cr:queue', ({ name, wallet, stake, entryToken, resume, v, look } = {}) => {
+    on('cr:queue', ({ name, wallet, stake, entryToken, resume, v, look, botOk } = {}) => {
       if (!h.socketRL(socket, 'crq', 1000)) return;
       if (h.ops.get().maintenance) { socket.emit('maintenance', h.ops.get()); return; }
       // A page running another version of the step would predict a different game from the one judged here.
@@ -134,7 +136,8 @@ function create(deps) {
         try {
           took = lobby.enqueue(socket, h.sanitizeName(name),
             worth > 0 ? payTo : (h.strOr(wallet, null) || socket._walletAddress || null), rung, worth, undefined, paid,
-            LOOKS.byId(look) ? look : null);   // a listed free critter only (shared/crossyLooks.js); none = the seat's own
+            LOOKS.byId(look) ? look : null,   // a listed free critter only (shared/crossyLooks.js); none = the seat's own
+            { botOk: botOk === true });       // shown "Bot opponent waiting" before paying (server/duelBots.js)
         } catch (e) {
           console.error('[CR] queue threw:', e && e.stack ? e.stack : e);
           took = lobby.holds(socket.id);

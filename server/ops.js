@@ -167,7 +167,9 @@ function duelStatus(lobbies) {
   for (const lobby of lobbies || []) {
     if (!lobby) continue;
     for (const e of Array.isArray(lobby.queue) ? lobby.queue : []) {
-      if (!e) continue;
+      /* An owner's paid bot waiting (server/duelBots.js) is nobody, and a restart hands its stake straight back to
+         the Bot bank (duelQueue.shutdownRows), so it never makes a restart unsafe. Control shows it on its own. */
+      if (!e || e.paidBot) continue;
       const row = rungOf(e.stake);
       row.people++;
       out.people++;
