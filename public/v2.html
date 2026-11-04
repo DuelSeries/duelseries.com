@@ -1340,7 +1340,8 @@ body.ingame #social-screen .lb-live::before{animation-play-state:paused!importan
 #events-screen.wrap{padding-top:var(--ds-sp5);padding-bottom:var(--ds-sp7)}
 #events-screen>.head{margin:0 0 var(--ds-sp5)}
 /* Owen's pick E2 "Twin cards" (2026-11-03): the two events side by side as one card each, everything in it centred, the
-   buttons at the foot of each card so the two line up; Top 3 and the times for both under them. */
+   buttons at the foot of each card so the two line up. Top 3 and the times under them came out (Owen 2026-11-04: "it just
+   kind of looks bad"); the Events code still fills them if they ever come back, and skips them while they are gone. */
 .ev{display:flex;flex-direction:column;gap:var(--ds-sp4)}
 .ev-pair{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:var(--ds-sp4);align-items:stretch}
 .ev-pair:has(>.swev[hidden]){grid-template-columns:minmax(0,560px);justify-content:center}
@@ -1400,65 +1401,15 @@ body.ingame #social-screen .lb-live::before{animation-play-state:paused!importan
 #events-screen .evown small{font-size:var(--ds-fs-1);font-weight:600;color:var(--ds-tx2)}
 #events-screen .evhow{align-self:center;--h:36px;font-size:var(--ds-fs-2)}
 .ev-why,.ev-note{display:none}
-/* Top 3 and the times: two panels, a row per event, name pills and time chips. */
-.ev-low{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:var(--ds-sp4)}
-#events-screen .ev-low>.ds-panel{padding:18px 20px}
-.ev-h3{margin-bottom:var(--ds-sp3);font-size:var(--ds-fs-3);font-weight:700;line-height:1.25}
-.ev-wrow{display:flex;align-items:center;gap:var(--ds-sp3);margin:0}
-.ev-wrow+.ev-wrow{margin-top:var(--ds-sp3)}
-.ev-wrow[hidden]{display:none}
-.ev-wl{flex:0 0 104px;display:flex;flex-direction:column;gap:2px;min-width:0}
-.ev-wl b{font-size:var(--ds-fs-2);font-weight:650}
-.ev-wl span{font-size:var(--ds-fs-1);color:var(--ds-tx3)}
-.ev-wrow>:last-child{flex:1;min-width:0}
-#events-screen .ev-podp .ds-pod{display:flex;flex-wrap:wrap;align-items:center;gap:var(--ds-sp2)}
-#events-screen .ev-podp .ds-pl{flex-direction:row;align-items:center;gap:var(--ds-sp2);height:36px;padding:0 var(--ds-sp3) 0 6px;
-  border-radius:var(--ds-rf);background:var(--ds-s2);box-shadow:var(--ds-edge);max-width:100%;min-width:0;text-align:left}
-#events-screen .ev-podp .ds-pl.p1{order:-1}
-#events-screen .ev-podp .ds-pl .av{display:none}
-#events-screen .ev-podp .ds-pl .blk{order:-1;flex:none;width:24px;height:24px;margin:0;padding:0;border-radius:var(--ds-rf);
-  display:grid;place-items:center;background:var(--ds-s3);font-size:var(--ds-fs-1);font-weight:800;color:var(--ds-tx2)}
-#events-screen .ev-podp .ds-pl.p1 .blk{background:var(--ds-bone);color:var(--ds-on-bone)}
-#events-screen .ev-podp .ds-pl .nm{font-size:var(--ds-fs-2);font-weight:650;min-width:0}
-#events-screen .ev-podp .ds-pl.empty .nm{color:var(--ds-tx2);font-weight:600}
-#events-screen .ds-pl .sc{display:flex;flex-wrap:nowrap;align-items:center;gap:4px;min-height:0;font-size:var(--ds-fs-1);
-  color:var(--ds-tx2);font-variant-numeric:tabular-nums;white-space:nowrap}
-#events-screen .ds-pl .sc:empty{display:none}
-#events-screen .ds-pl .sc .ds-chip{height:20px;padding:0 6px}
-#events-screen .ds-pl .scv{white-space:nowrap}
-#events-screen .ds-pl .pz{font-size:var(--ds-fs-2);font-weight:800}
-#events-screen .ds-pl .pz:empty{display:none}
-#events-screen .ev-srow{min-height:0}
-.ev-wait{padding:var(--ds-sp1) 0}
-/* The Swim Race's last top 3: the same pills, first in bone. */
-.swpod{list-style:none;display:flex;gap:var(--ds-sp2);flex-wrap:wrap;min-width:0;margin:0;padding:0}
-.swpod li{display:inline-flex;align-items:center;gap:var(--ds-sp2);height:36px;padding:0 var(--ds-sp3) 0 6px;border-radius:var(--ds-rf);
-  background:var(--ds-s2);box-shadow:var(--ds-edge);font-size:var(--ds-fs-2);font-weight:650;max-width:220px;min-width:0}
-.swpod li i{font-style:normal;flex:none;width:24px;height:24px;border-radius:var(--ds-rf);display:grid;place-items:center;
-  font-size:var(--ds-fs-1);font-weight:800;background:var(--ds-s3);color:var(--ds-tx2)}
-.swpod li:first-child i{background:var(--ds-bone);color:var(--ds-on-bone)}
-.swpod li span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
-/* The times: the next start of each in bone, then the three after it. */
-/* The times are Toronto's, said once in the title. */
-#ev-sch-t::after{content:', ET'}
-#ev-sched,.ev-chips{display:flex;flex-direction:row;flex-wrap:wrap;gap:6px}
-#events-screen #ev-sched>.ev-srow{display:inline-flex;width:auto;min-height:0;height:30px;padding:0 10px;border-radius:var(--ds-r1);
-  background:var(--ds-s2);box-shadow:none}
-#events-screen #ev-sched>.ev-srow .ds-row-ic,#events-screen #ev-sched>.ev-srow .ds-row-main span,#events-screen #ev-sched>.ev-srow .ds-row-end{display:none}
-#events-screen #ev-sched>.ev-srow .ds-row-main b{font-size:var(--ds-fs-2);font-weight:650;font-variant-numeric:tabular-nums}
-#events-screen #ev-sched>.ev-srow:first-child{background:var(--ds-bone);color:var(--ds-on-bone)}
-.ev-chips span{display:inline-flex;align-items:center;height:30px;padding:0 10px;border-radius:var(--ds-r1);background:var(--ds-s2);
-  font-size:var(--ds-fs-2);font-weight:650;font-variant-numeric:tabular-nums}
-.ev-chips span:first-child{background:var(--ds-bone);color:var(--ds-on-bone)}
 @media(min-width:761px) and (max-width:1100px){
-  .ev-pair,.ev-low{grid-template-columns:minmax(0,1fr)}
+  .ev-pair{grid-template-columns:minmax(0,1fr)}
   #events-screen>*{max-width:600px}
 }
 /* A phone: one column, the art a band across the top of each card. */
 @media(max-width:760px){
   #events-screen.wrap{padding-top:var(--ds-sp4)}
   #events-screen>.head{margin:0 0 var(--ds-sp4)}
-  .ev-pair,.ev-low{grid-template-columns:minmax(0,1fr)}
+  .ev-pair{grid-template-columns:minmax(0,1fr)}
   #events-screen .evhero{--art:170px}
   .ev-in{padding:0 var(--ds-sp4) var(--ds-sp4)}
   .ev-title{font-size:32px}
@@ -3681,8 +3632,8 @@ function openSwimHow(){
   <div class="head"><div><h2 class="ds-t-page">Events</h2></div></div>
 
   <!-- Owen's pick E2 "Twin cards" (2026-11-03, mockup tab-mockups/e2.html): the Battle Royale and the Swim Race side by
-       side as the same card (art on top, the name, the prize, the clock, Join and Spectate), then Top 3 and the times for
-       both under them; one column on a phone. Every id is the one V2Event's tick() and the Swim paint() always wrote, and
+       side as the same card (art on top, the name, the prize, the clock, Join and Spectate); one column on a phone. Top 3
+       and the times under them came out on 2026-11-04 (Owen). Every id is the one V2Event's tick() and the Swim paint() always wrote, and
        names go in by textContent, as they are player input. The explaining lines (#ev-why, #sw-line, #ev-podnote) are
        still written but not shown: Owen wanted no extra words, and each button's second line says what is going on. -->
   <div class="ev">
@@ -3764,29 +3715,6 @@ function openSwimHow(){
       <p class="ev-why" id="sw-line"></p>
     </div>
   </section>
-  </div>
-
-  <div class="ev-low">
-    <!-- Top 3 of each: the podium seats (the last match's top 3, or this match's empty seats while one runs) and the
-         Swim Race's last top 3, as name pills, first place first. -->
-    <section class="ds-panel ev-podp" id="ev-podp" aria-labelledby="ev-top-t">
-      <h3 class="ev-h3" id="ev-top-t">Top 3</h3>
-      <div class="ev-wrow"><div class="ev-wl"><b>Battle Royale</b><span id="ev-pcap">Last match</span></div>
-      <div class="ds-pod podium">
-        <div class="ds-pl p2 empty plinth"><span class="av" aria-hidden="true"></span><div class="nm pwho" id="ev-2nd"></div><div class="sc" id="ev-2nd-sc"></div><div class="blk pblock">2</div></div>
-        <div class="ds-pl p1 empty plinth"><span class="av" aria-hidden="true"></span><div class="nm pwho" id="ev-1st"></div><div class="sc" id="ev-1st-sc"></div><div class="pz pmoney" id="ev-1st-pz"></div><div class="blk pblock">1</div></div>
-        <div class="ds-pl p3 empty plinth"><span class="av" aria-hidden="true"></span><div class="nm pwho" id="ev-3rd"></div><div class="sc" id="ev-3rd-sc"></div><div class="blk pblock">3</div></div>
-      </div>
-      </div>
-      <div class="ev-wrow swlast" id="sw-last" hidden><div class="ev-wl"><b>Swim Race</b><span>Last race</span></div><ol class="swpod" id="sw-pod" aria-label="Last race's top 3"></ol></div>
-      <p class="ev-note" id="ev-podnote"></p>
-    </section>
-    <!-- The next four starts of each, from the servers' own schedules (startHour, startMin, every): never a copy kept here. -->
-    <section class="ds-panel ev-sch" aria-labelledby="ev-sch-t">
-      <h3 class="ev-h3" id="ev-sch-t">Every 6 hours</h3>
-      <div class="ev-wrow"><div class="ev-wl"><b>Battle Royale</b></div><div class="ds-list" id="ev-sched"><p class="ds-hint ev-wait">Getting the schedule</p></div></div>
-      <div class="ev-wrow" id="sw-schrow" hidden><div class="ev-wl"><b>Swim Race</b></div><div class="ev-chips" id="sw-sched"></div></div>
-    </section>
   </div>
   </div>
 </main>
@@ -4305,7 +4233,10 @@ const GAMES=[
    play path too. Unlocking is taking the id out of that list. */
 /* A Coming soon game (window.DS_SOON from /api/soon.js: built, switched off by Owen in Control, back with the same
    switch, server/comingSoon.js) is shown exactly the same way, and loses its New tag while it is shut. */
-[...(window.DS_LOCKED?DS_LOCKED.LOCKED_GAMES:[]),...(Array.isArray(window.DS_SOON)?window.DS_SOON:[])].forEach(id=>{
+/* Coming soon in the lobby only (Owen 2026-11-04: Air Hockey). Shown exactly like the two above; every line of the
+   game, its page and its server stay as they are. Back in the lobby by taking the id out of this list. */
+const LOBBY_SOON=['airhockey'];
+[...(window.DS_LOCKED?DS_LOCKED.LOCKED_GAMES:[]),...(Array.isArray(window.DS_SOON)?window.DS_SOON:[]),...LOBBY_SOON].forEach(id=>{
   const g=GAMES.find(x=>x.id===id);
   if(!g)return;
   g.soon=1; g.locked=1;
@@ -6366,7 +6297,6 @@ function drawNav(){
        compete, your money; then your look; then what is new; then the foot: growth, help and Settings. */
     +['play','events','social','wallet'].map(id=>navBtn(pin(id))).join('')
     +`<div class="sbx sb-gap" role="presentation"></div>`
-    +`<button class="sb-it sbx sb-soon" type="button" aria-disabled="true" aria-label="Shop, coming soon">${SBI(SB_P.shop)}<span>Shop</span><span class="sb-pill">Soon</span></button>`
     +`<button class="sb-it sbx" type="button" onclick="setLooks()">${SBI(SB_P.look)}<span>Customize</span></button>`
     +`<div class="sbx sb-gap" role="presentation"></div>`
     +['clips','updates'].map(id=>navBtn(pin(id))).join('')
