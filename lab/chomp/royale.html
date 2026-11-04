@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Royale Rounds (lab)</title>
+<link rel="icon" type="image/png" sizes="32x32" href="/img/favicon-32.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap">
+<link rel="stylesheet" href="lab.css">
+<style>
+  #hud { display: flex; justify-content: space-between; align-items: flex-end; gap: 8px; }
+  #hud .clock { color: #dedeff; white-space: nowrap; }
+  #hud .seats { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+  #hud .seat { display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+  #hud .seat i { display: inline-block; width: .9em; height: .9em; border-radius: 50%; }
+  #hud .seat.out { opacity: .55; }
+  #hud .pips { letter-spacing: .1em; color: #ffd23a; }
+</style>
+</head>
+<body>
+<div class="lab-ui" id="ui"><a class="back" href="/lab/">&larr; Lab</a><span class="title">Royale Rounds</span></div>
+<div id="stage"><canvas id="cv"></canvas></div>
+<div class="hud" id="hud"><span class="clock" id="clock"></span><span class="seats" id="seats"></span></div>
+<div class="banner" id="banner"></div>
+<div class="help" id="help">Arrows or WASD, or drag anywhere on a phone. Powered, eat rivals. Same state, you bump. Knocked out, you play a ghost.</div>
+<script src="/shared/chompRules.js"></script>
+<script src="/shared/chompMaze.js"></script>
+<script src="/shared/chompMove.js"></script>
+<script src="/shared/chompWalls.js"></script>
+<script src="/js/dsSfx.js"></script>
+<script src="/js/chomp/chompSound.js"></script>
+<script src="/js/chomp/chompPixel.js"></script>
+<script src="labMaze.js"></script>
+<script src="labCore.js"></script>
+<script src="labPage.js"></script>
+<script src="royaleSim.js"></script>
+<script src="royale.js"></script>
+</body>
+</html>

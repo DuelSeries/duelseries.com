@@ -1,0 +1,31 @@
+/* Pac-Man lab pages: the game canvas full screen, a thin strip of controls, arcade lettering for the game's own HUD. */
+:root { --ink: #ececf6; --dim: #9a9ab8; --bg: #000; --chip: #16162a; --chip-on: #ffd23a; --line: #2a2a4a; }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); overflow: hidden;
+  font: 13px/1.35 system-ui, -apple-system, Segoe UI, sans-serif; touch-action: none; -webkit-user-select: none; user-select: none; }
+#stage { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
+canvas { display: block; image-rendering: pixelated; }
+.arc { font-family: 'Press Start 2P', monospace; letter-spacing: 0; }
+
+/* top strip: back link, the mode's name, its choices */
+.lab-ui { position: fixed; left: 0; right: 0; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center;
+  padding: 6px 10px; background: linear-gradient(#000d, #0000); pointer-events: none; }
+.lab-ui > * { pointer-events: auto; }
+.lab-ui a.back { color: var(--dim); text-decoration: none; font-weight: 600; }
+.lab-ui a.back:hover { color: var(--ink); }
+.lab-ui .title { font-weight: 800; letter-spacing: .02em; color: #ffd23a; }
+.lab-chips { display: inline-flex; gap: 4px; align-items: center; }
+.lab-chips span { color: var(--dim); margin-right: 2px; }
+.lab-chips button { font: inherit; color: var(--ink); background: var(--chip); border: 1px solid var(--line); border-radius: 999px;
+  padding: 3px 9px; cursor: pointer; }
+.lab-chips button.on { background: var(--chip-on); color: #111; border-color: var(--chip-on); font-weight: 700; }
+.lab-ui .toggle { font: inherit; color: var(--dim); background: none; border: 0; cursor: pointer; text-decoration: underline; }
+.lab-ui.min .lab-chips { display: none; }
+
+/* the game's own HUD, in arcade letters */
+.hud { position: fixed; z-index: 4; pointer-events: none; font-family: 'Press Start 2P', monospace; color: #dedeff; }
+.banner { position: fixed; left: 50%; top: 46%; transform: translate(-50%, -50%); z-index: 6; text-align: center; pointer-events: none;
+  font-family: 'Press Start 2P', monospace; text-shadow: 0 2px 0 #000, 0 0 12px #000; line-height: 1.7; white-space: pre-line; }
+.banner small { display: block; font-size: .55em; color: #dedeff; margin-top: .8em; }
+.help { position: fixed; left: 0; right: 0; bottom: 6px; text-align: center; color: var(--dim); z-index: 4; pointer-events: none; font-size: 12px; }
+@media (max-width: 700px) { .help { font-size: 11px; } .lab-ui { font-size: 12px; } .lab-chips button { padding: 2px 7px; } }

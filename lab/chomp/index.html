@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pac-Man Lab</title>
+<link rel="icon" type="image/png" sizes="32x32" href="/img/favicon-32.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap">
+<style>
+  :root { --bg: #05050c; --card: #0e0e1c; --line: #24244a; --ink: #ececf6; --dim: #9a9ab8; --gold: #ffd23a; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, Segoe UI, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 32px 16px 48px; }
+  h1 { font: 400 20px/1.4 'Press Start 2P', monospace; color: var(--gold); margin: 0 0 6px; }
+  p.sub { color: var(--dim); margin: 0 0 26px; }
+  a.card { display: block; text-decoration: none; color: inherit; background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 16px 18px; margin: 0 0 12px; transition: border-color .15s, transform .15s; }
+  a.card:hover { border-color: var(--gold); transform: translateY(-1px); }
+  a.card h2 { font: 400 13px/1.5 'Press Start 2P', monospace; margin: 0 0 6px; color: #ffff00; }
+  a.card p { margin: 0; color: var(--dim); }
+  .n { color: var(--gold); margin-right: 8px; }
+  footer { color: var(--dim); font-size: 13px; margin-top: 24px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>PAC-MAN LAB</h1>
+  <p class="sub">Three ways to make multiplayer Pac-Man work, playable with bots. Local only, nothing here is on the site.</p>
+  <a class="card" href="royale.html"><h2><span class="n">1</span>Royale Rounds</h2><p>Up to 4 on one screen. One fewer power pellet than players. Powered you eat rivals, same state you bump. Knocked out, you play a ghost. Last one standing takes the round, first to 3.</p></a>
+  <a class="card" href="royale.html?players=2"><h2><span class="n">1b</span>Royale Rounds, 1v1</h2><p>The same game as a paid duel would run it: two players, mirror corners.</p></a>
+  <a class="card" href="duel.html"><h2><span class="n">2</span>Ghost Train Duel</h2><p>You and a bot on the same maze from the same seed, side by side. Build a train of sleeping ghosts, then a pellet and eat the line. Clear half the maze to speed up. Highest score in 2:30 wins.</p></a>
+  <a class="card" href="arena.html"><h2><span class="n">3</span>Train Arena</h2><p>Today's arena, calmer, with one new idea: your ghost train is a weapon. A rival who touches it is caught and their money is yours. Pretend $1 seats, hold Q to cash out.</p></a>
+  <footer>Every page has its own speed choices at the top, so you can feel slow against fast. Add ?auto=1 to any page to watch a bot play your seat.</footer>
+</main>
+</body>
+</html>

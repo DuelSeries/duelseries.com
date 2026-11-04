@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Train Arena (lab)</title>
+<link rel="icon" type="image/png" sizes="32x32" href="/img/favicon-32.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap">
+<link rel="stylesheet" href="lab.css">
+<style>
+  #me { left: 12px; top: 44px; font-size: 12px; line-height: 2; }
+  #me .gold { color: #f5b335; }
+  #board { right: 12px; top: 44px; font-size: 10px; line-height: 1.9; text-align: right; }
+  #board .gold { color: #f5b335; }
+  #board .you { color: #ffff00; }
+  #cash { position: fixed; right: 16px; bottom: 34px; z-index: 6; font: 700 15px system-ui, sans-serif; color: #111; background: #f5b335;
+    border: 0; border-radius: 999px; padding: 14px 20px; box-shadow: 0 4px 0 #8a5a12; touch-action: none; }
+  #cash:active { transform: translateY(2px); box-shadow: 0 2px 0 #8a5a12; }
+  @media (hover: hover) and (pointer: fine) { #cash { display: none; } }
+</style>
+</head>
+<body>
+<div class="lab-ui" id="ui"><a class="back" href="/lab/">&larr; Lab</a><span class="title">Train Arena</span></div>
+<div id="stage"><canvas id="cv"></canvas></div>
+<div class="hud" id="me"></div>
+<div class="hud" id="board"></div>
+<div class="banner" id="banner"></div>
+<button id="cash" class="lab-ui-btn">Hold to cash out</button>
+<div class="help">Wake sleeping ghosts to build a train. Rivals who touch your train are caught and their money is yours. Hold Q to cash out.</div>
+<script src="/shared/chompRules.js"></script>
+<script src="/shared/chompMaze.js"></script>
+<script src="/shared/chompMove.js"></script>
+<script src="/shared/chompWalls.js"></script>
+<script src="/js/dsSfx.js"></script>
+<script src="/js/chomp/chompSound.js"></script>
+<script src="/js/chomp/chompPixel.js"></script>
+<script src="labMaze.js"></script>
+<script src="labCore.js"></script>
+<script src="labPage.js"></script>
+<script src="arenaSim.js"></script>
+<script src="arena.js"></script>
+</body>
+</html>

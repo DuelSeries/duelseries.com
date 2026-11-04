@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Ghost Train Duel (lab)</title>
+<link rel="icon" type="image/png" sizes="32x32" href="/img/favicon-32.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap">
+<link rel="stylesheet" href="lab.css">
+<style>
+  #stage { display: block; }
+  #stage canvas { position: absolute; }
+  #cvB.mini { border: 2px solid #2a2a4a; border-radius: 6px; background: #000; opacity: .95; }
+  .bhud { position: fixed; z-index: 4; pointer-events: none; font-family: 'Press Start 2P', monospace; color: #dedeff; display: flex;
+    justify-content: space-between; gap: 6px; white-space: nowrap; }
+  .bhud b { color: #ffff00; font-weight: 400; }
+  .bhud .tr { color: #ffb8ff; }
+  #clock { position: fixed; left: 50%; transform: translateX(-50%); z-index: 4; font-family: 'Press Start 2P', monospace; color: #fff; pointer-events: none; }
+  .bban { position: fixed; z-index: 6; transform: translate(-50%, -50%); text-align: center; pointer-events: none; white-space: pre-line;
+    font-family: 'Press Start 2P', monospace; text-shadow: 0 2px 0 #000, 0 0 10px #000; line-height: 1.6; }
+</style>
+</head>
+<body>
+<div class="lab-ui" id="ui"><a class="back" href="/lab/">&larr; Lab</a><span class="title">Ghost Train Duel</span></div>
+<div id="stage"><canvas id="cvA"></canvas><canvas id="cvB"></canvas></div>
+<div class="bhud" id="hudA"></div><div class="bhud" id="hudB"></div>
+<div id="clock"></div>
+<div class="bban" id="banA"></div><div class="bban" id="banB"></div>
+<div class="banner" id="banner"></div>
+<div class="help">Wake sleeping ghosts, they follow you. Never turn back into your train. Power pellet: turn round and eat the whole line.</div>
+<script src="/shared/chompRules.js"></script>
+<script src="/shared/chompMaze.js"></script>
+<script src="/shared/chompMove.js"></script>
+<script src="/shared/chompWalls.js"></script>
+<script src="/js/dsSfx.js"></script>
+<script src="/js/chomp/chompSound.js"></script>
+<script src="/js/chomp/chompPixel.js"></script>
+<script src="labMaze.js"></script>
+<script src="labCore.js"></script>
+<script src="labPage.js"></script>
+<script src="duelSim.js"></script>
+<script src="duel.js"></script>
+</body>
+</html>
