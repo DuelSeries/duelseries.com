@@ -619,6 +619,16 @@
     /* Remembered at launch, not at selection, so the buy-in that comes back
        tomorrow is one actually played rather than one idly scrolled past. */
     if (hasStake && window.rememberStake) window.rememberStake(Number(sel.stake));
+    /* "Bot opponent waiting" (server/duelBots.js): the duel page may meet the owner's paid bot only if this Play was
+       pressed while the lobby showed it (sel.sawBot) and the board still has one there now. The page reads the note
+       once (public/js/duelBotOk.js); every other launch clears it. */
+    try {
+      const stakeN = hasStake ? Number(sel.stake) : 0;
+      if (PAID_DUELS[game] && stakeN > 0 && sel.sawBot === true && window.V2Board && typeof window.V2Board.botWaiting === 'function'
+        && window.V2Board.botWaiting(game, stakeN) > 0) {
+        sessionStorage.setItem('duelBotOk', JSON.stringify({ game: game, stake: stakeN, at: Date.now() }));
+      } else sessionStorage.removeItem('duelBotOk');
+    } catch (_) { /* private window: no note, so no bot */ }
     playClicked(game, { paid: staking, stake: hasStake ? Number(sel.stake) : undefined,
       mode: hasStake ? (staking ? 'paid' : 'free') : sel.lobbyType, guest: false, engine: engine || undefined });
     /* The widget stakes if the room is paid, then launches. It owns the money;
@@ -724,7 +734,7 @@
     if (!lobby) return;
     launch(lobby.game || 'snake',
       lobby.stake !== undefined && lobby.stake !== null
-        ? { stake: lobby.stake }
+        ? { stake: lobby.stake, sawBot: Number(lobby.stake) > 0 && Number(lobby.botWaiting) > 0 }   // the row said "Bot opponent waiting"
         : { lobbyType: lobby.lobbyType });
   }
 

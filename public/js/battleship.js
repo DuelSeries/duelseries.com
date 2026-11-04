@@ -939,10 +939,10 @@ function paintWait() {
     $('waitSub').textContent = table + 'Real players only, never a bot. Cancel any time for a full refund.';
   } else if (left > 0) {
     $('waitMain').textContent = 'Looking for a player… ' + clockText(left);
-    $('waitSub').textContent = 'Free table. If nobody joins, you\'ll play a bot.';
+    $('waitSub').textContent = 'Free table. Nothing staked.';
   } else {
-    $('waitMain').textContent = 'Nobody joined. Playing a bot…';
-    $('waitSub').textContent = 'Free table. Starting against a bot now.';
+    $('waitMain').textContent = 'Starting your match…';
+    $('waitSub').textContent = 'Free table. Nothing staked.';
   }
 }
 function startWait(ms, total = WAIT_MS) {

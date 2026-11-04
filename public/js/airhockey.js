@@ -964,13 +964,13 @@ function paintWait() {
   if (waitPaid) {
     // A paid table is one card from stake to match (Owen 2026-10-30): the clock counts up, nothing changes at 0:00.
     $('waitMain').textContent = 'Looking for a player… ' + waitClock(Math.floor((Date.now() - waitFrom) / 1000) * 1000);
-    $('waitSub').textContent = table + 'Real players only, never a bot. Cancel any time for a full refund.';
+    $('waitSub').textContent = table + 'Cancel any time for a full refund.';
   } else if (left > 0) {
     $('waitMain').textContent = 'Looking for a player… ' + waitClock(left);
-    $('waitSub').textContent = 'Free table. If nobody joins, you\'ll play a bot.';
+    $('waitSub').textContent = 'Free table. Nothing staked.';
   } else {
-    $('waitMain').textContent = 'Nobody joined. Playing a bot…';
-    $('waitSub').textContent = 'Free table. Starting against a bot now.';
+    $('waitMain').textContent = 'Starting your match…';
+    $('waitSub').textContent = 'Free table. Nothing staked.';
   }
 }
 function startWait(ms, total = WAIT_MS) {
@@ -994,6 +994,12 @@ socket.on('ah:queued', (q = {}) => {
   trackStep('queue');
 });
 
+/* An owner's paid bot (server/duelBots.js) meets only a person the lobby showed "Bot opponent waiting" on this rung
+   before they paid; the lobby leaves that note for this page (public/js/duelBotOk.js). Paid seats only, used once. */
+function botOkFor(game) {
+  return !!(myStake > 0 && window.DSDuelBotOk && window.DSDuelBotOk.take(game, myStake));
+}
+
 /* `token`: a paid Play again's fresh entry, from the lobby's wallet. Without one, the buy-in this page was opened
    with, the first time only. `resume`: a reconnect's key, asking for the seat it already had. */
 function queue(token, resume) {
@@ -1012,6 +1018,7 @@ function queue(token, resume) {
     name: myName, wallet: myWallet,
     stake: myStake, entryToken: token || myEntryToken,
     resume: resume || undefined,
+    botOk: botOkFor('airhockey'),   // shown "Bot opponent waiting" before paying (public/js/duelBotOk.js)
   }, shopFields()));
   /* One use only. Re-sending it on a Play again would be asking the server to spend a token it has already
      burned, and the seat would be refused with nothing to show for it. */

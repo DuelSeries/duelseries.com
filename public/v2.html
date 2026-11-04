@@ -2147,6 +2147,10 @@ body.no-foot footer{display:none}
    game's server watch path). On a game that is not open yet it stays, shut,
    like Play. */
 .gorow{display:flex;gap:8px}
+/* An owner's paid bot waiting on the picked paid duel rung (server/duelBots.js): said before Play stakes it. */
+#botwait{display:flex;align-items:center;gap:8px;margin:0 0 10px;font-size:var(--ds-fs-2,14px);font-weight:650;color:var(--money,#f0a830)}
+#botwait[hidden]{display:none}
+#botwait i{width:8px;height:8px;border-radius:50%;background:currentColor;flex:none}
 .gorow .go{flex:1;min-width:0;width:auto}
 .spec{display:flex;flex:0 0 calc((100% - 16px) / 3);min-width:0;align-items:center;
   justify-content:center;gap:7px;padding:0 6px;white-space:nowrap;
@@ -3602,6 +3606,9 @@ function openSwimHow(){
          so a money game never starts from a button that looks like a free one.
          On a game that is not open yet it is locked: a padlock, and it does
          nothing (V2_IS_SOON refuses it in the play path as well). -->
+    <!-- "Bot opponent waiting": the owner's paid bot is on this paid table (server/duelBots.js), said before Play
+         stakes it (Owen 2026-11-04). Only a Play pressed while this shows lets the bot meet the player. -->
+    <div id="botwait" role="status" hidden><i aria-hidden="true"></i><span>Bot opponent waiting. You'll play a computer opponent.</span></div>
     <div class="gorow">
       <button type="button" class="go" id="gobtn" onclick="startFromDetail()">
         <svg class="golock" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
@@ -6177,10 +6184,11 @@ function startFromDetail(){
        (review). Staked only if this card and rung are still the ones picked,
        on screen; launch() reads the fresh door. */
     const id=cur.id;
+    const sawBot=_botShown;   // "Bot opponent waiting" was on screen when Play was pressed
     const go=()=>{
       const d=document.getElementById('detail');   // Back during the round trip: not staked from home
       if(!(cur&&cur.id===id&&d&&screenShown(d)))return;
-      if(Number(STEPS[si])===st){V2Play.launch(id,{stake:st});return}
+      if(Number(STEPS[si])===st){V2Play.launch(id,{stake:st,sawBot:sawBot});return}
       /* The fresh answer shut that rung while it came back (restep moved the
          screen to Free): said, rather than a Play that silently did nothing. */
       if(STEPS_OFF.has(st)&&window.V2Play&&V2Play.toast)V2Play.toast('Paid '+cur.name+' tables are not open right now. Pick one the card is offering.');
@@ -6230,7 +6238,18 @@ function drawStake(){
   /* And it says how much (Owen, 2026-10-15, again 2026-11-02): "Play $0.50" on the button that
      stakes it, plain "Play" on Free, "Coming soon" on a shut game. */
   const lbl=document.getElementById('golabel');
-  if(lbl)lbl.textContent=shut?'Coming soon':paid?'Play '+cash(Number(STEPS[si])):'Play';
+  const bot=botOnRung();
+  if(lbl)lbl.textContent=shut?'Coming soon':paid?'Play '+cash(Number(STEPS[si]))+(bot?' vs bot':''):'Play';
+  const bw=document.getElementById('botwait');
+  if(bw)bw.hidden=!bot;
+  _botShown=bot;
+}
+/* An owner's paid bot waiting on this game's picked paid rung, by the board's latest answer (V2Board.botWaiting). */
+var _botShown=false;
+function botOnRung(){
+  const st=Number(STEPS[si]);
+  return !!(cur&&cur.built&&cur.duel&&cur.paid&&st>0&&!STEPS_OFF.has(STEPS[si])&&window.V2Board
+    &&typeof V2Board.botWaiting==='function'&&V2Board.botWaiting(cur.id,st)>0);
 }
 /* Every board answer (V2Board load and push, through paintCounts) re-strikes the
    rungs of the game screen up now. open_ was the only other caller of
@@ -6242,7 +6261,7 @@ function restep(){
   if(!cur)return;
   const was=[...STEPS_OFF].join(),at=si;
   refreshSteps(cur.id);
-  if([...STEPS_OFF].join()!==was||si!==at)drawStake();
+  if([...STEPS_OFF].join()!==was||si!==at||botOnRung()!==_botShown)drawStake();
 }
 window.V2_restep=restep;
 function pickStake(i){
