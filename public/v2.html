@@ -1151,29 +1151,38 @@ body.ingame #social-screen .lb-live::before{animation-play-state:paused!importan
 /* Dial-in 2026-11-02: the phone's one column on every screen, centered. */
 #wallet-screen .wgrid2,#wallet-screen .wgrid2.in{display:flex;flex-direction:column;align-items:stretch;gap:var(--ds-sp4);max-width:600px;margin:0 auto}
 #wallet-screen .wgrid2.in>#w-body{position:static}
-#wallet-screen .wtop{display:flex;align-items:flex-end;justify-content:space-between;gap:var(--ds-sp4)}
-#wallet-screen .wtop-bal{flex:1 1 0;min-width:0;container-type:inline-size;display:flex;flex-direction:column;gap:var(--ds-sp1)}
-#wallet-screen .wtop-addr{flex:0 1 auto;min-width:0;display:flex;flex-direction:column;gap:var(--ds-sp2);padding-bottom:18px}
-#wallet-screen .wbal>.ds-t-meta{margin:var(--ds-sp3) 0 0;line-height:1.5}
+/* Owen's pick W2 "Centered" with W1's buttons (2026-11-03): address chip, then the balance big in the middle, the SOL
+   under it, then one row of Add funds, Withdraw and Refresh, then the one warning line, all centred. */
+#wallet-screen .wbal{padding:28px 32px 26px;text-align:center}
+#wallet-screen .wtop{display:flex;flex-direction:column;align-items:center;gap:22px}
+#wallet-screen .wtop-bal{width:100%;min-width:0;container-type:inline-size;display:flex;flex-direction:column;align-items:center;gap:6px}
+#wallet-screen .wtop-addr{min-width:0;max-width:100%;display:flex;justify-content:center}
+#wallet-screen .wtop .waddr{display:inline-flex;min-height:34px;padding:0 4px 0 14px;gap:8px;border-radius:var(--ds-rf)}
+#wallet-screen .wtop .waddr code{font-size:14px;color:var(--ds-tx2)}
+#wallet-screen .wtop .waddr .cp{position:relative;height:26px;width:26px;min-width:0;padding:0;border-radius:var(--ds-rf)}
+#wallet-screen .wtop .waddr .cp svg{width:14px;height:14px}
+#wallet-screen .wtop .waddr .cp span{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+#wallet-screen .wbal>.ds-t-meta{margin:var(--ds-sp5) auto 0;max-width:46ch;line-height:1.5}
 #w-hist[hidden]{display:none}
 
 /* The balance. The figure fits its panel: wallet.js puts the figure's length in --n, so "$1,234.56" sits
    smaller than "$24.60" instead of running out of the card. */
 #wallet-screen .wbal{container-type:inline-size}
-#w-bal{font-size:min(62px,calc(100cqi / (var(--n,6) * .74)))}
+#w-bal{font-size:min(76px,calc(100cqi / (var(--n,6) * .74)));font-weight:800;font-stretch:120%;letter-spacing:-.03em;text-align:center}
 /* The SOL under the dollars, small, with Convert beside it in USDC mode. A held height, so the buttons under it do not
    jump when the figure arrives. */
-#wallet-screen .wsol{display:flex;flex-wrap:wrap;align-items:center;gap:var(--ds-sp2);min-height:18px;
-  font-size:var(--ds-fs-1);color:var(--ds-tx2);line-height:1.45}
+#wallet-screen .wsol{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:var(--ds-sp2);min-height:22px;
+  font-size:var(--ds-fs-3);color:var(--ds-tx2);line-height:1.45}
 /* SOL mode's old USDC: its own small box in the panel, saying the figure above leaves it out, with its two actions on
    their own line. Nothing is drawn while it is empty. */
-#wallet-screen .wusdc{display:block;margin-top:var(--ds-sp2);padding:var(--ds-sp3);border-radius:var(--ds-r2);
+#wallet-screen .wusdc{display:block;margin-top:var(--ds-sp4);text-align:left;padding:var(--ds-sp3);border-radius:var(--ds-r2);
   background:var(--ds-ink);box-shadow:var(--ds-edge);font-size:var(--ds-fs-2);line-height:1.45}
 #wallet-screen .wusdc:empty{display:none}
 #wallet-screen .wusdc b{color:var(--ds-gold);font-weight:700}
 #wallet-screen .wusdc-k::after{content:'';display:block;height:var(--ds-sp2)}
 #wallet-screen .wusdc .wcv{margin:0 var(--ds-sp2) 0 0}
-#wallet-screen .wacts{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:var(--ds-sp2);margin-top:var(--ds-sp4)}
+#wallet-screen .wacts{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:var(--ds-sp2);margin-top:30px}
+#wallet-screen .wacts .ds-btn{min-width:0}
 /* The two words get the mockup's marks, drawn here so the buttons stay just their words in wallet.js. */
 #wallet-screen .wa-add::before,#wallet-screen .wa-wd::before{content:'';width:18px;height:18px;flex:none;background:currentColor;
   -webkit-mask:var(--ic) center/18px 18px no-repeat;mask:var(--ic) center/18px 18px no-repeat}
@@ -1182,7 +1191,7 @@ body.ingame #social-screen .lb-live::before{animation-play-state:paused!importan
 .wref.spin svg{animation:wspin .5s linear}
 @keyframes wspin{to{transform:rotate(360deg)}}
 /* Add from Phantom, while Privy's sheet has no Transfer from wallet (wallet.js addChip). */
-#wallet-screen .wadd{margin:var(--ds-sp1) 0 calc(-1 * var(--ds-sp2)) calc(-1 * var(--ds-sp3))}
+#wallet-screen .wadd{margin:var(--ds-sp2) 0 calc(-1 * var(--ds-sp2));display:flex;justify-content:center}
 
 /* The address: the kit's address line, the Copy beside it; a linked wallet under it with a red-tint Unlink. */
 #wallet-screen .wdep{display:flex;flex-direction:column;gap:var(--ds-sp3)}
@@ -1283,14 +1292,13 @@ body.ingame #social-screen .lb-live::before{animation-play-state:paused!importan
   #wallet-screen>.head{margin:0 0 var(--ds-sp4)}
   .wgrid2.in{grid-template-columns:minmax(0,1fr);gap:var(--ds-sp4)}
   .wgrid2.in>#w-body{position:static}
-  #w-bal{font-size:min(52px,calc(100cqi / (var(--n,6) * .74)))}
-  #wallet-screen .wtop{gap:var(--ds-sp3)}
-  #wallet-screen .wtop .waddr{min-height:44px;padding:4px 4px 4px var(--ds-sp3);gap:6px}
-  #wallet-screen .wtop .waddr code{font-size:13px}
-  #wallet-screen .wtop .waddr .cp{height:36px;min-width:0;width:40px;padding:0}
-  #wallet-screen .wtop .waddr .cp span{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
-  #wallet-screen .wacts{grid-template-columns:minmax(0,1fr) auto}
-  #wallet-screen .wa-add{grid-column:1/-1}
+  #w-bal{font-size:min(60px,calc(100cqi / (var(--n,6) * .74)))}
+  #wallet-screen .wbal{padding:24px 16px 22px}
+  #wallet-screen .wtop{gap:18px}
+  #wallet-screen .wtop .waddr{min-height:36px;padding:0 5px 0 14px}
+  #wallet-screen .wtop .waddr .cp{height:28px;width:28px}
+  #wallet-screen .wacts{grid-template-columns:minmax(0,1fr) minmax(0,1fr) 48px;margin-top:24px}
+  #wallet-screen .wacts .ds-btn{padding:0 10px}
   #w-hist{padding:var(--ds-sp4) var(--ds-sp3)}
   .whist-hd{padding:0 var(--ds-sp1)}
   .whist-hd .ds-seg{width:100%}
@@ -1331,111 +1339,134 @@ body.ingame #social-screen .lb-live::before{animation-play-state:paused!importan
    #events-screen, because the kit is linked after this block. */
 #events-screen.wrap{padding-top:var(--ds-sp5);padding-bottom:var(--ds-sp7)}
 #events-screen>.head{margin:0 0 var(--ds-sp5)}
-.ev{max-width:1180px;display:flex;flex-direction:column;gap:var(--ds-sp4)}
-#events-screen .evhero{padding:var(--ds-sp6)}
-#events-screen .evhero-art{width:46%;object-position:50% 30%;opacity:.55;
-  -webkit-mask-image:linear-gradient(90deg,transparent,#000 60%);mask-image:linear-gradient(90deg,transparent,#000 60%)}
-#events-screen .evhero.live .evhero-art{opacity:.66}
+/* Owen's pick E2 "Twin cards" (2026-11-03): the two events side by side as one card each, everything in it centred, the
+   buttons at the foot of each card so the two line up; Top 3 and the times for both under them. */
+.ev{display:flex;flex-direction:column;gap:var(--ds-sp4)}
+.ev-pair{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:var(--ds-sp4);align-items:stretch}
+.ev-pair:has(>.swev[hidden]){grid-template-columns:minmax(0,560px);justify-content:center}
+#events-screen .evhero{--art:190px;display:flex;flex-direction:column;padding:0}
+#events-screen .evhero-art{position:relative;z-index:-1;display:block;width:100%;height:var(--art);opacity:1;object-position:50% 34%;
+  -webkit-mask-image:linear-gradient(180deg,#000 30%,rgba(0,0,0,.45) 62%,transparent 96%);mask-image:linear-gradient(180deg,#000 30%,rgba(0,0,0,.45) 62%,transparent 96%)}
 #events-screen .swev .evhero-art{object-position:50% 45%}
-.ev-in{position:relative;min-width:0}
-.ev-tags{display:flex;gap:var(--ds-sp2);flex-wrap:wrap;margin-bottom:var(--ds-sp4)}
-.ev-title{font-size:var(--ds-fs-7);font-weight:800;font-stretch:var(--ds-wide);letter-spacing:-.012em;line-height:1.04}
-.ev-prize{display:flex;align-items:baseline;gap:var(--ds-sp3);margin-top:var(--ds-sp2);color:var(--ds-gold)}
-.ev-pz{font-size:60px;font-weight:800;font-stretch:var(--ds-wide);letter-spacing:-.02em;line-height:1.04;font-variant-numeric:tabular-nums}
-.ev-prize>span:last-child{font-size:var(--ds-fs-5);font-weight:800;font-stretch:var(--ds-wide)}
-/* Just after a match: the winner, big, and what they were paid. */
-.ev-champ{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:var(--ds-sp2) var(--ds-sp4);
-  margin-top:var(--ds-sp5);max-width:600px}
-.ev-champ-av{width:72px;height:72px;border-radius:var(--ds-rf);background:var(--ds-bone);color:var(--ds-on-bone);display:grid;
-  place-items:center;font-size:30px;font-weight:800;font-stretch:var(--ds-wide)}
+.ev-in{position:relative;flex:1;display:flex;flex-direction:column;align-items:center;text-align:center;min-width:0;
+  margin-top:-40px;padding:0 var(--ds-sp5) var(--ds-sp5)}
+/* The state chip rides the art's top corner; Free entry is on Join and the every-6-hours is the schedule's title. */
+.ev-tags{position:absolute;left:14px;top:calc(54px - var(--art));display:flex;gap:var(--ds-sp2)}
+.ev-tags .ds-chip{background:var(--ds-glass)}
+.ev-tags .ds-chip-money,#ev-when,#sw-when{display:none}
+.ev-title{font-size:36px;font-weight:800;font-stretch:120%;letter-spacing:-.02em;line-height:1;text-shadow:0 2px 14px rgba(0,0,0,.8)}
+.ev-prize{display:flex;align-items:baseline;justify-content:center;gap:6px;min-height:34px;margin-top:var(--ds-sp2);color:var(--ds-gold)}
+.ev-pz{font-size:28px;font-weight:800;font-stretch:var(--ds-wide);letter-spacing:-.01em;line-height:1.1;font-variant-numeric:tabular-nums}
+.ev-prize>span:last-child{font-size:var(--ds-fs-3);font-weight:650;color:var(--ds-tx2)}
+/* Just after a match: the winner and what they were paid. */
+.ev-champ{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:var(--ds-sp1) var(--ds-sp3);
+  margin-top:var(--ds-sp3);max-width:100%;text-align:left}
+.ev-champ-av{width:48px;height:48px;border-radius:var(--ds-rf);background:var(--ds-bone);color:var(--ds-on-bone);display:grid;
+  place-items:center;font-size:20px;font-weight:800;font-stretch:var(--ds-wide)}
 .ev-champ-av:empty{background:transparent;border:1.5px dashed var(--ds-line2)}
 .ev-champ-who{min-width:0}
-.ev-champ-who b{display:block;font-size:36px;font-weight:800;font-stretch:var(--ds-wide);letter-spacing:-.012em;line-height:1.05;
+.ev-champ-who b{display:block;font-size:22px;font-weight:800;font-stretch:var(--ds-wide);letter-spacing:-.01em;line-height:1.1;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ev-champ-who span{display:block;margin-top:4px;font-size:var(--ds-fs-3);color:var(--ds-tx2)}
-.ev-champ-pz{grid-column:1/-1;display:flex;align-items:baseline;gap:var(--ds-sp3);color:var(--ds-gold)}
-.ev-champ-pz>span:last-child{font-size:var(--ds-fs-3);font-weight:600;color:var(--ds-tx2)}
-.ev-cl{margin:var(--ds-sp5) 0 var(--ds-sp2)}
+.ev-champ-who span{display:block;margin-top:2px;font-size:var(--ds-fs-2);color:var(--ds-tx2)}
+.ev-champ-pz{grid-column:1/-1;display:flex;align-items:baseline;justify-content:center;gap:var(--ds-sp2);color:var(--ds-gold)}
+.ev-champ-pz .ev-pz{font-size:24px}
+.ev-champ-pz>span:last-child{font-size:var(--ds-fs-2);font-weight:600;color:var(--ds-tx2)}
+.ev-cl{margin:var(--ds-sp4) 0 var(--ds-sp2)}
 .ev-cl:empty{display:none}
+#events-screen .evclock{justify-content:center;gap:6px}
+#events-screen .evclock .ds-bc b{min-width:0;width:78px;height:68px;padding:0;font-size:40px;font-weight:800;font-stretch:110%;background:var(--ds-ink)}
+#events-screen .evclock i{font-size:26px;line-height:68px}
 /* While a match runs: minutes and seconds in green. The last seconds before a start: the kit's green underline. */
 #events-screen .evclock.live .ds-bc b{color:var(--ds-green)}
 #events-screen .evclock.live .evhr,#events-screen .evclock.live #ev-c1{display:none}
 #events-screen .evclock.is-hot .ds-bc b{background:var(--ds-s3);box-shadow:var(--ds-edge2)}
-#events-screen .evclock.is-hot .ds-bc b::after{content:'';position:absolute;left:14px;right:14px;bottom:0;height:3px;
+#events-screen .evclock.is-hot .ds-bc b::after{content:'';position:absolute;left:12px;right:12px;bottom:0;height:3px;
   border-radius:3px 3px 0 0;background:var(--ds-green)}
-/* The way in: Join (the kit's primary, with the game's art at its left edge), Spectate, the owner's start when it is
-   theirs, and How it works, one row on a PC. Each button's second line says what is going on. */
-.ev-acts{display:flex;align-items:center;gap:var(--ds-sp3);flex-wrap:wrap;margin-top:var(--ds-sp5)}
-.evbar{display:flex;align-items:center;gap:var(--ds-sp3);flex-wrap:wrap;min-width:0}
-#events-screen .evgo{min-width:400px;padding:0 var(--ds-sp7)}
-#events-screen .evwatch{min-width:200px}
+/* The way in: Join, Spectate under it (Watch live leads while a match is on), the owner's start when it is theirs, and
+   How it works. Each button's second line says what is going on. */
+.ev-acts{display:flex;flex-direction:column;align-items:stretch;gap:var(--ds-sp2);width:100%;margin-top:auto;padding-top:var(--ds-sp5)}
+.evbar{display:flex;flex-direction:column;align-items:stretch;gap:var(--ds-sp2);min-width:0}
+#events-screen .evgo{--h:52px;width:100%;min-width:0;padding:0 var(--ds-sp4);font-size:16px}
+#events-screen .evwatch{--h:46px;width:100%;min-width:0}
 #events-screen .evgo.hot:not(:disabled){box-shadow:0 0 0 4px rgba(244,241,234,.18)}
-#events-screen .evhero.live #ev-watch{order:-1;--h:64px;min-width:400px;font-size:18px}
-#events-screen .evhero.live #ev-join{--h:52px;min-width:200px;padding:0 var(--ds-sp5) 0 56px;font-size:16px}
-.evgo .evart{position:absolute;left:8px;top:8px;height:calc(100% - 16px);width:auto;aspect-ratio:2/3;border-radius:var(--ds-r1);
-  object-fit:cover;object-position:50% 30%}
-.evgo:disabled .evart{opacity:.4}
-.evt{display:flex;flex-direction:column;align-items:center;gap:4px;line-height:1.1;min-width:0}
-.evt b{font-weight:inherit;overflow:hidden;text-overflow:ellipsis;max-width:100%}
-.evt small{font-size:var(--ds-fs-1);font-weight:600;font-stretch:100%;opacity:.72}
+#events-screen .evhero.live #ev-watch{order:-1;--h:52px;font-size:16px}
+#events-screen .evhero.live #ev-join{--h:46px;font-size:15px}
+.evgo .evart{display:none}
+.evt{display:flex;flex-direction:row;align-items:baseline;justify-content:center;gap:var(--ds-sp2);line-height:1.1;min-width:0}
+.evt b{font-weight:inherit;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+.evt small{font-size:var(--ds-fs-2);font-weight:600;font-stretch:100%;opacity:.66;white-space:nowrap}
 .evt small:empty{display:none}
 #events-screen .evown{gap:var(--ds-sp2)}
 #events-screen .evown small{font-size:var(--ds-fs-1);font-weight:600;color:var(--ds-tx2)}
-.ev-why{margin-top:var(--ds-sp3);font-size:var(--ds-fs-2);color:var(--ds-tx2);max-width:84ch;line-height:1.5}
-.ev-why:empty{display:none}
-/* The podium beside the schedule. */
-.ev-low{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:var(--ds-sp4)}
-.ev-h3{margin-bottom:var(--ds-sp4);font-size:var(--ds-fs-4);font-weight:750;line-height:1.25}
-#events-screen .ds-pl .sc{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:2px 6px;min-height:20px;font-size:var(--ds-fs-1);
-  color:var(--ds-tx2);font-variant-numeric:tabular-nums}
+#events-screen .evhow{align-self:center;--h:36px;font-size:var(--ds-fs-2)}
+.ev-why,.ev-note{display:none}
+/* Top 3 and the times: two panels, a row per event, name pills and time chips. */
+.ev-low{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:var(--ds-sp4)}
+#events-screen .ev-low>.ds-panel{padding:18px 20px}
+.ev-h3{margin-bottom:var(--ds-sp3);font-size:var(--ds-fs-3);font-weight:700;line-height:1.25}
+.ev-wrow{display:flex;align-items:center;gap:var(--ds-sp3);margin:0}
+.ev-wrow+.ev-wrow{margin-top:var(--ds-sp3)}
+.ev-wrow[hidden]{display:none}
+.ev-wl{flex:0 0 104px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.ev-wl b{font-size:var(--ds-fs-2);font-weight:650}
+.ev-wl span{font-size:var(--ds-fs-1);color:var(--ds-tx3)}
+.ev-wrow>:last-child{flex:1;min-width:0}
+#events-screen .ev-podp .ds-pod{display:flex;flex-wrap:wrap;align-items:center;gap:var(--ds-sp2)}
+#events-screen .ev-podp .ds-pl{flex-direction:row;align-items:center;gap:var(--ds-sp2);height:36px;padding:0 var(--ds-sp3) 0 6px;
+  border-radius:var(--ds-rf);background:var(--ds-s2);box-shadow:var(--ds-edge);max-width:100%;min-width:0;text-align:left}
+#events-screen .ev-podp .ds-pl.p1{order:-1}
+#events-screen .ev-podp .ds-pl .av{display:none}
+#events-screen .ev-podp .ds-pl .blk{order:-1;flex:none;width:24px;height:24px;margin:0;padding:0;border-radius:var(--ds-rf);
+  display:grid;place-items:center;background:var(--ds-s3);font-size:var(--ds-fs-1);font-weight:800;color:var(--ds-tx2)}
+#events-screen .ev-podp .ds-pl.p1 .blk{background:var(--ds-bone);color:var(--ds-on-bone)}
+#events-screen .ev-podp .ds-pl .nm{font-size:var(--ds-fs-2);font-weight:650;min-width:0}
+#events-screen .ev-podp .ds-pl.empty .nm{color:var(--ds-tx2);font-weight:600}
+#events-screen .ds-pl .sc{display:flex;flex-wrap:nowrap;align-items:center;gap:4px;min-height:0;font-size:var(--ds-fs-1);
+  color:var(--ds-tx2);font-variant-numeric:tabular-nums;white-space:nowrap}
+#events-screen .ds-pl .sc:empty{display:none}
 #events-screen .ds-pl .sc .ds-chip{height:20px;padding:0 6px}
 #events-screen .ds-pl .scv{white-space:nowrap}
-#events-screen .ds-pl.empty .av{background:transparent;border:1.5px dashed var(--ds-line2);box-shadow:none}
-#events-screen .ds-pl.empty .nm{color:var(--ds-tx2);font-weight:600}
+#events-screen .ds-pl .pz{font-size:var(--ds-fs-2);font-weight:800}
 #events-screen .ds-pl .pz:empty{display:none}
-.ev-note{margin-top:var(--ds-sp3);font-size:var(--ds-fs-2);color:var(--ds-tx2);line-height:1.5}
-.ev-note:empty{display:none}
-#events-screen .ev-srow{min-height:52px}
-.ev-wait{padding:var(--ds-sp2) 0}
-/* The Swim Race's last top 3: three name pills, first in bone. */
-.swlast{display:flex;align-items:center;gap:var(--ds-sp2) var(--ds-sp3);flex-wrap:wrap;margin-top:var(--ds-sp4)}
-.swpod{list-style:none;display:flex;gap:var(--ds-sp2);flex-wrap:wrap;min-width:0}
+#events-screen .ev-srow{min-height:0}
+.ev-wait{padding:var(--ds-sp1) 0}
+/* The Swim Race's last top 3: the same pills, first in bone. */
+.swpod{list-style:none;display:flex;gap:var(--ds-sp2);flex-wrap:wrap;min-width:0;margin:0;padding:0}
 .swpod li{display:inline-flex;align-items:center;gap:var(--ds-sp2);height:36px;padding:0 var(--ds-sp3) 0 6px;border-radius:var(--ds-rf);
-  background:var(--ds-ink);box-shadow:var(--ds-edge);font-size:var(--ds-fs-2);font-weight:650;max-width:220px;min-width:0}
+  background:var(--ds-s2);box-shadow:var(--ds-edge);font-size:var(--ds-fs-2);font-weight:650;max-width:220px;min-width:0}
 .swpod li i{font-style:normal;flex:none;width:24px;height:24px;border-radius:var(--ds-rf);display:grid;place-items:center;
   font-size:var(--ds-fs-1);font-weight:800;background:var(--ds-s3);color:var(--ds-tx2)}
 .swpod li:first-child i{background:var(--ds-bone);color:var(--ds-on-bone)}
 .swpod li span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+/* The times: the next start of each in bone, then the three after it. */
+/* The times are Toronto's, said once in the title. */
+#ev-sch-t::after{content:', ET'}
+#ev-sched,.ev-chips{display:flex;flex-direction:row;flex-wrap:wrap;gap:6px}
+#events-screen #ev-sched>.ev-srow{display:inline-flex;width:auto;min-height:0;height:30px;padding:0 10px;border-radius:var(--ds-r1);
+  background:var(--ds-s2);box-shadow:none}
+#events-screen #ev-sched>.ev-srow .ds-row-ic,#events-screen #ev-sched>.ev-srow .ds-row-main span,#events-screen #ev-sched>.ev-srow .ds-row-end{display:none}
+#events-screen #ev-sched>.ev-srow .ds-row-main b{font-size:var(--ds-fs-2);font-weight:650;font-variant-numeric:tabular-nums}
+#events-screen #ev-sched>.ev-srow:first-child{background:var(--ds-bone);color:var(--ds-on-bone)}
+.ev-chips span{display:inline-flex;align-items:center;height:30px;padding:0 10px;border-radius:var(--ds-r1);background:var(--ds-s2);
+  font-size:var(--ds-fs-2);font-weight:650;font-variant-numeric:tabular-nums}
+.ev-chips span:first-child{background:var(--ds-bone);color:var(--ds-on-bone)}
 @media(min-width:761px) and (max-width:1100px){
-  #events-screen .evhero-art{width:40%}
-  #events-screen .evgo,#events-screen .evhero.live #ev-watch,#events-screen .evhero.live #ev-join{min-width:0}
-  .ev-low{grid-template-columns:minmax(0,1fr)}
+  .ev-pair,.ev-low{grid-template-columns:minmax(0,1fr)}
+  #events-screen>*{max-width:600px}
 }
-/* A phone (mockup phone layout): the art is a band across the top of each card, the buttons stack full width. */
+/* A phone: one column, the art a band across the top of each card. */
 @media(max-width:760px){
   #events-screen.wrap{padding-top:var(--ds-sp4)}
   #events-screen>.head{margin:0 0 var(--ds-sp4)}
-  #events-screen .evhero{padding:0 0 var(--ds-sp4)}
-  #events-screen .evhero-art{position:relative;z-index:0;display:block;width:100%;height:132px;opacity:.9;object-position:50% 70%;
-    border-radius:var(--ds-r3) var(--ds-r3) 0 0;
-    -webkit-mask-image:linear-gradient(180deg,#000 55%,transparent);mask-image:linear-gradient(180deg,#000 55%,transparent)}
-  #events-screen .swev .evhero-art{object-position:50% 40%}
-  .ev-in{padding:0 var(--ds-sp4);margin-top:-28px}
-  .ev-title{font-size:var(--ds-fs-6)}
-  .ev-pz{font-size:46px}
-  .ev-prize>span:last-child{font-size:var(--ds-fs-4)}
-  .ev-champ{margin-top:var(--ds-sp4);gap:var(--ds-sp1) var(--ds-sp3)}
-  .ev-champ-av{width:56px;height:56px;font-size:24px}
-  .ev-champ-who b{font-size:28px}
-  .ev-champ-who span{font-size:var(--ds-fs-2)}
-  .ev-cl{margin-top:var(--ds-sp4)}
-  .ev-acts,.evbar{flex-direction:column;align-items:stretch;gap:var(--ds-sp2)}
-  .ev-acts{margin-top:var(--ds-sp4)}
-  #events-screen .ev-acts .ds-btn,#events-screen .evhero.live #ev-watch,#events-screen .evhero.live #ev-join{width:100%;min-width:0}
-  #events-screen .evhero.live #ev-join{--h:56px;padding:0 60px}
-  #events-screen .evgo{--h:60px;padding:0 60px}
-  #events-screen .evwatch{--h:56px}
-  .ev-low{grid-template-columns:minmax(0,1fr)}
+  .ev-pair,.ev-low{grid-template-columns:minmax(0,1fr)}
+  #events-screen .evhero{--art:170px}
+  .ev-in{padding:0 var(--ds-sp4) var(--ds-sp4)}
+  .ev-title{font-size:32px}
+  #events-screen .evclock .ds-bc b{width:72px;height:62px;font-size:36px}
+  #events-screen .evclock i{line-height:62px}
+  .ev-wrow{flex-direction:column;align-items:flex-start;gap:6px}
+  .ev-wl{flex:none;flex-direction:row;align-items:baseline;gap:var(--ds-sp2)}
+  .ev-wrow>:last-child{width:100%}
   .swpod li{max-width:100%}
 }
 /* The one beating dot on Events (the state chip, while something is happening now) and on Leaderboards (Live), for
@@ -2653,6 +2684,7 @@ main.wrap{margin-left:auto;margin-right:auto}
   #refer-screen,#support-screen,#join-screen)>.head{margin-left:auto;margin-right:auto}
 #home>*{max-width:1400px}
 #events-screen>*,#player-screen>*,#clips-screen>*{max-width:1180px}
+#events-screen>*{max-width:960px}
 #wallet-screen>*{max-width:600px}
 #settings-screen>*{max-width:640px}
 #updates-screen>*{max-width:800px}
@@ -3273,7 +3305,7 @@ html.ds-building body>:not(#splash){visibility:hidden}
     var every=BR.every||6, first=untilStart(), now=nowS()%86400, rows=[];
     for(var k=0;k<4;k++){
       var day=Math.floor((now+first+k*every*3600)/86400);
-      rows.push([at12((BR.startHour+k*every)%24,BR.startMin)+' ET', day<=0?'Today':day===1?'Tomorrow':'In '+day+' days']);
+      rows.push([at12((BR.startHour+k*every)%24,BR.startMin), day<=0?'Today':day===1?'Tomorrow':'In '+day+' days']);
     }
     var key=JSON.stringify(rows)+joinNow;
     if(key===schedWas) return; schedWas=key;
@@ -3394,6 +3426,16 @@ function v2SwimEventInit(){
     var at='';
     if(Number.isInteger(SE.startHour)) at=(((SE.startHour+11)%12)+1)+':'+pad(SE.startMin||0)+' '+(SE.startHour<12?'AM':'PM');
     setText('sw-when','Every '+(SE.every||6)+' hours');
+    var sch=document.getElementById('sw-sched'), srow=document.getElementById('sw-schrow');
+    if(sch && Number.isInteger(SE.startHour)){
+      var sev=SE.every||6, sk=SE.startHour+':'+(SE.startMin||0)+':'+sev;
+      if(sch.getAttribute('data-k')!==sk){
+        sch.setAttribute('data-k',sk); sch.textContent='';
+        for(var k=0;k<4;k++){ var hh=(SE.startHour+k*sev)%24, chip=document.createElement('span');
+          chip.textContent=(((hh+11)%12)+1)+':'+pad(SE.startMin||0)+' '+(hh<12?'AM':'PM'); sch.appendChild(chip); }
+      }
+      if(srow) srow.hidden=false;
+    }
     tag(on?(st==='countdown'?'Starting':'Race on'):st==='over'?'Just finished':(at?'Next race '+at+' ET':'Next race'),on);
     var c=document.getElementById('sw-clock');
     if(c){ c.classList.toggle('live',on); c.style.display=on?'none':''; }
@@ -3638,7 +3680,13 @@ function openSwimHow(){
 <main id="events-screen" class="wrap">
   <div class="head"><div><h2 class="ds-t-page">Events</h2></div></div>
 
+  <!-- Owen's pick E2 "Twin cards" (2026-11-03, mockup tab-mockups/e2.html): the Battle Royale and the Swim Race side by
+       side as the same card (art on top, the name, the prize, the clock, Join and Spectate), then Top 3 and the times for
+       both under them; one column on a phone. Every id is the one V2Event's tick() and the Swim paint() always wrote, and
+       names go in by textContent, as they are player input. The explaining lines (#ev-why, #sw-line, #ev-podnote) are
+       still written but not shown: Owen wanted no extra words, and each button's second line says what is going on. -->
   <div class="ev">
+  <div class="ev-pair">
   <section class="ds-br-card evhero" id="evhero" aria-labelledby="ev-t">
     <img class="ds-br-art evhero-art" src="/img/games/snake-card.webp?v=1" alt="" draggable="false">
     <div class="ev-in">
@@ -3661,9 +3709,8 @@ function openSwimHow(){
         <i aria-hidden="true" class="evsec">:</i>
         <div class="ds-bc evsec"><b id="ev-s">--</b><span>sec</span></div>
       </div>
-      <!-- The way in. Join holds the Slither.io art; tick() writes its words into #ev-join-t and #ev-join-s only, so
-           the art survives every state. A shut door is dimmed and says why, never hidden. On a phone #ev-bar is
-           pinned above the tab bar, so Join and Spectate never scroll away. -->
+      <!-- The way in. Join keeps the Slither.io art in its markup; tick() writes its words into #ev-join-t and #ev-join-s
+           only. A shut door is dimmed and says why, never hidden. -->
       <div class="ev-acts">
         <div class="evbar" id="ev-bar">
           <button type="button" class="ds-btn ds-btn-primary ds-btn-xl evgo" id="ev-join" onclick="V2Play.launch('snake',{lobbyType:'br'})">
@@ -3685,32 +3732,13 @@ function openSwimHow(){
     </div>
   </section>
 
-  <div class="ev-low">
-    <!-- The podium. Tallest in the middle: the heights ARE the ranking. It holds this match's empty seats while one
-         runs, and the last match's top 3 the rest of the time, so it is never three question marks all day. -->
-    <section class="ds-panel ev-podp" id="ev-podp" aria-labelledby="ev-pcap">
-      <h3 class="ev-h3" id="ev-pcap">Last match</h3>
-      <div class="ds-pod podium">
-        <div class="ds-pl p2 empty plinth"><span class="av" aria-hidden="true"></span><div class="nm pwho" id="ev-2nd"></div><div class="sc" id="ev-2nd-sc"></div><div class="blk pblock">2</div></div>
-        <div class="ds-pl p1 empty plinth"><span class="av" aria-hidden="true"></span><div class="nm pwho" id="ev-1st"></div><div class="sc" id="ev-1st-sc"></div><div class="pz pmoney" id="ev-1st-pz"></div><div class="blk pblock">1</div></div>
-        <div class="ds-pl p3 empty plinth"><span class="av" aria-hidden="true"></span><div class="nm pwho" id="ev-3rd"></div><div class="sc" id="ev-3rd-sc"></div><div class="blk pblock">3</div></div>
-      </div>
-      <p class="ev-note" id="ev-podnote"></p>
-    </section>
-    <!-- The next four starts, from the server's own schedule (startHour, startMin, every): never a copy kept here. -->
-    <section class="ds-panel ev-sch" aria-labelledby="ev-sch-t">
-      <h3 class="ev-h3" id="ev-sch-t">Every 6 hours</h3>
-      <div class="ds-list" id="ev-sched"><p class="ds-hint ev-wait">Getting the schedule</p></div>
-    </section>
-  </div>
-
-  <!-- The Swim Race (server/swim/SwimEvent.js, every 6 hours, three off the battle royale): the same card as the
-       battle royale, under it. Names go in by textContent: they are player input. -->
+  <!-- The Swim Race (server/swim/SwimEvent.js, every 6 hours, three off the battle royale): the same card, beside it. -->
   <section class="ds-br-card evhero swev" id="swev" aria-labelledby="sw-t" hidden>
     <img class="ds-br-art evhero-art" src="/img/games/swim-card.webp?v=1" alt="" draggable="false">
     <div class="ev-in">
       <div class="ev-tags"><span class="ds-chip" id="sw-tag">Next race</span><span class="ds-chip ds-chip-money">Free entry</span><span class="ds-chip" id="sw-when">Every 6 hours</span></div>
       <h3 class="ev-title" id="sw-t">Swim Race</h3>
+      <div class="ev-prize ev-free"><span>Free entry</span></div>
       <div class="ds-t-label ev-cl" id="sw-cl">Next race in</div>
       <div class="ds-bigclock evclock" id="sw-clock" role="timer" aria-live="off">
         <div class="ds-bc"><b id="sw-h">--</b><span>hours</span></div>
@@ -3734,9 +3762,32 @@ function openSwimHow(){
           How it works</button>
       </div>
       <p class="ev-why" id="sw-line"></p>
-      <div class="swlast" id="sw-last" hidden><span class="ds-t-label">Last race</span><ol class="swpod" id="sw-pod" aria-label="Last race's top 3"></ol></div>
     </div>
   </section>
+  </div>
+
+  <div class="ev-low">
+    <!-- Top 3 of each: the podium seats (the last match's top 3, or this match's empty seats while one runs) and the
+         Swim Race's last top 3, as name pills, first place first. -->
+    <section class="ds-panel ev-podp" id="ev-podp" aria-labelledby="ev-top-t">
+      <h3 class="ev-h3" id="ev-top-t">Top 3</h3>
+      <div class="ev-wrow"><div class="ev-wl"><b>Battle Royale</b><span id="ev-pcap">Last match</span></div>
+      <div class="ds-pod podium">
+        <div class="ds-pl p2 empty plinth"><span class="av" aria-hidden="true"></span><div class="nm pwho" id="ev-2nd"></div><div class="sc" id="ev-2nd-sc"></div><div class="blk pblock">2</div></div>
+        <div class="ds-pl p1 empty plinth"><span class="av" aria-hidden="true"></span><div class="nm pwho" id="ev-1st"></div><div class="sc" id="ev-1st-sc"></div><div class="pz pmoney" id="ev-1st-pz"></div><div class="blk pblock">1</div></div>
+        <div class="ds-pl p3 empty plinth"><span class="av" aria-hidden="true"></span><div class="nm pwho" id="ev-3rd"></div><div class="sc" id="ev-3rd-sc"></div><div class="blk pblock">3</div></div>
+      </div>
+      </div>
+      <div class="ev-wrow swlast" id="sw-last" hidden><div class="ev-wl"><b>Swim Race</b><span>Last race</span></div><ol class="swpod" id="sw-pod" aria-label="Last race's top 3"></ol></div>
+      <p class="ev-note" id="ev-podnote"></p>
+    </section>
+    <!-- The next four starts of each, from the servers' own schedules (startHour, startMin, every): never a copy kept here. -->
+    <section class="ds-panel ev-sch" aria-labelledby="ev-sch-t">
+      <h3 class="ev-h3" id="ev-sch-t">Every 6 hours</h3>
+      <div class="ev-wrow"><div class="ev-wl"><b>Battle Royale</b></div><div class="ds-list" id="ev-sched"><p class="ds-hint ev-wait">Getting the schedule</p></div></div>
+      <div class="ev-wrow" id="sw-schrow" hidden><div class="ev-wl"><b>Swim Race</b></div><div class="ev-chips" id="sw-sched"></div></div>
+    </section>
+  </div>
   </div>
 </main>
 
