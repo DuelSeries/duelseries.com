@@ -1102,7 +1102,9 @@ test('every tab owns its own screen node, so a swipe between neighbours has two 
   const PC_ONLY = ['clips-screen', 'updates-screen', 'join-screen'];
   /* Refer a friend and Support (site redo stage 3) are pages under the sidebar's foot and Settings' About, not tabs:
      like a game's screen or a profile, a swipe from them goes nowhere. */
-  const NOT_TABS = ['refer-screen', 'support-screen'];
+  const NOT_TABS = ['refer-screen', 'support-screen',
+    /* Profile (Owen 2026-11-04): a sidebar tab on a PC; a phone opens it from the header card, so it is not in the swipe. */
+    'profile-screen'];
   for (const id of ids) {
     if (PC_ONLY.includes(id) || NOT_TABS.includes(id)) assert.ok(!sw.includes("'" + id + "'"), id + ' is not in the phone swipe');
     else assert.ok(sw.includes("'" + id + "'"), 'the swipe knows ' + id);
@@ -2154,7 +2156,7 @@ test('the Shop tab is gone: skins are bought in Customize, and an old Shop route
   const html = v2();
   const nav = html.slice(html.indexOf('const NAV=['), html.indexOf('];', html.indexOf('const NAV=[')));
   assert.ok(!/id:'shop'/.test(nav), 'no Shop in the nav');
-  assert.deepEqual([...nav.matchAll(/\{id:'(\w+)'/g)].map(m => m[1]), ['play', 'events', 'social', 'wallet', 'clips', 'updates', 'join', 'settings']);
+  assert.deepEqual([...nav.matchAll(/\{id:'(\w+)'/g)].map(m => m[1]), ['play', 'events', 'social', 'profile', 'wallet', 'clips', 'updates', 'join', 'settings']);   // Profile where Shop was (Owen 2026-11-04)
   assert.ok(!/shop-screen|id="shop"|V2ShopTab|tab==='shop'/.test(html), 'no Shop screen, mount or route');
   const sw = fs.readFileSync(path.join(ROOT, 'public/js/v2/swipe.js'), 'utf8');
   assert.ok(sw.includes("const TABS = ['play', 'events', 'social', 'wallet', 'settings'];"), 'the swipe order matches the nav');

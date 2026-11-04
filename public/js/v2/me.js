@@ -14,7 +14,7 @@
    Site redo stage 3 (layout 1, mockup looks/ab/1/leaderboards.html?card): your
    initial, name and short address (with Copy), the name field with one line on
    where the name shows, the balance the header chip shows with Open wallet,
-   Your public profile (the Leaderboards profile other players see), and Sign
+   Your profile (the Profile tab, which links the public one other players see), and Sign
    out. A popover under the initial on a PC, the kit's bottom sheet on a phone
    (CSS: the card is one element, outside the header).
 
@@ -58,8 +58,8 @@
       if (mb.textContent !== t) mb.textContent = t;
       mb.classList.toggle('ds-money', t.indexOf('$') >= 0);
     }
-    // Your public profile: only with a name, which is what the board and search know you by.
-    const lk = el('me-links'); if (lk) lk.hidden = !(has && n);
+    // Your profile (the Profile tab, Owen 2026-11-04): signed in, with or without a name (the tab says how to pick one).
+    const lk = el('me-links'); if (lk) lk.hidden = !has;
     const btn = el('mebtn');
     if (btn) btn.setAttribute('aria-label', n ? 'Your profile, ' + n : 'Your profile');
     const out = el('me-out');
@@ -113,13 +113,11 @@
         () => say('err', 'Could not copy', 'Copy it from the Wallet tab instead.'));
     } catch (_) { say('err', 'Could not copy', 'Copy it from the Wallet tab instead.'); }
   }
-  /* Your public profile: the Leaderboards profile everyone else sees, opened over its own tab. */
+  /* Your profile: the Profile tab (Owen's pick S1, 2026-11-04), which is how a phone reaches it. The public profile
+     other players see is one press from there ("See what others see"). */
   function profile() {
-    const n = name();
-    if (!n) return;
     close();
-    if (typeof window.go === 'function') window.go('social');
-    if (window.V2Social) window.V2Social.openPlayer(n);
+    if (typeof window.go === 'function') window.go('profile');
   }
 
   document.addEventListener('keydown', e => {
