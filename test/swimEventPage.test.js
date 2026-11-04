@@ -42,6 +42,8 @@ function makeEl(id, tag) {
 function boot(session, opts) {
   opts = opts || {};
   const els = new Map();
+  const raf = { fn: null };
+  const drawn = { last: null };
   const handlers = {};
   const emitted = [];
   const timers = [];
@@ -64,7 +66,7 @@ function boot(session, opts) {
     sessionStorage: store(session), localStorage: store(),
     matchMedia: () => ({ matches: true }),        // a phone: the touch pads are in play
     performance: { now: () => Date.now() },
-    requestAnimationFrame: () => 0,
+    requestAnimationFrame: (fn) => { raf.fn = fn; return 0; },
     setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
     clearTimeout() {}, setInterval: () => 0, clearInterval() {},
     fetch: opts.fetch || (() => Promise.resolve({ ok: true, json: () => Promise.resolve({}) })),
@@ -74,7 +76,8 @@ function boot(session, opts) {
     console,
   };
   win.window = win; win.parent = opts.parent || win;
-  const scene = new Proxy({}, { get: () => () => ({}) });   // every scene call a no-op
+  // every scene call a no-op, but what a frame hands the road is kept (drawn.last)
+  const scene = new Proxy({}, { get: (_, k) => (k === 'frame' ? (f) => { drawn.last = f; } : () => ({})) });
   const src = fs.readFileSync(path.join(ROOT, 'public/js/swim/swimEventMain.js'), 'utf8')
     .replace(/^import \{ createScene \} from '\.\/swimScene\.js';$/m, 'const createScene = () => __scene;');
   win.__scene = scene;
@@ -82,7 +85,8 @@ function boot(session, opts) {
   vm.runInContext(src, win, { filename: 'swimEventMain.js' });
   const runTimers = () => { while (timers.length) timers.shift().fn(); };
   const fire = (ev, m) => { if (ev === 'connect') socket.connected = true; if (ev === 'disconnect') socket.connected = false; handlers[ev](m); };
-  return { win, els: (id) => document.getElementById(id), emitted, fire, runTimers, shown };
+  const frame = (t) => { if (raf.fn) raf.fn(t); return drawn.last; };
+  return { win, els: (id) => document.getElementById(id), emitted, fire, runTimers, shown, frame };
 }
 
 test('Swim Race page: Join from the Events tab joins once; after Leave a reconnect does not join again', () => {
@@ -230,4 +234,40 @@ test('Swim Race page: the owner bar survives a sign-out mid-check and a 429, and
   listeners['duelwallet:change']();
   assert.strictEqual(pending.length, 0);
   assert.strictEqual(bar(), false);
+});
+
+/* Owen 2026-11-04: pressing gas in the countdown made the bots jump. The other cars were carried forward from their
+   start-line rows at V0 and eased back each frame, so they sat 2 to 3 m behind the line and a slow frame (revving
+   makes them) threw them forward. And the traffic was drawn (and pruned) at the countdown's negative tick, so it drove
+   before go and a car the server still had ahead could be dropped. Nothing moves before go now. */
+test('Swim Race page: before go every car is parked on the line, at no speed, and the traffic waits for go', () => {
+  const p = boot({ seJoin: '1', playerName: 'Ann' });
+  p.fire('connect');
+  p.fire('se:joined', { state: 'waiting', lane: 0, n: 1, cars: [[0, 'Ann', 'supercar']] });
+  const seats = [0, 1, 2].map(s => ({ seat: s, name: ['Ann', 'bot1', 'bot2'][s], car: 'supercar', out: 0 }));
+  const row = (s) => [s, 0, 0, S.laneX(s), S.V0, 0, 1, 0, 0];
+  /* A car 60 m up the fast lane on tick 0: 10 s back it would be 210 m behind the line (the old prune dropped it). */
+  const near = [77, 0, 0, 60, 0, 3];
+  const t0 = Date.now();
+  p.fire('se:start', { id: 'se7', state: 'countdown', lanes: 3, goAt: t0 + 10000, now: t0, seats, cars: [near], p: [row(0), row(1), row(2)] });
+  p.fire('se:you', { id: 'se7', seat: 0, key: 'k1' });
+  const race = p.win.__swimraceRace();
+  p.frame(t0);
+  for (const dt of [16, 100, 40, 100]) {          // slow frames too: the old drawing moved with every one
+    const f = p.frame(t0 + dt);
+    assert.strictEqual(f.tick, 0, 'the road is drawn at tick 0 until go');
+    assert.strictEqual(f.follow.z, 0); assert.strictEqual(f.follow.v, 0, 'our car shows no speed');
+    const others = f.others.filter(Boolean);
+    assert.strictEqual(others.length, 2, 'both bots are drawn beside us');
+    for (const o of others) {
+      assert.strictEqual(o.z, 0, 'a bot sits exactly on the line'); assert.strictEqual(o.v, 0);
+      assert.strictEqual(o.x, S.laneX(o.seat), 'in its own lane');
+    }
+  }
+  assert.ok(race.traffic.byId.has(77), 'the car just up the road is still there at go');
+  assert.strictEqual(p.els('spdNum').textContent, '0');
+  assert.strictEqual(p.els('distText').textContent, 'On the start line');
+  assert.ok(p.win.document.body.classList.contains('pre'), 'before go the page shows only what a player needs');
+  assert.strictEqual(p.els('countNum').textContent, 'Starting in 10');
+  assert.ok(/^3 racers · drag on the left to steer$/.test(p.els('countSub').textContent), p.els('countSub').textContent);
 });
