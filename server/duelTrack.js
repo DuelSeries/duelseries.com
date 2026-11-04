@@ -46,7 +46,8 @@ function createDuelTrack({ analytics, houseCut }) {
       starters.delete(key);
       const seats = Array.isArray(o.seats) ? o.seats : [];
       const winner = seats.find(s => s && s.id === o.winnerId) || null;
-      const prize = winner && winner.wallet ? o.pot - o.pot * houseCut : null;
+      // an owner's paid bot wins like a person (server/duelBots.js): its table is a loss for the other seat, not a draw
+      const prize = winner && (winner.wallet || require('./duelMoney').isPaidBotSeat(winner)) ? o.pot - o.pot * houseCut : null;
       const quit = LEFT_WHY.test(String(o.why || ''));
       const vsBot = seats.some(s => !s || !s.wallet);
       const players = Math.max(seats.length, began.length);

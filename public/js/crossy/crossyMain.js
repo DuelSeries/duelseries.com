@@ -411,13 +411,13 @@ function paintWait() {
   if (waitPaid) {
     // A paid table is one card from stake to match (Owen 2026-10-30): the clock counts up, nothing changes at 0:00.
     $('waitMain').textContent = 'Looking for a player… ' + waitClock(Math.floor((Date.now() - waitFrom) / 1000) * 1000);
-    $('waitSub').textContent = table + 'Real players only, never a bot. Cancel any time for a full refund.';
+    $('waitSub').textContent = table + 'Cancel any time for a full refund.';
   } else if (left > 0) {
     $('waitMain').textContent = 'Looking for a player… ' + waitClock(left);
-    $('waitSub').textContent = 'Free table. If nobody joins, you\'ll play a bot.';
+    $('waitSub').textContent = 'Free table. Nothing staked.';
   } else {
-    $('waitMain').textContent = 'Nobody joined. Playing a bot…';
-    $('waitSub').textContent = 'Free table. Starting against a bot now.';
+    $('waitMain').textContent = 'Starting your match…';
+    $('waitSub').textContent = 'Free table. Nothing staked.';
   }
 }
 function startWait(ms, total = WAIT_MS) { waiting = true; waitEndsAt = Date.now() + Math.max(0, ms); waitFrom = Date.now() + ms - total; clearInterval(waitTimer); waitTimer = setInterval(paintWait, 250); paintWait(); }
@@ -431,6 +431,12 @@ socket.on('cr:queued', (q = {}) => {
   startWait(total - (Number(q.waitingMs) || 0), total);
   trackStep('queue');
 });
+/* An owner's paid bot (server/duelBots.js) meets only a person the lobby showed "Bot opponent waiting" on this rung
+   before they paid; the lobby leaves that note for this page (public/js/duelBotOk.js). Paid seats only, used once. */
+function botOkFor(game) {
+  return !!(myStake > 0 && window.DSDuelBotOk && window.DSDuelBotOk.take(game, myStake));
+}
+
 function queue(token, resume) {
   overShown = false; lastOver = null; queuedOk = false;
   if (window.DSEnd) DSEnd.hide();
@@ -443,6 +449,7 @@ function queue(token, resume) {
   socket.emit('cr:queue', {
     name: myName, wallet: myWallet, stake: myStake, entryToken: token || myEntryToken,
     resume: resume || undefined, v: Sim.VERSION, look: myLook(),
+    botOk: botOkFor('crossy'),   // shown "Bot opponent waiting" before paying (public/js/duelBotOk.js)
   });
   myEntryToken = null;   // one use only
   try { sessionStorage.removeItem('entryToken'); } catch (_) {}

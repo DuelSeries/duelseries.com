@@ -14,6 +14,9 @@
 
 const DUEL_HOUSE_CUT = 0.10;
 const micro = (v) => Math.round((Number(v) || 0) * 1e6);
+/* An owner's paid bot's seat (server/duelBots.js): no wallet, but a stake the Bot bank paid in. It wins like a person
+   (index.js paidBotTable: the pot less the cut goes home to the bank), so a table it won is not a refund. */
+const isPaidBotSeat = (s) => !!s && (s.paidBot === true || (typeof s.id === 'string' && s.id.startsWith('bot_') && Number(s.worth) > 0));
 
 /* { winnerId, pot, seats: [{ id, wallet, worth, refund }] } (the onSettled shape) ->
    null for a free table, else { potMicro, cutMicro, netMicro, refunded, seats: { id: { stakeMicro, refundMicro } } } */
@@ -21,7 +24,7 @@ function duelMoney({ winnerId, pot, seats } = {}) {
   if (!(Number(pot) > 0)) return null;
   const list = Array.isArray(seats) ? seats : [];
   const winner = list.find((s) => s.id === winnerId) || null;
-  const pays = !!(winner && winner.wallet);
+  const pays = !!(winner && (winner.wallet || isPaidBotSeat(winner)));
   const cut = pays ? pot * DUEL_HOUSE_CUT : 0;
   const out = {
     potMicro: micro(pot),
@@ -39,4 +42,4 @@ function duelMoney({ winnerId, pot, seats } = {}) {
   return out;
 }
 
-module.exports = { DUEL_HOUSE_CUT, duelMoney };
+module.exports = { DUEL_HOUSE_CUT, duelMoney, isPaidBotSeat };
