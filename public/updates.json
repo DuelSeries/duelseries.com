@@ -2,6 +2,17 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-11-04-paid-snake-gold-tags",
+      "date": "2026-11-04",
+      "tag": "new",
+      "title": "Cleaner worth tags in paid slither",
+      "body": "In paid slither, every snake's worth now sits on a small gold tag over its head instead of green numbers, and your own tag has a light edge so you can find it fast.\n\nThe top of the screen shows your snake's worth big, with the room under it. On a computer, \"Q Hold to cash out\" now sits at the bottom of the screen.",
+      "image": {
+        "src": "/updates/paid-snake-gold-tags.webp",
+        "alt": "A paid slither room with gold worth tags over the snakes and your worth at the top"
+      }
+    },
+    {
       "id": "2026-11-04-profile-tab",
       "date": "2026-11-04",
       "tag": "new",
