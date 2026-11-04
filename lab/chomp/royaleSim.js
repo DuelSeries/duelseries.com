@@ -33,7 +33,11 @@
         hurryS: o.hurryS || 45,
         toWin: o.toWin || 3,
         ghostPlayerMul: 0.92,            // a knocked-out player's ghost, against the base speed
-        pelletBackS: 8
+        pelletBackS: 8,
+        // contact false = the paid-safe version (concept panel, twist B): chompers pass through each other, and every
+        // ghost you eat comes back out hunting your rivals (Pac-Man 99's attack inside one maze), harmless to you
+        contact: o.contact !== false,
+        sentS: 15
       },
       tick: 0, roundTick: 0, round: 0, phase: 'ready', phaseT: 0, events: [], banner: null,
       players: [], ghosts: [], dots: null, pelletSpots: [], pelletWait: 0, winner: null, roundWinner: null, human: o.human !== false
@@ -62,6 +66,8 @@
     S.ghosts = [Core.ghost(0, m, 'house', 0), Core.ghost(1, m, 'house', 0)];
     S.ghosts[1].exit = 3;
     S.ghostsAt = 3 * 60;
+    // a drawn round is followed by sudden death: HURRY from the first second
+    S.hurryAt = S.sudden ? 0 : S.cfg.hurryS * 60;
     // two players: the top corners, mirror images in a left-right symmetric maze (fair for a paid duel)
     var C4 = LabMaze.CORNERS, spots = S.players.length === 2 ? [C4[0], C4[2]] : C4;
     // seats move round one corner a round, so over a match nobody keeps the best corner
@@ -76,6 +82,14 @@
 
   function placePellets(S, n) {
     var spots = S.pelletSpots.slice(), A = S.A;
+    // a 1v1: a mirror pair (the maze is left-right symmetric), so neither seat is nearer its pellet. The first pair is
+    // the row away from the seats; later pairs top or bottom at random.
+    if (S.players.length === 2) {
+      var bottom = S.pelletWait < 0 || S.rnd() < 0.5;
+      spots.forEach(function (k) { if ((k >= A.W * 15) === bottom) S.dots[k] = 2; });
+      S.pelletWait = 0;
+      return;
+    }
     for (var i = spots.length - 1; i > 0; i--) { var j = Math.floor(S.rnd() * (i + 1)), t = spots[i]; spots[i] = spots[j]; spots[j] = t; }
     for (var q = 0; q < Math.max(1, n) && q < spots.length; q++) S.dots[spots[q]] = 2;
     S.pelletWait = 0;
@@ -84,6 +98,9 @@
 
   function alive(S) { return S.players.filter(function (p) { return p.alive; }); }
   function pelletsOut(S) { var n = 0; S.pelletSpots.forEach(function (k) { if (S.dots[k] === 2) n++; }); return n; }
+
+  // A ghost eaten in the no-contact version hunts everyone but its eater for a while.
+  function sentBy(S, g) { return g.sentBy != null && S.tick < g.sentUntil ? g.sentBy : null; }
 
   // Can chomper p eat wild ghost g right now?
   function eats(p, g) { return p.alive && p.power > 0 && g.revivedAt < p.powerAt; }
@@ -105,8 +122,8 @@
     }
     var A = S.A, cfg = S.cfg;
     S.roundTick++;
-    var hurry = S.roundTick >= cfg.hurryS * 60;
-    if (S.roundTick === cfg.hurryS * 60) {
+    var hurry = S.roundTick >= S.hurryAt;
+    if (S.roundTick === Math.max(1, S.hurryAt)) {
       S.events.push({ t: 'hurry' });
       S.ghosts.push(Core.ghost(2, A.modules[0], 'house', S.tick + 30));
     }
@@ -144,7 +161,7 @@
       prey: function (g) {
         var best = null, bd = 22 * 22;
         S.players.forEach(function (p) {
-          if (!p.alive || eats(p, g)) return;
+          if (!p.alive || eats(p, g) || sentBy(S, g) === p.id) return;
           var d = Core.d2(A, g.x, g.y, p.x, p.y) + S.rnd() * 0.01;
           if (d < bd) { bd = d; best = p; }
         });
@@ -176,6 +193,7 @@
         if (left[0].roundPts > left[1].roundPts) w = left[0];
       }
       S.roundWinner = w;
+      S.sudden = !w;
       if (w) { w.wins++; if (w.wins >= cfg.toWin) S.winner = w; }
       S.phase = 'between'; S.phaseT = 180;
       S.events.push({ t: 'round', winner: w, timeUp: timeUp && left.length > 1 });
@@ -217,9 +235,11 @@
       // wild ghosts
       S.ghosts.forEach(function (g) {
         if (g.state !== 'out' || !Core.near(A, p, g, 0.6)) return;
+        if (sentBy(S, g) === p.id) return;
         if (eats(p, g)) {
           var pts = 200 * Math.pow(2, Math.min(3, p.chain++));
           p.roundPts += pts; p.score += pts; g.state = 'eyes';
+          if (!S.cfg.contact) { g.sentBy = p.id; g.sentUntil = S.tick + S.cfg.sentS * 60; }
           S.events.push({ t: 'ghost', id: p.id, x: g.x, y: g.y, pts: pts });
         } else if (p.safe <= 0) knockOut(S, p, null);
       });
@@ -239,7 +259,8 @@
         }
       });
     });
-    // chomper against chomper: powered eats unpowered, two alike bump
+    // chomper against chomper: powered eats unpowered, two alike bump (not in the no-contact version)
+    if (!S.cfg.contact) return;
     for (var i = 0; i < ps.length; i++) for (var j = i + 1; j < ps.length; j++) {
       var a = ps[i], b = ps[j];
       if (!a.alive || !b.alive || !Core.near(A, a, b, 0.75)) continue;
@@ -271,20 +292,20 @@
     p.lastTile = k; p.plan = 8;
     var threats = [];
     var powered = p.power > 0, powerLeft = p.power / 60;
-    S.ghosts.forEach(function (g) { if (g.state === 'out' && !eats(p, g)) threats.push(g); });
+    S.ghosts.forEach(function (g) { if (g.state === 'out' && !eats(p, g) && sentBy(S, g) !== p.id) threats.push(g); });
     S.players.forEach(function (q) {
       if (q === p) return;
-      if (q.alive && q.power > 0 && !powered) threats.push(q);
+      if (S.cfg.contact && q.alive && q.power > 0 && !powered) threats.push(q);
       if (q.ghostMe && q.ghostMe.state === 'out' && !(powered && q.ghostMe.revivedAt < p.powerAt)) threats.push(q.ghostMe);
     });
     var careless = S.rnd() > p.skill;
     var field = Core.dangerField(A, threats, careless ? 2 : 5, careless ? 4 : 10);
     var prize = new Map();
     if (powered && powerLeft > 1.2) {
-      S.players.forEach(function (q) {
+      if (S.cfg.contact) S.players.forEach(function (q) {
         if (q !== p && q.alive && q.power <= 0) prize.set(A.k(Math.floor(q.x), Math.floor(q.y)), 40);
       });
-      S.ghosts.forEach(function (g) { if (g.state === 'out' && eats(p, g)) prize.set(A.k(Math.floor(g.x), Math.floor(g.y)), 8); });
+      S.ghosts.forEach(function (g) { if (g.state === 'out' && eats(p, g)) prize.set(A.k(Math.floor(g.x), Math.floor(g.y)), S.cfg.contact ? 8 : 24); });
     }
     var rivalsNear = S.players.some(function (q) { return q !== p && q.alive && Core.d2(A, p.x, p.y, q.x, q.y) < 144; });
     var dots = S.dots;
@@ -314,7 +335,7 @@
     else if (S.rnd() < 0.05) gm.want = Math.floor(S.rnd() * 4);
   }
 
-  var Royale = { create: create, step: step, eats: eats, COLORS: COLORS, NAMES: NAMES, alive: alive };
+  var Royale = { create: create, step: step, eats: eats, sentBy: sentBy, COLORS: COLORS, NAMES: NAMES, alive: alive };
   if (isNode) module.exports = Royale;
   else root.RoyaleSim = Royale;
   void Maze;

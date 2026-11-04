@@ -9,7 +9,7 @@ if (mode === 'royale') {
   var Royale = require('./royaleSim');
   var rounds = [], matches = [], ends = { last: 0, time: 0, draw: 0 }, kos = { ghost: 0, player: 0, revenge: 0 }, bumps = 0;
   for (var m = 0; m < N; m++) {
-    var S = Royale.create({ human: false, seed: 1000 + m, players: +(process.env.PLAYERS || 4) });
+    var S = Royale.create({ human: false, seed: 1000 + m, players: +(process.env.PLAYERS || 4), contact: process.env.CONTACT !== '0' });
     var start = 0, t0 = 0;
     for (var t = 0; t < 60 * 60 * 15 && S.phase !== 'match'; t++) {
       Royale.step(S, null);
@@ -29,7 +29,8 @@ if (mode === 'royale') {
     mode: 'royale', matches: N, roundS: { p25: pct(rounds, 0.25), median: pct(rounds, 0.5), p90: pct(rounds, 0.9) },
     matchS: { median: pct(matches.map(function (x) { return x.s; }), 0.5) }, roundsPerMatch: pct(matches.map(function (x) { return x.rounds; }), 0.5),
     ends: ends, knockouts: kos, bumpsPerRound: +(bumps / rounds.length).toFixed(1),
-    winners: matches.map(function (x) { return x.winner; }).join(',')
+    seat0wins: matches.filter(function (x) { return x.winner === 'YOU'; }).length, seat1wins: matches.filter(function (x) { return x.winner === 'GREEN'; }).length,
+    winners: N <= 20 ? matches.map(function (x) { return x.winner; }).join(',') : ''
   }, null, 1));
 }
 

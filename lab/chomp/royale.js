@@ -5,7 +5,8 @@
   var SKILL = { easy: 0.55, normal: 0.75, hard: 0.92 };
   var opts = {
     players: Math.round(P.qn('players', 4)), pac: P.qn('speed', 0.75), toWin: Math.round(P.qn('to', 3)),
-    skill: SKILL[P.q('bots', 'normal')] || 0.75, roundS: P.qn('round', 90)
+    skill: SKILL[P.q('bots', 'normal')] || 0.75, roundS: P.qn('round', 90),
+    contact: P.q('contact', '1') !== '0'
   };
   var S = RoyaleSim.create(opts);
   var me = S.players[0];
@@ -20,6 +21,7 @@
   var ui = document.getElementById('ui');
   P.chips(ui, 'Players', [{ label: '2', value: 2, title: 'A 1v1 duel, the paid version' }, { label: '3', value: 3 }, { label: '4', value: 4 }], opts.players, function (v) { P.setQ({ players: v }); });
   P.chips(ui, 'Speed', [{ label: '60%', value: 0.6 }, { label: '70%', value: 0.7 }, { label: '75%', value: 0.75 }, { label: '80% arcade', value: 0.8 }, { label: '90%', value: 0.9 }], opts.pac, function (v) { P.setQ({ speed: v }); });
+  P.chips(ui, 'Contact', [{ label: 'On', value: '1', title: 'Powered you eat rivals, same state you bump' }, { label: 'Off (paid-safe)', value: '0', title: 'Chompers pass through; every ghost you eat comes back hunting your rivals' }], P.q('contact', '1'), function (v) { P.setQ({ contact: v }); });
   P.chips(ui, 'Bots', [{ label: 'Easy', value: 'easy' }, { label: 'Normal', value: 'normal' }, { label: 'Hard', value: 'hard' }], P.q('bots', 'normal'), function (v) { P.setQ({ bots: v }); });
 
   function layout() {
@@ -86,6 +88,8 @@
       }
     });
     S.ghosts.forEach(function (g) {
+      var sb = RoyaleSim.sentBy(S, g);
+      if (sb != null && g.state === 'out') { var sp = S.players[sb]; players.push({ hidden: true, x: g.x, y: g.y, name: sp === me ? 'YOURS' : sp.name + "'S", color: sp.color, me: false, dying: null }); }
       var look = g.state === 'eyes' || g.state === 'enter' ? 'eyes' : g.state === 'out' && me.alive && RoyaleSim.eats(me, g) ? P.blueLook(me.power, t) : 'normal';
       ghosts.push(P.ghostSprite(g, look, t));
     });
