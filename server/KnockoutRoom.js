@@ -98,7 +98,25 @@ const KO = {
   STOP_SPEED: 14,             // slower than this and it has stopped
   MAX_RESOLVE_S: 9,           // a hard ceiling, so a turn always ends
   RESTITUTION: 0.55,          // how much of the closing speed the hit hands over
+
+  /* BUMPERS (option B of the 2026-11-04 picker, a DEV PROTOTYPE: off unless KO_ARENA=bumpers outside production).
+     Two fixed posts, left and right of centre on the line between the seats, mirrored through the centre so each
+     seat meets the same posts from the same distance (the board is the same for both, turned half round). A piece
+     that hits one is reflected with a little loss and then kicked out, like a pinball bumper, so a shot can be
+     banked round a guard. A post sinks the turn the ring reaches it (|centre| + r past the edge), so the endgame,
+     where the ring is small, is today's. Positions only: nothing here reads a seat, a stake or the pot. */
+  BUMPERS: [{ x: -196, y: 0, r: 34 }, { x: 196, y: 0, r: 34 }],
+  BUMPER_BOUNCE: 0.9,         // how much of the approach speed comes back out
+  BUMPER_KICK: 260,           // and the kick on top of it, units per second
 };
+
+/* Which arena a Knockout table plays. Classic unless the dev flag asks for the bumpers, and never in production
+   until Owen says go (then this is the one line to change). Read per room, so a test can set it. */
+function arenaFor(ev) {
+  if (ev !== 'ko') return 'classic';
+  if (process.env.NODE_ENV === 'production') return 'classic';
+  return process.env.KO_ARENA === 'bumpers' ? 'bumpers' : 'classic';
+}
 
 /* A timestamp of zero is a real timestamp. `now || Date.now()` treats it as a
    missing argument, which quietly swapped the wall clock in under any harness
@@ -185,6 +203,8 @@ class KnockoutRoom {
        connection" below), and the result message once there is one, for a seat that comes back after it. */
     this.seatKeys = new Map();
     this.overMsg = null;
+    this.arena = arenaFor(this.ev);
+    this.bumpers = null;      // [{ x, y, r, alive }] on a bumpers table, from start()
   }
 
   /* ── seats ──────────────────────────────────────────────────────────────── */
@@ -403,6 +423,7 @@ class KnockoutRoom {
     this.arenaR = KO.ARENA_R0;
     this.turn = 0;
     this.layOut();
+    this.bumpers = this.arena === 'bumpers' ? KO.BUMPERS.map(b => ({ x: b.x, y: b.y, r: b.r, alive: true })) : null;
     this.state = 'countdown';
     this.phaseEndsAt = nowOr(now) + KO.COUNTDOWN_MS;
     this.broadcast('ko:start', this.publicState());
@@ -511,6 +532,8 @@ class KnockoutRoom {
       const bite = KO.ARENA_SHRINK * (1 + (this.turn - 2) * KO.ARENA_SHRINK_GROWTH);
       this.prevArenaR = this.arenaR;
       this.arenaR = Math.max(KO.ARENA_R_MIN, this.arenaR - bite);
+      /* A bumper the ring has reached sinks before anybody aims, the same moment the ring takes a piece. */
+      if (this.bumpers) for (const b of this.bumpers) if (b.alive && Math.hypot(b.x, b.y) + b.r > this.arenaR) b.alive = false;
       /* Anything the ring closed past goes now, before anybody aims at it. The
          ids go out with the turn so the client can close the ring in and drop
          them over the edge as it passes, rather than blinking them away. */
@@ -640,6 +663,7 @@ class KnockoutRoom {
         p.y += p.vy * KO.STEP;
       }
       this.collide();
+      if (this.bumpers) this.bump();
       let moving = false;
       for (const p of active) {
         p.vx *= decay; p.vy *= decay;
@@ -710,6 +734,28 @@ class KnockoutRoom {
         const da = (bvn - avn) * e;
         a.vx += nx * da; a.vy += ny * da;
         b.vx -= nx * da; b.vy -= ny * da;
+      }
+    }
+  }
+
+  /* A piece against a live bumper: pushed out of it, the approach reflected (BUMPER_BOUNCE) and a kick added along
+     the normal, capped at a full shot's speed so a bumper never fires anything faster than a player could. */
+  bump() {
+    for (const b of this.bumpers) {
+      if (!b.alive) continue;
+      const min = b.r + KO.PIECE_R;
+      for (const p of this.pieces) {
+        if (!p.alive) continue;
+        const dx = p.x - b.x, dy = p.y - b.y, d = Math.hypot(dx, dy);
+        if (d >= min || d === 0) continue;
+        const nx = dx / d, ny = dy / d;
+        p.x = b.x + nx * min; p.y = b.y + ny * min;
+        const vn = p.vx * nx + p.vy * ny;
+        if (vn >= 0) continue;                       // already leaving it
+        p.vx -= nx * vn * (1 + KO.BUMPER_BOUNCE); p.vy -= ny * vn * (1 + KO.BUMPER_BOUNCE);
+        p.vx += nx * KO.BUMPER_KICK; p.vy += ny * KO.BUMPER_KICK;
+        const sp = Math.hypot(p.vx, p.vy);
+        if (sp > KO.MAX_SPEED) { p.vx *= KO.MAX_SPEED / sp; p.vy *= KO.MAX_SPEED / sp; }
       }
     }
   }
@@ -866,6 +912,8 @@ class KnockoutRoom {
          the edge as it passes them. */
       prevArenaR: Math.round(this.prevArenaR || this.arenaR),
       ringOut: this.ringOut || [],
+      /* The arena's fixed posts (a bumpers table only), the same for both seats; absent on a classic table. */
+      ...(this.bumpers ? { bumpers: this.bumpers.map(b => ({ x: b.x, y: b.y, r: b.r, alive: b.alive })) } : {}),
     };
   }
 
@@ -916,6 +964,7 @@ class KnockoutRoom {
       pot: ps.pot,
       prevArenaR: ps.prevArenaR,
       ringOut: (ps.ringOut || []).slice(),
+      ...(ps.bumpers ? { bumpers: ps.bumpers.map(b => ({ x: b.x, y: b.y, r: b.r, alive: b.alive })) } : {}),
     };
   }
 

@@ -46,6 +46,19 @@ const BOT_AFTER_MS = FREE_WAIT_MS;
    piece lost in a bot-vs-bot match was a piece that had fired ITSELF off the
    disc — against zero knocked off by an opponent. It was not playing the game,
    it was falling over, and a player would have won every match without aiming. */
+/* Does a live bumper sit across the straight line from piece p to target t? (A bumpers table only; a classic one has
+   none and this is always false.) */
+function blockedByBumper(room, p, t) {
+  if (!room.bumpers) return false;
+  const dx = t.x - p.x, dy = t.y - p.y, L2 = dx * dx + dy * dy || 1;
+  for (const b of room.bumpers) {
+    if (!b.alive) continue;
+    const k = Math.max(0, Math.min(1, ((b.x - p.x) * dx + (b.y - p.y) * dy) / L2));
+    if (Math.hypot(p.x + dx * k - b.x, p.y + dy * k - b.y) < b.r + KO.PIECE_R) return true;
+  }
+  return false;
+}
+
 function rimDistance(px, py, ux, uy, R) {
   const b = px * ux + py * uy;
   const c = px * px + py * py - R * R;
@@ -862,12 +875,22 @@ class KnockoutLobby {
          the least push to remove and the least travel to reach. */
       let best = null, bestCost = Infinity;
       for (const cand of theirs) {
+        /* A bumper in the way (a bumpers table): that shot comes off the post, not off them, so look elsewhere. */
+        if (blockedByBumper(room, p, cand)) continue;
         const reach = Math.hypot(cand.x - p.x, cand.y - p.y);
         const theirRim = room.arenaR - Math.hypot(cand.x, cand.y);
         const cost = reach * 0.55 + theirRim * 1.5;
         if (cost < bestCost) { bestCost = cost; best = cand; }
       }
-      if (!best) continue;
+      if (!best) {
+        /* Every target is behind a bumper: drift toward the middle instead of shooting into a post. */
+        const d = Math.hypot(p.x, p.y);
+        if (d > KO.PIECE_R * 2) {
+          const back = KO.MAX_PULL * (0.22 + Math.random() * 0.12);
+          aims.push({ pieceId: p.id, ax: (-p.x / d) * back, ay: (-p.y / d) * back });
+        }
+        continue;
+      }
 
       /* Aim through them toward the outside, so a hit carries them off rather
          than merely into them. */
