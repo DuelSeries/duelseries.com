@@ -2,6 +2,23 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-11-04-pool-controls",
+      "date": "2026-11-04",
+      "tag": "fix",
+      "title": "Easier shooting in 8 Ball Pool",
+      "body": "The power cue now runs down the whole left side of the screen. Put your thumb anywhere on that side, swipe down and let go to shoot. A tap or a brush no longer takes a shot, and swiping back up cancels.\n\nOn a computer, hold right click and move to aim, then pull the cue on the left down to shoot. Clicking on the table only aims now, it never pulls the cue back.\n\nCustomize also shows your whole cue now, tip to butt.",
+      "image": {
+        "src": "/updates/pool-power-cue.webp",
+        "alt": "8 Ball Pool with the tall power cue down the left side, pulled halfway"
+      },
+      "gallery": [
+        {
+          "src": "/updates/pool-cue-chooser.webp",
+          "alt": "The cue chooser in Customize showing the whole Ember cue"
+        }
+      ]
+    },
+    {
       "id": "2026-11-04-wallet-events-look",
       "date": "2026-11-04",
       "tag": "new",

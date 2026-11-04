@@ -22,7 +22,7 @@
     rail: { x: 105, y: 195, w: 943, h: 521 },           // the rail's outside edge (MEASURED)
     cushion: 16,                                        // the blue cushion strip inside the rail (MEASURED)
     ret: { x: 1048, y: 288, w: 62, h: 400, ch: 1094.5, bottom: 672, pitch: 25 },   // the chrome ball return (MEASURED)
-    power: { x: 30, y: 214, w: 46, h: 412 },            // phone only: the reference app's power bar on the left
+    power: { x: 27, y: 138, w: 58, h: 596 },            // the power cue's slot on the left, down the whole side (Owen 2026-11-04)
     fine: { x: 1116, y: 214, w: 32, h: 412 },           // phone only: the fine-aim wheel on the right
     menu: { x: 10, y: 31, w: 64, h: 61 },
     star: [{ x: 176, y: 53 }, { x: 978, y: 53 }],
@@ -341,25 +341,51 @@
     g.restore();
   }
 
-  // Phone only: the vertical power bar (the reference app's), the cue inside it pulled down as the power grows.
-  function drawPower(g, p, s, active) {
+  /* The power cue on the left, on the phone and the PC (Owen 2026-11-04: "the pool cue on the left side here on PC to
+     shoot it in power, same as mobile"): a tall slot down the side with the cue standing in it tip up, in the
+     shooter's own cue. As the pull grows the cue slides down and the slot fills green to red above it. The press is
+     taken anywhere on that side (public/js/pool8/p8Controls.js), the slot only shows it. active: my turn; held: a
+     pull is on; cue: a look's cue (null: the classic one). */
+  const BAR_SLIDE = 0.5;                                    // the share of the slot the cue slides at full power
+  function barCue(g, len, cue, ws) {
+    const LK = root.DS_POOL8_LOOKS;
+    const Q = cue || CUE;
+    if (!LK || !LK.paintCue) {
+      g.fillStyle = Q.shaft; g.fillRect(0, -5.6 * ws / 2, len, 5.6 * ws);
+      return;
+    }
+    const butt = Q.butt || Q.fore || CUE.butt;
+    LK.paintCue(g, len, Q.style ? Q : { shaft: Q.shaft, joint: Q.joint, fore: butt, wrap: butt, wrapLine: butt, sleeve: butt, trim: butt }, ws);
+  }
+  function drawPower(g, p, s, active, cue, held) {
     const P = LAYOUT.power;
+    p = Math.max(0, Math.min(1, p || 0));
     g.save(); g.scale(s, s);
     roundRect(g, P.x, P.y, P.w, P.h, P.w / 2);
     g.fillStyle = 'rgba(8,10,18,0.85)'; g.fill();
-    g.lineWidth = 2; g.strokeStyle = active ? 'rgba(255,255,255,0.55)' : 'rgba(255,255,255,0.18)'; g.stroke();
-    const ih = (P.h - 12) * p;
+    g.lineWidth = held ? 3 : 2;
+    g.strokeStyle = held ? 'rgba(255,255,255,0.85)' : active ? 'rgba(255,255,255,0.55)' : 'rgba(255,255,255,0.18)';
+    g.stroke();
+    const ix = P.x + 6, iy = P.y + 6, iw = P.w - 12, ihh = P.h - 12;
+    const slide = (ihh - 16) * BAR_SLIDE * p;
+    g.save(); roundRect(g, ix, iy, iw, ihh, iw / 2); g.clip();
     if (p > 0) {
-      const gr = g.createLinearGradient(0, P.y + 6, 0, P.y + P.h - 6);
+      const gr = g.createLinearGradient(0, iy, 0, iy + (ihh - 16) * BAR_SLIDE + 8);
       gr.addColorStop(0, '#3fd14a'); gr.addColorStop(0.55, '#f1d33a'); gr.addColorStop(1, '#e8402c');
-      g.save(); roundRect(g, P.x + 6, P.y + 6, P.w - 12, P.h - 12, (P.w - 12) / 2); g.clip();
-      g.fillStyle = gr; g.fillRect(P.x + 6, P.y + 6, P.w - 12, ih);
-      g.restore();
+      g.fillStyle = gr; g.fillRect(ix, iy, iw, slide + 8);
     }
-    const cx = P.x + P.w / 2, top = P.y + 10 + ih;
-    g.lineCap = 'round';
-    g.strokeStyle = CUE.shaft; g.lineWidth = 6; line(g, cx, top, cx, Math.min(P.y + P.h - 8, top + P.h * 0.7));
-    g.strokeStyle = '#f4f1e6'; g.lineWidth = 6; line(g, cx, top, cx, top + 6);
+    const cx = P.x + P.w / 2, top = iy + 8 + slide;
+    g.translate(cx, top); g.rotate(Math.PI / 2);
+    barCue(g, P.h * 0.62, cue, 1.7);
+    g.restore();
+    // Waiting for the pull: two chevrons at the foot of the slot, pointing the way to pull.
+    if (active && !held && p === 0) {
+      g.strokeStyle = 'rgba(255,255,255,0.55)'; g.lineWidth = 4; g.lineCap = 'round'; g.lineJoin = 'round';
+      for (let i = 0; i < 2; i++) {
+        const y = P.y + P.h - 74 + i * 22;
+        g.beginPath(); g.moveTo(cx - 12, y); g.lineTo(cx, y + 11); g.lineTo(cx + 12, y); g.stroke();
+      }
+    }
     g.restore();
   }
   // Phone only: the fine-aim wheel at the right edge, its ridges rolling as the aim turns.

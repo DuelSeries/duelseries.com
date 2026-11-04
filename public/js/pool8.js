@@ -164,7 +164,7 @@ let banner = { text: '', until: 0 };
 const aim = { a: Math.PI, p: 0, spin: { x: 0, y: 0 }, call: null, called: false, cx: 0, cy: 0, placing: false, ok: true };
 let opp = null;               // the shooter's aim on the other screen: { a, p, x, y, at }
 let spinOpen = false;
-let drag = null;              // { kind: 'pull' | 'bar' | 'cue' | 'turn' | 'fine', ... }
+let drag = null;              // { kind: 'power' | 'point' | 'cue' | 'turn' | 'fine' | 'spin' | 'void', ... }
 let aimSentAt = 0, aimDirty = false;
 
 // Offline no shot is taken: the server holds the seat as it was (the seat hold below), so the screen does the same.
@@ -208,9 +208,21 @@ function placeOverlays() {
   const under = VIEW.rot ? 4 : Math.round(VIEW.oy + (Art.LAYOUT.hint.y2 + 26) * VIEW.s);
   const note = $('botNote'); if (note) note.style.top = under + 'px';
   const line = $('watchLine'); if (line) line.style.top = (top + 4) + 'px';
+  document.body.classList.toggle('p8-rot', VIEW.rot);
   if (typeof chat !== 'undefined' && chat && chat.el) {
-    chat.el.style.setProperty('--dsc-t', (top + 8) + 'px');
-    chat.el.style.setProperty('--dsc-b', '70px');
+    /* Clear of the power strip (the whole left side under the top bar, public/js/pool8/p8Controls.js), so a thumb
+       going for the pull never lands on the chat: a sideways phone puts the button in the margin beside the top bar
+       (in the bar, right of the menu, when there is no margin), an upright one at the right end of the band above
+       the table (pool8.css), a computer under the power slot. */
+    const s = VIEW.s, P = Art.LAYOUT.power;
+    if (chat.el.classList.contains('dsc-phone')) {
+      let t = 10, l = 10;
+      if (!VIEW.rot && VIEW.ox < 58) { t = Math.round(VIEW.oy + 30 * s); l = Math.round(VIEW.ox + 84 * s); }
+      else if (!VIEW.rot) t = Math.max(4, Math.round(VIEW.oy + 8));
+      chat.el.style.setProperty('--dsc-t', t + 'px');
+      chat.el.style.setProperty('--dsc-l', l + 'px');
+    }
+    chat.el.style.setProperty('--dsc-b', Math.max(4, Math.round(VIEW.h - VIEW.oy - (P.y + P.h) * s - 34)) + 'px');
   }
 }
 
@@ -392,14 +404,20 @@ function finishTape(now) {
 }
 
 /* ── input ────────────────────────────────────────────────────────────────────
-   PC: the cue follows the mouse; press, drag back and let go to shoot (the power is how far back). The wheel or the
-   arrow keys turn the aim a little at a time. Phone: drag on the table to turn the aim around the cue ball, tap a
-   ball to aim at it, the strip on the right edge turns it finely, and the power bar on the left is pulled down and
-   let go. Both: the cue ball button sets spin, a cue ball in hand is dragged where you want it, and on the 8 you
-   tap the pocket you are calling. */
+   AIMING NEVER SHOOTS, AND ONLY THE POWER STRIP SHOOTS (Owen 2026-11-04: on PC "I'm trying to aim my pool cue, but
+   instead it pulls it back"; on the phone the bar was "really small and I keep misclicking").
+   PC: hold the right button and move, and the cue points at the mouse (the browser's menu is kept off the table). A
+   left press or drag on the table aims the same way and never pulls. The wheel or the arrow keys turn the aim a
+   little at a time. Phone: drag on the table to turn the aim around the cue ball, tap a ball to aim at it, and the
+   strip on the right edge turns it finely. Both: the power is the cue on the left, pulled down and let go, and the
+   whole left side takes that pull (public/js/pool8/p8Controls.js has the strip and the numbers). Back up to where
+   it started, Escape, or (PC) the right button while pulling puts the cue back without a shot. The cue ball button
+   sets spin, a cue ball in hand is dragged where you want it, and on the 8 you tap the pocket you are calling. */
 const L = Art.LAYOUT;
+const CT = window.P8Controls;
 const COARSE = (() => { try { return matchMedia('(pointer: coarse)').matches; } catch (_) { return false; } })();
-const PULL_FULL = 500;        // px of drag back for full power with the mouse (the reference's longest measured pull)
+// The lowest design y on the screen, where a pull runs out of room (the frame's foot, or past it).
+function screenFoot() { return VIEW.rot ? D.h + VIEW.ox / VIEW.s : (VIEW.h - VIEW.oy) / VIEW.s; }
 /* How far the cue tip sits back from its rest for a power (MEASURED: 26 px from the ball's centre at rest, 61, 97, 126,
    135 and 161 px for pulls of 96 to 500 px; this curve fits within 15 px). */
 const pullOf = (p) => 135 * Math.pow(Math.max(0, Math.min(1, p)), 0.6);
@@ -430,6 +448,17 @@ cv.addEventListener('pointerdown', (e) => {
   if (SND) SND.unlock();
   const p = toDesign(e.clientX, e.clientY);
   const touch = e.pointerType === 'touch';
+  // One press at a time: a second finger while the first is pulling or turning is not a new action.
+  if (drag && drag.id !== e.pointerId) return;
+  // The right button (or a pen's barrel button) only ever aims, wherever it is pressed: held, the cue points at it.
+  if (!touch && e.button === 2) {
+    if (!myTurn() || spinOpen) return;
+    aimToward(p);
+    drag = { kind: 'point', id: e.pointerId };
+    cv.setPointerCapture(e.pointerId);
+    return;
+  }
+  if (!touch && e.button !== 0) return;
   if (spinOpen) {
     if (picker && Math.hypot(p.x - picker.cx, p.y - picker.cy) <= picker.R) { setSpin(p, picker); drag = { kind: 'spin', id: e.pointerId }; }
     else spinOpen = false;
@@ -438,9 +467,12 @@ cv.addEventListener('pointerdown', (e) => {
   if (Math.hypot(p.x - L.menu.x - L.menu.w / 2, p.y - L.menu.y - L.menu.h / 2) < L.menu.w * 0.7) { pauseMenu(); return; }
   if (!myTurn()) return;
   if (Math.hypot(p.x - L.spin.x, p.y - L.spin.y) < L.spin.r * 1.3) { spinOpen = true; return; }
-  if (touch && inRect(p, L.power, 14)) {
-    drag = { kind: 'bar', id: e.pointerId };
-    aim.p = Math.max(0, Math.min(1, (p.y - L.power.y - 10) / (L.power.h - 20)));
+  // The power: anywhere on the left side, the pull counted from where it went down (p8Controls.js). On the 8 a press
+  // on the rail at a left pocket still calls that pocket.
+  if (CT.inPowerZone(p.x, p.y) && !(rules.onEight[mySeat] && p.x >= L.rail.x && pocketAt(p) >= 0)) {
+    drag = { kind: 'power', id: e.pointerId, y0: p.y, full: CT.fullFor(p.y, screenFoot()) };
+    aim.p = 0;
+    if (!touch) setCursor('grabbing');
     cv.setPointerCapture(e.pointerId);
     return;
   }
@@ -461,24 +493,27 @@ cv.addEventListener('pointerdown', (e) => {
     cv.setPointerCapture(e.pointerId);
     return;
   }
-  // The mouse: the aim locks where it is, and the drag back is the power.
+  // The mouse's left button on the table: it aims at the point pressed, and on as it moves. It never pulls.
   aimToward(p);
-  drag = { kind: 'pull', id: e.pointerId, x0: p.x, y0: p.y };
+  drag = { kind: 'point', id: e.pointerId };
   cv.setPointerCapture(e.pointerId);
 });
+// The table is a game, not a page: no browser menu on a right click.
+cv.addEventListener('contextmenu', (e) => e.preventDefault());
 
 cv.addEventListener('pointermove', (e) => {
   const p = toDesign(e.clientX, e.clientY);
   if (drag && drag.id !== e.pointerId) return;
   if (drag && drag.kind === 'spin') { setSpin(p, picker); return; }
-  if (!myTurn()) { drag = null; return; }
-  if (!drag) return;
-  if (drag.kind === 'bar') {
-    aim.p = Math.max(0, Math.min(1, (p.y - L.power.y - 10) / (L.power.h - 20)));
-  } else if (drag.kind === 'pull') {
-    const ux = Math.cos(aim.a), uy = Math.sin(aim.a);
-    const back = -((p.x - drag.x0) * ux + (p.y - drag.y0) * uy);
-    aim.p = Math.max(0, Math.min(1, back / PULL_FULL));
+  if (!myTurn()) { drag = null; setCursor(''); return; }
+  // The mouse over the power strip shows a hand: the strip is the thing to grab.
+  if (!drag) { if (e.pointerType === 'mouse') setCursor(CT.inPowerZone(p.x, p.y) ? 'grab' : ''); return; }
+  if (drag.kind === 'power') {
+    // The right button pressed while pulling puts the cue back: no shot when the left one lets go.
+    if (e.pointerType === 'mouse' && (e.buttons & 2)) { drag.kind = 'void'; aim.p = 0; return; }
+    aim.p = CT.powerOf(drag.y0, p.y, drag.full);
+  } else if (drag.kind === 'point') {
+    aimToward(p);
   } else if (drag.kind === 'cue') {
     const kitchen = rules.inHand === 'kitchen';
     let x = Art.fx(p.x + drag.dx), y = Art.fy(p.y + drag.dy);
@@ -507,11 +542,14 @@ cv.addEventListener('pointermove', (e) => {
   }
 });
 
+let cursorNow = '';
+function setCursor(c) { if (c !== cursorNow) { cursorNow = c; cv.style.cursor = c; } }
 function endDrag(e, cancel) {
   if (!drag || drag.id !== e.pointerId) return;
   const d = drag;
   drag = null;
-  if (d.kind === 'spin') return;
+  if (d.kind === 'power' || d.kind === 'void') setCursor('');
+  if (d.kind === 'spin' || d.kind === 'point') return;
   if (d.kind === 'cue') { aim.placing = false; return; }
   if (d.kind === 'turn') {
     const p = toDesign(e.clientX, e.clientY);
@@ -519,11 +557,13 @@ function endDrag(e, cancel) {
     if (d.moved < 0.02 && Math.hypot(p.x - d.x0, p.y - d.y0) < 8 && performance.now() - d.at < 400) aimToward(p);
     return;
   }
-  if ((d.kind === 'bar' || d.kind === 'pull') && !cancel && myTurn() && aim.p >= 0.02) shoot();
+  if (d.kind === 'power' && !cancel && myTurn() && CT.shoots(aim.p)) shoot();
   else aim.p = 0;
 }
 cv.addEventListener('pointerup', (e) => endDrag(e, false));
 cv.addEventListener('pointercancel', (e) => endDrag(e, true));
+// A press the canvas lost without its pointerup (the page hidden, the element taken away) is no shot.
+cv.addEventListener('lostpointercapture', (e) => endDrag(e, true));
 cv.addEventListener('wheel', (e) => {
   if (!myTurn()) return;
   e.preventDefault();
@@ -532,6 +572,8 @@ cv.addEventListener('wheel', (e) => {
 }, { passive: false });
 window.addEventListener('keydown', (e) => {
   if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+  // Escape mid-pull puts the cue back (no shot) before it would ever ask to leave.
+  if (e.code === 'Escape' && drag && drag.kind === 'power') { drag.kind = 'void'; aim.p = 0; e.preventDefault(); return; }
   // Escape asks "Leave the match?", as in Rooftop Snipers and Air Hockey (site sweep 2026-10-28).
   // An Escape that just closed DSDialog arrives here marked defaultPrevented: without this check the closed
   // "Leave the match?" opened again at once and Esc could never dismiss it (site sweep 2026-10-28).
@@ -696,8 +738,8 @@ function draw(now) {
   } else cueStart = { x: cd.x, y: cd.y };
 
   if (COARSE) Art.drawFine(ctx, mine ? aim.a : 0, s);
-  // The power bar (mine while it is my turn, theirs as they pull).
-  if (COARSE) Art.drawPower(ctx, mine ? aim.p : opp && phase === 'aiming' ? opp.p : 0, s, mine);
+  // The power cue on the left, on every screen (mine while it is my turn, theirs as they pull), in the shooter's cue.
+  Art.drawPower(ctx, mine ? aim.p : opp && phase === 'aiming' ? opp.p : 0, s, mine, seatCue[rules.turn], !!(drag && drag.kind === 'power'));
 
   // The top bar.
   const active = phase === 'aiming' && !tape ? rules.turn : -1;
@@ -714,8 +756,8 @@ function draw(now) {
   // Words: the hint under the bar on my turn, the message box at the foot.
   // The reference's first-turn tutorial lines (until the first shot you take in a match).
   if (mine && !spinOpen && myShots === 0) {
-    if (COARSE) Art.drawHint(ctx, 'To apply power to the cue', s, 'Pull the power bar down and let go');
-    else Art.drawHint(ctx, 'To apply power to the cue', s, 'Press button, drag mouse, and release');
+    if (COARSE) Art.drawHint(ctx, 'Drag the table to aim', s, 'Pull the cue on the left down and let go');
+    else Art.drawHint(ctx, 'Hold right click and move to aim', s, 'Pull the cue on the left down and let go');
   }
   if (banner.text && now >= banner.until && sayNext) { const n = sayNext; say(n.text, n.ms); }
   if (banner.text && now < banner.until) Art.drawMsg(ctx, banner.text, s, Math.min(1, (banner.until - now) / 300));
@@ -740,7 +782,7 @@ function legalFirst(n, side) {
 
 // Before a match: the empty table.
 function drawIdle(s) {
-  if (COARSE) Art.drawPower(ctx, 0, s, false);
+  Art.drawPower(ctx, 0, s, false, !WATCH && myLook ? myLook.cue : null);
 }
 
 /* The menu button: an online match cannot stop, so it offers the way out (the same leave as the lobby's). */

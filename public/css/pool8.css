@@ -99,3 +99,8 @@ html, body {
 /* The chat's phone row is as wide as its open box even while closed, and it sat over the power bar on a landscape
    phone (taking the pull). Closed, it is only as wide as its button. */
 .dsc-phone:not(.dsc-open) .dsc-row { width: auto; }
+
+/* An upright phone (the frame turned a quarter, pool8.js fit): the power strip takes the band above the table, so the
+   chat button sits at that band's right end, clear of it, and opens leftward from there. */
+body.p8-rot .dsc-phone { left: auto; right: calc(10px + env(safe-area-inset-right, 0px)); align-items: flex-end; }
+body.p8-rot .dsc-phone .dsc-row { flex-direction: row-reverse; }
