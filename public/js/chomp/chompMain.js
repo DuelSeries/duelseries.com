@@ -98,7 +98,7 @@
   }
   function resize() {
     if (!draw) return;
-    var w = window.innerWidth, h = window.innerHeight, dpr = Math.min(2, window.devicePixelRatio || 1);
+    var w = window.innerWidth, h = window.innerHeight, dpr = (window.DSQuality ? DSQuality.dpr(2) : Math.min(2, window.devicePixelRatio || 1));
     canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
     // CHOSEN: a computer shows 33 rows top to bottom (the arcade screen's 36 less its score lines); a phone held
     // upright shows 28.5 columns across, the arcade's own width, as the arcade cabinet's screen stands.

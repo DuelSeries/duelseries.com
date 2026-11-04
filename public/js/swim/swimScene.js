@@ -476,7 +476,7 @@ export function createScene(canvasEl, opts = {}) {
   const adaptive = opts.adaptive !== false;
 
   const renderer = new THREE.WebGLRenderer({
-    canvas: canvasEl, antialias: opts.antialias != null ? !!opts.antialias : !phone,
+    canvas: canvasEl, antialias: opts.antialias != null ? !!opts.antialias : !phone && !(typeof window !== 'undefined' && window.DSQuality && window.DSQuality.low()),
     powerPreference: 'high-performance', alpha: false, stencil: false,
   });
   renderer.info.autoReset = false;
@@ -1048,7 +1048,8 @@ export function createScene(canvasEl, opts = {}) {
 
   function resize() {
     cssW = Math.max(1, canvasEl.clientWidth | 0); cssH = Math.max(1, canvasEl.clientHeight | 0);
-    const dev = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+    // Settings > Graphics > Quality Low caps the device ratio at 1 (public/js/shared/dsQuality.js).
+    const dev = (typeof window !== 'undefined' && (window.DSQuality ? window.DSQuality.dpr() : window.devicePixelRatio)) || 1;
     dpr = Math.max(Math.min(minDpr, dev), Math.min(dev, maxDpr) - dprDrop);
     renderer.setPixelRatio(dpr);
     renderer.setSize(cssW, cssH, false);

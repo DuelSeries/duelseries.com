@@ -375,7 +375,10 @@ header{position:sticky;top:0;z-index:50;background:rgba(0,0,0,.88);
 #lkpick{padding:var(--ds-sp5);background:var(--ds-scrim);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
 #lkpick.on{animation:wsh-in .18s ease-out}
 #lkpick .howcard{position:relative;max-width:460px;padding:0;background:var(--ds-s1);border-radius:var(--ds-r3);
-  box-shadow:var(--ds-sh-pop);color:var(--ds-bone);max-height:calc(100dvh - 48px);animation:wsh-up var(--ds-dur-2) var(--ds-ease)}
+  box-shadow:var(--ds-sh-pop);color:var(--ds-bone);max-height:calc(100dvh - 48px);animation:wsh-up var(--ds-dur-2) var(--ds-ease);
+  overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;scrollbar-width:none;-ms-overflow-style:none}
+/* No white browser scrollbar beside the list (Owen 2026-11-03); the wheel and a finger still scroll it. */
+#lkpick .howcard::-webkit-scrollbar{width:0;height:0;display:none}
 #lkpick .howtop{display:flex;align-items:center;gap:var(--ds-sp3);margin:0;padding:var(--ds-sp4) var(--ds-sp4) 0 var(--ds-sp5)}
 #lkpick .howtop h2{flex:1;font-size:var(--ds-fs-4);font-weight:700;letter-spacing:0;line-height:1.25}
 #lkpick .howx{width:44px;height:44px;margin:0;border-radius:var(--ds-r2);color:var(--ds-tx2);transition:background-color var(--ds-dur-1),color var(--ds-dur-1)}
@@ -1134,8 +1137,8 @@ body.ingame #social-screen .lb-live::before{animation-play-state:paused!importan
 
 .panel{background:var(--s1);border-radius:var(--r3);padding:24px 26px}
 /* ── wallet (site redo stage 3, layout 1; mockup looks/ab/1/wallet.html) ───────────────────────────────────────
-   Look B's wallet on the kit: on the left the balance, the one lit panel on the site (.ds-lit and the dot-matrix
-   .ds-led), with Add funds, Withdraw and Refresh under it, and the address panel under that; on the right History,
+   Look B's wallet on the kit: on the left the balance, a solid card (.ds-lit and the solid gold
+   .ds-led, Owen 2026-11-03), with Add funds, Withdraw and Refresh under it, and the address panel under that; on the right History,
    Transactions (with Add funds and Withdrawals under them) or Earnings. Signed out or still starting, #w-body is one
    panel across the screen. wallet.js and stats.js fill it with the ids they always used. Rules that adjust a kit class
    carry #wallet-screen, because the kit is linked after this block. */
@@ -1154,8 +1157,8 @@ body.ingame #social-screen .lb-live::before{animation-play-state:paused!importan
 #wallet-screen .wbal>.ds-t-meta{margin:var(--ds-sp3) 0 0;line-height:1.5}
 #w-hist[hidden]{display:none}
 
-/* The balance. The lit figure fits its panel: wallet.js puts the figure's length in --n, so "$1,234.56" sits
-   smaller than "$24.60" instead of running out of the bulbs. */
+/* The balance. The figure fits its panel: wallet.js puts the figure's length in --n, so "$1,234.56" sits
+   smaller than "$24.60" instead of running out of the card. */
 #wallet-screen .wbal{container-type:inline-size}
 #w-bal{font-size:min(62px,calc(100cqi / (var(--n,6) * .74)))}
 /* The SOL under the dollars, small, with Convert beside it in USDC mode. A held height, so the buttons under it do not
@@ -3825,8 +3828,10 @@ function openSwimHow(){
           <div class="ds-row set-row set-pc" id="set-hov-row"><div class="ds-row-main"><b id="set-hov-l">Hover sounds</b></div>
             <div class="ds-row-end"><button type="button" class="sw" id="set-hov" role="switch" aria-checked="true" aria-labelledby="set-hov-l" onclick="setHov(this)"><span>On</span><span>Off</span></button></div></div>
         </div></div>
-        <!-- Graphics quality (Owen 2026-10-21): slither's own low quality, stored in its own key "qual" ('0' is Low).
-             High is today's look. An open game picks a change up at once (public/js/slx/slxQuality.js). -->
+        <!-- Graphics quality (Owen 2026-10-21, every game since 2026-11-03): stored in slither's key "qual" ('0' is Low).
+             High is each game's own look. Low caps every game at devicePixelRatio 1 and turns glow and extra effects off
+             (public/js/shared/dsQuality.js; slither keeps its own low, public/js/slx/slxQuality.js). An open game picks a
+             change up at once. -->
         <div class="set-grp" role="group" aria-labelledby="set-gfx-h"><h3 class="set-grp-h" id="set-gfx-h">Graphics</h3><div class="ds-list">
           <div class="ds-row set-row"><div class="ds-row-main"><b id="set-gfx-l">Quality</b></div>
             <div class="ds-row-end"><div class="ds-seg" id="set-gfx" role="group" aria-labelledby="set-gfx-l">

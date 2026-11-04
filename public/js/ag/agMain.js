@@ -254,6 +254,12 @@
       settings.quality = QUALITY_LEVEL[quality];
       settings.showAnimations = quality === 'Retina' || quality === 'High';
       canvasScale = quality === 'Retina' ? (win.devicePixelRatio || 1) : QUALITY_SCALE[quality];
+      // The lobby's Settings > Graphics > Quality Low (public/js/shared/dsQuality.js): scale at most 1 and the
+      // animations off, the same Low as every other game. High leaves this exactly as it was.
+      if (win.DSQuality && win.DSQuality.low()) {
+        canvasScale = Math.min(canvasScale, 1);
+        settings.showAnimations = false;
+      }
       sizeCanvas();
     }
     // Both sides are written every time, even when unchanged (it resets the 2D context), as the
@@ -328,6 +334,7 @@
     if (doc.documentElement && doc.documentElement.style) doc.documentElement.style.setProperty('--ag-banner', bannerPx + 'px');
     applyQuality(quality);
     win.addEventListener('resize', sizeCanvas);
+    if (win.DSQuality) win.DSQuality.onChange(function () { applyQuality(quality); });
     // A 2-in-1 can switch between mouse and touch without a resize.
     var pointerQuery = null;
     try { pointerQuery = win.matchMedia ? win.matchMedia('(pointer: coarse)') : null; } catch (e) { pointerQuery = null; }

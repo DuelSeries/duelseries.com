@@ -356,6 +356,8 @@
   }
 
   function renderParticles(rc) {
+    // Settings > Graphics > Quality Low (public/js/shared/dsQuality.js): no trail crumbs or death bursts drawn.
+    if (root.DSQuality && root.DSQuality.low()) return;
     var game = rc.game;
     var ctx = rc.ctx;
     var margin = game.config.trackWidth;

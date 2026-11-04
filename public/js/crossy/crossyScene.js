@@ -408,7 +408,8 @@ function makeBurst(scene, n, colour, box, o) {
 
 /* ── the scene ───────────────────────────────────────────────────────────── */
 export function createScene(canvas) {
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, stencil: true, powerPreference: 'high-performance' });
+  // Quality Low (public/js/shared/dsQuality.js): no antialias; the pixel ratio is capped at 1 by crossyMain.
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: !(typeof window !== 'undefined' && window.DSQuality && window.DSQuality.low()), stencil: true, powerPreference: 'high-performance' });
   renderer.setClearColor(COL.grassOutB, 1);
   renderer.outputColorSpace = THREE.LinearSRGBColorSpace;   // our colours are written straight out, as the reference's are
   const scene = new THREE.Scene();

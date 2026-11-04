@@ -246,7 +246,7 @@ let touchUI = (() => {
 let BTN = null;                // the button rects, CSS px: { L, R, K, J } each { x, y, w, h, cx, cy }
 
 function fit() {
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const dpr = (window.DSQuality ? DSQuality.dpr(2) : Math.min(window.devicePixelRatio || 1, 2));
   const w = window.innerWidth, h = window.innerHeight;
   cv.width = Math.round(w * dpr);
   cv.height = Math.round(h * dpr);

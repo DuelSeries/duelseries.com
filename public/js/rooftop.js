@@ -187,7 +187,7 @@ let touchUI = (() => {
 })();
 
 function fit() {
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const dpr = (window.DSQuality ? DSQuality.dpr(2) : Math.min(window.devicePixelRatio || 1, 2));
   const w = window.innerWidth, h = window.innerHeight;
   cv.width = Math.round(w * dpr);
   cv.height = Math.round(h * dpr);
@@ -573,7 +573,9 @@ function addTracer(e, local) {
 // T: BloodParticles: 12 bits, 600 px/s (65% random), 20 degrees around the shot, gravity 700, half a second.
 function blood(e) {
   const dx = e.h[0] - e.f[0], dy = e.h[1] - e.f[1], l = Math.hypot(dx, dy) || 1, base = Math.atan2(dy, dx);
-  for (let i = 0; i < 12; i++) {
+  // Settings > Graphics > Quality Low (public/js/shared/dsQuality.js): a third of the bits, still a hit you can see.
+  const n = window.DSQuality && DSQuality.low() ? 4 : 12;
+  for (let i = 0; i < n; i++) {
     const ang = base + (Math.random() - 0.5) * (20 * Math.PI / 180) * 2;
     const v = 600 * (1 - Math.random() * 0.65);
     sparks.push({ x: e.h[0], y: e.h[1], vx: Math.cos(ang) * v, vy: Math.sin(ang) * v, life: 0.5 * (1 - Math.random() * 0.25), t: 0, size: 8 * (1 - Math.random() * 0.4) });
@@ -582,7 +584,8 @@ function blood(e) {
 }
 // T: ExplosionParticles (our own burst): a ring of hot squares that grow, cool and fade over half a second.
 function boom(x, y) {
-  for (let i = 0; i < 18; i++) {
+  const n = window.DSQuality && DSQuality.low() ? 6 : 18;      // Quality Low: a third of the burst
+  for (let i = 0; i < n; i++) {
     const ang = Math.random() * Math.PI * 2, v = 120 + Math.random() * 260;
     sparks.push({ x, y, vx: Math.cos(ang) * v, vy: Math.sin(ang) * v - 60, life: 0.45 + Math.random() * 0.2, t: 0, size: 14 + Math.random() * 10, fire: true });
   }

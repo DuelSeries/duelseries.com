@@ -178,7 +178,7 @@ const D = Art.DESIGN;
 let VIEW = { s: 1, ox: 0, oy: 0, dpr: 1, w: 0, h: 0, rot: false };
 let tableCanvas = null, tableS = 0;
 function fit() {
-  const dpr = Math.min(2.5, window.devicePixelRatio || 1);
+  const dpr = (window.DSQuality ? DSQuality.dpr(2.5) : Math.min(2.5, window.devicePixelRatio || 1));
   const w = window.innerWidth, h = window.innerHeight;
   const rot = h > w * 1.1;
   const fw = rot ? D.h : D.w, fh = rot ? D.w : D.h;
