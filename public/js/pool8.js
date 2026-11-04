@@ -467,10 +467,12 @@ cv.addEventListener('pointerdown', (e) => {
   if (Math.hypot(p.x - L.menu.x - L.menu.w / 2, p.y - L.menu.y - L.menu.h / 2) < L.menu.w * 0.7) { pauseMenu(); return; }
   if (!myTurn()) return;
   if (Math.hypot(p.x - L.spin.x, p.y - L.spin.y) < L.spin.r * 1.3) { spinOpen = true; return; }
-  // The power: anywhere on the left side, the pull counted from where it went down (p8Controls.js).
-  if (CT.inPowerZone(p.x, p.y)) {
+  // The power: anywhere on the left side, the pull counted from where it went down (p8Controls.js). On the 8 a press
+  // on the rail at a left pocket still calls that pocket.
+  if (CT.inPowerZone(p.x, p.y) && !(rules.onEight[mySeat] && p.x >= L.rail.x && pocketAt(p) >= 0)) {
     drag = { kind: 'power', id: e.pointerId, y0: p.y, full: CT.fullFor(p.y, screenFoot()) };
     aim.p = 0;
+    if (!touch) setCursor('grabbing');
     cv.setPointerCapture(e.pointerId);
     return;
   }
@@ -503,8 +505,9 @@ cv.addEventListener('pointermove', (e) => {
   const p = toDesign(e.clientX, e.clientY);
   if (drag && drag.id !== e.pointerId) return;
   if (drag && drag.kind === 'spin') { setSpin(p, picker); return; }
-  if (!myTurn()) { drag = null; return; }
-  if (!drag) return;
+  if (!myTurn()) { drag = null; setCursor(''); return; }
+  // The mouse over the power strip shows a hand: the strip is the thing to grab.
+  if (!drag) { if (e.pointerType === 'mouse') setCursor(CT.inPowerZone(p.x, p.y) ? 'grab' : ''); return; }
   if (drag.kind === 'power') {
     // The right button pressed while pulling puts the cue back: no shot when the left one lets go.
     if (e.pointerType === 'mouse' && (e.buttons & 2)) { drag.kind = 'void'; aim.p = 0; return; }
@@ -539,10 +542,13 @@ cv.addEventListener('pointermove', (e) => {
   }
 });
 
+let cursorNow = '';
+function setCursor(c) { if (c !== cursorNow) { cursorNow = c; cv.style.cursor = c; } }
 function endDrag(e, cancel) {
   if (!drag || drag.id !== e.pointerId) return;
   const d = drag;
   drag = null;
+  if (d.kind === 'power' || d.kind === 'void') setCursor('');
   if (d.kind === 'spin' || d.kind === 'point') return;
   if (d.kind === 'cue') { aim.placing = false; return; }
   if (d.kind === 'turn') {
