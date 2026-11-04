@@ -75,7 +75,7 @@
     // control stay clear. The Lobby chip is smaller too. Upright, the cluster stops 134 px short of the right edge
     // (Paper's minimap and the ping readout); sideways the name is at most 180 px, clear of a bottom-centre scoreboard.
     '@media (max-width:600px),(pointer:coarse) and (max-height:600px){',
-    '.dsw-switch{left:calc(10px + env(safe-area-inset-left,0px));right:auto;transform:none;',
+    '.dsw-switch{left:calc(var(--dsw-left,10px) + env(safe-area-inset-left,0px));right:auto;transform:none;',
     'bottom:calc(10px + env(safe-area-inset-bottom,0px));justify-content:flex-start;gap:6px;}',
     '.dsw-round{width:46px;height:46px;box-shadow:inset 0 0 0 1px var(--ds-line,#36291a),0 4px 12px rgba(0,0,0,.28);}',
     '.dsw-round svg{width:20px;height:20px;}',
@@ -83,10 +83,13 @@
     'box-shadow:inset 0 0 0 1px var(--ds-line,#36291a),0 4px 12px rgba(0,0,0,.28);}',
     '.dsw-name{font-size:14px;}',
     '.dsw-empty .dsw-name,.dsw-wait .dsw-name{font-size:13px;}',
+    // nobody to follow: the arrows do nothing, so on a phone the plate alone says so, in full
+    '.dsw-empty .dsw-round{display:none;}',
+    '.dsw-empty .dsw-plate{max-width:max(88px,calc(100vw - 150px));}',
     '.dsw-lobby{left:calc(10px + env(safe-area-inset-left,0px));top:calc(10px + env(safe-area-inset-top,0px));height:36px;',
     'padding:0 12px 0 8px;gap:6px;border-radius:9px;font-size:13px;}',
     '.dsw-lobby svg{width:16px;height:16px;}}',
-    '@media (pointer:coarse) and (max-height:600px) and (min-width:601px){.dsw-plate{max-width:180px;}}',
+    '@media (pointer:coarse) and (max-height:600px) and (min-width:601px){.dsw-plate{max-width:180px;}.dsw-empty .dsw-plate{max-width:260px;}}',
     // A page that measured its own corner (slither.io and its battle royale, drawn at 0.7 in the lobby: phoneRight)
     // keeps the bar it placed: along the bottom, stopping that far from the right edge, at its own size.
     '@media (max-width:600px),(pointer:coarse) and (max-height:600px){',
@@ -99,6 +102,8 @@
     'box-shadow:inset 0 0 0 1px var(--ds-line,#36291a),0 6px 18px rgba(0,0,0,.3);}',
     '.dsw-fit .dsw-name{font-size:16px;}',
     '.dsw-fit .dsw-empty .dsw-name,.dsw-fit .dsw-wait .dsw-name{font-size:15px;}',
+    '.dsw-fit .dsw-empty .dsw-round{display:inline-flex;}',
+    '.dsw-fit .dsw-empty .dsw-plate{max-width:none;}',
     '.dsw-fit .dsw-lobby{left:calc(16px + env(safe-area-inset-left,0px));top:calc(16px + env(safe-area-inset-top,0px));',
     'height:max(44px,calc(var(--dsw-size,64px) * .66));padding:0 14px 0 10px;gap:8px;border-radius:10px;font-size:15px;}',
     '.dsw-fit .dsw-lobby svg{width:18px;height:18px;}}',
@@ -113,6 +118,9 @@
     'background:radial-gradient(120% 80% at 50% 48%,rgba(0,0,0,.66),rgba(0,0,0,.36) 66%,rgba(0,0,0,.62)),',
     'linear-gradient(180deg,rgba(0,0,0,.5),transparent 30%,rgba(0,0,0,.55));}'
   ].join('');
+  // A game whose own control sits in the bottom left corner on a phone: the small bar starts right of it (px).
+  // Air Hockey draws its music button there (public/js/airhockey.js MUSIC, x 26 r 17).
+  var PHONE_LEFT = { airhockey: 52 };
   var ICON = {
     back: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3L5 8l5 5" fill="none" stroke="currentColor" ' +
       'stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
@@ -274,6 +282,8 @@
         if (opts.phoneLift > 0) rs.setProperty('--dsw-lift', Math.round(opts.phoneLift) + 'px');
         if (opts.phoneSize > 0) rs.setProperty('--dsw-size', Math.round(opts.phoneSize) + 'px');
         if (opts.phoneRight > 0) rs.setProperty('--dsw-right', Math.round(opts.phoneRight) + 'px');
+        var pl = PHONE_LEFT[String(opts.game || '')];
+        if (pl > 0) rs.setProperty('--dsw-left', pl + 'px');
       }
       if (!on) name = null;
       on = true;
