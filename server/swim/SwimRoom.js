@@ -453,6 +453,7 @@ class SwimRoom {
     const seats = [...this.players.entries()].map(([id, p]) => ({
       id, name: p.name, wallet: p.wallet, worth: this.worth.get(id) || 0,
       refund: refundBound(this.worth.get(id) || 0, p.paid),
+      paidBot: !!(this.bot && this.bot.paidBot && this.bot.id === id),   // an owner's paid bot (server/duelBots.js)
     }));
     /* EXACTLY ONCE PER TABLE (KnockoutRoom.finish): a crash, the 200 m rule, a
        draw and somebody closing the tab all come through here. */

@@ -92,6 +92,10 @@
        playing badge then counts only the ones already in a match. With both at 0 the row still says 0 playing. */
     const w = Math.max(0, Math.floor(Number(l.waiting) || 0));
     const inMatch = Math.max(0, n - w);
+    /* An owner's paid bot waiting at this paid duel rung (server/duelBots.js): said on the row BEFORE anybody pays
+       (Owen 2026-11-04, the dispatcher's rule a). Enter from this row is what lets the bot meet you. */
+    const botW = Number(l.stake) > 0 && Number(l.botWaiting) > 0;
+    const botBadge = botW ? '<span class="lcount on lqueue lbotw"><span class="ldot" aria-hidden="true"></span>Bot opponent waiting</span>' : '';
     const waitBadge = w > 0
       ? '<span class="lcount on lqueue"><span class="ldot" aria-hidden="true"></span>' +
         '<span class="num">' + w + '</span> waiting</span>'
@@ -100,7 +104,7 @@
        one on the screen now — the one that used to sit under the game's name is
        gone — so it has to say what it is counting rather than leave a bare
        figure floating next to a button. */
-    const playBadge = w > 0 && inMatch === 0 ? ''
+    const playBadge = (w > 0 || botW) && inMatch === 0 ? ''
       : '<span class="lcount' + (inMatch > 0 ? ' on' : '') + '">' +
         '<span class="ldot" aria-hidden="true"></span>' +
         '<span class="num">' + inMatch + '</span> playing</span>';
@@ -115,7 +119,7 @@
           '<b class="lstake num">' + money(l.stake) + '</b></span>' +
       '</div>' +
       '<span class="sp" style="flex:1"></span>' +
-      waitBadge + playBadge +
+      botBadge + waitBadge + playBadge +
       '<button class="enter" onclick="V2Board.join(' +
         JSON.stringify(l.id).replace(/"/g, '&quot;') + ')">Enter</button>' +
       '</div>';
@@ -216,6 +220,13 @@
     return !!(DOORS && Object.prototype.hasOwnProperty.call(DOORS, game) && DOORS[game] === true);
   }
 
+  /* The owner's paid bots waiting at one paid duel rung by the latest board (server/duelBots.js): the lobby shows
+     "Bot opponent waiting" there, and only a Play pressed while it shows lets a bot meet the player. */
+  function botWaiting(game, stake) {
+    const e = EXTRAS.find(x => x && x.game === game && Math.abs(Number(x.stake) - Number(stake)) < 1e-9);
+    return e && duelPaidOpen(game) ? Math.max(0, Math.floor(Number(e.botWaiting) || 0)) : 0;
+  }
+
   /* Coming soon now, by the server's latest board: the play path asks this too (V2_IS_SOON), so a lobby opened before
      Owen switched a game off cannot start it. The card's look follows at the next page load (/api/soon.js). */
   function soonNow(game) {
@@ -252,12 +263,12 @@
     EXTRAS.forEach(e => {
       if ((e.game !== 'knockout' && e.game !== 'battleship' && e.game !== 'swim' && e.game !== 'headsoccer' && e.game !== 'pool8' && e.game !== 'airhockey' && e.game !== 'rooftop' && e.game !== 'crossy') || !(Number(e.stake) > 0)) return;
       if (!listable(e)) return;   // a duel whose card is still shut (Swim behind its gate, Head Soccer without its preview)
-      if (!(playing(e) > 0) || !isOpen(e) || rows.some(r => r.id === e.id)) return;
+      if (!(playing(e) > 0 || Number(e.botWaiting) > 0) || !isOpen(e) || rows.some(r => r.id === e.id)) return;
       if (window.DS_LOCKED && window.DS_LOCKED.isLocked(e.game)) return;
       rows.push(e);
     });
     /* Paid rooms with anyone in them first, the biggest buy-in on top (Owen 2026-10-17); everything else keeps its order. */
-    const paid = rows.filter(l => Number(l.stake) > 0 && playing(l) > 0)
+    const paid = rows.filter(l => Number(l.stake) > 0 && (playing(l) > 0 || Number(l.botWaiting) > 0))
       .sort((a, b) => Number(b.stake) - Number(a.stake) || playing(b) - playing(a));
     /* Then a free duel with somebody waiting for an opponent (Owen 2026-10-21): the row a person can act on. */
     const waitingFree = rows.filter(l => !paid.includes(l) && Number(l.waiting) > 0);
@@ -354,7 +365,7 @@
     document.addEventListener('visibilitychange', () => { if (timer && !document.hidden) load(); });
 
   window.V2Board = { load: load, push: push, draw: draw, join: join, start: start, stop: stop, setRows: setRows,
-                     playableStakes: playableStakes, duelPaidOpen: duelPaidOpen, soonNow: soonNow, rowsToShow: rowsToShow,
+                     playableStakes: playableStakes, duelPaidOpen: duelPaidOpen, botWaiting: botWaiting, soonNow: soonNow, rowsToShow: rowsToShow,
                      get lobbies() { return LOBBIES; },
                      get counts() { return COUNTS; },
                      /* People in a duel's queue, every rung, for the game cards: { knockout: 1 }. */
