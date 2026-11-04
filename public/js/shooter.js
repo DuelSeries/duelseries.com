@@ -74,7 +74,7 @@
 
   /* ── sizing ───────────────────────────────────────────────────────────────── */
   function resize() {
-    dpr = Math.min(2, window.devicePixelRatio || 1);
+    dpr = (window.DSQuality ? DSQuality.dpr(2) : Math.min(2, window.devicePixelRatio || 1));
     cv.width = Math.round(window.innerWidth * dpr);
     cv.height = Math.round(window.innerHeight * dpr);
     cv.style.width = window.innerWidth + 'px';

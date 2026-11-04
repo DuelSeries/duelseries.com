@@ -152,7 +152,7 @@
     if (!canvas || !look) return;
     var W = root.innerWidth || doc.documentElement.clientWidth || 800;
     var H = root.innerHeight || doc.documentElement.clientHeight || 600;
-    var dpr = Math.min(2, root.devicePixelRatio || 1);
+    var dpr = (root.DSQuality ? root.DSQuality.dpr(2) : Math.min(2, root.devicePixelRatio || 1));
     canvas.width = Math.round(W * dpr);
     canvas.height = Math.round(H * dpr);
     var g = canvas.getContext('2d');

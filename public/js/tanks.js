@@ -57,7 +57,7 @@
      The world is a fixed 1400x700. The screen is anything. Fit it by width, sit
      it above the controls, and never scale so far that the tanks become dots. */
   function layout() {
-    dpr = Math.min(2, window.devicePixelRatio || 1);
+    dpr = (window.DSQuality ? DSQuality.dpr(2) : Math.min(2, window.devicePixelRatio || 1));
     const w = window.innerWidth, h = window.innerHeight;
     cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
     cv.style.width = w + 'px'; cv.style.height = h + 'px';

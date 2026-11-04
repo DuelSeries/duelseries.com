@@ -2,6 +2,13 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-11-04-wallet-events-look",
+      "date": "2026-11-04",
+      "tag": "new",
+      "title": "A cleaner Wallet and Events tab",
+      "body": "Your balance now sits big in the middle of the Wallet tab, with Add funds, Withdraw and Refresh right under it. No more lights around it.\n\nEvents shows the Battle Royale and the Swim Race side by side, each with its own countdown, Join and Spectate, and the top 3 and start times for both underneath.\n\nAlso new: the Quality setting in Settings now works in every game, and the Customize list scrolls without a scrollbar."
+    },
+    {
       "id": "2026-11-02-names-any-wallet",
       "date": "2026-11-02",
       "tag": "fix",

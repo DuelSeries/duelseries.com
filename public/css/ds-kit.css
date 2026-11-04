@@ -41,7 +41,7 @@
    Page frame   .ds-main (page padding; the phone bottom padding clears the bar) ; .ds-page-hd ; .ds-sec-hd (h2 + control)
    Battle R.    .ds-br-card (> .ds-br-art masked art) ; .ds-clockbox (> .ds-t-label + b + .ds-t-meta) ; .ds-bigclock > .ds-bc ;
                 .ds-pod > .ds-pl (.p1 .p2 .p3 .empty) ; .ds-steps > li ; .ds-opens
-   Wallet       .ds-lit (bulb edge) and .ds-led (dot-matrix figure): the wallet balance ONLY. .ds-balp .ds-addr-line ;
+   Wallet       .ds-lit (the balance card) and .ds-led (the solid gold figure): the wallet balance ONLY. .ds-balp .ds-addr-line ;
                 .ds-out (signed-out wallet) .ds-out-bal .ds-out-lock ; .ds-chart-box
    Spinner      .ds-spin (a ring that keeps turning under reduced motion: a still ring reads as a frozen page)
 */
@@ -446,21 +446,15 @@ button.ds-row:hover, a.ds-row:hover { background: var(--ds-s2); }
 .ds-opens svg { color: var(--ds-tx3); flex: none; }
 .ds-opens b { color: var(--ds-bone); font-weight: 700; }
 
-/* ---------- wallet: the balance, the one lit thing ---------- */
+/* ---------- wallet: the balance ---------- */
+/* Owen 2026-11-03: the bulb ring read as "lights for some reason" and the 4px dot mask made the figure look
+   pixelated. Both are gone, and the glow with them; size, weight and spacing are as they were. .ds-lit and .ds-led
+   keep their names so the markup and tests stay put. */
 .ds-balp { display: flex; flex-direction: column; gap: var(--ds-sp2); padding: 34px 32px 30px; }
 .ds-lit { isolation: isolate; }
-.ds-lit::before, .ds-lit::after { content: ''; position: absolute; inset: 7px; border-radius: calc(var(--ds-r3) - 6px); pointer-events: none; z-index: 1;
-  background-repeat: repeat-x, repeat-x, repeat-y, repeat-y; background-position: 0 0, 0 100%, 0 0, 100% 0;
-  background-size: 16px 10px, 16px 10px, 10px 16px, 10px 16px; }
-.ds-lit::before { --b: radial-gradient(circle, #3a2c1c 0 1.6px, transparent 2.2px); background-image: var(--b), var(--b), var(--b), var(--b); }
-.ds-lit::after { --b: radial-gradient(circle, #fff1c4 0 1.5px, rgba(240, 168, 48, .55) 2.4px, rgba(240, 168, 48, 0) 5px); background-image: var(--b), var(--b), var(--b), var(--b); }
-.ds-lit > * { position: relative; z-index: 2; }
-.ds-lit.is-off::after { display: none; }
 .ds-led { display: block; font-size: 62px; font-weight: 900; font-stretch: 125%; letter-spacing: .01em; line-height: 1; color: var(--ds-gold); white-space: nowrap; font-variant-numeric: tabular-nums;
-  text-shadow: var(--ds-glow-gold);
-  -webkit-mask-image: radial-gradient(circle, #000 1.45px, transparent 1.8px); mask-image: radial-gradient(circle, #000 1.45px, transparent 1.8px);
-  -webkit-mask-size: 4px 4px; mask-size: 4px 4px; padding: 4px 0; }
-.ds-led.is-off { color: #6b5739; text-shadow: none; }
+  padding: 4px 0; }
+.ds-led.is-off { color: #6b5739; }
 .ds-addr-line { display: flex; align-items: center; gap: var(--ds-sp2); padding: 6px 6px 6px var(--ds-sp4); border-radius: var(--ds-r2); background: var(--ds-ink); box-shadow: var(--ds-edge); }
 .ds-addr-line .ds-mono { flex: 1; min-width: 0; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ds-out { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 340px); gap: var(--ds-sp6); align-items: center; padding: var(--ds-sp6); max-width: 1000px; }

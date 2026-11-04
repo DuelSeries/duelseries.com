@@ -889,7 +889,7 @@ function drawHud(W, H, dpr) {
 let lastFrame = performance.now(), W = 0, H = 0, DPR = 1;
 let trainNear = new Set();
 function fit() {
-  const w = window.innerWidth, h = window.innerHeight, dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const w = window.innerWidth, h = window.innerHeight, dpr = (window.DSQuality ? DSQuality.dpr(2) : Math.min(window.devicePixelRatio || 1, 2));
   if (w === W && h === H && dpr === DPR) return;
   W = w; H = h; DPR = dpr;
   view.resize(w, h, dpr);

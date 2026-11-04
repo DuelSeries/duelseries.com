@@ -165,7 +165,7 @@ const shortName = (n) => (n.length > 10 ? n.slice(0, 9) + '…' : n);
    with a gutter along the top and left for the letters and numbers. One cell
    size for everything, worked out once per paint. */
 function metrics(cv) {
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const dpr = (window.DSQuality ? DSQuality.dpr(2) : Math.min(window.devicePixelRatio || 1, 2));
   const cssW = cv.clientWidth || 520;
   if (cv.width !== Math.round(cssW * dpr)) {
     cv.width = Math.round(cssW * dpr);
@@ -432,7 +432,7 @@ function buildTray() {
        board draws and not a second set of pictures to keep in step. */
     const cell = railCell;
     const cv = document.createElement('canvas');
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const dpr = (window.DSQuality ? DSQuality.dpr(2) : Math.min(window.devicePixelRatio || 1, 2));
     /* Lying the way they will sit on the water, in a row under the board.
        Standing on end they were a short stubby row that wasted the width and
        did not look like the fleet you are about to place. */
@@ -737,7 +737,7 @@ function showGhostFor(d) {
   if (!ghost || !d) return;
   const m = metrics($('mine'));
   const cell = m.cell;
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const dpr = (window.DSQuality ? DSQuality.dpr(2) : Math.min(window.devicePixelRatio || 1, 2));
   const w = (d.horiz ? d.len : 1) * cell, h = (d.horiz ? 1 : d.len) * cell;
   ghost.width = w * dpr; ghost.height = h * dpr;
   ghost.style.width = w + 'px'; ghost.style.height = h + 'px';

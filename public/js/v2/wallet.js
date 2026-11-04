@@ -282,14 +282,17 @@
          them rather than hidden, because an on-chain balance can be a few seconds behind and the only honest answer
          to "is it there yet" is a button that asks again. */
       '<section class="ds-panel ds-lit ds-balp wbal" aria-labelledby="w-bal-t">' +
-        /* The balance and the address in one row at the top (Owen 2026-11-02). */
-        '<div class="wtop"><div class="wtop-bal">' +
-        '<span class="ds-t-label" id="w-bal-t">Your balance</span>' +
+        /* Owen's pick W2 "Centered" with W1's buttons (2026-11-03, mockup tab-mockups/w2.html): the address as a chip
+           on top, the balance big and centred under it, the SOL under that, then Add funds, Withdraw and Refresh in
+           one row. The two labels stay for screen readers. */
+        '<div class="wtop"><div class="wtop-addr"><span class="ds-sr" id="w-addr-t">Your wallet address</span>' + addrRow('w-addr', addr) + '</div>' +
+        '<div class="wtop-bal">' +
+        '<span class="ds-sr" id="w-bal-t">Your balance</span>' +
         '<div style="--n:' + fitLen(bigBal(bal)) + '" class="ds-led num ph-no-capture" id="w-bal" data-cu>' + bigBal(bal) + '</div>' +
         /* The SOL under the dollars, small, like the DamnBruh wallet's "$1.03 / 0.0098 SOL"
            (Owen, 2026-10-15), with the one tap that turns it into dollars. */
         '<div class="wsol ph-no-capture" id="w-sol">' + solLine() + '</div>' +
-        '</div><div class="wtop-addr"><span class="ds-t-label" id="w-addr-t">Your wallet address</span>' + addrRow('w-addr', addr) + '</div></div>' +
+        '</div></div>' +
         /* SOL mode only (empty, and not drawn, otherwise): "You have $X USDC" with its two actions. */
         '<div class="wsol wusdc" id="w-usdc">' + usdcLine() + '</div>' +
         /* The form lives in its own sheet now, so this row never swaps out. */

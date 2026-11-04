@@ -254,7 +254,7 @@ const PAUSE = { x: 0, y: 0, r: 18 };
 const MUSIC = { x: 0, y: 0, r: 18 };   // the music on/off button (airhockeySound.js)
 
 function fit() {
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const dpr = (window.DSQuality ? DSQuality.dpr(2) : Math.min(window.devicePixelRatio || 1, 2));
   const w = window.innerWidth, h = window.innerHeight;
   cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
   cv.style.width = w + 'px'; cv.style.height = h + 'px';
