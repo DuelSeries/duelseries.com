@@ -1102,7 +1102,9 @@ test('every tab owns its own screen node, so a swipe between neighbours has two 
   const PC_ONLY = ['clips-screen', 'updates-screen', 'join-screen'];
   /* Refer a friend and Support (site redo stage 3) are pages under the sidebar's foot and Settings' About, not tabs:
      like a game's screen or a profile, a swipe from them goes nowhere. */
-  const NOT_TABS = ['refer-screen', 'support-screen'];
+  const NOT_TABS = ['refer-screen', 'support-screen',
+    /* Profile (Owen 2026-11-04): a sidebar tab on a PC; a phone opens it from the header card, so it is not in the swipe. */
+    'profile-screen'];
   for (const id of ids) {
     if (PC_ONLY.includes(id) || NOT_TABS.includes(id)) assert.ok(!sw.includes("'" + id + "'"), id + ' is not in the phone swipe');
     else assert.ok(sw.includes("'" + id + "'"), 'the swipe knows ' + id);
@@ -1341,13 +1343,14 @@ test('the nightly event states its prizes and reads the match, not a clock', () 
     html.indexOf('class="evfoot"'))), 'and nothing else on the podium is');
   assert.ok(!/top three share the pot/i.test(html),
     'and the page does not still say the pot is shared');
-  // A seat with nobody in it, ready to hold a name.
+  /* Top 3 and the times came off the tab (Owen 2026-11-04: "it just kind of looks bad"). The code that fills the
+     seats stays, and skips a seat that is not on the page. */
   for (const id of ['ev-1st', 'ev-2nd', 'ev-3rd']) {
-    assert.ok(html.includes('id="' + id + '"'), 'the podium has a seat for ' + id);
+    assert.ok(!html.includes('id="' + id + '"'), 'no podium seat ' + id + ' on the tab');
   }
-  assert.ok(/V2Event={[^}]*podium/.test(html), 'and a way to seat a winner in it');
-  // Tallest in the middle: the heights ARE the ranking (the kit's podium since the site redo, 2026-11-01).
-  assert.ok(/<div class="ds-pod podium">/.test(html) && /class="ds-pl p1 empty plinth"/.test(html), 'the kit podium');
+  assert.ok(/V2Event={[^}]*podium/.test(html), 'the podium code is still there');
+  assert.ok(html.includes("var el=$(id); if(!el) return;"), 'and it skips a seat that is not on the page');
+  // The kit's podium itself is unchanged: tallest in the middle, the heights ARE the ranking.
   const kit = fs.readFileSync(path.join(ROOT, 'public/css/ds-kit.css'), 'utf8');
   const h = (k) => {
     const at = kit.indexOf('.ds-pl.p' + k + ' .blk { height:');
@@ -1372,7 +1375,10 @@ test('the events podium leads, holds the last match all day, and never shows a p
   const scr = html.slice(at, html.indexOf('</main>', at));
   /* Site redo stage 3 (layout 1, mockup site-redo/looks/ab/1/events.html, 2026-11-01): the Battle Royale card leads
      with its prize, clock and Join; the podium is under it, beside the schedule. */
-  assert.ok(scr.indexOf('class="ds-bigclock evclock"') < scr.indexOf('class="ds-pod podium"'), 'the card and its clock lead, the podium follows');
+  /* 2026-11-04 (Owen): the twin cards are the whole tab. No Top 3 and no Every 6 hours list under them. */
+  assert.ok(scr.indexOf('class="ds-pod podium"') < 0 && scr.indexOf('id="ev-sched"') < 0 && scr.indexOf('id="sw-pod"') < 0,
+    'no podium and no schedule under the cards');
+  assert.ok(scr.indexOf('class="ds-bigclock evclock"') > 0, 'the card has its clock');
   assert.ok(scr.indexOf('id="ev-h"') > 0 && scr.indexOf('id="ev-m"') > 0 && scr.indexOf('id="ev-s"') > 0,
     'hours, minutes and seconds, all three');
   assert.ok(/var seated=on\?null:pod;/.test(html), "the last match's names, except while a match is on");
@@ -1383,7 +1389,7 @@ test('the events podium leads, holds the last match all day, and never shows a p
   assert.ok(!/\u2014/.test(scr) && !/\u2014/.test(evjs), 'no em dash on the Events tab');
   /* Join used to ride a bar pinned over the tab bar, because the podium came first and pushed it down. With the card
      first, Join is on the first screen of a phone too. */
-  assert.ok(scr.indexOf('id="ev-join"') < scr.indexOf('class="ds-pod podium"'), 'Join is on the card, before the podium');
+  assert.ok(scr.indexOf('id="ev-join"') > 0, 'Join is on the card');
   // Player names reach the page as text, never as markup.
   const tick = html.slice(html.indexOf('function caption('), html.indexOf('/* engine(): which engine'));
   assert.ok(!/innerHTML/.test(tick), 'no innerHTML anywhere a winner name can reach');
@@ -2150,7 +2156,7 @@ test('the Shop tab is gone: skins are bought in Customize, and an old Shop route
   const html = v2();
   const nav = html.slice(html.indexOf('const NAV=['), html.indexOf('];', html.indexOf('const NAV=[')));
   assert.ok(!/id:'shop'/.test(nav), 'no Shop in the nav');
-  assert.deepEqual([...nav.matchAll(/\{id:'(\w+)'/g)].map(m => m[1]), ['play', 'events', 'social', 'wallet', 'clips', 'updates', 'join', 'settings']);
+  assert.deepEqual([...nav.matchAll(/\{id:'(\w+)'/g)].map(m => m[1]), ['play', 'events', 'social', 'profile', 'wallet', 'clips', 'updates', 'join', 'settings']);   // Profile where Shop was (Owen 2026-11-04)
   assert.ok(!/shop-screen|id="shop"|V2ShopTab|tab==='shop'/.test(html), 'no Shop screen, mount or route');
   const sw = fs.readFileSync(path.join(ROOT, 'public/js/v2/swipe.js'), 'utf8');
   assert.ok(sw.includes("const TABS = ['play', 'events', 'social', 'wallet', 'settings'];"), 'the swipe order matches the nav');
@@ -2255,15 +2261,15 @@ test('every playable game is listed before any locked or unreleased one', () => 
     html.slice(a, b + 1) + '\nreturn GAMES.map(g=>g.id);')({ DS_LOCKED: lock }, lock);
 
   assert.deepStrictEqual(run(LOCK), [
-    'chomp', 'snake', 'agar', 'paper', 'headsoccer', 'swim', 'pool8', 'airhockey', 'knockout', 'battleship', 'rooftop', 'crossy',
-    'omgshooter', 'tanks', 'stumble',
+    'chomp', 'snake', 'agar', 'paper', 'headsoccer', 'swim', 'pool8', 'knockout', 'battleship', 'rooftop', 'crossy',
+    'airhockey', 'omgshooter', 'tanks', 'stumble',
     'omgshoot2',
-  ], 'playable in their own order, then locked and unreleased in theirs');
+  ], 'playable in their own order, then locked and unreleased in theirs (Air Hockey Coming soon, Owen 2026-11-04)');
 
   // Unlocked, both go straight back to their own place among the playable ones.
   const none = { LOCKED_GAMES: [], isLocked: () => false };
-  assert.deepStrictEqual(run(none).slice(0, 14),
-    ['chomp', 'snake', 'agar', 'paper', 'headsoccer', 'swim', 'pool8', 'airhockey', 'omgshooter', 'tanks', 'knockout', 'battleship', 'rooftop', 'crossy']);
+  assert.deepStrictEqual(run(none).slice(0, 13),
+    ['chomp', 'snake', 'agar', 'paper', 'headsoccer', 'swim', 'pool8', 'omgshooter', 'tanks', 'knockout', 'battleship', 'rooftop', 'crossy']);
 
   // The rail and the full grid both draw from that order.
   assert.ok(/order=GAMES\.slice\(\)/.test(html) && html.indexOf('order=GAMES.slice()') > s, 'the rail copies it after the sort');

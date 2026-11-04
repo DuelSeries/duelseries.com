@@ -937,7 +937,7 @@ body.ingame .win-live i,body.ingame .win-live i::before{animation-play-state:pau
 .tgo.alt:hover{background:var(--s3);color:var(--tx);transform:none}
 
 /* ── wallet ─────────────────────────────────────────────────────────── */
-#wallet-screen,#social-screen,#player-screen{display:none}
+#wallet-screen,#social-screen,#player-screen,#profile-screen{display:none}
 
 /* ── Leaderboards and a player's profile (site redo stage 3, layout 1; mockup looks/ab/1/leaderboards.html) ──────
    PC: Player winnings and the top 10 on the left, Find a player and How the board works in a 340px column on the
@@ -1034,7 +1034,16 @@ body.ingame .win-live i,body.ingame .win-live i::before{animation-play-state:pau
 #social-screen .lb-sum-hd{justify-content:center}
 #social-screen .lb-fig{justify-content:center}
 #social-screen .lb-board-hd{display:flex;align-items:center;gap:var(--ds-sp3)}
-#social-screen #soc-win{order:1} #social-screen .lb-board{order:2} #social-screen .lb-find{order:3}
+/* Owen's pick L1 "Boxed rows" (2026-11-04, mockup Claude Code Test/lobby-round/l1.html): the search on top (its results
+   right under it), then the total, then the board, and every player in a box of their own with a clear line around
+   it, the board's rows and the search's alike. Same rows, same order, same words as before. */
+#social-screen .lb-find{order:1} #social-screen #soc-win{order:2} #social-screen .lb-board{order:3}
+#social-screen .lb-rest{margin-top:0;padding:0;background:none;box-shadow:none;border-radius:0}
+#social-screen .lb-rest .ds-list,#social-screen .lb-res .ds-list{gap:var(--ds-sp2);margin:0}
+#social-screen .lb-rest .ds-list>.ds-row,#social-screen .lb-res .ds-list>.ds-row{min-height:64px;
+  padding:var(--ds-sp2) var(--ds-sp4) var(--ds-sp2) var(--ds-sp3);background:var(--ds-s1);box-shadow:inset 0 0 0 1px var(--ds-line2)}
+#social-screen .lb-rest .ds-list>.ds-row:hover,#social-screen .lb-res .ds-list>.ds-row:hover{background:var(--ds-s2);box-shadow:inset 0 0 0 1px #8a7150}
+#social-screen .lb-rest .ds-list>.ds-row:focus-visible,#social-screen .lb-res .ds-list>.ds-row:focus-visible{outline:2px solid var(--ds-bone);outline-offset:2px}
 /* "● Live" then "Sample", one size and both easy to read, on PC and phone (Owen 2026-11-02). The dot blinks for
    everyone, past the reduce rule, like Home's Live wins dot. */
 #social-screen .lb-live,#social-screen .lb-sample{height:24px;padding:0 var(--ds-sp2);font-size:13px;font-weight:700}
@@ -1117,6 +1126,7 @@ body.ingame #social-screen .lb-live::before{animation-play-state:paused!importan
   #social-screen .lb-rest{padding:var(--ds-sp1)}
   #social-screen .lb-row{grid-template-columns:26px auto minmax(0,1fr) auto;gap:var(--ds-sp2)}
   #social-screen .lb-row .ds-row-end,#social-screen .lb-res .ds-row-end{font-size:14px}
+  #social-screen .lb-rest .ds-list>.ds-row,#social-screen .lb-res .ds-list>.ds-row{min-height:60px;padding:var(--ds-sp2) var(--ds-sp3) var(--ds-sp2) var(--ds-sp2)}
   #social-screen .lb-none{padding:var(--ds-sp5) var(--ds-sp4)}
   .lb-foot{padding:0 var(--ds-sp1)}
 
@@ -1136,6 +1146,60 @@ body.ingame #social-screen .lb-live::before{animation-play-state:paused!importan
 }
 
 .panel{background:var(--s1);border-radius:var(--r3);padding:24px 26px}
+/* ── Profile (Owen's pick S1, 2026-11-04; mockup Claude Code Test/lobby-round/s1.html), in the tab where Shop was ──
+   Your own record: who you are and your total, four figures, paid rounds by game and your recent cash-outs.
+   profile.js draws it. Rules that adjust a kit class carry the screen's id, because the kit is linked after this. */
+#profile-screen.wrap{padding-top:var(--ds-sp5);padding-bottom:var(--ds-sp7)}
+#profile-screen>.head{margin:0 0 var(--ds-sp5)}
+.pr,#pr-body{display:flex;flex-direction:column;gap:var(--ds-sp4);min-width:0}
+.pr{max-width:1040px}
+#profile-screen .pr-hd{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:var(--ds-sp5);padding:var(--ds-sp6)}
+.pr-av{width:88px;height:88px;border-radius:var(--ds-rf);background:var(--ds-bone);color:var(--ds-on-bone);display:grid;place-items:center;
+  font-size:40px;font-weight:800;font-stretch:var(--ds-wide);flex:none}
+.pr-av.q{background:var(--ds-s3);color:var(--ds-tx2)}
+.pr-av svg{width:40%;height:40%}
+.pr-id{min-width:0}
+.pr-id h3{font-size:34px;font-weight:800;font-stretch:var(--ds-wide);letter-spacing:-.015em;line-height:1.05;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pr-id p{margin:6px 0 0;font-size:var(--ds-fs-3);color:var(--ds-tx2)}
+.pr-acts{display:flex;flex-wrap:wrap;gap:var(--ds-sp2);margin-top:var(--ds-sp4)}
+.pr-tot{display:flex;flex-direction:column;align-items:flex-end;gap:2px;text-align:right}
+.pr-tot b{font-size:44px;font-weight:800;font-stretch:var(--ds-wide);letter-spacing:-.02em;line-height:1.05;color:var(--ds-gold)}
+#profile-screen .pr-stats{grid-template-columns:repeat(4,minmax(0,1fr))}
+#profile-screen .pr-stats .ds-stat small{display:block;margin-top:2px;font-size:var(--ds-fs-1);color:var(--ds-tx2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#profile-screen .pr-stats .pr-nil{font-size:var(--ds-fs-3);font-weight:700;font-stretch:100%;color:var(--ds-tx2);line-height:1.6}
+.pr-grid{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:var(--ds-sp4);align-items:start}
+.pr-games{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--ds-sp2)}
+.pr-g{position:relative;overflow:hidden;isolation:isolate;display:flex;flex-direction:column;gap:2px;min-height:104px;padding:var(--ds-sp4);
+  border-radius:var(--ds-r2);background:var(--ds-ink);box-shadow:inset 0 0 0 1px var(--ds-line2);min-width:0}
+.pr-g img{position:absolute;z-index:-1;right:0;top:0;width:58%;height:100%;object-fit:cover;opacity:.5;
+  -webkit-mask-image:linear-gradient(90deg,transparent,#000 80%);mask-image:linear-gradient(90deg,transparent,#000 80%)}
+.pr-g b{font-size:var(--ds-fs-3);font-weight:700;text-shadow:0 1px 2px #000}
+.pr-g span{font-size:var(--ds-fs-2);color:var(--ds-tx2);text-shadow:0 1px 2px #000}
+.pr-g em{margin-top:auto;font-style:normal;font-size:20px;font-weight:800;font-stretch:var(--ds-wide);color:var(--ds-bone);text-shadow:0 1px 2px #000}
+.pr-g.best{box-shadow:inset 0 0 0 2px var(--ds-bone)}
+#profile-screen .pr-g .ds-chip{position:absolute;top:var(--ds-sp3);right:var(--ds-sp3);background:var(--ds-bone);color:var(--ds-on-bone);text-shadow:none}
+#profile-screen .pr-none{padding:var(--ds-sp2) 0}
+#profile-screen .pr-out{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:var(--ds-sp5);padding:var(--ds-sp6)}
+.pr-out h3{font-size:var(--ds-fs-5);font-weight:800;font-stretch:var(--ds-wide)}
+.pr-out p{margin:6px 0 0;font-size:var(--ds-fs-3);color:var(--ds-tx2)}
+#profile-screen .pr-wait{display:flex;align-items:center;gap:var(--ds-sp3);color:var(--ds-tx2)}
+@media(max-width:1100px){.pr-grid{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:760px){
+  #profile-screen.wrap{padding-top:var(--ds-sp4)}
+  #profile-screen>.head{margin:0 0 var(--ds-sp4)}
+  #profile-screen .pr-hd{grid-template-columns:auto minmax(0,1fr);gap:var(--ds-sp4);padding:var(--ds-sp5) var(--ds-sp4)}
+  .pr-av{width:64px;height:64px;font-size:28px}
+  .pr-id h3{font-size:26px}
+  .pr-tot{grid-column:1/-1;align-items:flex-start;text-align:left;padding:var(--ds-sp3) var(--ds-sp4);border-radius:var(--ds-r2);background:var(--ds-ink);box-shadow:var(--ds-edge)}
+  .pr-tot b{font-size:36px}
+  .pr-acts .ds-btn{flex:1}
+  #profile-screen .pr-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .pr-g{min-height:92px;padding:var(--ds-sp3)}
+  #profile-screen .pr-out{grid-template-columns:auto minmax(0,1fr);gap:var(--ds-sp4);padding:var(--ds-sp5) var(--ds-sp4)}
+  #profile-screen .pr-out .pr-av{width:56px;height:56px}
+  #profile-screen .pr-out .ds-btn{grid-column:1/-1}
+}
+
 /* ── wallet (site redo stage 3, layout 1; mockup looks/ab/1/wallet.html) ───────────────────────────────────────
    Look B's wallet on the kit: on the left the balance, a solid card (.ds-lit and the solid gold
    .ds-led, Owen 2026-11-03), with Add funds, Withdraw and Refresh under it, and the address panel under that; on the right History,
@@ -1340,7 +1404,8 @@ body.ingame #social-screen .lb-live::before{animation-play-state:paused!importan
 #events-screen.wrap{padding-top:var(--ds-sp5);padding-bottom:var(--ds-sp7)}
 #events-screen>.head{margin:0 0 var(--ds-sp5)}
 /* Owen's pick E2 "Twin cards" (2026-11-03): the two events side by side as one card each, everything in it centred, the
-   buttons at the foot of each card so the two line up; Top 3 and the times for both under them. */
+   buttons at the foot of each card so the two line up. Top 3 and the times under them came out (Owen 2026-11-04: "it just
+   kind of looks bad"); the Events code still fills them if they ever come back, and skips them while they are gone. */
 .ev{display:flex;flex-direction:column;gap:var(--ds-sp4)}
 .ev-pair{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:var(--ds-sp4);align-items:stretch}
 .ev-pair:has(>.swev[hidden]){grid-template-columns:minmax(0,560px);justify-content:center}
@@ -1400,65 +1465,15 @@ body.ingame #social-screen .lb-live::before{animation-play-state:paused!importan
 #events-screen .evown small{font-size:var(--ds-fs-1);font-weight:600;color:var(--ds-tx2)}
 #events-screen .evhow{align-self:center;--h:36px;font-size:var(--ds-fs-2)}
 .ev-why,.ev-note{display:none}
-/* Top 3 and the times: two panels, a row per event, name pills and time chips. */
-.ev-low{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:var(--ds-sp4)}
-#events-screen .ev-low>.ds-panel{padding:18px 20px}
-.ev-h3{margin-bottom:var(--ds-sp3);font-size:var(--ds-fs-3);font-weight:700;line-height:1.25}
-.ev-wrow{display:flex;align-items:center;gap:var(--ds-sp3);margin:0}
-.ev-wrow+.ev-wrow{margin-top:var(--ds-sp3)}
-.ev-wrow[hidden]{display:none}
-.ev-wl{flex:0 0 104px;display:flex;flex-direction:column;gap:2px;min-width:0}
-.ev-wl b{font-size:var(--ds-fs-2);font-weight:650}
-.ev-wl span{font-size:var(--ds-fs-1);color:var(--ds-tx3)}
-.ev-wrow>:last-child{flex:1;min-width:0}
-#events-screen .ev-podp .ds-pod{display:flex;flex-wrap:wrap;align-items:center;gap:var(--ds-sp2)}
-#events-screen .ev-podp .ds-pl{flex-direction:row;align-items:center;gap:var(--ds-sp2);height:36px;padding:0 var(--ds-sp3) 0 6px;
-  border-radius:var(--ds-rf);background:var(--ds-s2);box-shadow:var(--ds-edge);max-width:100%;min-width:0;text-align:left}
-#events-screen .ev-podp .ds-pl.p1{order:-1}
-#events-screen .ev-podp .ds-pl .av{display:none}
-#events-screen .ev-podp .ds-pl .blk{order:-1;flex:none;width:24px;height:24px;margin:0;padding:0;border-radius:var(--ds-rf);
-  display:grid;place-items:center;background:var(--ds-s3);font-size:var(--ds-fs-1);font-weight:800;color:var(--ds-tx2)}
-#events-screen .ev-podp .ds-pl.p1 .blk{background:var(--ds-bone);color:var(--ds-on-bone)}
-#events-screen .ev-podp .ds-pl .nm{font-size:var(--ds-fs-2);font-weight:650;min-width:0}
-#events-screen .ev-podp .ds-pl.empty .nm{color:var(--ds-tx2);font-weight:600}
-#events-screen .ds-pl .sc{display:flex;flex-wrap:nowrap;align-items:center;gap:4px;min-height:0;font-size:var(--ds-fs-1);
-  color:var(--ds-tx2);font-variant-numeric:tabular-nums;white-space:nowrap}
-#events-screen .ds-pl .sc:empty{display:none}
-#events-screen .ds-pl .sc .ds-chip{height:20px;padding:0 6px}
-#events-screen .ds-pl .scv{white-space:nowrap}
-#events-screen .ds-pl .pz{font-size:var(--ds-fs-2);font-weight:800}
-#events-screen .ds-pl .pz:empty{display:none}
-#events-screen .ev-srow{min-height:0}
-.ev-wait{padding:var(--ds-sp1) 0}
-/* The Swim Race's last top 3: the same pills, first in bone. */
-.swpod{list-style:none;display:flex;gap:var(--ds-sp2);flex-wrap:wrap;min-width:0;margin:0;padding:0}
-.swpod li{display:inline-flex;align-items:center;gap:var(--ds-sp2);height:36px;padding:0 var(--ds-sp3) 0 6px;border-radius:var(--ds-rf);
-  background:var(--ds-s2);box-shadow:var(--ds-edge);font-size:var(--ds-fs-2);font-weight:650;max-width:220px;min-width:0}
-.swpod li i{font-style:normal;flex:none;width:24px;height:24px;border-radius:var(--ds-rf);display:grid;place-items:center;
-  font-size:var(--ds-fs-1);font-weight:800;background:var(--ds-s3);color:var(--ds-tx2)}
-.swpod li:first-child i{background:var(--ds-bone);color:var(--ds-on-bone)}
-.swpod li span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
-/* The times: the next start of each in bone, then the three after it. */
-/* The times are Toronto's, said once in the title. */
-#ev-sch-t::after{content:', ET'}
-#ev-sched,.ev-chips{display:flex;flex-direction:row;flex-wrap:wrap;gap:6px}
-#events-screen #ev-sched>.ev-srow{display:inline-flex;width:auto;min-height:0;height:30px;padding:0 10px;border-radius:var(--ds-r1);
-  background:var(--ds-s2);box-shadow:none}
-#events-screen #ev-sched>.ev-srow .ds-row-ic,#events-screen #ev-sched>.ev-srow .ds-row-main span,#events-screen #ev-sched>.ev-srow .ds-row-end{display:none}
-#events-screen #ev-sched>.ev-srow .ds-row-main b{font-size:var(--ds-fs-2);font-weight:650;font-variant-numeric:tabular-nums}
-#events-screen #ev-sched>.ev-srow:first-child{background:var(--ds-bone);color:var(--ds-on-bone)}
-.ev-chips span{display:inline-flex;align-items:center;height:30px;padding:0 10px;border-radius:var(--ds-r1);background:var(--ds-s2);
-  font-size:var(--ds-fs-2);font-weight:650;font-variant-numeric:tabular-nums}
-.ev-chips span:first-child{background:var(--ds-bone);color:var(--ds-on-bone)}
 @media(min-width:761px) and (max-width:1100px){
-  .ev-pair,.ev-low{grid-template-columns:minmax(0,1fr)}
+  .ev-pair{grid-template-columns:minmax(0,1fr)}
   #events-screen>*{max-width:600px}
 }
 /* A phone: one column, the art a band across the top of each card. */
 @media(max-width:760px){
   #events-screen.wrap{padding-top:var(--ds-sp4)}
   #events-screen>.head{margin:0 0 var(--ds-sp4)}
-  .ev-pair,.ev-low{grid-template-columns:minmax(0,1fr)}
+  .ev-pair{grid-template-columns:minmax(0,1fr)}
   #events-screen .evhero{--art:170px}
   .ev-in{padding:0 var(--ds-sp4) var(--ds-sp4)}
   .ev-title{font-size:32px}
@@ -2921,7 +2936,7 @@ html.ds-building body>:not(#splash){visibility:hidden}
   <div class="ds-list melinks" id="me-links" hidden>
     <button type="button" class="ds-row" id="me-prof" onclick="V2Me.profile()">
       <span class="ds-row-ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></span>
-      <span class="ds-row-main"><b>Your public profile</b><span>What other players see</span></span>
+      <span class="ds-row-main"><b>Your profile</b><span>Your earnings, games and paid rounds</span></span>
       <span class="ds-row-end mechev"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></span>
     </button>
   </div>
@@ -3681,8 +3696,8 @@ function openSwimHow(){
   <div class="head"><div><h2 class="ds-t-page">Events</h2></div></div>
 
   <!-- Owen's pick E2 "Twin cards" (2026-11-03, mockup tab-mockups/e2.html): the Battle Royale and the Swim Race side by
-       side as the same card (art on top, the name, the prize, the clock, Join and Spectate), then Top 3 and the times for
-       both under them; one column on a phone. Every id is the one V2Event's tick() and the Swim paint() always wrote, and
+       side as the same card (art on top, the name, the prize, the clock, Join and Spectate); one column on a phone. Top 3
+       and the times under them came out on 2026-11-04 (Owen). Every id is the one V2Event's tick() and the Swim paint() always wrote, and
        names go in by textContent, as they are player input. The explaining lines (#ev-why, #sw-line, #ev-podnote) are
        still written but not shown: Owen wanted no extra words, and each button's second line says what is going on. -->
   <div class="ev">
@@ -3765,29 +3780,6 @@ function openSwimHow(){
     </div>
   </section>
   </div>
-
-  <div class="ev-low">
-    <!-- Top 3 of each: the podium seats (the last match's top 3, or this match's empty seats while one runs) and the
-         Swim Race's last top 3, as name pills, first place first. -->
-    <section class="ds-panel ev-podp" id="ev-podp" aria-labelledby="ev-top-t">
-      <h3 class="ev-h3" id="ev-top-t">Top 3</h3>
-      <div class="ev-wrow"><div class="ev-wl"><b>Battle Royale</b><span id="ev-pcap">Last match</span></div>
-      <div class="ds-pod podium">
-        <div class="ds-pl p2 empty plinth"><span class="av" aria-hidden="true"></span><div class="nm pwho" id="ev-2nd"></div><div class="sc" id="ev-2nd-sc"></div><div class="blk pblock">2</div></div>
-        <div class="ds-pl p1 empty plinth"><span class="av" aria-hidden="true"></span><div class="nm pwho" id="ev-1st"></div><div class="sc" id="ev-1st-sc"></div><div class="pz pmoney" id="ev-1st-pz"></div><div class="blk pblock">1</div></div>
-        <div class="ds-pl p3 empty plinth"><span class="av" aria-hidden="true"></span><div class="nm pwho" id="ev-3rd"></div><div class="sc" id="ev-3rd-sc"></div><div class="blk pblock">3</div></div>
-      </div>
-      </div>
-      <div class="ev-wrow swlast" id="sw-last" hidden><div class="ev-wl"><b>Swim Race</b><span>Last race</span></div><ol class="swpod" id="sw-pod" aria-label="Last race's top 3"></ol></div>
-      <p class="ev-note" id="ev-podnote"></p>
-    </section>
-    <!-- The next four starts of each, from the servers' own schedules (startHour, startMin, every): never a copy kept here. -->
-    <section class="ds-panel ev-sch" aria-labelledby="ev-sch-t">
-      <h3 class="ev-h3" id="ev-sch-t">Every 6 hours</h3>
-      <div class="ev-wrow"><div class="ev-wl"><b>Battle Royale</b></div><div class="ds-list" id="ev-sched"><p class="ds-hint ev-wait">Getting the schedule</p></div></div>
-      <div class="ev-wrow" id="sw-schrow" hidden><div class="ev-wl"><b>Swim Race</b></div><div class="ev-chips" id="sw-sched"></div></div>
-    </section>
-  </div>
   </div>
 </main>
 
@@ -3795,14 +3787,10 @@ function openSwimHow(){
 <!-- Leaderboards (layout 1, mockup looks/ab/1/leaderboards.html). PC: player winnings and the top 10 on the left,
      Find a player and How the board works in a column on the right. Phone: winnings, search, board, how it works. -->
 <main id="social-screen" class="wrap">
-  <!-- Back to the pre-redo layout (Owen 2026-11-02): the total paid out to players on top, then Top earners, then
-       search, in one centered column. social.js fills #soc-win, leaders.js #soc-top. -->
+  <!-- Back to the pre-redo layout (Owen 2026-11-02): one centered column. The search on top since 2026-11-04 (Owen's
+       pick L1 Boxed rows), then the total paid out to players, then Top earners, each player in a box of their own.
+       social.js fills #soc-win and the search's #soc-board, leaders.js #soc-top. -->
   <div class="lb">
-    <section id="soc-win" class="ds-panel lb-sum" aria-label="Global player earnings" hidden></section>
-    <section class="lb-board" aria-labelledby="lb-top-t">
-      <div class="ds-sec-hd lb-board-hd"><h2 id="lb-top-t">Top earners</h2></div>
-      <div id="soc-top"></div>
-    </section>
     <section class="lb-find" aria-label="Find a player">
       <div class="ds-input-wrap lb-q">
         <svg class="ds-input-pre" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4.2-4.2"/></svg>
@@ -3811,6 +3799,11 @@ function openSwimHow(){
           oninput="V2Social.search(this.value)" aria-label="Search players by name" aria-controls="soc-board">
       </div>
       <div class="lb-res" id="soc-board" aria-live="polite"></div>
+    </section>
+    <section id="soc-win" class="ds-panel lb-sum" aria-label="Global player earnings" hidden></section>
+    <section class="lb-board" aria-labelledby="lb-top-t">
+      <div class="ds-sec-hd lb-board-hd"><h2 id="lb-top-t">Top earners</h2></div>
+      <div id="soc-top"></div>
     </section>
   </div>
 </main>
@@ -3846,6 +3839,15 @@ function openSwimHow(){
           How a win is counted</button>
       </section>
     </div>
+  </div>
+</main>
+
+<!-- ══ PROFILE ══ -->
+<!-- Your own profile (Owen's pick S1, 2026-11-04), in the tab where Shop was: profile.js fills #pr-body. -->
+<main id="profile-screen" class="wrap">
+  <div class="pr">
+    <div class="head"><div><h2 class="ds-t-page">Profile</h2></div></div>
+    <div id="pr-body"></div>
   </div>
 </main>
 
@@ -4107,6 +4109,7 @@ function openSwimHow(){
 <script src="/js/v2/socialPreview.js"></script>
 <script src="/js/v2/leaders.js"></script>
 <script src="/js/v2/social.js"></script>
+<script src="/js/v2/profile.js"></script>
 <script src="/js/clipPage.js"></script>
 <script src="/js/v2/clips.js"></script>
 <script src="/js/v2/updates.js"></script>
@@ -4305,7 +4308,10 @@ const GAMES=[
    play path too. Unlocking is taking the id out of that list. */
 /* A Coming soon game (window.DS_SOON from /api/soon.js: built, switched off by Owen in Control, back with the same
    switch, server/comingSoon.js) is shown exactly the same way, and loses its New tag while it is shut. */
-[...(window.DS_LOCKED?DS_LOCKED.LOCKED_GAMES:[]),...(Array.isArray(window.DS_SOON)?window.DS_SOON:[])].forEach(id=>{
+/* Coming soon in the lobby only (Owen 2026-11-04: Air Hockey). Shown exactly like the two above; every line of the
+   game, its page and its server stay as they are. Back in the lobby by taking the id out of this list. */
+const LOBBY_SOON=['airhockey'];
+[...(window.DS_LOCKED?DS_LOCKED.LOCKED_GAMES:[]),...(Array.isArray(window.DS_SOON)?window.DS_SOON:[]),...LOBBY_SOON].forEach(id=>{
   const g=GAMES.find(x=>x.id===id);
   if(!g)return;
   g.soon=1; g.locked=1;
@@ -6303,6 +6309,10 @@ const NAV=[
     router, the swipe order and old links keep working. */
  {id:'social', t:'Leaderboards', d:'Top earners, player search and player profiles.',
   p:'M16 20v-1.5a3.5 3.5 0 0 0-3.5-3.5h-5A3.5 3.5 0 0 0 4 18.5V20M10 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7M20 20v-1.5a3.5 3.5 0 0 0-2.6-3.4M15.5 4.1a3.5 3.5 0 0 1 0 6.8'},
+ /* Your own profile (Owen's pick S1, 2026-11-04), in the sidebar where Shop was. pc:1 keeps it out of the phone's
+    bottom bar, which stays Home, Events, Leaderboards, Wallet, Settings; a phone opens it from the header card. */
+ {id:'profile', t:'Profile', d:'Your earnings, your games and your paid rounds.', pc:1,
+  p:'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7'},
  {id:'wallet', t:'Wallet',  d:'Add funds, withdrawals and your transaction history.',
   p:'M3 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2H5a2 2 0 0 1-2-2m14 6h.01'},
  {id:'clips',  t:'Clips',   d:'Player clips from X, YouTube and TikTok.', pc:1,
@@ -6336,7 +6346,7 @@ const NAV=[
 
 let route='play';
 /* The PC sidebar (Owen 2026-10-27, "do whatever you think is best"; the Launcher, picked by an
-   independent judge from three finalists). Today's tabs, then Shop (soon), the Live games list
+   independent judge from three finalists). Today's tabs, then Profile (where Shop was, Owen 2026-11-04), the Live games list
    (a row opens the game, its eye watches the free room), the online line, and a foot pinned to
    the bottom: the Battle Royale, Refer a friend, Join us, Support and Settings.
    Phones never see any of it: every added block is .sbx, hidden below 761px and in the short
@@ -6366,7 +6376,7 @@ function drawNav(){
        compete, your money; then your look; then what is new; then the foot: growth, help and Settings. */
     +['play','events','social','wallet'].map(id=>navBtn(pin(id))).join('')
     +`<div class="sbx sb-gap" role="presentation"></div>`
-    +`<button class="sb-it sbx sb-soon" type="button" aria-disabled="true" aria-label="Shop, coming soon">${SBI(SB_P.shop)}<span>Shop</span><span class="sb-pill">Soon</span></button>`
+    +navBtn(pin('profile'))
     +`<button class="sb-it sbx" type="button" onclick="setLooks()">${SBI(SB_P.look)}<span>Customize</span></button>`
     +`<div class="sbx sb-gap" role="presentation"></div>`
     +['clips','updates'].map(id=>navBtn(pin(id))).join('')
@@ -6479,7 +6489,7 @@ window.V2Side=V2Side;
    showing underneath another. The player profile has no nav slot of its
    own: it is reached from the board and keeps Social lit while it is up. */
 const SCREENS=['home','allgames','detail','settings-screen',
-               'wallet-screen','events-screen','social-screen','join-screen','player-screen',
+               'wallet-screen','events-screen','social-screen','join-screen','profile-screen','player-screen',
                'clips-screen','updates-screen'];
 /* dir: +1 the new screen arrives from the right (you swiped forward), -1 from
    the left, 0 or omitted for no animation. Taps on the nav pass 0 on purpose:
@@ -6548,7 +6558,8 @@ function showScreen(id,dir){
    it away. Three calls, so swipe.js never has to know the screen ids or which
    module loads what. */
 const SCREEN_FOR={play:'home',wallet:'wallet-screen',events:'events-screen',
-                  social:'social-screen',join:'join-screen',settings:'settings-screen',clips:'clips-screen',updates:'updates-screen'};
+                  social:'social-screen',profile:'profile-screen',join:'join-screen',settings:'settings-screen',
+                  clips:'clips-screen',updates:'updates-screen'};
 window.V2_SCREEN_FOR=SCREEN_FOR;
 /* Product tracking (shared/trackPlan.js): one lobby_tab_viewed for every real
    change of tab, the first tab on load included. A re-render, a second tap on
@@ -6569,6 +6580,7 @@ function fillScreen(tab){
      page): asked for now, so "Starting your wallet" never waits on an idle moment. */
   if(tab==='wallet'){if(!window.duelWallet&&window.DSWalletBoot&&DSWalletBoot.load)DSWalletBoot.load().catch(()=>{});V2Wallet.render();}
   else if(tab==='social')V2Social.load();
+  else if(tab==='profile'&&window.V2Profile){if(!window.duelWallet&&window.DSWalletBoot&&DSWalletBoot.load)DSWalletBoot.load().catch(()=>{});V2Profile.render();}
   else if(tab==='settings')drawSettings();
   else if(tab==='clips'&&window.V2Clips)V2Clips.render();
   else if(tab==='updates'&&window.V2Updates)V2Updates.render();

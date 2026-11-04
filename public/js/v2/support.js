@@ -147,7 +147,7 @@
     }
     back = document.activeElement;
     var title = o.title || 'Support';
-    var sub = o.sub || 'Ask in the Discord, or email us.';
+    var sub = o.sub || 'Email us, or ask in the Discord.';
     ov = document.createElement('div');
     ov.className = 'sup-ov';
     // A bug report or an idea says what Gmail opens with, so nobody wonders what the button will write.
@@ -159,13 +159,14 @@
         '<div class="sup-hd"><h3 id="sup-t">' + esc(title) + '</h3>' +
           '<button class="sup-x" type="button" aria-label="Close">' + ICON.x + '</button></div>' +
         '<div class="sup-bd"><p class="sup-sub">' + esc(sub) + '</p>' +
-        /* The Discord leads, white and on top; the email and Open in Gmail sit under it (Owen 2026-11-03). */
-        '<a class="sup-b pri" href="' + DISCORD + '" target="_blank" rel="noopener noreferrer" data-a="discord">' +
-          ICON.discord + 'Ask on Discord</a>' +
+        /* In this order (Owen 2026-11-04): the address first, then Ask on Discord as the white main button, then Open
+           in Gmail at the bottom. */
         '<div class="sup-addr">' + ICON.mail + '<span class="sup-mail">' + MAIL.replace('@', '<wbr>@') + '</span>' +
           '<button class="sup-cp" type="button" aria-label="Copy the email address">' + ICON.copy + ICON.ok +
           '<span class="sup-cl" aria-live="polite">Copy</span></button></div>' + pre + '</div>' +
         '<div class="sup-go">' +
+          '<a class="sup-b pri" href="' + DISCORD + '" target="_blank" rel="noopener noreferrer" data-a="discord">' +
+            ICON.discord + 'Ask on Discord</a>' +
           '<a class="sup-b sec" href="' + esc(gmail(o.subject, o.body)) + '" target="_blank" rel="noopener noreferrer" data-a="gmail">' +
             ICON.open + 'Open in Gmail</a>' +
         '</div>' +
