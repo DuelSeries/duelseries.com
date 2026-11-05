@@ -3800,7 +3800,7 @@ function openSwimHow(){
       </div>
       <div class="lb-res" id="soc-board" aria-live="polite"></div>
     </section>
-    <section id="soc-win" class="ds-panel lb-sum" aria-label="Global player earnings" hidden></section>
+    <section id="soc-win" class="ds-panel lb-sum" aria-label="Player cash-outs" hidden></section>
     <section class="lb-board" aria-labelledby="lb-top-t">
       <div class="ds-sec-hd lb-board-hd"><h2 id="lb-top-t">Top earners</h2></div>
       <div id="soc-top"></div>
@@ -3820,8 +3820,8 @@ function openSwimHow(){
         <p class="pf-line" id="p-sub"></p>
         <p class="pf-mine" id="p-mine" hidden>This is what other players see. Change your name from your profile card in the header.</p>
       </div>
-      <!-- accounts.total_earnings accumulates winnings only, so this is a cumulative total, not a net of buy-ins.
-           Labelled as what it is. -->
+      <!-- The net since 2026-11-05 (server/netEarnings.js): paid out minus paid in, so it can be below zero.
+           social.js writes it and says what it is underneath. -->
       <div class="pf-tot"><span class="ds-t-label">Total earnings</span><b class="ds-d2 ds-money num" id="p-net" data-cu></b><span class="ds-t-meta" id="p-netsub"></span></div>
     </section>
     <div class="ds-stat-row pf-stats" id="p-tiles"></div>

@@ -1,6 +1,7 @@
 const { Pool } = require('pg');
 const playerStats = require('./playerStats');   // search, short-wallet profiles, win rate
 const playerName = require('./playerName');     // name cleaning + reserved names (night review 2026-10-29)
+const netEarnings = require('./netEarnings');   // Total earnings as paid out minus paid in (Owen 2026-11-05)
 
 const PG_SSL = (process.env.DATABASE_URL && !process.env.DATABASE_URL.includes('localhost')) ? { rejectUnauthorized: false } : false;
 
@@ -1106,14 +1107,42 @@ async function getAccountName(googleId) {
   return r.rows[0] ? r.rows[0].name : null;
 }
 
+/* Net earnings (server/netEarnings.js): paid out minus paid in plus the refunds the ledger recorded, from the first
+   recorded buy-in. That first buy-in is read once and kept: stakes_history is append-only, so it never moves. Until
+   there is one, nothing counts (a payout with no buy-in recorded would overstate what anyone made). */
+let netSinceAt = null;
+async function netSince() {
+  if (netSinceAt) return netSinceAt;
+  const r = await readPool.query(netEarnings.SINCE_SQL);
+  const t = r.rows[0] && r.rows[0].t;
+  if (t) netSinceAt = t instanceof Date ? t : new Date(t);
+  return netSinceAt;
+}
+/* What a profile answer carries besides totalEarnings: the halves of the figure, so a page can say what it is. */
+function netAnswer(n) {
+  return { paidOut: n.paidOut, paidIn: n.paidIn, refunded: n.refunded, cashouts: n.cashouts, rounds: n.rounds,
+    since: n.since ? new Date(n.since).toISOString() : null };
+}
+/* One wallet's { net, paidOut, paidIn, refunded, cashouts, rounds, since }, in dollars at the cent. Read only. */
+async function getNetEarnings(googleId) {
+  const since = await netSince();
+  const r = await readPool.query(netEarnings.NET_ONE_SQL, [googleId, since]);
+  const s = netEarnings.summarize(r.rows[0]);
+  if (!s) throw new Error('net earnings: unusable row');
+  return { ...s, since };
+}
+
 async function getMyProfile(googleId) {
   const accRes = await readPool.query(
     `SELECT name, total_earnings, games_played, play_time_seconds, created_at
      FROM accounts WHERE google_id = $1`,
     [googleId]
   );
-  if (!accRes.rows[0]) return null;
-  const row = accRes.rows[0];
+  /* What the player really made (Owen 2026-11-05). Read for a wallet with no account row too: most players stake
+     before anything gives them one, and their losses are part of the figure. */
+  const net = await getNetEarnings(googleId);
+  if (!accRes.rows[0] && !net.rounds && !net.cashouts) return null;
+  const row = accRes.rows[0] || {};
 
   const gamesRes = await readPool.query(
     `SELECT amount, created_at FROM earnings_history
@@ -1139,7 +1168,10 @@ async function getMyProfile(googleId) {
 
   return {
     name: row.name,
-    totalEarnings: parseFloat(row.total_earnings || 0),
+    /* Net, not the sum of payouts (accounts.total_earnings, which only ever added payouts): what came back minus
+       what went in, so a flat $1 round reads -$0.10 and a lost one -$1.00. Negative when the player is down. */
+    totalEarnings: net.net,
+    earnings: netAnswer(net),
     gamesPlayed: parseInt(row.games_played || 0),
     playTimeSeconds: parseInt(row.play_time_seconds || 0),
     /* No nameHistory (night review 2026-10-29): nothing has written name_history since June, no
@@ -1211,6 +1243,9 @@ async function getProfile(name) {
       GROUP BY period ORDER BY period ASC`, [gid]),
   ]);
 
+  // The same net figure the player's own Profile shows (server/netEarnings.js).
+  const net = await getNetEarnings(gid);
+
   /* Paid rounds won out of paid rounds entered (server/playerStats.js says
      exactly what counts). A failed read costs the tile, never the profile. */
   let winRate = null;
@@ -1222,7 +1257,8 @@ async function getProfile(name) {
 
   return {
     name: shown || row.name,
-    totalEarnings: parseFloat(row.total_earnings || 0),
+    totalEarnings: net.net,
+    earnings: netAnswer(net),
     gamesPlayed: parseInt(row.games_played || 0),
     playTimeSeconds: parseInt(row.play_time_seconds || 0),
     joinedAt: row.created_at,
@@ -1425,7 +1461,7 @@ module.exports = {
   features, NO_USDC_ACCOUNT,
   recordEarnings,
   onEarningsRecorded,
-  recordStake, walletsWithStakes, getTopEarners,
+  recordStake, walletsWithStakes, getTopEarners, getNetEarnings,
   getProfile, getMyProfile, getAccountName, setAccountName, searchPlayerNames, getGlobalWinnings, getGlobalWinningsSplit,
   addCosmetic, getOwnedCosmetics, ownsCosmetic,
   skinOpen, skinRow, skinSubmit, skinReopen, skinClose, skinGrant, skinDue, skinExpiredDue, skinExpire, skinExpireOpen,

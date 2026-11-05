@@ -1642,6 +1642,8 @@ const earnings = require('./earnings').createEarnings({
   excludeWallets: [...OWNER_WALLETS, REVENUE_WALLET],
   previewExclude: [REVENUE_WALLET],
   switchFile: process.env.EARNINGS_SWITCH_PATH || path.join(__dirname, 'data', 'earnings-switch.json'),
+  /* Top earners (net, owner included since 2026-11-05) never shows the Bot bank's own wallet. */
+  boardExclude: () => (botWallet && botWallet.address ? [botWallet.address] : []),
 });
 earnings.route(app);
 // A landed cash-out refreshes the figure within seconds (Social's live Global player winnings).

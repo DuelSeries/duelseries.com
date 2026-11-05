@@ -2307,7 +2307,7 @@ test('Social shows Global player winnings: real players only, the lobby strip\'s
   assert.ok(/earnings=preview/.test(code) && /\?preview=1/.test(code), 'and only ?earnings=preview asks for the owner-inclusive preview');
   assert.ok(!/Paid out to players/.test(code), 'the old label is gone');
   const html = v2();
-  assert.ok(html.includes('<section id="soc-win" class="ds-panel lb-sum" aria-label="Global player earnings" hidden></section>'),
+  assert.ok(html.includes('<section id="soc-win" class="ds-panel lb-sum" aria-label="Player cash-outs" hidden></section>'),
     'the panel is at the top of Social, hidden until the server answers');
   assert.ok(html.indexOf('id="soc-win"') < html.indexOf('id="lb-top-t"'), 'above the board');
   assert.ok(!html.includes('id="soc-tiles"'), 'the old tile is gone');

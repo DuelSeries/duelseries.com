@@ -19,6 +19,11 @@
    Names: the player's display name, or a short wallet (C5cn...H3m9) when they
    never set one. A full wallet address never leaves this file.
 
+   Top earners (/api/earnings/board, the Social tab's board) is NOT this read since 2026-11-05: it ranks players by
+   their NET earnings (server/netEarnings.js: paid out minus paid in, from the ledger), the same figure each
+   profile's Total earnings shows, and the owner is on it like any other player (Owen 2026-11-05). It still leaves
+   out the revenue wallet, the test wallets in C_TOP_EXCLUDE and the Bot bank's wallet; bots have no wallet.
+
    Preview: /api/earnings?preview=1 is the same read with the owner's own
    cash-outs let in (the revenue wallet still never counts), so Owen can see
    the strip filled before real players have cashed out. Only the viewer who
@@ -36,6 +41,7 @@ const path = require('path');
 const CONFIG = require('./config');
 const { TOP_ROWS } = require('../sl/slTopCashout');
 const { INVISIBLE_RE } = require('../chatGuard');
+const net = require('../netEarnings');
 
 const SINCE = TOP_ROWS.C_TOP_SINCE.value;
 const LANDED = TOP_ROWS.C_TOP_LANDED.value;
@@ -247,8 +253,10 @@ function createHideSwitch({ file, fsx = fs, log = console } = {}) {
 /* query(sql, params) -> Promise<{rows}>, or null with no database (then the strip never shows).
    excludeWallets: the owner wallets AND the revenue wallet (required).
    previewExclude: what the preview still leaves out (the revenue wallet, at least). */
+/* boardExclude: () => more wallets Top earners leaves out, asked at each read (index.js: the Bot bank's wallet, which
+   exists only once its key file is read). */
 function createEarnings({ query, excludeWallets, previewExclude, switchFile = null, config = CONFIG,
-  now = Date.now, log = console, fsx = fs, setTimer = setTimeout } = {}) {
+  now = Date.now, log = console, fsx = fs, setTimer = setTimeout, boardExclude = null } = {}) {
   const list = (ws) => {
     const out = [];
     for (const w of ws || []) if (typeof w === 'string' && w && !out.includes(w)) out.push(w);
@@ -270,17 +278,30 @@ function createEarnings({ query, excludeWallets, previewExclude, switchFile = nu
   const sw = createHideSwitch({ file: switchFile, fsx, log });
   const stats = { reads: 0, fails: 0 };
 
-  // kind: the strip's grouped read (default), or the Live wins row's recent list.
+  /* Top earners leaves out what the preview leaves out (the revenue wallet and the test wallets), never the owner,
+     plus anything boardExclude names. */
+  const boardEx = () => {
+    const out = pExclude.slice();
+    let more = [];
+    try { more = typeof boardExclude === 'function' ? boardExclude() : []; } catch (_) { more = []; }
+    for (const w of Array.isArray(more) ? more : []) if (typeof w === 'string' && w && !out.includes(w)) out.push(w);
+    return out;
+  };
+
+  // kind: the strip's grouped read (default), the Live wins row's recent list, or Top earners by net ('net').
   function cache(ex, kind) {
     const recent = kind === 'recent';
+    const netBoard = kind === 'net';
     let value = null, at = 0, inFlight = null, pokeTimer = null;
     function refresh() {
       if (inFlight) return inFlight;
       inFlight = (async () => {
         try {
-          const res = recent ? await query(RECENT_SQL, recentParams(ex))
+          const res = netBoard ? await query(net.NET_BOARD_SQL, net.boardParams(boardEx()))
+            : recent ? await query(RECENT_SQL, recentParams(ex))
             : await query(EARNINGS_SQL, earningsParams(ex, config.TIME_ZONE));
-          const v = recent ? recentWins(ownerSince(res && res.rows)) : summarize(res && res.rows);
+          const v = netBoard ? net.boardRows(res && res.rows)
+            : recent ? recentWins(ownerSince(res && res.rows)) : summarize(res && res.rows);
           if (!v) { stats.fails++; log.warn('[EARN] unusable rows, keeping the last value'); return value; }
           stats.reads++;
           value = v;
@@ -315,6 +336,7 @@ function createEarnings({ query, excludeWallets, previewExclude, switchFile = nu
   const pub = typeof query === 'function' ? cache(exclude) : null;
   const pre = typeof query === 'function' ? cache(pExclude) : null;
   const rec = typeof query === 'function' ? cache(pExclude, 'recent') : null;   // the owner counts on the wins row
+  const top = typeof query === 'function' ? cache(null, 'net') : null;          // Top earners, by net, owner included
 
   const OFF = Object.freeze({ on: false });
   function shown() { return !!config.SHOW && !sw.hidden(); }
@@ -340,17 +362,16 @@ function createEarnings({ query, excludeWallets, previewExclude, switchFile = nu
     return { on: true, preview: !!preview, ...v };
   }
 
-  /* The Social tab's Top earners: the all-time top 10 from the same cached
-     read, so the board and the strip can never disagree about who earned what.
-     Never the owner (no preview here). Not behind the strip's switch: that
-     hides the gold strip, and the board on the Social tab is its own screen
-     that was always shown. ok:false is a failed read, which the lobby says,
-     rather than an empty board that would read as "nobody has won". */
+  /* The Social tab's Top earners: the all-time top 10 by NET earnings (server/netEarnings.js, Owen 2026-11-05), the
+     same figure each profile's Total earnings shows, so the board and a profile can never disagree. Players who are
+     up only; the owner like anyone else. Not behind the strip's switch: that hides the gold strip, and the board on
+     the Social tab is its own screen that was always shown. ok:false is a failed read, which the lobby says, rather
+     than an empty board that would read as "nobody has won". */
   async function board() {
-    if (!pub) return { ok: false, top: [] };
-    const v = await pub();
+    if (!top) return { ok: false, top: [] };
+    const v = await top();
     if (!v) return { ok: false, top: [] };
-    return { ok: true, top: v.periods.all.top.map((r, i) => ({ rank: i + 1, ...r })) };
+    return { ok: true, top: v.map((r) => ({ ...r })) };
   }
 
   /* The Live wins row: {ok:true, wins:[{name, game, amount}]} newest first, or ok:false (no database or a failed
@@ -402,6 +423,7 @@ function createEarnings({ query, excludeWallets, previewExclude, switchFile = nu
     if (pub) pub.poke();
     if (pre) pre.poke();
     if (rec) rec.poke();
+    if (top) top.poke();
   }
 
   return {

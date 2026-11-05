@@ -2,8 +2,10 @@
 /* ─── Profile (Owen's pick S1, 2026-11-04): your own record in one place, in the tab where Shop was ─────────────
    Mockup: Claude Code Test/lobby-round/s1.html. Nothing new on the server; the two answers that already exist:
 
-     GET /api/my-profile?wallet=<address> -> { name, totalEarnings, gamesPlayed, playTimeSeconds,
+     GET /api/my-profile?wallet=<address> -> { name, totalEarnings, earnings, gamesPlayed, playTimeSeconds,
                                                games: [{ amount, at }] }       every cash-out (the Wallet's rows)
+       totalEarnings is the NET (server/netEarnings.js, Owen 2026-11-05): paid out minus paid in, so it can be below
+       zero (-$0.10 for a flat $1 round); earnings carries its halves and the date it counts from.
      GET /api/profile/:name               -> { joinedAt, winRate: { entered, won, since, games: [{ game, entered, won }] } }
 
    The second is asked only with a name, which is what the board and the search know a player by. Cash-outs are
@@ -19,6 +21,18 @@
   const el = id => document.getElementById(id);
   // Always dollars, with thousands separators (social.js's money).
   const money = n => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // A figure that can be below zero: -$0.10, never $-0.10.
+  const signed = n => (Number(n) < 0 ? '-' : '') + money(Math.abs(Number(n) || 0));
+  /* Under Total earnings, what it is (Owen 2026-11-05): the server's net, paid out minus paid in. Counted from the
+     first recorded buy-in, so a player with cash-outs from before then is told the date. */
+  function netCaption(m, cash) {
+    const e = m.earnings || null;
+    if (!e || !(e.rounds > 0 || e.cashouts > 0)) return 'No paid rounds yet';
+    const since = Date.parse(e.since);
+    const older = since && cash.some(g => Date.parse(g.at) < since);
+    return 'Cash-outs minus buy-ins, after the 10% cut' +
+      (older ? ', since ' + new Date(since).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '');
+  }
   const esc = s => String(s == null ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   const plural = (n, w) => n + ' ' + w + (n === 1 ? '' : 's');
@@ -101,8 +115,9 @@
           (name ? '<button type="button" class="ds-btn ds-btn-secondary ds-btn-sm" data-pr="public">' + ICON.eye + 'See what others see</button>' : '') +
           '<button type="button" class="ds-btn ds-btn-quiet ds-btn-sm" data-pr="name">' + ICON.pen + (name ? 'Change name' : 'Pick a name') + '</button>' +
         '</div></div>' +
-      '<div class="pr-tot"><span class="ds-t-label">Total earnings</span><b class="num">' + money(m.totalEarnings) + '</b>' +
-        '<span class="ds-t-meta">' + (cash.length ? plural(cash.length, 'cash-out') + ', after the 10% cut' : 'No cash-outs yet') + '</span></div>' +
+      '<div class="pr-tot"><span class="ds-t-label">Total earnings</span><b class="num"' +
+        (Number(m.totalEarnings) < 0 ? ' style="color:var(--ds-red)"' : '') + '>' + signed(m.totalEarnings) + '</b>' +
+        '<span class="ds-t-meta">' + esc(netCaption(m, cash)) + '</span></div>' +
       '</section>';
 
     const stat = (label, val, small, cls) => '<div class="ds-stat"><span>' + label + '</span><b class="num' + (cls ? ' ' + cls : '') + '">' + val + '</b>' +

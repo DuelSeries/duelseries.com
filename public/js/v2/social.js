@@ -12,7 +12,9 @@
                                     wildcards escaped (server/playerStats.js)
                                     NOTE: names only, so opening a result costs a
                                     second request for the profile itself
-     GET /api/profile/:name      -> { name, totalEarnings, gamesPlayed,
+     GET /api/profile/:name      -> { name, totalEarnings (the net: paid out
+                                      minus paid in, can be below zero),
+                                      earnings, gamesPlayed,
                                       playTimeSeconds, joinedAt, winRate,
                                       games: [{ amount, at }], … }
                                     :name is a name, or the short wallet the
@@ -133,7 +135,9 @@
       const sample = d.preview && !d.preview.liveLook ? d.preview : null;
       // The pre-redo board's top (Owen 2026-11-02): the title and the figure, nothing else.
       // "● Live", then Sample right after it while the figure is made up (Owen 2026-11-02), as on Top earners.
-      box.innerHTML = '<div class="lb-sum-hd"><h3 class="lb-sum-t">Global player earnings</h3>' +
+      /* "Player cash-outs", not "earnings" (2026-11-05): this is every landed cash-out added up, the strip's own
+         total, while earnings on a profile and on Top earners are net of buy-ins. */
+      box.innerHTML = '<div class="lb-sum-hd"><h3 class="lb-sum-t">Player cash-outs</h3>' +
         '<span class="ds-chip ds-chip-live lb-live">Live</span>' +
         (sample ? '<span class="ds-chip lb-sample">' + sample.tag + '</span>' : '') + '</div>' +
         '<div class="lb-fig"><span class="win-vw"><b class="win-v num" data-cu="soc-win" data-cu-rise></b><span class="win-up num" aria-hidden="true"></span></span></div>';
@@ -170,7 +174,7 @@
     }
     const sub = el('soc-winsub');
     if (sub) sub.textContent = to > 0
-      ? 'won by players ' + WORD[p] + (n ? ', across ' + plural(n, 'cash-out') : '') + '.'
+      ? 'cashed out by players ' + WORD[p] + (n ? ', across ' + plural(n, 'cash-out') : '') + '.'
       : p === 'all' ? 'Nothing paid out to players yet. This counts real players\' cash-outs from paid rooms.'
       : 'Nothing paid out to players ' + WORD[p] + ' yet.';
     v.setAttribute('aria-label', usd(to));
@@ -374,8 +378,17 @@
     ].filter(Boolean).join(' ');
     const ar = el('p-art'), src = art(top);
     if (ar) { if (src) { if (ar.getAttribute('src') !== src) ar.src = src; ar.hidden = false; } else ar.hidden = true; }
-    el('p-net').textContent = money(p.totalEarnings);
-    el('p-netsub').textContent = games.length ? plural(games.length, 'cash-out') + ', after the 10% cut' : 'No cash-outs yet';
+    /* The net (server/netEarnings.js, Owen 2026-11-05): paid out minus paid in, the same figure the player's own
+       Profile and the board show. Below zero it reads -$0.10, in red. */
+    const net = Number(p.totalEarnings) || 0, e = p.earnings || null;
+    el('p-net').textContent = (net < 0 ? '-' : '') + money(Math.abs(net));
+    el('p-net').style.color = net < 0 ? 'var(--ds-red)' : '';
+    const since = e && Date.parse(e.since);
+    const older = since && games.some(g => Date.parse(g.at) < since);
+    el('p-netsub').textContent = e && (e.rounds > 0 || e.cashouts > 0)
+      ? 'Cash-outs minus buy-ins, after the 10% cut' +
+        (older ? ', since ' + new Date(since).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '')
+      : (p.preview && games.length ? 'Cash-outs minus buy-ins, after the 10% cut' : 'No paid rounds yet');
     WR = w || null; WRNAME = p.name;
     el('p-tiles').innerHTML = winRateTile(p.winRate) + [
       ['Games played', String(p.gamesPlayed || 0), 'Free and paid'],
