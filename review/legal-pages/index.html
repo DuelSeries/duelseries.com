@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Legal pages review</title>
+<style>
+  :root{--ink:#000;--s1:#0d0b08;--s2:#1a1611;--line:#36291a;--bone:#f4f1ea;--tx2:#b3a792;--tx3:#988b78;--red:#ef7461;--red-t:rgba(239,116,97,.15)}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--ink);color:var(--tx2);font:16px/1.6 'Segoe UI',system-ui,-apple-system,Roboto,Arial,sans-serif;padding:32px 16px 64px}
+  .wrap{max-width:1100px;margin:0 auto}
+  h1{color:var(--bone);font-size:34px;line-height:1.1;letter-spacing:-.02em}
+  h2{color:var(--bone);font-size:24px;margin:48px 0 12px;padding-top:16px;border-top:1px solid var(--line)}
+  h3{color:var(--bone);font-size:17px;margin:24px 0 8px}
+  p{max-width:75ch}
+  p+p{margin-top:10px}
+  ul,ol{padding-left:22px;margin-top:8px}
+  li{max-width:80ch}
+  li+li{margin-top:6px}
+  a{color:var(--bone)}
+  code{font:13px ui-monospace,Menlo,Consolas,monospace;color:var(--bone);background:var(--s2);padding:1px 5px;border-radius:4px}
+  .meta{margin-top:6px;font-size:14px}
+  .warn{margin:20px 0;padding:14px 18px;border-radius:12px;background:var(--red-t);box-shadow:inset 0 0 0 1px rgba(239,116,97,.5);color:var(--bone)}
+  .q li{color:var(--bone)}
+  .q .pg{color:var(--tx3);font-size:13px;margin-left:4px}
+  .shots{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,1fr);gap:16px;margin-top:16px}
+  .shot{background:var(--s1);border-radius:12px;box-shadow:inset 0 0 0 1px var(--line);padding:10px}
+  .shot b{display:block;color:var(--bone);font-size:13px;margin-bottom:6px}
+  .frame{max-height:80vh;overflow:auto;border-radius:8px;background:#000}
+  .frame img{display:block;width:100%;height:auto}
+  nav.toc{margin-top:16px;display:flex;flex-wrap:wrap;gap:8px}
+  nav.toc a{padding:6px 12px;border-radius:8px;background:var(--s2);text-decoration:none;font-size:14px}
+  @media(max-width:760px){.shots{grid-template-columns:1fr}h1{font-size:28px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Legal pages review</h1>
+  <p class="meta">Terms of service, Privacy policy and Responsible play, rewritten from the code on November 5, 2026.
+    Code on branch <code>claude/legal-pages</code> (final commit <code>b63e22da</code>). Nothing is merged or deployed.</p>
+
+  <div class="warn"><b>This is not legal advice.</b> The pages were written by reading the code, not by a lawyer.
+    A lawyer should check all three before anyone relies on them, especially because the site runs paid skill games
+    with computer players that can win real money.</div>
+
+  <nav class="toc" aria-label="On this page">
+    <a href="#questions">Your questions</a>
+    <a href="#look-at">Worth a look</a>
+    <a href="#terms">Terms</a>
+    <a href="#privacy">Privacy</a>
+    <a href="#responsible">Responsible play</a>
+  </nav>
+
+  <h2 id="questions">Every [Owen to confirm] question</h2>
+  <p>These show on the pages as red marks until you answer them. Age 21 and the Gmail address are your answers from
+    October 15, kept but marked so you can say they still stand.</p>
+  <ol class="q">
+    <li>The legal name of the person or business that runs the site, and its address. <span class="pg">Terms, Privacy</span></li>
+    <li>Is playduelseries@gmail.com also the address for legal and privacy requests? <span class="pg">Terms</span></li>
+    <li>Is 21 still the minimum age for paid play? <span class="pg">Terms, Responsible play</span></li>
+    <li>Places where paid play is not offered. The site blocks no country or region today. <span class="pg">Terms</span></li>
+    <li>Paid snake on the old engine (used only while the new one is switched off) has no restart refund in the code. Fix it, or keep the old engine off? <span class="pg">Terms</span></li>
+    <li>What happens to results, payouts and access when cheating is found? The site has no way to ban a wallet today. <span class="pg">Terms</span></li>
+    <li>Limits of liability. <span class="pg">Terms</span></li>
+    <li>Which law governs the terms, and where disputes are settled. <span class="pg">Terms</span></li>
+    <li>Add an analytics opt-out or consent choice? Some places, for example the EU, require one. <span class="pg">Privacy</span></li>
+    <li>The countries where the servers and the database are. <span class="pg">Privacy</span></li>
+    <li>How long to keep accounts, money records and server logs, including after a deletion request. Nothing deletes them today. <span class="pg">Privacy</span></li>
+    <li>The youngest age allowed to use free games and to make an account. <span class="pg">Privacy</span></li>
+    <li>Can players ask to be kept out of paid games, how, and for how long? The site cannot block a wallet today. <span class="pg">Responsible play</span></li>
+    <li>Helplines for the other places players come from, such as the rest of Canada and Europe. <span class="pg">Responsible play</span></li>
+  </ol>
+
+  <h2 id="look-at">Worth a look before launch</h2>
+  <p>Things the code does today that the pages now say plainly. A lawyer will likely ask about them.</p>
+  <ul>
+    <li><b>Arena bots look like people.</b> In the snake, cell, Paper and maze games they have ordinary names, no
+      bot label, and the lobby counts them as players. In paid rooms they carry the room's buy-in from the Bot bank,
+      and players win or lose real money against them. The Terms say this in those words.</li>
+    <li><b>Paid duel bots (branch <code>owner/bots</code>).</b> The Terms already describe them, so they stay true
+      whether that branch merges or not. Before it merges: that branch also edits <code>public/terms.html</code>
+      (keep the new Computer players section); the Swim bot is built to be "as good as it can get"; the
+      "Bot opponent waiting" consent is a note in the browser that the server trusts; and
+      <code>server/gamePageData.js</code> and two Updates posts still say paid duels are always against a real person.</li>
+    <li><b>No age check, no region block, no limits or self-exclusion.</b> The pages say so instead of promising
+      them.</li>
+    <li><b>PostHog session recording is on for every visitor</b>, with no opt-out (question 9).</li>
+    <li><b>Anyone can look up any wallet's profile, buy-ins included,</b> through <code>/api/my-profile?wallet=</code>
+      with no sign-in. The Privacy page says so. If you would rather it did not, that route needs a sign-in check,
+      and then that line can go.</li>
+    <li><b>Nothing is ever deleted</b> from the database, and there is no delete tool. Accounts from the old Google
+      sign-in may still hold an email address.</li>
+    <li><b>Sample players</b> fill the leaderboards and the recent wins list on main (<code>SAMPLE_BOARD</code> and
+      <code>SAMPLE_WINS</code> on). The Terms say they are all marked "Sample".</li>
+    <li><b>An overpaid buy-in keeps the extra.</b> The site asks for the exact amount, so this should be rare.</li>
+  </ul>
+
+  <h2 id="terms">Terms of service</h2>
+  <h3>What changed</h3>
+  <ul>
+    <li>Every money fact checked against the code: money held as SOL, shown in dollars, a live price from several
+      sources, and paid games wait when there is no good price.</li>
+    <li>Sign-in now includes wallet apps (Phantom, Solflare, Backpack), not just Google and email.</li>
+    <li>New Adding and withdrawing section: MoonPay for cards, send SOL only (the old page still said USDC was fine),
+      Convert through Jupiter, Withdraw with the player paying the network fee and 0.001 SOL kept, no fee of ours.</li>
+    <li>Paid games: the duel split ($1.80 from a $1 duel), the network fee on buy-ins, unclaimed floor money going
+      to the house, and an overpaid buy-in keeping the extra.</li>
+    <li>New If something goes wrong section: disconnects in each kind of game, full refunds on a restart or crash,
+      automatic refunds when a game cannot seat you or a buy-in goes unused for five minutes, failed payouts retried,
+      and no other refunds.</li>
+    <li>New Computer players section covering free arenas, free duels, paid arenas, paid duels and the Battle Royale.</li>
+    <li>Battle Royale fixed: every six hours, not nightly, with the real prize rules and when a prize is held.</li>
+    <li>New sections for skins (no refunds), chat rules and clips, plus a line on Sample players.</li>
+    <li>Fair play now says what the site really checks (teaming between accounts) and does not claim bans.</li>
+    <li>Old blanks are now [Owen to confirm] marks. The date is November 5, 2026.</li>
+  </ul>
+  <div class="shots">
+    <div class="shot"><b>PC, 1440 wide</b><div class="frame"><a href="terms-pc-1440.jpg"><img src="terms-pc-1440.jpg" alt="Terms of service on a PC" loading="lazy"></a></div></div>
+    <div class="shot"><b>Phone, 384 wide</b><div class="frame"><a href="terms-phone-384.jpg"><img src="terms-phone-384.jpg" alt="Terms of service on a phone" loading="lazy"></a></div></div>
+  </div>
+
+  <h2 id="privacy">Privacy policy</h2>
+  <h3>What changed</h3>
+  <ul>
+    <li>What we keep is now the real list from the database: buy-ins, payouts, house fee rows with name and wallet,
+      skins, teaming flags, and Battle Royale prize records with the winner's internet address.</li>
+    <li>Says what is not collected (email, card details), and that old Google-era accounts may still hold an email.</li>
+    <li>Analytics spelled out: PostHog session recordings and what they hide, linked to the wallet once signed in,
+      money events from the server, the IP reaching PostHog, and no opt-out.</li>
+    <li>New Chat and clips section: chat is not saved; what a clip keeps, the microphone only when turned on, and a
+      scrambled uploader IP.</li>
+    <li>What is public now includes the full profile and the wallet lookup.</li>
+    <li>On your device lists Privy's tokens, the 30-day device key, the first-visit record and PostHog's cookie.</li>
+    <li>Who else handles it adds MoonPay, Jupiter, ntfy (your own alerts), Google Fonts and the clip sites.</li>
+    <li>How long we keep it replaces the blank with what the code does, plus a question for the rest.</li>
+    <li>Your choices adds deleting a clip and how to ask for your data or its deletion.</li>
+  </ul>
+  <div class="shots">
+    <div class="shot"><b>PC, 1440 wide</b><div class="frame"><a href="privacy-pc-1440.jpg"><img src="privacy-pc-1440.jpg" alt="Privacy policy on a PC" loading="lazy"></a></div></div>
+    <div class="shot"><b>Phone, 384 wide</b><div class="frame"><a href="privacy-phone-384.jpg"><img src="privacy-phone-384.jpg" alt="Privacy policy on a phone" loading="lazy"></a></div></div>
+  </div>
+
+  <h2 id="responsible">Responsible play</h2>
+  <h3>What changed</h3>
+  <ul>
+    <li>A plain warning first: these are skill games for real money, you can lose, computer players can win your
+      money, and SOL's dollar value moves.</li>
+    <li>Who can play for money, and that the site does not check age.</li>
+    <li>New What you can do today section with only real tools: free rooms, keeping little in the game wallet,
+      not adding funds, checking the Wallet history, signing out.</li>
+    <li>Taking a break is a question for you, and says the site cannot block a wallet today.</li>
+    <li>Helplines kept as checked on October 15, with a question about other places.</li>
+  </ul>
+  <div class="shots">
+    <div class="shot"><b>PC, 1440 wide</b><div class="frame"><a href="responsible-play-pc-1440.jpg"><img src="responsible-play-pc-1440.jpg" alt="Responsible play on a PC" loading="lazy"></a></div></div>
+    <div class="shot"><b>Phone, 384 wide</b><div class="frame"><a href="responsible-play-phone-384.jpg"><img src="responsible-play-phone-384.jpg" alt="Responsible play on a phone" loading="lazy"></a></div></div>
+  </div>
+</div>
+</body>
+</html>
