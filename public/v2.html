@@ -1765,8 +1765,8 @@ svg.v2chart text{font-family:var(--ds-f);font-variant-numeric:tabular-nums;font-
 .cl-cols{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:var(--ds-sp6);align-items:start;max-width:1180px}
 .cl-wallcol{min-width:0}
 .cl-rail{display:flex;flex-direction:column;gap:var(--ds-sp4)}
-.cl-rail h2,.cl-queue h2{margin:0;font-size:var(--ds-fs-4);font-weight:750;line-height:1.2}
-#clips-screen .cl-rail .ds-panel-head,#clips-screen .cl-queue .ds-panel-head{margin-bottom:var(--ds-sp3)}
+.cl-rail h2{margin:0;font-size:var(--ds-fs-4);font-weight:750;line-height:1.2}
+#clips-screen .cl-rail .ds-panel-head{margin-bottom:var(--ds-sp3)}
 #clips-screen .cl-wall-hd{align-items:baseline}
 /* the wall */
 .clgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(228px,1fr));gap:var(--ds-sp5) var(--ds-sp4)}
@@ -1787,8 +1787,7 @@ svg.v2chart text{font-family:var(--ds-f);font-variant-numeric:tabular-nums;font-
 .clname{color:var(--ds-bone);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .clgame{white-space:nowrap}
 .clwhen{margin-left:auto;padding-left:var(--ds-sp2);white-space:nowrap}
-.clacts,.clsh{display:flex;gap:var(--ds-sp2);align-items:center;flex-wrap:wrap}
-.clnote{margin-left:auto}
+.clsh{display:flex;gap:var(--ds-sp2);align-items:center;flex-wrap:wrap}
 #clips-screen .clno.is-sure{color:var(--ds-red)}
 /* nothing on the wall yet, or it did not load: three empty frames and one sentence */
 .clempty{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--ds-sp4)}
@@ -1796,11 +1795,6 @@ svg.v2chart text{font-family:var(--ds-f);font-variant-numeric:tabular-nums;font-
 .clempty-msg{grid-column:1/-1;display:flex;flex-direction:column;gap:6px;max-width:60ch}
 .clempty-msg b{font-size:var(--ds-fs-4);font-weight:750}
 .clempty-msg span{color:var(--ds-tx2)}
-/* the owner's review box: only the owner wallet ever gets it (the server decides; clips.js ownerVerdict) */
-#clips-screen .cl-queue{margin-bottom:var(--ds-sp6)}
-#clips-screen .cl-queue h2{display:inline-flex;align-items:center;gap:var(--ds-sp2)}
-.clqnone{margin:0;color:var(--ds-tx2)}
-.clqlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:var(--ds-sp5) var(--ds-sp4)}
 /* the rail: Your clips (the upload box, then each clip as a row with its state and Delete) */
 .cldrop{display:grid;grid-template-columns:44px minmax(0,1fr);gap:4px var(--ds-sp3);align-items:center;width:100%;padding:var(--ds-sp4);
   border:0;border-radius:var(--ds-r2);background:var(--ds-ink);color:var(--ds-bone);text-align:left;cursor:pointer;
@@ -3974,7 +3968,6 @@ function openSwimHow(){
   </div>
   <div class="cl-cols">
     <div class="cl-wallcol">
-      <section id="cl-queue" class="ds-panel cl-queue" aria-label="Clips waiting for review" hidden></section>
       <section class="cl-wall" aria-labelledby="cl-wall-t">
         <div class="ds-sec-hd cl-wall-hd"><h2 id="cl-wall-t">On the wall</h2><span class="ds-t-meta" id="cl-wall-n"></span></div>
         <div id="cl-grid" class="clgrid"></div>
@@ -6384,7 +6377,6 @@ const NAV=[
  {id:'wallet', t:'Wallet',  d:'Add funds, withdrawals and your transaction history.',
   p:'M3 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2H5a2 2 0 0 1-2-2m14 6h.01'},
  {id:'clips',  t:'Clips',   d:'Player clips from X, YouTube and TikTok.', pc:1,
-  dot:()=>!!(window.V2Clips&&V2Clips.dot()),
   p:'M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM10 9.2v5.6l4.6-2.8z'},
  {id:'updates',t:'Updates', d:'Everything new on DuelSeries, newest first.', pc:1,
   dot:()=>!!(window.V2Updates&&V2Updates.unread()),
