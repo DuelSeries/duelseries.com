@@ -1,6 +1,5 @@
 'use strict';
-// Chomp, simpler and faster (Owen 2026-10-30): a dot is a tiny speed bump, a cherry a big boost, a power pellet clearly
-// faster; two ghosts a module; and meetings that happen BETWEEN two ticks (two things passing through each other at
+// Chomp speeds (Owen 2026-11-04, fewer boosts): one flat speed, powered the arcade 90%, no cherry or dot boost; two ghosts a module; and meetings that happen BETWEEN two ticks (two things passing through each other at
 // speed) still count.
 const test = require('node:test');
 const assert = require('node:assert');
@@ -15,37 +14,30 @@ function sealedRoom(seed) {
   return new ChompRoom({ mx: 1, my: 1, botFill: 0, seed: seed || 1, grow: false, wrap: false, log: quiet });
 }
 
-test('the speeds: powered clearly faster, a cherry big, a dot small; never half a tile a tick', () => {
+test('the speeds are flat (Owen 2026-11-04): powered the arcade 90%, no cherry and no dot boost', () => {
   const base = R.pace(false, false, false);
-  assert.ok(R.pace(true, false, false) / base >= 1.25, 'powered is clearly faster than a runner');
-  assert.ok(R.pace(true, false, false) > R.pace(false, false, true) * 1.15, 'powered catches a runner fed by dots');
-  assert.ok(R.pace(false, true, false) / base >= 1.3, 'a cherry is a big boost');
-  const bump = R.pace(false, false, true) / base;
-  assert.ok(bump > 1 && bump <= 1.1, 'a dot is a small bump');
+  assert.ok(Math.abs(R.pace(true, false, false) / base - 0.9 / 0.8) < 1e-9, 'powered is the arcade 90% against 80%');
+  assert.strictEqual(R.pace(false, true, false), base, 'a cherry gives no speed');
+  assert.strictEqual(R.pace(false, false, true), base, 'a dot gives no speed');
+  assert.strictEqual(R.DOT_BUMP_TICKS, 0);
+  assert.strictEqual(R.FRUIT_BOOST_S, 0);
   assert.ok(R.pace(true, true, true) * DT < 0.5, 'the fastest chomper never skips a tile centre');
-  assert.ok(R.DOT_BUMP_TICKS > 0 && R.DOT_BUMP_TICKS <= 30, 'the bump is short');
-  assert.strictEqual(R.DOT_PAUSE_TICKS, 0, 'a dot no longer stops you');
+  assert.strictEqual(R.DOT_PAUSE_TICKS, 0, 'a dot does not stop you');
 });
 
-test('a dot bumps its eater from the next tick, the bump runs out, and the wire says so', () => {
+test('a dot no longer changes its eater speed, and no bump or boost goes on the wire', () => {
   const room = sealedRoom(4);
   const p = room.addPlayer({ name: 'p' });
   p.x = 3.5; p.y = 1.5; p.dir = 3; p.want = 3; p.safe = 0;
   room.dots.fill(0);
   room.dots[1 * room.A.W + 4] = 1;
   const base = room.speedOf(p);
-  let ticks = 0;
-  while (!p.bump && ticks++ < 30) room.step();
-  assert.strictEqual(p.bump, R.DOT_BUMP_TICKS, 'eating the dot set the bump');
-  assert.ok(Math.abs(room.speedOf(p) / base - R.DOT_BUMP) < 1e-9);
-  const parts = room.snapParts();
-  assert.ok(parts.ps.find((q) => q.id === p.id).flags & Wire.F.BUMP, 'the bump travels on the wire');
-  const x0 = p.x;
-  room.step();
-  assert.ok(Math.abs((p.x - x0) - base * R.DOT_BUMP * DT) < 1e-9, 'the next tick runs bumped');
-  for (let i = 0; i < R.DOT_BUMP_TICKS; i++) room.step();
-  assert.strictEqual(p.bump, 0, 'and it runs out');
+  for (let i = 0; i < 20; i++) room.step();
+  assert.strictEqual(room.dots[1 * room.A.W + 4], 0, 'the dot was eaten');
+  assert.strictEqual(p.bump, 0);
   assert.ok(Math.abs(room.speedOf(p) - base) < 1e-9);
+  const parts = room.snapParts();
+  assert.ok(!(parts.ps.find((q) => q.id === p.id).flags & (Wire.F.BUMP | Wire.F.BOOST)), 'no bump or boost flag');
 });
 
 test('a powered chomper outruns one fleeing down the same corridor', () => {

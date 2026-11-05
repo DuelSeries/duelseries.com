@@ -98,6 +98,14 @@ His Short of it took off and he said "there's just too much going on". All in `s
   presses arriving together were dropped by the old 12 ms gap rule, now a token bucket of 4 in `chompBoot`) is
   pressed again after 30 ticks with no echo, so the page and the server can no longer go separate ways for seconds.
 
+## More maze, fewer boosts (Owen 2026-11-04)
+
+After a rethink with eight new modes (branch chomp-rethink, `Claude Code Test/pacman/`), Owen kept the growing arena:
+"make the arena a little bit more complicated, more obstacles, how it would be in real Pac-Man... and get rid of a lot
+of the boosts". So the module is a full arcade-style one again (about 26 blocks, T shapes and pillars, the pre-10-30
+layout, every arena size tiles it), the cherry is 100 points with no speed, the dot bump is gone, and powered is the
+arcade's 90% (was 105%). Base speed stays the arcade's 80%.
+
 ## Netcode in one paragraph
 
 The server sims at 60 Hz and sends a 20 Hz binary snapshot (volatile, sent before any reliable emit so it is not
