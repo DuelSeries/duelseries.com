@@ -187,7 +187,7 @@ test('the widget: the player\'s wallet is the signed-in one only, signed through
   assert.match(src, /createOnLogin: 'off' \}, solana: \{ createOnLogin: 'off' \}/);
   // every money signature goes through the one signer that knows both kinds of wallet
   for (const call of ['stakeAndPlay(game, sel, wallet, signTx,', 'swapRun(q && q.requestId, wallet, signTx)', 'signSkinPayment(quote, wallet, signTx)',
-                      'sendSol(toAddress, amount, wallet, signTx)', 'signRef.current = signTx;']) {
+                      'sendSol(toAddress, lamports, wallet, signTx)', 'signRef.current = signTx;']) {
     assert.ok(src.includes(call), call);
   }
   assert.match(src, /wallet\.external && DEVICE_ACTIONS\.includes\(action\)/, 'silent actions never pop the browser wallet');

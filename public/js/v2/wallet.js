@@ -50,6 +50,10 @@
      the network refuses the account, and a wallet down to dust cannot pay for its next move. Same numbers as
      wallet-widget/src/solReserve.mjs, which re-checks every send against a fresh balance. */
   const KEEP_LAMPORTS = 1000000, SEND_FEE_LAMPORTS = 5000;
+  /* And every SOL send is at least 0.001 SOL (withdraw fee review 2026-11-05): an address the network has never seen
+     must be given at least its rent minimum (890,880 lamports) or the whole transfer fails on chain. Same number as
+     solReserve.mjs MIN_SEND_LAMPORTS, which the widget checks again before it signs. */
+  const MIN_SEND_LAMPORTS = 1000000;
   const connected = () => !!(w().authenticated && w().address);
   /* SOL beside the dollars (Owen, 2026-10-15: "Accept both, play in USDC"). Card top-ups and
      exchange sends land as SOL; everything but the reserve kept for network fees can become
@@ -65,6 +69,8 @@
   // A SOL amount exactly as typed, up to the six places the form takes: the confirm step shows what is sent.
   const solPlain = sol => parseFloat((Number(sol) || 0).toFixed(9)) + ' SOL';
   const maxSendLamports = () => Math.max(0, solLamports() - KEEP_LAMPORTS - SEND_FEE_LAMPORTS);
+  // Whether a read balance leaves anything to send as SOL: the most it can send is at least the smallest send.
+  const canSendSol = () => maxSendLamports() >= MIN_SEND_LAMPORTS;
   /* Whether the wallet's SOL has been read at all (night review 2026-10-29, third pass). Unread (a busy moment on the
      server's reads), Withdraw still opens and sends: the widget checks a fresh balance when it can, and the network
      refuses more than the wallet has. A read balance is checked here exactly as before.
@@ -698,22 +704,163 @@
       '</div></div>';
   }
 
-  /* The withdraw sheet in SOL mode: SOL by default, USDC too while old USDC is in the wallet. The amount is
-     in the asset sent (SOL for SOL), because turning dollars into SOL is a price, and the server owns prices;
-     a small "About $x" under the field is only the amount times the server's display rate. */
+  /* ── The Withdraw amount in dollars or SOL (Owen 2026-11-05) ──────────────────────────────────────────────────
+     A SOL withdraw's amount can be typed in USD (the default) or in SOL, with a small toggle beside the box, and the
+     other unit shown live under it. Dollars become SOL at the server's own display rate (the price every dollar
+     figure on the site is shown at: money.price, /api/money-config), read for this sheet and used only while it is
+     under a minute old. With no such price a dollar amount is refused, never guessed: switch to SOL, or wait.
+     Dollars to SOL rounds DOWN to the 0.000001 SOL the form shows, so $20 never sends more than $20 of SOL, and
+     every check is on the lamports themselves, so no rounding can take a send past the balance after the fee.
+     Every open starts in USD (money review 2026-11-05): a remembered SOL would turn a "20" typed as dollars into
+     20 SOL, so the choice lasts only while the sheet is open. */
+  const PRICE_MAX_AGE_MS = 60000;
+  let wdUnit = 'usd';
+  let wdExact = null;       // { unit, text, lamports }: Max (or a unit switch) filled exactly this many lamports
+  let wdTicket = 0;         // bumped on every open, close, back and switch: a price that comes back late is dropped
+  let px = null, pxAsk = null;   // { usd, at }: the last price asked for (usd 0: none came), and the ask in flight
+  /* Integer-exact on the lamport side, like the server's solPrice.js: micro-dollars first, then BigInt. */
+  function usdToLamports(usd, rate) {
+    const micro = Math.round(Number(usd) * 1e6), rateMicro = Math.round(Number(rate) * 1e6);
+    if (!Number.isSafeInteger(micro) || micro < 0 || !(rateMicro > 0) || !Number.isSafeInteger(rateMicro)) return 0;
+    const l = Number((BigInt(micro) * 1000000000n) / BigInt(rateMicro));
+    return Math.floor(l / 1000) * 1000;      // down to the 0.000001 SOL the form shows
+  }
+  // What lamports are worth, in whole cents: down for a figure that must never overstate, up for a smallest amount.
+  function lamportsToCents(lamports, rate, up) {
+    const l = Math.floor(Number(lamports)), rateMicro = Math.round(Number(rate) * 1e6);
+    if (!(l >= 0) || !Number.isSafeInteger(l) || !(rateMicro > 0)) return 0;
+    const n = BigInt(l) * BigInt(rateMicro), d = 10000000000000n;   // lamports * micro-dollars per SOL / 1e9 / 1e4
+    return Number(up ? (n + d - 1n) / d : n / d);
+  }
+  const centsText = c => (c / 100).toFixed(2);
+  // Lamports as SOL in the box: six places at most, no trailing zeros.
+  const solText = lamports => (Math.floor(Number(lamports) / 1000) / 1e6).toFixed(6).replace(/\.?0+$/, '');
+  // The price, while it is under a minute old (a clock set back never makes it younger); else 0.
+  function rateNow() {
+    const p = px, t = Date.now();
+    return p && p.usd > 0 && t >= p.at - 5000 && t - p.at < PRICE_MAX_AGE_MS ? p.usd : 0;
+  }
+  // Asks the server for its price now. Resolves to rateNow(). One ask at a time; aged from when it was asked.
+  function askPrice() {
+    if (pxAsk) return pxAsk;
+    const at = Date.now();
+    const got = usd => { px = { usd: usd, at: at }; };
+    pxAsk = Promise.resolve()
+      .then(() => window.fetch('/api/money-config', { cache: 'no-store' }))
+      .then(r => (r && r.ok ? r.json() : null))
+      .then(j => { const u = Number(j && j.solUsd); got(isFinite(u) && u > 0 ? u : 0); }, () => got(0))
+      .then(() => { pxAsk = null; wdFigures(); return rateNow(); });
+    return pxAsk;
+  }
+  /* Asked again once the one held is half its life old (or from a clock since set back); a failed ask waits as long
+     before the next, so never a loop. */
+  function priceWanted() {
+    if (pxAsk) return false;
+    const age = px ? Date.now() - px.at : Infinity;
+    return !(age >= 0 && age < PRICE_MAX_AGE_MS / 2);
+  }
+  const NO_PRICE = 'The SOL price is not available right now, so dollars cannot be turned into SOL. Try again in a moment, or switch to SOL.';
+  const usdUnit = () => curAsset() === 'sol' && wdUnit === 'usd';
+  const amountRaw = () => ((el('co-amt') || {}).value || '').trim().replace(',', '.').replace(/^\$\s*/, '');
+  /* Only digits and one point count as an amount (money review 2026-11-05): Number() would also take "0x10" or "1e2",
+     and "1,000" could mean a thousand or one, so neither is ever read as an amount. */
+  const PLAIN_AMOUNT = /^(\d+\.?\d*|\.\d+)$/;
+  const THOUSANDS = /^\$?\s*\d{1,3}(,\d{3})+(\.\d*)?$/;
+  // When the price in hand was asked for: the confirm step's minute runs from here, never from the tap.
+  const pxAt = () => (px ? px.at : Date.now());
+  // The lamports the box holds now, in its unit: 0 for nothing, or for dollars with no price.
+  function typedLamports(raw, rate) {
+    if (wdExact && wdExact.unit === wdUnit && raw === wdExact.text) return wdExact.lamports;
+    const n = Number(raw);
+    if (!raw || !PLAIN_AMOUNT.test(raw) || !isFinite(n) || n <= 0) return 0;
+    if (wdUnit === 'usd') return rate ? usdToLamports(n, rate) : 0;
+    return Math.round(n * 1e9);
+  }
+  /* What is wrong with sending `lamports` of SOL, in words, or '' (rate 0: the words are in SOL). The widget checks the
+     same against a fresh balance before it signs (main.jsx duelWalletSend); an unread or stale balance is left to it. */
+  function solProblem(lamports, rate) {
+    const usd = !!rate && wdUnit === 'usd';
+    const dollars = l => money(lamportsToCents(l, rate) / 100);
+    if (!(lamports >= MIN_SEND_LAMPORTS)) return 'The smallest withdrawal is ' +
+      (usd ? money(lamportsToCents(MIN_SEND_LAMPORTS, rate, true) / 100) + ' (0.001 SOL)' : '0.001 SOL') +
+      '. The network refuses less to a wallet that is new to it.';
+    if (!solKnown()) return '';
+    if (!canSendSol()) return 'The SOL in your wallet is kept for network fees.';
+    if (lamports > solLamports() - SEND_FEE_LAMPORTS) return usd
+      ? 'That is more than the ' + dollars(solLamports()) + ' you have. Max sends the most you can.'
+      : 'That is more than the ' + solTxt(solLamports()) + ' you have.';
+    if (lamports > maxSendLamports()) return usd
+      ? 'You can withdraw up to ' + dollars(Math.floor(maxSendLamports() / 1000) * 1000) + '. 0.001 SOL stays in your wallet for network fees. Max sends the most you can.'
+      : 'Keep at least 0.001 SOL in your wallet for network fees. Max sends the most you can.';
+    return '';
+  }
+  /* The line under the box: the other unit, live. Written in place (a redraw would drop the box's focus and a phone's
+     keyboard), and only ever words: it decides nothing. */
+  function wdFigures() {
+    const alt = el('co-alt');
+    if (!alt || !cashing || pending || !solMode() || curAsset() !== 'sol') return;
+    if (priceWanted()) askPrice();
+    const r = rateNow(), raw = amountRaw();
+    if (wdUnit === 'usd') {
+      if (!r) {
+        alt.textContent = pxAsk || !px ? 'Getting the SOL price…' : 'The SOL price is not available right now.';
+        return;
+      }
+      const lam = typedLamports(raw, r);
+      alt.textContent = lam > 0 ? '≈ ' + solFloor(lam) : '';
+      return;
+    }
+    const lam = typedLamports(raw, r);
+    alt.textContent = lam > 0 && r ? '≈ ' + money(lamportsToCents(lam, r) / 100) : '';
+  }
+  /* The toggle: the amount keeps its value in the other unit (the lamports it stood for, exactly), the address stays.
+     Switched straight back with the box untouched, it shows what was typed there before, as it was typed. */
+  function setUnit(u) {
+    if ((u !== 'usd' && u !== 'sol') || !solMode() || pending || !cashing) return;
+    if (u === wdUnit) return;
+    const to = (el('co-to') || {}).value || '', r = rateNow(), raw = amountRaw();
+    const was = wdExact, untouched = !!(was && was.unit === wdUnit && raw === was.text);
+    const lam = Math.floor(typedLamports(raw, r) / 1000) * 1000;
+    const from = { unit: wdUnit, text: raw, exact: untouched ? was : null };
+    wdUnit = u; wdTicket++; wdExact = null;
+    drawCash();
+    if (el('co-to')) el('co-to').value = to;
+    const box = el('co-amt');
+    if (box && untouched && was.back && was.back.unit === u) {
+      box.value = was.back.text; wdExact = was.back.exact;
+    } else if (box && lam > 0 && (u === 'sol' || r)) {
+      const text = u === 'sol' ? solText(lam) : centsText(lamportsToCents(lam, r));
+      wdExact = { unit: u, text: text, lamports: lam, back: from };
+      box.value = text;
+    } else if (box && raw) {
+      box.value = '';
+      wdExact = { unit: u, text: '', lamports: 0, back: from };   // no price to convert at: empty, and back gives it again
+    }
+    wdFigures();
+  }
+
+  /* The withdraw sheet in SOL mode: SOL by default, USDC too while old USDC is in the wallet. A SOL amount is typed in
+     dollars or in SOL (the toggle above); old USDC is typed in USDC. */
   function cashFormSol() {
     const as = curAsset();
     if (pending) {
       const p = pending;
-      const what = p.asset === 'usdc' ? '<b>' + money(p.amt) + ' USDC</b>' : '<b>' + solPlain(p.amt) + '</b>' +
-        (Number(w().solUsd) > 0 ? ' (about ' + money(p.amt * Number(w().solUsd)) + ')' : '');
+      const fee = solPlain(SEND_FEE_LAMPORTS / 1e9);
+      const what = p.asset === 'usdc' ? '<b>' + money(p.amt) + ' USDC</b>'
+        : p.unit === 'usd' ? '<b>' + money(p.usd) + '</b> as <b>' + solPlain(p.amt) + '</b>'
+        : '<b>' + solPlain(p.amt) + '</b>' + (p.rate > 0 ? ' (about ' + money(lamportsToCents(p.lamports, p.rate) / 100) + ')' : '');
+      const sub = p.asset === 'usdc' ? '' : p.unit === 'usd'
+        ? 'At ' + money(p.rate) + ' a SOL, plus the ' + fee + ' network fee. '
+        : 'Plus the ' + fee + ' network fee. ';
       return '<div class="cashout">' +
         '<p class="note ph-no-capture">Send ' + what + ' to</p>' +
         '<code class="cofull ph-no-capture">' + esc(p.to) + '</code>' +
-        '<p class="note">On-chain transfers cannot be reversed.</p>' +
+        (p.moved ? '<p class="note" data-state="bad">The SOL price moved while this was open. This is the amount at the price now.</p>' : '') +
+        '<p class="note ph-no-capture">' + sub + 'On-chain transfers cannot be reversed.</p>' +
         '<div class="brow">' +
-          '<button type="button" class="ds-btn ds-btn-primary ds-btn-lg ds-btn-block" onclick="V2Wallet.confirmCash()">Send it</button>' +
-          '<button type="button" class="ds-btn ds-btn-quiet ds-btn-block" onclick="V2Wallet.backCash()">Back</button>' +
+          '<button type="button" class="ds-btn ds-btn-primary ds-btn-lg ds-btn-block" onclick="V2Wallet.confirmCash()"' + (p.busy ? ' disabled' : '') + '>' +
+            (p.busy ? 'Getting the SOL price…' : 'Send it') + '</button>' +
+          '<button type="button" class="ds-btn ds-btn-quiet ds-btn-block" onclick="V2Wallet.backCash()"' + (p.busy ? ' disabled' : '') + '>Back</button>' +
         '</div></div>';
     }
     const asRow = usdcOn()
@@ -723,8 +870,15 @@
             (v === 'sol' ? 'SOL' : 'USDC') + '</button>').join('') +
         '</div></div>'
       : '';
-    /* What can go, in dollars (the USDC as USDC), then the SOL itself small under it: the amount box takes SOL, so its
-       label and the unit in the box say SOL, and "About $x" under it turns what is typed back into dollars. */
+    const usd = as === 'sol' && wdUnit === 'usd', dollarBox = as === 'usdc' || usd;
+    const label = as === 'usdc' ? 'Amount in USDC' : usd ? 'Amount in dollars' : 'Amount in SOL';
+    // USD or SOL, beside the box's label: the kit's segmented control, small.
+    const unitSeg = as !== 'sol' ? '' :
+      '<div class="ds-seg unitseg" role="radiogroup" aria-label="Type the amount in">' +
+        [['usd', 'USD'], ['sol', 'SOL']].map(v => '<button type="button" role="radio" aria-checked="' + (wdUnit === v[0]) + '"' +
+          ' onclick="V2Wallet.setUnit(\'' + v[0] + '\')">' + v[1] + '</button>').join('') +
+      '</div>';
+    /* What can go, in dollars (the USDC as USDC), then the SOL itself small under it. */
     return '<div class="cashout">' +
       '<div class="ds-avail ph-no-capture"><span>Available</span><b class="num">' +
         (as === 'usdc' ? money(usdcBal()) + '<span class="cvu"> USDC</span>' : bigBal(w().balance)) + '</b></div>' +
@@ -737,14 +891,16 @@
       '<input class="fld ds-input" id="co-to" placeholder="Solana address" autocomplete="off" ' +
         'spellcheck="false" aria-label="Destination Solana address" ' +
         'onkeydown="if(event.key===\'Enter\')V2Wallet.submitCash()"></div>' +
-      '<div class="ds-field"><label for="co-amt">' + (as === 'usdc' ? 'Amount in USDC' : 'Amount in SOL') + '</label>' +
-      '<div class="amtrow ds-input-wrap">' + (as === 'usdc' ? '<span class="ds-input-pre" aria-hidden="true">$</span>' : '') +
-        '<input class="fld num ds-input ds-input-money" id="co-amt" inputmode="decimal" placeholder="' + (as === 'usdc' ? '0.00' : '0.0000') + '" ' +
-          'autocomplete="off" aria-label="' + (as === 'usdc' ? 'Amount in USDC' : 'Amount in SOL') + '" ' +
+      '<div class="ds-field"><div class="amthead"><label for="co-amt">' + label + '</label>' + unitSeg + '</div>' +
+      '<div class="amtrow ds-input-wrap">' + (dollarBox ? '<span class="ds-input-pre" aria-hidden="true">$</span>' : '') +
+        '<input class="fld num ds-input ds-input-money" id="co-amt" inputmode="decimal" placeholder="' + (dollarBox ? '0.00' : '0.0000') + '" ' +
+          'autocomplete="off" aria-label="' + (as === 'usdc' ? 'Amount in USDC' : usd ? 'Amount in US dollars' : 'Amount in SOL') + '" ' +
           'oninput="V2Wallet.hint()" onkeydown="if(event.key===\'Enter\')V2Wallet.submitCash()">' +
-        (as === 'usdc' ? '' : '<span class="co-unit" aria-hidden="true">SOL</span>') +
+        (dollarBox ? '' : '<span class="co-unit" aria-hidden="true">SOL</span>') +
         '<button type="button" class="maxbtn" onclick="V2Wallet.max()"' + (maxOff(as) ? ' disabled' : '') + '>Max</button>' +
-      '</div></div>' +
+      '</div>' +
+      (as === 'sol' ? '<p class="note num ph-no-capture" id="co-alt" aria-live="polite"></p>' : '') +
+      '</div>' +
       '<p class="note ph-no-capture" id="co-msg"></p>' +
       '<div class="brow">' +
         '<button type="button" class="ds-btn ds-btn-primary ds-btn-lg ds-btn-block" onclick="V2Wallet.submitCash()">Withdraw</button>' +
@@ -1028,9 +1184,12 @@
     if (solMode()) {
       // SOL mode: the SOL less what is kept for fees, or the old USDC, whichever there is. "Withdraw USDC" opens on USDC.
       // (an unread balance still opens it: solKnown)
-      if (solKnown() && !maxSendLamports() && !usdcOn()) return note(solLamports() > 0
+      if (solKnown() && !canSendSol() && !usdcOn()) return note(solLamports() > 0
         ? 'The SOL in your wallet is kept for network fees.' : 'There is nothing to withdraw yet.');
-      wdAsset = (asset === 'usdc' && usdcOn()) || (solKnown() && !maxSendLamports()) ? 'usdc' : 'sol';
+      wdAsset = (asset === 'usdc' && usdcOn()) || (solKnown() && !canSendSol()) ? 'usdc' : 'sol';
+      // USD on every open; a fresh price for the dollars, asked now
+      wdUnit = 'usd'; wdExact = null; wdTicket++;
+      if (priceWanted()) askPrice();
     } else if ((Number(w().balance) || 0) <= 0) return note('There is nothing to withdraw yet.');
     cashing = true; pending = null;
     drawCash();
@@ -1045,21 +1204,23 @@
   }
   function drawCash() {
     const b = el('wdr-body'); if (b) b.innerHTML = cashForm(Number(w().balance) || 0);
+    wdFigures();
   }
   function cancelCash() {
-    if (pending && pending.busy) return;   // a withdrawal as SOL is being sent
-    cashing = false; pending = null;
+    if (pending && pending.busy && pending.as === 'sol') return;   // a withdrawal as SOL is being sent (USDC mode)
+    cashing = false; pending = null; wdTicket++; wdExact = null;
     if (!el('wdrveil').classList.contains('on')) return;
     el('wdrveil').classList.remove('on');
     if (window.sheetFocus) window.sheetFocus.close();
   }
   function backCash() {
-    if (pending && pending.busy) return;
+    if (pending && pending.busy && pending.as === 'sol') return;
     const p = pending;
-    pending = null; drawCash();
-    // Back to the form with what was typed still in it.
+    pending = null; wdTicket++; drawCash();
+    // Back to the form with what was typed still in it (a SOL send: as it was typed, in its unit).
     if (p && el('co-to')) el('co-to').value = p.to;
-    if (p && el('co-amt')) el('co-amt').value = String(p.amt);
+    if (p && el('co-amt')) el('co-amt').value = p.text != null ? p.text : String(p.amt);
+    wdFigures();
   }
   function max() {
     const a = el('co-amt');
@@ -1067,27 +1228,41 @@
     if (a && solMode()) {
       if (maxOff(curAsset())) return;
       /* SOL mode: Max is the SOL less 0.001 SOL and the fee, rounded DOWN to six places, so the wallet is never
-         left holding dust; old USDC goes whole (to the cent). */
-      a.value = curAsset() === 'usdc' ? cents(w().usdc).toFixed(2)
-        : (Math.floor(maxSendLamports() / 1000) / 1e6).toFixed(6);
-      return hint();
+         left holding dust; old USDC goes whole (to the cent). In dollars it is those same lamports, exactly: the box
+         shows what they are worth, down to the cent, and sends them (wdExact), so Max is never a cent short or over. */
+      if (curAsset() === 'usdc') { a.value = cents(w().usdc).toFixed(2); return hint(); }
+      const lam = Math.floor(maxSendLamports() / 1000) * 1000;
+      if (wdUnit === 'sol') { wdExact = null; a.value = (lam / 1e9).toFixed(6); return hint(); }
+      const t = wdTicket;
+      const fill = () => {
+        const r = rateNow();
+        if (t !== wdTicket || pending || el('co-amt') !== a) return;
+        if (!r) return say(NO_PRICE);
+        const c = lamportsToCents(lam, r);
+        // (a few thousandths of a dollar at a very low price: $0.00 is not an amount to send)
+        if (!(c > 0)) return say('That is less than a cent at the SOL price now. Switch to SOL to send it.');
+        const text = centsText(c);
+        wdExact = { unit: 'usd', text: text, lamports: lam };
+        a.value = text; say(''); hint();
+      };
+      return rateNow() ? fill() : askPrice().then(fill);
     }
     if (a) a.value = cents(w().balance).toFixed(2);
   }
-  // SOL mode: "About $x" under the amount, the typed SOL times the server's display rate. Display only.
+  // SOL mode: the amount in the other unit under the box (wdFigures), and a refusal under it cleared as it is typed.
   function hint() {
+    if (!solMode() || curAsset() !== 'sol') return;
     const m = el('co-msg');
-    if (!m || !solMode() || curAsset() !== 'sol') return;
-    const n = Number(((el('co-amt') || {}).value || '').trim().replace(',', '.'));
-    const rate = Number(w().solUsd);
-    m.dataset.state = '';
-    m.textContent = n > 0 && isFinite(n) && rate > 0 ? 'About ' + money(n * rate) : '';
+    if (m && m.dataset.state === 'bad') say('');
+    // Typed over: Max's (or a switch's) exact lamports no longer stand for the box, even if the same text comes back.
+    if (wdExact && amountRaw() !== wdExact.text) wdExact = null;
+    wdFigures();
   }
-  // A refusal in the form reads as one: the error red, not the hint grey.
-  function say(msg) {
+  // A refusal in the form reads as one: the error red, not the hint grey (calm: a plain line, like a wait).
+  function say(msg, calm) {
     const m = el('co-msg');
     if (!m) return note(msg);
-    m.textContent = msg; m.dataset.state = msg ? 'bad' : '';
+    m.textContent = msg; m.dataset.state = msg && !calm ? 'bad' : '';
   }
 
   /* Checked here as well as in the widget, so a bad amount is answered in the
@@ -1102,11 +1277,13 @@
   function submitCashSol() {
     const as = curAsset();
     const to = ((el('co-to') || {}).value || '').trim();
-    const raw = ((el('co-amt') || {}).value || '').trim().replace(',', '.');
+    const raw = amountRaw();   // a comma read as the point, a typed $ left out
     const amt = Number(raw);
     if (!to) return say('Paste the Solana address to send to.');
     if (!SOL_ADDR.test(to)) return say('That is not a Solana address.');
     if (to === w().address) return say('That is this wallet\'s own address.');
+    if (THOUSANDS.test(((el('co-amt') || {}).value || '').trim())) return say('Type the amount without commas, like 1000 or 0.05.');
+    if (raw && !PLAIN_AMOUNT.test(raw)) return say('Type the amount as a plain number, like 20 or 0.05.');
     if (!raw || !isFinite(amt) || amt <= 0) return say('Enter an amount to withdraw.');
     if (as === 'usdc') {
       if (/\.\d{3,}$/.test(raw)) return say('Use dollars and cents, two decimal places at most.');
@@ -1115,14 +1292,52 @@
       /* the fee, the receiver's USDC account rent if it has none (the sender pays it), then 0.001 SOL left over; only on
          a SOL balance that was read, like the widget's own check (night review 2026-10-29, fourth pass) */
       if (solKnown() && solLamports() < KEEP_LAMPORTS + SEND_FEE_LAMPORTS + 2039280) return say('Add a little SOL first. Sending USDC needs about 0.003 SOL for network fees.');
-    } else {
-      if (/\.\d{7,}$/.test(raw)) return say('Use six decimal places at most.');
-      const lamports = Math.round(amt * 1e9);
-      if (solKnown() && lamports > solLamports() - SEND_FEE_LAMPORTS) return say('That is more than the ' + solTxt(solLamports()) + ' you have.');
-      if (solKnown() && lamports > maxSendLamports()) return say('Keep at least 0.001 SOL in your wallet for network fees. Max sends the most you can.');
+      pending = { to: to, amt: amt, asset: as };
+      return drawCash();
     }
-    pending = { to: to, amt: amt, asset: as };
+    const usd = wdUnit === 'usd';
+    if (usd && /\.\d{3,}$/.test(raw)) return say('Use dollars and cents, two decimal places at most.');
+    if (!usd && /\.\d{7,}$/.test(raw)) return say('Use six decimal places at most.');
+    const r = rateNow();
+    if (usd && !r) {
+      // Dollars wait for a price under a minute old, asked for now; with none, they are refused, never guessed.
+      const t = ++wdTicket;
+      say('Getting the SOL price…', true);
+      return askPrice().then(() => {
+        if (t !== wdTicket || !cashing || pending) return;
+        if (!rateNow()) return say(NO_PRICE);
+        say('');
+        submitCashSol();
+      });
+    }
+    const lamports = typedLamports(raw, r);
+    const why = solProblem(lamports, r);
+    if (why) return say(why);
+    // usd: the dollars typed (Max's or a switch's exact lamports: what they are worth now, down to the cent)
+    const exact = !!(wdExact && wdExact.unit === wdUnit && raw === wdExact.text);
+    pending = { to: to, asset: 'sol', unit: wdUnit, text: raw, lamports: lamports, amt: lamports / 1e9, rate: r, at: pxAt(),
+                usd: usd ? (exact ? lamportsToCents(lamports, r) / 100 : amt) : 0, exact: exact };
     drawCash();
+  }
+  /* The confirm step in dollars, open for a minute or more: the price is asked again, and the amount at it shown for a
+     second tap, never sent at the old one. The same checks as the form; one that fails goes back to it, in words. */
+  function repriceSol(p) {
+    p.busy = true; drawCash();
+    const t = wdTicket;
+    return askPrice().then(() => {
+      if (pending !== p || t !== wdTicket) return;
+      p.busy = false;
+      const r = rateNow();
+      const back = msg => { backCash(); say(msg); };
+      if (!r) return back(NO_PRICE);
+      const lamports = p.exact ? p.lamports : usdToLamports(p.usd, r);
+      const why = solProblem(lamports, r);
+      if (why) return back(why);
+      p.moved = p.moved || lamports !== p.lamports;
+      p.lamports = lamports; p.amt = lamports / 1e9; p.rate = r; p.at = pxAt();
+      if (p.exact) p.usd = lamportsToCents(lamports, r) / 100;
+      drawCash();
+    });
   }
   function submitCash() {
     if (solMode()) return submitCashSol();
@@ -1163,9 +1378,13 @@
   // A price is used only while there are a few seconds left on it.
   const fresh = q => !!q && Date.now() < Number(q.expiresAt || 0) - 4000;
   function confirmCash() {
-    if (!pending) return;
+    if (!pending || pending.busy) return;
     if (pending.as === 'sol') return confirmSol();
     const p = pending;
+    if (p.asset === 'sol' && p.unit === 'usd') {
+      const age = Date.now() - p.at;
+      if (!(age >= 0 && age < PRICE_MAX_AGE_MS)) return repriceSol(p);
+    }
     pending = null; cashing = false;
     el('wdrveil').classList.remove('on');
     render();
@@ -1176,7 +1395,9 @@
        a fault in it is swallowed here, before the send and inside each answer,
        so a confirmed send can never fall through to the failed branch. */
     const T = window.DSToast;
-    const what = { amount: p.asset === 'sol' ? solPlain(p.amt) : money(p.amt) + ' USDC', detail: 'to', code: ownShort(p.to) };
+    const what = p.asset === 'sol' && p.unit === 'usd'
+      ? { amount: money(p.usd), detail: 'as ' + solPlain(p.amt) + ' to', code: ownShort(p.to) }
+      : { amount: p.asset === 'sol' ? solPlain(p.amt) : money(p.amt) + ' USDC', detail: 'to', code: ownShort(p.to) };
     let card = null;
     try { if (T) card = T.show(Object.assign({ kind: 'info', title: 'Sending your withdraw', sticky: true }, what)); } catch (_) {}
     const tell = (o, plain, good) => {
@@ -1222,7 +1443,7 @@
       // SOL mode: SOL or old USDC. The amount is in a different asset now, so only the address is kept.
       if (v === 'usdc' && !usdcOn()) return;
       const to = (el('co-to') || {}).value || '';
-      wdAsset = v; drawCash();
+      wdAsset = v; wdExact = null; wdTicket++; drawCash();
       if (el('co-to')) el('co-to').value = to;
       return;
     }
@@ -1507,7 +1728,10 @@
                       copyPeer: copyPeer,
                       cashOut: cashOut, cancelCash: cancelCash, backCash: backCash,
                       max: max, submitCash: submitCash, confirmCash: confirmCash, setPayAs: setPayAs,
-                      convert: convert, convertUsdc: convertUsdc, hint: hint,
+                      convert: convert, convertUsdc: convertUsdc, hint: hint, setUnit: setUnit,
+                      // the Withdraw amount's dollar and lamport arithmetic, pure, for test/withdrawUsd.test.js
+                      wdMath: { usdToLamports: usdToLamports, lamportsToCents: lamportsToCents, solText: solText,
+                                MIN_SEND_LAMPORTS: MIN_SEND_LAMPORTS, PRICE_MAX_AGE_MS: PRICE_MAX_AGE_MS },
                       confirmConvert: confirmConvert, convertAgain: convertAgain,
                       cancelConvert: cancelConvert,
                       addrRow: addrRow, headerTap: headerTap,

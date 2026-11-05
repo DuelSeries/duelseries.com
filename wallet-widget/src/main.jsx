@@ -13,7 +13,8 @@ import { createRestakeBridge, cancelledError } from './restakeBridge.mjs';
 import { holdBackCoinbase } from './holdCoinbase.mjs';
 import { buildSkinPayment } from './skinPay.mjs';
 import { makeWalletSetup } from './walletSetup.mjs';
-import { SEND_FEE_LAMPORTS, leavesReserve } from './solReserve.mjs';
+import { SEND_FEE_LAMPORTS, MIN_SEND_LAMPORTS, leavesReserve } from './solReserve.mjs';
+import { buildSolTransfer } from './solSend.mjs';
 import { WALLETS, detectedWallets, walletFor, accountFor, signTransactionWith, signMessageWith, isRefusal } from './browserWallets.mjs';
 import { DEVICE_ACTIONS, loadDeviceKey, createDeviceKey, forgetDeviceKey, signWithDeviceKey } from './deviceKey.mjs';
 import { linkedOf, linkWith, addProblem, maxAddLamports, buildAdd } from './linkedWallet.mjs';
@@ -206,6 +207,7 @@ const STAKE_FEE_LAMPORTS = SEND_FEE_LAMPORTS + Math.ceil(STAKE_CU_LIMIT * STAKE_
 // Plain words for a SOL stake the wallet cannot carry. Keep "rent" out of it: doStake rewrites such messages.
 const SOL_LOW_MSG = 'Add a little SOL. Your wallet needs the entry plus 0.001 SOL left over for network fees.';
 const SOL_SEND_LOW = 'Leave at least 0.001 SOL in your wallet for network fees. Send a little less, or use Max.';
+const SOL_SEND_SMALL = 'The smallest withdrawal is 0.001 SOL. The network refuses less to a wallet that is new to it.';
 
 function stakeSpec(sel) {
   if (typeof sel === 'string') return { lobbyType: sel };
@@ -450,18 +452,14 @@ function launchStaked(game, sel, staked, wallet, onLaunch) {
   }
 }
 
-// Self-custody Cash Out: send SOL from the embedded wallet to any external address. Privy
+// Self-custody Withdraw: send SOL from the embedded wallet to any external address. Privy
 // signs; our backend relays + confirms (the browser can't reach a public RPC directly).
-async function sendSol(toAddress, amountSol, wallet, signTransaction) {
-  let toPub;
-  try { toPub = new PublicKey(toAddress); } catch (_) { throw new Error("That doesn't look like a valid Solana address."); }
+// lamports: whole lamports, already checked by duelWalletSend (the transaction itself: solSend.mjs).
+async function sendSol(toAddress, lamports, wallet, signTransaction) {
+  try { new PublicKey(toAddress); } catch (_) { throw new Error("That doesn't look like a valid Solana address."); }
   const { blockhash } = await (await fetch('/api/blockhash')).json();
   if (!blockhash) throw new Error('Network busy — try again.');
-  const from = new PublicKey(wallet.address);
-  const tx = new Transaction();
-  tx.feePayer = from;
-  tx.recentBlockhash = blockhash;
-  tx.add(SystemProgram.transfer({ fromPubkey: from, toPubkey: toPub, lamports: Math.round(amountSol * 1e9) }));
+  const tx = buildSolTransfer(wallet.address, toAddress, lamports, blockhash);
   const serialized = tx.serialize({ requireAllSignatures: false, verifySignatures: false });
   const { signedTransaction } = await signTransaction({ transaction: serialized, wallet });
   const signedTx = Buffer.from(signedTransaction).toString('base64');
@@ -1064,11 +1062,14 @@ function WalletPanel() {
       }
       const lamports = Math.round(Number(amount) * 1e9);
       if (!(lamports > 0)) throw new Error('Enter an amount to send.');
+      /* Under 0.001 SOL a new address would be left below its rent minimum and the network refuses the whole transfer
+         (solReserve.mjs MIN_SEND_LAMPORTS): refused here, before anything is signed, read balance or not. */
+      if (lamports < MIN_SEND_LAMPORTS) throw new Error(SOL_SEND_SMALL);
       if (haveLamports != null) {
         if (haveLamports < lamports + SEND_FEE_LAMPORTS) throw new Error('That is more SOL than your wallet has after the network fee.');
         if (!leavesReserve(haveLamports, lamports, SEND_FEE_LAMPORTS)) throw new Error(SOL_SEND_LOW);
       }
-      return sendSol(toAddress, amount, wallet, signTx);
+      return sendSol(toAddress, lamports, wallet, signTx);
     };
     /* Add funds: Privy's own funding sheet, "Add funds to your DuelSeries wallet", with Pay with
        card and Receive funds (Owen, 2026-10-15, like playpulp.io). The asset is SOL because MoonPay

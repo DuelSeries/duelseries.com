@@ -1631,6 +1631,12 @@ body.ingame .ds-chip-live.is-pulse::before,.scr-park .ds-chip-live.is-pulse::bef
 #wdr-body .payas .k{font-size:var(--ds-fs-2);font-weight:600;color:var(--ds-tx2)}
 #wdr-body .payas .ds-seg button{min-width:76px}
 #wdr-body .pahint{margin-top:calc(-1 * var(--ds-sp2))}
+/* The amount's unit, USD or SOL (2026-11-05): a small segmented control at the end of the box's label line, and the
+   other unit live under the box, one line held so the buttons never move as it fills. */
+#wdr-body .amthead{display:flex;align-items:center;justify-content:space-between;gap:var(--ds-sp3);min-height:32px}
+#wdr-body .unitseg{padding:3px}
+#wdr-body .unitseg button{min-height:28px;min-width:52px;padding:0 var(--ds-sp3);font-size:13px}
+#co-alt{min-height:1.5em;margin:0;font-variant-numeric:tabular-nums}
 /* The linked wallet's figure: the Withdraw sheet's Available row, its name on the left. */
 #ad-body .mfig{display:flex;flex-direction:row-reverse;justify-content:space-between;align-items:baseline;gap:var(--ds-sp3);margin:0;
   padding:var(--ds-sp3) var(--ds-sp4);border-radius:var(--ds-r2);background:var(--ds-s2);box-shadow:var(--ds-edge);text-align:left}
@@ -1655,6 +1661,7 @@ body.ingame .ds-chip-live.is-pulse::before,.scr-park .ds-chip-live.is-pulse::bef
   :is(#wdrveil,#adveil,#cvveil) .howtop{padding:var(--ds-sp2) var(--ds-sp3) 0 var(--ds-sp4)}
   #wdr-body,#ad-body,#cv-body{padding:var(--ds-sp3) var(--ds-sp4) var(--ds-sp5)}
   :is(#wdr-body,#ad-body) .maxbtn{height:44px;right:4px}
+  #wdr-body .unitseg button{min-height:36px}
 }
 
 .chartbox{position:relative}
