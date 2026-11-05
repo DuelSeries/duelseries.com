@@ -121,10 +121,9 @@ const row = (wallet, rake, name) => ({ wallet, game: 'slither', age: 3, n: 1, ra
 const netRow = (wallet, out, inn, name, game = 'snake') =>
   ({ wallet, name, paid_out: String(out), cashouts: 1, paid_in: String(inn), rounds: 1, refunded: '0', game });
 
-test('board: Top earners by NET, ranked, ten at most, the owner on it like anyone (2026-11-05)', async () => {
+test('board: Top earners by NET, ranked, ten at most, never the owner (2026-11-05)', async () => {
   const rows = [];
   for (let i = 0; i < 14; i++) rows.push(netRow('W' + String(i).padStart(43, 'x'), 2 + i / 10, 1, 'p' + i));
-  rows.unshift(netRow(OWNER, 30, 5, 'Owen'));
   let asked = null, sql = null;
   const q = (s, params) => { sql = s; asked = params; return Promise.resolve({ rows }); };
   const e = createEarnings({ query: q, excludeWallets: [OWNER, REV], previewExclude: [REV], config: CFG, log: quiet,
@@ -134,9 +133,8 @@ test('board: Top earners by NET, ranked, ten at most, the owner on it like anyon
   assert.strictEqual(sql, require('../server/netEarnings').NET_BOARD_SQL, 'the net read');
   assert.strictEqual(b.top.length, 10);
   assert.deepStrictEqual(b.top.map((r) => r.rank), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
-  assert.deepStrictEqual(b.top[0], { rank: 1, name: 'Owen', game: 'Slither.io', amount: 25, n: 1 }, 'the owner, net of his buy-ins');
-  assert.strictEqual(b.top[1].name, 'p0');
-  assert.ok(!asked[0].includes(OWNER), 'the owner is not left out');
+  assert.deepStrictEqual(b.top[0], { rank: 1, name: 'p0', game: 'Slither.io', amount: 1, n: 1 }, 'net of buy-ins');
+  assert.ok(asked[0].includes(OWNER), 'the owner is left out');
   assert.ok(asked[0].includes(REV), 'the revenue wallet is');
   assert.ok(asked[0].includes('BotBankWa11et1111111111111111111111111111111'), 'and the Bot bank');
   assert.strictEqual(asked[1], 10);

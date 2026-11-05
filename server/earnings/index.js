@@ -21,8 +21,9 @@
 
    Top earners (/api/earnings/board, the Social tab's board) is NOT this read since 2026-11-05: it ranks players by
    their NET earnings (server/netEarnings.js: paid out minus paid in, from the ledger), the same figure each
-   profile's Total earnings shows, and the owner is on it like any other player (Owen 2026-11-05). It still leaves
-   out the revenue wallet, the test wallets in C_TOP_EXCLUDE and the Bot bank's wallet; bots have no wallet.
+   profile's Total earnings shows. Like the strip it leaves out the owner wallets (Owen 2026-11-05: the owner stays off
+   every leaderboard), the revenue wallet, the test wallets in C_TOP_EXCLUDE and the Bot bank's wallet; bots have no
+   wallet.
 
    Preview: /api/earnings?preview=1 is the same read with the owner's own
    cash-outs let in (the revenue wallet still never counts), so Owen can see
@@ -278,10 +279,10 @@ function createEarnings({ query, excludeWallets, previewExclude, switchFile = nu
   const sw = createHideSwitch({ file: switchFile, fsx, log });
   const stats = { reads: 0, fails: 0 };
 
-  /* Top earners leaves out what the preview leaves out (the revenue wallet and the test wallets), never the owner,
+  /* Top earners leaves out what the strip leaves out (the owner wallets, the revenue wallet and the test wallets),
      plus anything boardExclude names. */
   const boardEx = () => {
-    const out = pExclude.slice();
+    const out = exclude.slice();
     let more = [];
     try { more = typeof boardExclude === 'function' ? boardExclude() : []; } catch (_) { more = []; }
     for (const w of Array.isArray(more) ? more : []) if (typeof w === 'string' && w && !out.includes(w)) out.push(w);
@@ -336,7 +337,7 @@ function createEarnings({ query, excludeWallets, previewExclude, switchFile = nu
   const pub = typeof query === 'function' ? cache(exclude) : null;
   const pre = typeof query === 'function' ? cache(pExclude) : null;
   const rec = typeof query === 'function' ? cache(pExclude, 'recent') : null;   // the owner counts on the wins row
-  const top = typeof query === 'function' ? cache(null, 'net') : null;          // Top earners, by net, owner included
+  const top = typeof query === 'function' ? cache(null, 'net') : null;          // Top earners, by net, never the owner
 
   const OFF = Object.freeze({ on: false });
   function shown() { return !!config.SHOW && !sw.hidden(); }
@@ -364,7 +365,7 @@ function createEarnings({ query, excludeWallets, previewExclude, switchFile = nu
 
   /* The Social tab's Top earners: the all-time top 10 by NET earnings (server/netEarnings.js, Owen 2026-11-05), the
      same figure each profile's Total earnings shows, so the board and a profile can never disagree. Players who are
-     up only; the owner like anyone else. Not behind the strip's switch: that hides the gold strip, and the board on
+     up only; never the owner. Not behind the strip's switch: that hides the gold strip, and the board on
      the Social tab is its own screen that was always shown. ok:false is a failed read, which the lobby says, rather
      than an empty board that would read as "nobody has won". */
   async function board() {

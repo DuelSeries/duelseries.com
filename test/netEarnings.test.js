@@ -1,6 +1,6 @@
 'use strict';
 // Total earnings is the NET a player has made (Owen 2026-11-05): paid out minus paid in, from the ledger
-// (server/netEarnings.js), on every profile and on Top earners, with the owner on the board like anyone.
+// (server/netEarnings.js), on every profile and on Top earners, with the owner kept off the board.
 //
 // The pure half runs everywhere. The SQL half runs against a real Postgres when NET_TEST_PG names an empty
 // database it may write to (it builds the schema with db.init(), then drops and refills the ledger tables), e.g.
@@ -48,7 +48,7 @@ test('boardRows: players who are up only, ranked as read, ten at most, names nev
   assert.strictEqual(N.boardRows([{ wallet: '' }]), null);
 });
 
-test('the SQL only reads, and Top earners leaves out what it is told to, never the owner by itself', () => {
+test('the SQL only reads, and Top earners leaves out what it is told to, the owner among them', () => {
   for (const sql of [N.SINCE_SQL, N.NET_ONE_SQL, N.NET_BOARD_SQL]) {
     assert.ok(!/\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE)\b/i.test(sql), 'read only');
   }
@@ -64,7 +64,7 @@ test('the SQL only reads, and Top earners leaves out what it is told to, never t
   const idx = read('server/index.js');
   assert.ok(/boardExclude: \(\) => \(botWallet && botWallet\.address \? \[botWallet\.address\] : \[\]\)/.test(idx), 'the Bot bank is off the board');
   assert.ok(/excludeWallets: \[\.\.\.OWNER_WALLETS, REVENUE_WALLET\],\s*previewExclude: \[REVENUE_WALLET\]/.test(idx),
-    'the board leaves out what the preview does: the revenue wallet, not the owner');
+    'the board leaves out what the strip does: the owner and the revenue wallet');
 });
 
 test('the pages show a net below zero as -$0.10, in red, and say what the figure is', () => {
@@ -87,7 +87,7 @@ const at = (h) => new Date(T0 + h * H).toISOString();
 const uuid = (n) => '00000000-0000-4000-8000-' + String(n).padStart(12, '0');
 const W = (tag) => (tag + '1'.repeat(44)).slice(0, 44);
 
-test('against Postgres: every kind of round, the owner on the board, nothing invented', { skip: !PG && 'NET_TEST_PG not set' }, async (t) => {
+test('against Postgres: every kind of round, the owner off the board, nothing invented', { skip: !PG && 'NET_TEST_PG not set' }, async (t) => {
   process.env.DATABASE_URL = PG;
   for (const k of Object.keys(require.cache)) if (k.includes(path.join('server', 'db.js'))) delete require.cache[k];
   const db = require('../server/db');
@@ -175,6 +175,5 @@ test('against Postgres: every kind of round, the owner on the board, nothing inv
     [1, 'multi', 2, 'Agar.io'],          // one paid round in each of four games: the one played last
     [2, 'botwin', 0.8, 'Knockout'],
     [3, 'win', 0.8, 'Slither.io'],
-    [4, 'Owen', 0.5, 'Knockout'],
-  ], 'players who are up, by net, the owner among them; never the revenue wallet or the Bot bank');
+  ], 'players who are up, by net; never the owner, the revenue wallet or the Bot bank');
 });

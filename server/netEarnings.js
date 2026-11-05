@@ -49,9 +49,8 @@ const NET_ONE_SQL = `SELECT
      AND ${REFUND_BACK})::text AS refunded`;
 
 /* Top earners: every wallet with a recorded round or payout, ranked by its net, players who are up only.
-   $1 wallets left out (the revenue wallet, Owen's named test wallets, the Bot bank), $2 how many rows.
-   The owner is NOT left out (Owen 2026-11-05): he plays for real on the owner account, and with buy-ins counted his
-   test cash-outs can no longer look like winnings. Bots have no wallet, so no row. game: the one with the most paid
+   $1 wallets left out (the owner wallets, the revenue wallet, Owen's named test wallets, the Bot bank), $2 how many
+   rows. The owner stays off every leaderboard (Owen 2026-11-05). Bots have no wallet, so no row. game: the one with the most paid
    rounds, a tie going to the one played last. */
 const NET_BOARD_SQL = `WITH since AS (SELECT min(created_at) AS t FROM stakes_history),
 ins AS (
