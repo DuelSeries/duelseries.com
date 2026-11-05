@@ -737,23 +737,6 @@ body {
   font-size: 0.78rem;
   color: #a89c8a;
 }
-/* The only thing here anybody can press, and only the owner ever sees it. */
-#br-start {
-  pointer-events: auto;
-  margin-top: 3px;
-  background: #f0a830;
-  color: #100e0b;
-  border: none;
-  border-radius: 9px;
-  padding: 8px 18px;
-  font-family: inherit;
-  font-size: 0.84rem;
-  font-weight: 700;
-  cursor: pointer;
-}
-#br-start[hidden] { display: none; }
-#br-start:hover { background: #f6b845; }
-
 /* ── Mobile cash out ─────────────────────────────────────────────────────────
    Takes the bottom-right spot the boost button used to hold. Boost is a
    double-tap now, matching slither, so this is the only on-screen control. */

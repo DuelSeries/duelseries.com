@@ -16,8 +16,8 @@
 //    math): the outside tinted red, the wall as a red line, the announced circle as a white dashed ring. z is a whole
 //    ring { f, t, w, m } and the lerp runs on this page's clock, so the wall moves smoothly between messages.
 // 3. The HUD, one block at the top centre: the 10 s count and GO, the winner's moment or the phase, how many are
-//    left of how many started, the next move of the wall; the owner's Start match (shown only when the server said owner for this seat; the action is still signed by the
-//    owner wallet and checked at /api/owner/do).
+//    left of how many started, the next move of the wall. The same for everyone: the owner's in-game Start match is gone
+//    (Owen 2026-11-05); Control's Start now (owner.html, /api/owner/do br:start) starts a match early.
 // 4. The card (slxCard hooks): a death or a win has Lobby, Spectate (this match, watched here: beforeWatch) and Play
 //    again (the next match, unpressable while a match is under way or just decided); the podium and the prize line
 //    when one is decided; between matches, when the next one starts. A refusal's card keeps its own Watch or Play.
@@ -63,7 +63,6 @@
   var proven = false; // this life's wallet signed (the prize can go to it)
   var st = null; // the last sl:x {t: 'br'}
   var stAt = 0; // this page's clock when it came
-  var owner = false; // the server said this seat is the owner's
   var myId = 0; // the own snake's id this life (the winner check)
   var lastMyId = 0;
   // This page's own life was alive in the match as it went live (a running sl:x reached its socket): a life that
@@ -180,7 +179,6 @@
       typeof slx.endLife === 'function') {
       root.setTimeout(function () { if (mode === 'watch') slx.endLife(); }, 600);
     }
-    if (m.owner === true) owner = true;
     hudPaint();
     if (slx.card && typeof slx.card.refresh === 'function') slx.card.refresh();
   });
@@ -354,14 +352,13 @@
   // ---- 3. the HUD
   // One block at the top centre (Owen 2026-10-16: nothing in the middle of the screen). Its head line is the moment
   // (the countdown, GO, the winner), bigger, or else the phase; the line under it says how many are in the match and
-  // what comes next; the owner's Start match sits under that. The block takes the slot slxHud keeps clear of their
+  // what comes next. The block takes the slot slxHud keeps clear of their
   // leaderboard and top left box (slx.hud.topSlot: beside them on a computer and on a phone held sideways, just under
   // the smaller board on a phone held upright), so it never covers the snake in the middle or their minimap.
 
   var hud = null;
   var hudHead = null;
   var hudSub = null;
-  var startBtn = null;
   var hudKey = '';
   var hudW = 0; // the block's width, read when what it says changes
   var hudTop = -1;
@@ -381,8 +378,6 @@
     '.slx-br-head{font-weight:bold;font-size:16px;line-height:20px;white-space:nowrap;}',
     '.slx-br-now .slx-br-head{font-size:24px;line-height:29px;}',
     '.slx-br-sub{margin-top:1px;line-height:17px;opacity:.92;}',
-    '.slx-br-start{display:none;margin:6px auto 0;padding:6px 16px;border:0;border-radius:999px;background:linear-gradient(to bottom,#f7c766,#f0a830 52%,#c98a22);' +
-      'color:#100e0b;font:bold 14px ' + FONT + ';text-shadow:none;cursor:pointer;pointer-events:auto;}',
     // a phone page laid out at 0.7, either way up (slx.hud.phone() and zoom() > 1; no media query can tell). In the
     // lobby's game frame the page is at 1 (a frame ignores the viewport line), so the plain sizes are a phone's there.
     '.slx-br-phone.slx-br-hud{max-width:calc(100vw - 16px);padding:4px 12px 5px;font-size:15px;}',
@@ -400,20 +395,7 @@
     hudSub.className = 'slx-br-sub';
     hud.appendChild(hudHead);
     hud.appendChild(hudSub);
-    startBtn = doc.createElement('button');
-    startBtn.className = 'slx-br-start slx-br-ui';
-    startBtn.type = 'button';
-    startBtn.textContent = 'Start match';
-    hud.appendChild(startBtn);
     body.appendChild(hud);
-  }
-
-  var say = '';
-  var sayUntil = 0;
-  function hudSay(text) {
-    say = text;
-    sayUntil = now() + 4000;
-    hudPaint();
   }
 
   function secsLeft(ms) {
@@ -494,7 +476,6 @@
     } else {
       sub = players(st.alive || 0) + ' · next match in ' + clock(st.nextStartMs || 0);
     }
-    if (say && now() < sayUntil) sub = say;
     return { head: head, sub: sub, now: moment && (typeof slx.connected !== 'function' || slx.connected()) };
   }
 
@@ -515,10 +496,7 @@
     var cls = 'slx-br-hud slx-br-ui' + (t.now ? ' slx-br-now' : '') + (big ? ' slx-br-phone' : '') +
       (cameIn ? ' slx-br-in' : '');
     if (hud.className !== cls) hud.className = cls;
-    // the owner's Start while the arena waits, playing or watching (a dead owner watching the end starts the next)
-    var sd = owner && st.state === 'waiting' ? 'block' : 'none';
-    if (startBtn && startBtn.style.display !== sd) startBtn.style.display = sd;
-    var key = cls + '|' + t.head + '|' + t.sub + '|' + sd;
+    var key = cls + '|' + t.head + '|' + t.sub;
     if (key !== hudKey) {
       hudKey = key;
       hudW = hud.offsetWidth || 0;
@@ -562,42 +540,6 @@
     }
     var width = Math.floor((b.width > 0 ? b.left : w) - left - SIDE_GAP);
     return width >= SIDE_MIN ? { left: left, top: top, width: width } : null;
-  }
-
-  if (startBtn && typeof slx.guard === 'function') bindStart();
-  function bindStart() {
-    var busy = false;
-    var act = function () {
-      if (busy) return;
-      busy = true;
-      startBtn.textContent = 'Check your wallet…';
-      sign('br:start', {}).then(function (p) {
-        if (!p) {
-          hudSay('The wallet did not sign.');
-          return null;
-        }
-        return root.fetch('/api/owner/do', { method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(p) }).then(function (r) {
-          return r.json().then(function (j) {
-            hudSay(r.ok ? (j.note || 'Started') : (j.error || 'Refused'));
-          });
-        });
-      }).catch(function () {
-        hudSay('Could not reach the server.');
-      }).then(function () {
-        busy = false;
-        startBtn.textContent = 'Start match';
-      });
-    };
-    slx.guard(startBtn, { activate: act });
-  }
-  // slxMain (which defines guard) loads after this file: bind the button once it exists
-  if (startBtn && typeof slx.guard !== 'function') {
-    var bindLater = function () {
-      if (typeof slx.guard === 'function') bindStart();
-      else root.setTimeout(bindLater, 50);
-    };
-    root.setTimeout(bindLater, 0);
   }
 
   // ---- 4. the card

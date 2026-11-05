@@ -896,8 +896,8 @@ test('slxBr: every event line in one block at the top centre, in the slot slxHud
   const [hud] = P.find('slx-br-hud');
   assert.ok(hud, 'the block');
   assert.strictEqual(P.find('slx-br-big').length, 0, 'nothing in the middle of the screen');
-  const [head, sub, start] = hud.children;
-  assert.deepStrictEqual([head.className, sub.className, start.className], ['slx-br-head', 'slx-br-sub', 'slx-br-start slx-br-ui']);
+  const [head, sub] = hud.children;
+  assert.deepStrictEqual(hud.children.map((c) => c.className), ['slx-br-head', 'slx-br-sub'], 'no owner-only Start match');
   const br = (m) => { P.slx.fire('x:br', Object.assign({ t: 'br', z: null }, m)); P.raf(1); };
   br({ state: 'waiting', phase: 'waiting', alive: 48, nextStartMs: 3723500 });
   assert.deepStrictEqual([head.textContent, sub.textContent], ['Battle Royale', '48 players · next match in 1h 2m 3s']);
@@ -931,7 +931,7 @@ test('slxBr: every event line in one block at the top centre, in the slot slxHud
   P.raf(200, 16);
   assert.deepStrictEqual([head.textContent, sub.textContent], ['Battle Royale', '30 players · next match in 0m 0s'],
     'a start that never came is not held forever');
-  // the owner's countdown: the doors are open through it too
+  // a countdown (Control's Start now): the doors are open through it too
   br({ state: 'countdown', phase: 'countdown', alive: 12, countdownMs: 7000, prize: 20 });
   assert.deepStrictEqual([head.textContent, sub.textContent], ['Starting in 7', '12 players · hold Q to leave · $20 to the winner']);
   assert.ok(/slx-br-now/.test(hud.className), 'the count is the big moment');

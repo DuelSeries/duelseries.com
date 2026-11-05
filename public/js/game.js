@@ -1163,11 +1163,6 @@ const PHASE_WORDS = {
    seconds cannot do that; and if the connection hiccups at 3, the number must
    not freeze on 3 and then jump to GO. */
 let brCountEnd = 0, brCountTimer = 0;
-/* Whether the SERVER says this wallet is an owner. Sticky, because only the
-   br:peek reply carries it — the room-wide br:state broadcasts cannot, since it
-   is the one field that differs per listener. */
-let _brIsOwner = false;
-
 /* When the next match starts, as a local deadline, and how many are still in
    the current one. Kept so the death card can COUNT rather than restate a
    number that only refreshes every couple of seconds. */
@@ -1218,14 +1213,6 @@ function paintDeathWhen(state) {
      a fresh interval each time would leave a dozen of them counting at once. */
   clearInterval(_brWhenTimer);
   _brWhenTimer = setInterval(tick, 1000);
-}
-
-/* Say something to the person pressing an owner control. It goes in the HUD
-   subtitle, which the next state tick will overwrite a second or two later —
-   long enough to read, and it cannot get stuck on screen. */
-function brSay(message) {
-  const sub = document.getElementById('br-sub');
-  if (sub) sub.textContent = message;
 }
 
 function brRunCountdown(msLeft) {
@@ -1376,18 +1363,8 @@ function brApply(s) {
       : 'Waiting for players (' + (s.players || 0) + '/' + (s.minPlayers || 2) + ')';
   }
 
-  /* OWNER ONLY, and the server is what says who that is.
-
-     This used to test `localStorage.duel_admin_token`, which the wallet widget
-     writes for EVERY signed-in player — so every player who had ever logged in
-     was shown an owner control that then failed silently when pressed. The
-     server now answers `isOwner` on the br:peek reply, against the real
-     OWNER_WALLETS set, and only that draws the button. */
-  const btn = document.getElementById('br-start');
-  if (btn) {
-    if (s.isOwner !== undefined) _brIsOwner = !!s.isOwner;   // room broadcasts omit it
-    btn.hidden = !(_brIsOwner && s.canStart);
-  }
+  /* The owner-only Start the match button that sat here is gone (Owen 2026-11-05: the owner sees the room every
+     player sees). Control's Start now (owner.html, /api/owner/do br:start) starts a match early. */
 
   /* The button follows the match, not the room. While the room is filling this
      is an ordinary game and cashing out is allowed; once the circle starts
@@ -1643,60 +1620,8 @@ document.getElementById('pod-lobby').addEventListener('click', () => {
     brApply(s);
     document.getElementById('br-sub').textContent = 'A match is already running';
   });
-  /* Ask the parent page's wallet to sign an owner action, and come back with
-     the proof. Mirrors requestRestake: the widget lives out in the lobby, so
-     the frame asks and the lobby answers. Resolves null if it cannot. */
-  let _signSeq = 0;
-  function requestSignedAction(action, args) {
-    return new Promise((resolve) => {
-      if (window.self === window.top) { resolve(null); return; }
-      const id = ++_signSeq;
-      let settled = false;
-      const finish = (val) => {
-        if (settled) return;
-        settled = true;
-        window.removeEventListener('message', onMsg);
-        resolve(val);
-      };
-      const onMsg = (e) => {
-        // Only the lobby (our parent) on our own origin answers.
-        if (e.source !== window.parent || e.origin !== window.location.origin) return;
-        const d = e.data;
-        if (!d || d.id !== id) return;
-        if (d.type === 'duel:signaction:done') finish(d.proof || null);
-        else if (d.type === 'duel:signaction:error') { brSay(d.message); finish(null); }
-      };
-      window.addEventListener('message', onMsg);
-      window.parent.postMessage({ type: 'duel:signaction', id, action, args: args || {} }, window.location.origin);
-      setTimeout(() => finish(null), 15000);
-    });
-  }
-
-  const startBtn = document.getElementById('br-start');
-  if (startBtn) startBtn.addEventListener('click', async () => {
-    if (startBtn.disabled) return;
-    /* Signing opens the wallet's own approval, which takes a moment and must
-       not be asked for twice by an impatient second press. */
-    startBtn.disabled = true;
-    const wasLabel = startBtn.textContent;
-    startBtn.textContent = 'Check your wallet…';
-    try {
-      const proof = await requestSignedAction('br:start', {});
-      if (!proof) return;                       // brSay already explained why
-      socket.emit('br:start', { proof });
-    } finally {
-      startBtn.disabled = false;
-      startBtn.textContent = wasLabel;
-    }
-  });
-
-  /* Every refusal says so. The old handler returned silently on a failed owner
-     check, which is why a dead button looked identical to a working one. */
-  socket.on('br:error', ({ message } = {}) => brSay(message || 'That did not work.'));
-
   // Ask on arrival, then keep the clock honest without waiting on the server.
-  // The wallet rides along so the server can say whether to draw owner controls.
-  const peek = () => socket.emit('br:peek', { wallet: walletAddress });
+  const peek = () => socket.emit('br:peek', {});
   socket.on('connect', peek);
   setInterval(peek, 2000);
 }
