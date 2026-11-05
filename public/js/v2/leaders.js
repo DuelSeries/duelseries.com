@@ -137,7 +137,7 @@
       const later = PERIODS.slice(PERIODS.indexOf(period) + 1)
         .find(p => periods().includes(p) && (periodData(p).top || []).length);
       html += '<div class="lb-foot"><p>' + (period === 'all'
-        ? 'Nobody has cashed out yet. Players show up here once they cash out from a paid room.'
+        ? 'No cash-outs yet.'
         : 'Nobody has cashed out ' + WORD[period] + ' yet.') + '</p>' +
         (later ? '<button type="button" class="ds-btn ds-btn-secondary ds-btn-sm" data-per="' + later + '">See ' + WORD[later] + '</button>' : '') + '</div>';
     }
