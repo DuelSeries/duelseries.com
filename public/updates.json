@@ -2,6 +2,17 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-11-05-true-total-earnings",
+      "date": "2026-11-05",
+      "tag": "fix",
+      "title": "Total earnings shows what you really made",
+      "body": "Total earnings on your profile is now your cash-outs minus what you paid to enter. If you are down, it says so, in red.\n\nTop earners on the Leaderboards ranks players by the same figure, so the board shows who is really ahead.",
+      "image": {
+        "src": "/updates/net-earnings.webp",
+        "alt": "A profile showing Total earnings of -$3.80, cash-outs minus buy-ins"
+      }
+    },
+    {
       "id": "2026-11-04-road-hop-new-chicken",
       "date": "2026-11-04",
       "tag": "new",
