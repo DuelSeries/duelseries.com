@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Owner sees the player view</title>
+<style>
+  :root { --bg: #0b0a08; --panel: #16130f; --line: #2a241c; --tx: #f4f1ea; --tx2: #b3a792; --gold: #f0a830; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--tx); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 1500px; margin: 0 auto; padding: 24px 16px 60px; }
+  h1 { font-size: 24px; margin: 0 0 6px; }
+  .lead { color: var(--tx2); margin: 0 0 8px; max-width: 900px; }
+  section { margin-top: 34px; }
+  h2 { font-size: 18px; margin: 0 0 4px; }
+  .cap { color: var(--tx2); margin: 0 0 12px; }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .pair.phone { grid-template-columns: repeat(2, minmax(0, 300px)); }
+  figure { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px; }
+  figcaption { font-size: 13px; font-weight: 700; color: var(--gold); margin: 0 0 6px; }
+  img { display: block; width: 100%; height: auto; border-radius: 6px; }
+  a { color: inherit; }
+  @media (max-width: 700px) { .pair, .pair.phone { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<main>
+<h1>The owner sees what players see</h1>
+<p class="lead">Before is origin/main, after is branch claude/owner-player-view. All shots are headless on the local dev server.
+The money answers (board, total, wins, MrPeanutK's profile) are the live site's own answers from duelseries.com tonight,
+so the after shots show what players will get. Owner shots use a signed in wallet the server treats as the owner.
+Click any picture to open it full size.</p>
+
+<section>
+  <h2>Leaderboards, PC</h2>
+  <p class="cap">The 50 made up players, the $230 total and both Sample chips are gone. The real board is empty today, so it says "No cash-outs yet."</p>
+  <div class="pair">
+    <figure><figcaption>Before</figcaption><a href="before-leaderboard-pc.webp"><img src="before-leaderboard-pc.webp" alt="Leaderboards with sample players"></a></figure>
+    <figure><figcaption>After</figcaption><a href="after-leaderboard-pc.webp"><img src="after-leaderboard-pc.webp" alt="Leaderboards with real data, empty"></a></figure>
+  </div>
+</section>
+
+<section>
+  <h2>Leaderboards, phone</h2>
+  <p class="cap">Same on a phone: real $0.00 with the Live mark, and the one line empty state.</p>
+  <div class="pair phone">
+    <figure><figcaption>Before</figcaption><a href="before-leaderboard-phone.webp"><img src="before-leaderboard-phone.webp" alt="Phone leaderboards with sample total"></a></figure>
+    <figure><figcaption>After</figcaption><a href="after-leaderboard-phone.webp"><img src="after-leaderboard-phone.webp" alt="Phone leaderboards real total"></a></figure>
+  </div>
+  <div class="pair phone" style="margin-top:14px">
+    <figure><figcaption>Before, scrolled to the board</figcaption><a href="before-leaderboard-board-phone.webp"><img src="before-leaderboard-board-phone.webp" alt="Phone board with sample rows"></a></figure>
+    <figure><figcaption>After, scrolled to the board</figcaption><a href="after-leaderboard-board-phone.webp"><img src="after-leaderboard-board-phone.webp" alt="Phone board empty state"></a></figure>
+  </div>
+</section>
+
+<section>
+  <h2>Player profile from the board, PC</h2>
+  <p class="cap">Before, the first row opened a made up profile tagged Sample. After, a real player (searched: MrPeanutK) with no tag.</p>
+  <div class="pair">
+    <figure><figcaption>Before</figcaption><a href="before-profile-pc.webp"><img src="before-profile-pc.webp" alt="Sample profile Calloway"></a></figure>
+    <figure><figcaption>After</figcaption><a href="after-profile-pc.webp"><img src="after-profile-pc.webp" alt="Real profile MrPeanutK"></a></figure>
+  </div>
+  <div class="pair phone" style="margin-top:14px">
+    <figure><figcaption>Before, phone</figcaption><a href="before-profile-phone.webp"><img src="before-profile-phone.webp" alt="Phone sample profile"></a></figure>
+    <figure><figcaption>After, phone</figcaption><a href="after-profile-phone.webp"><img src="after-profile-phone.webp" alt="Phone real profile"></a></figure>
+  </div>
+</section>
+
+<section>
+  <h2>Home wins row</h2>
+  <p class="cap">"Wins Sample" with made up names becomes "Live wins" with the real landed cash-outs the server already reports.</p>
+  <div class="pair">
+    <figure><figcaption>Before, PC</figcaption><a href="before-home-pc.webp"><img src="before-home-pc.webp" alt="Home with sample wins"></a></figure>
+    <figure><figcaption>After, PC</figcaption><a href="after-home-pc.webp"><img src="after-home-pc.webp" alt="Home with live wins"></a></figure>
+  </div>
+  <div class="pair phone" style="margin-top:14px">
+    <figure><figcaption>Before, phone</figcaption><a href="before-home-phone.webp"><img src="before-home-phone.webp" alt="Phone home sample wins"></a></figure>
+    <figure><figcaption>After, phone</figcaption><a href="after-home-phone.webp"><img src="after-home-phone.webp" alt="Phone home live wins"></a></figure>
+  </div>
+</section>
+
+<section>
+  <h2>Events tab, Battle Royale waiting, signed in as the owner</h2>
+  <p class="cap">The owner only "Start match now" button is gone, so the card matches the Swim Race card. Control's Start now still starts a match.</p>
+  <div class="pair">
+    <figure><figcaption>Before, PC</figcaption><a href="before-events-owner-pc.webp"><img src="before-events-owner-pc.webp" alt="Events with Start match now"></a></figure>
+    <figure><figcaption>After, PC</figcaption><a href="after-events-owner-pc.webp"><img src="after-events-owner-pc.webp" alt="Events without owner button"></a></figure>
+  </div>
+  <div class="pair phone" style="margin-top:14px">
+    <figure><figcaption>Before, phone</figcaption><a href="before-events-owner-phone.webp"><img src="before-events-owner-phone.webp" alt="Phone events with Start match now"></a></figure>
+    <figure><figcaption>After, phone</figcaption><a href="after-events-owner-phone.webp"><img src="after-events-owner-phone.webp" alt="Phone events without owner button"></a></figure>
+  </div>
+</section>
+
+<section>
+  <h2>In the Battle Royale, waiting, as the owner</h2>
+  <p class="cap">The gold "Start the match" under the top block is gone. Shot on the old engine (the local server runs it); the /sl engine's "Start match" is removed the same way.</p>
+  <div class="pair">
+    <figure><figcaption>Before, PC</figcaption><a href="before-ingame-br-owner-pc.webp"><img src="before-ingame-br-owner-pc.webp" alt="In game with Start the match"></a></figure>
+    <figure><figcaption>After, PC</figcaption><a href="after-ingame-br-owner-pc.webp"><img src="after-ingame-br-owner-pc.webp" alt="In game without owner button"></a></figure>
+  </div>
+  <div class="pair phone" style="margin-top:14px">
+    <figure><figcaption>Before, phone</figcaption><a href="before-ingame-br-owner-phone.webp"><img src="before-ingame-br-owner-phone.webp" alt="Phone in game before"></a></figure>
+    <figure><figcaption>After, phone</figcaption><a href="after-ingame-br-owner-phone.webp"><img src="after-ingame-br-owner-phone.webp" alt="Phone in game after"></a></figure>
+  </div>
+</section>
+
+<section>
+  <h2>Swim Race page, as the owner</h2>
+  <p class="cap">The "Owner: Test race in 2 min / Start now" bar is gone. It was the only button for a test race: Control has none.</p>
+  <div class="pair">
+    <figure><figcaption>Before, PC</figcaption><a href="before-swimrace-owner-pc.webp"><img src="before-swimrace-owner-pc.webp" alt="Swim Race with owner bar"></a></figure>
+    <figure><figcaption>After, PC</figcaption><a href="after-swimrace-owner-pc.webp"><img src="after-swimrace-owner-pc.webp" alt="Swim Race without owner bar"></a></figure>
+  </div>
+  <div class="pair phone" style="margin-top:14px">
+    <figure><figcaption>Before, phone</figcaption><a href="before-swimrace-owner-phone.webp"><img src="before-swimrace-owner-phone.webp" alt="Phone Swim Race with owner bar"></a></figure>
+    <figure><figcaption>After, phone</figcaption><a href="after-swimrace-owner-phone.webp"><img src="after-swimrace-owner-phone.webp" alt="Phone Swim Race without owner bar"></a></figure>
+  </div>
+</section>
+
+<section>
+  <h2>Clips tab, as the owner (PC only tab, sample clips from ?clips=preview)</h2>
+  <p class="cap">"Waiting for you" with Approve and Reject, and Take down on every clip, are gone. They were the only way to review clips: Control has none.</p>
+  <div class="pair">
+    <figure><figcaption>Before</figcaption><a href="before-clips-owner-pc.webp"><img src="before-clips-owner-pc.webp" alt="Clips with owner review box"></a></figure>
+    <figure><figcaption>After</figcaption><a href="after-clips-owner-pc.webp"><img src="after-clips-owner-pc.webp" alt="Clips without owner review box"></a></figure>
+  </div>
+</section>
+</main>
+</body>
+</html>
