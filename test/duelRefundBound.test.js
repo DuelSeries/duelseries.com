@@ -77,6 +77,9 @@ test('index.js pays a draw the bounded refund, passes paid in, and pays a paid s
   assert.ok(src.includes("koSend(s.wallet, s.refund, s.name, 'battleship refund ("));
   assert.ok(!/koSend\(s\.wallet, s\.worth,/.test(src), 'no refund pays the rung');
   // A free seat's label wallet is the client's, so it is taken only as a string (hostileInput.test.js).
-  assert.ok(src.includes('worth > 0 ? payTo : (strOr(wallet, null) || socket._walletAddress || null), rung, worth, undefined, paid, skin);'));   // skin: the bought look, appended last
+  // skin: the bought look; then only the paid duel bot disclosure flag (server/duelBots.js), a boolean the client sends
+  // that never touches money. Every one of the five Knockout-style queues in index.js passes exactly these.
+  const koStyle = src.match(/worth > 0 \? payTo : \(strOr\(wallet, null\) \|\| socket\._walletAddress \|\| null\), rung, worth, undefined, paid, skin,\n\s+\{ botOk: botOk === true \}\);/g) || [];
+  assert.strictEqual(koStyle.length, 5, 'Knockout, Head Soccer, 8 Ball Pool, Air Hockey and Rooftop queue with the token wallet, paid, skin and botOk only');
   assert.ok(src.includes('worth > 0 ? payTo : (strOr(wallet, null) || socket._walletAddress || null), rung, worth, paid, skin);'));
 });

@@ -4383,6 +4383,16 @@ function refreshSteps(gameId){
     si=ok>=0?ok:0;                 // never land on a rung that cannot be played
   }
 }
+/* An owner's paid bot waiting on this game's picked paid rung, by the board's latest answer (V2Board.botWaiting,
+   server/duelBots.js). drawStake shows it ("Bot opponent waiting", "Play $0.50 vs bot") and keeps what it showed in
+   _botShown (a var, so window._botShown), which is what startFromDetail hands the launch: a bot meets only a Play
+   pressed while it was on screen. */
+var _botShown=false;
+function botOnRung(){
+  const st=Number(STEPS[si]);
+  return !!(cur&&cur.built&&cur.duel&&cur.paid&&st>0&&!STEPS_OFF.has(STEPS[si])&&window.V2Board
+    &&typeof V2Board.botWaiting==='function'&&V2Board.botWaiting(cur.id,st)>0);
+}
 /* The buy-in you last played, so coming back tomorrow lands on the same one
    rather than making you set it again. Falls back to the lowest real buy-in
    for a first visit, or if the remembered rung is closed right now.
@@ -6190,11 +6200,11 @@ function startFromDetail(){
        (review). Staked only if this card and rung are still the ones picked,
        on screen; launch() reads the fresh door. */
     const id=cur.id;
-    const sawBot=_botShown;   // "Bot opponent waiting" was on screen when Play was pressed
+    const sawBot=window._botShown===true;   // "Bot opponent waiting" was on screen when Play was pressed (drawStake)
     const go=()=>{
       const d=document.getElementById('detail');   // Back during the round trip: not staked from home
       if(!(cur&&cur.id===id&&d&&screenShown(d)))return;
-      if(Number(STEPS[si])===st){V2Play.launch(id,{stake:st,sawBot:sawBot});return}
+      if(Number(STEPS[si])===st){V2Play.launch(id,sawBot?{stake:st,sawBot:true}:{stake:st});return}
       /* The fresh answer shut that rung while it came back (restep moved the
          screen to Free): said, rather than a Play that silently did nothing. */
       if(STEPS_OFF.has(st)&&window.V2Play&&V2Play.toast)V2Play.toast('Paid '+cur.name+' tables are not open right now. Pick one the card is offering.');
@@ -6249,13 +6259,6 @@ function drawStake(){
   const bw=document.getElementById('botwait');
   if(bw)bw.hidden=!bot;
   _botShown=bot;
-}
-/* An owner's paid bot waiting on this game's picked paid rung, by the board's latest answer (V2Board.botWaiting). */
-var _botShown=false;
-function botOnRung(){
-  const st=Number(STEPS[si]);
-  return !!(cur&&cur.built&&cur.duel&&cur.paid&&st>0&&!STEPS_OFF.has(STEPS[si])&&window.V2Board
-    &&typeof V2Board.botWaiting==='function'&&V2Board.botWaiting(cur.id,st)>0);
 }
 /* Every board answer (V2Board load and push, through paintCounts) re-strikes the
    rungs of the game screen up now. open_ was the only other caller of

@@ -94,6 +94,9 @@ function baseState() {
       parts: { bank: 0.5, inPlay: 1.85, owed: 0.05, spare: 510 } },
     botBank: { balance: 0.5, spentToday: 0, cap: 5, fromHouse: 0, log: [], escrowAddress: 'EscrowAddr1111111111111111111111111111111111', address: 'BotBankAddr1111111111111111111111111111111111', wallet: 0.5, float: 0, sol: 0.01, funding: false },
     bots: 0,
+    // the paid duel bots' kill switch (server/duelBots.js view()): off, as at every boot
+    duelBots: { enabled: false, games: ['knockout'], rungs: { knockout: { '0.5': { waiting: 0, playing: 0 }, '1': { waiting: 0, playing: 0 } } },
+      max: 3, waitS: 60, recent: [] },
     games: [
       { id: 'slither', name: 'Slither', duel: false, paid: { enabled: true, open: true, stopping: false, saved: false, action: 'sl:paid' },
         rungs: [
@@ -114,16 +117,20 @@ function baseState() {
           { rung: 1, room: null, people: 0, bots: 0, money: 0, botTarget: null, botsAllowed: false, botsNote: held },
         ] },
       { id: 'knockout', name: 'Knockout', duel: true, paid: { enabled: true, open: true, stopping: false, saved: false, action: 'ko:paid' },
+        /* As the server sends it: ownerConsole.duelRows (room null), and a paid rung through index.js duelBotRows (the
+           owner's paid duel bots, server/duelBots.js), here with the kill switch off as at every boot. */
         rungs: [
-          { rung: 0, room: 'ko_na_free', people: 1, bots: 0, money: 0, botTarget: null, botsAllowed: false, botsNote: 'A bot joins after 15 s' },
-          { rung: 0.5, room: 'ko_na_s0.5', people: 0, bots: 0, money: 0, botTarget: null, botsAllowed: false, botsNote: 'People only' },
-          { rung: 1, room: 'ko_na_s1', people: 2, bots: 0, money: 2, botTarget: null, botsAllowed: false, botsNote: 'People only' },
+          { rung: 0, room: null, people: 1, bots: 0, money: 0, botTarget: null, botsAllowed: false, botsNote: 'A bot takes the other seat when nobody joins in time' },
+          { rung: 0.5, room: 'duelbots:knockout:0.5', people: 0, bots: 0, money: 0, botTarget: null, botsAllowed: false, duelBot: true, botPlaying: 0, botMax: 3,
+            botsNote: 'Paid duel bots are off (Control, Paid duel bots)' },
+          { rung: 1, room: 'duelbots:knockout:1', people: 2, bots: 0, money: 2, botTarget: null, botsAllowed: false, duelBot: true, botPlaying: 0, botMax: 3,
+            botsNote: 'Paid duel bots are off (Control, Paid duel bots)' },
         ] },
       { id: 'battleship', name: 'Battleship', duel: true, paid: { enabled: false, open: false, stopping: false, saved: false, action: 'bs:paid' },
-        rungs: [
-          { rung: 0, room: 'bs_na_free', people: 0, bots: 0, money: 0, botTarget: null, botsAllowed: false, botsNote: 'A bot joins after 15 s' },
-          { rung: 0.5, room: 'bs_na_s0.5', people: 0, bots: 0, money: 0, botTarget: null, botsAllowed: false, botsNote: 'People only' },
-          { rung: 1, room: 'bs_na_s1', people: 0, bots: 0, money: 0, botTarget: null, botsAllowed: false, botsNote: 'People only' },
+        rungs: [   // Battleship takes no paid bots (index.js): its rows are ownerConsole.duelRows' as they are
+          { rung: 0, room: null, people: 0, bots: 0, money: 0, botTarget: null, botsAllowed: false, botsNote: 'A bot takes the other seat when nobody joins in time' },
+          { rung: 0.5, room: null, people: 0, bots: 0, money: 0, botTarget: null, botsAllowed: false, botsNote: 'Paid duels stay people only: a bot would win or lose a real stake' },
+          { rung: 1, room: null, people: 0, bots: 0, money: 0, botTarget: null, botsAllowed: false, botsNote: 'Paid duels stay people only: a bot would win or lose a real stake' },
         ] },
     ],
     battleRoyale: { state: 'waiting', phase: 'waiting', humans: 3, bots: 5, alive: 8, minPlayers: 1, canStart: true, canForce: true,
@@ -228,6 +235,18 @@ function createOwnerPageStub(opts = {}) {
     if (action === 'br:engine:sl' || action === 'br:engine:old') { br.engine = action === 'br:engine:sl' ? 'sl' : 'old'; return [true, 'Battle royale on the ' + (br.engine === 'sl' ? 'new' : 'old') + ' engine']; }
     if (action === 'earnings:on' || action === 'earnings:off') { state.earnings.shown = action === 'earnings:on'; return [true, 'Cashed-out strip ' + (state.earnings.shown ? 'shown' : 'hidden')]; }
     if (action === 'sl:smooth:on' || action === 'sl:smooth:off') { state.smooth.on = action === 'sl:smooth:on'; return [true, 'Smooth turning ' + (state.smooth.on ? 'on' : 'off')]; }
+    // the paid duel bots' kill switch (index.js duelbots:on / duelbots:off): a paid duel rung's + works only while on
+    if (action === 'duelbots:on' || action === 'duelbots:off') {
+      const on = action === 'duelbots:on';
+      state.duelBots.enabled = on;
+      for (const g of state.games) for (const r of g.rungs) {
+        if (!r.duelBot) continue;
+        r.botsAllowed = on;
+        r.botsNote = on ? null : 'Paid duel bots are off (Control, Paid duel bots)';
+        if (!on) r.bots = 0;
+      }
+      return [true, on ? 'Paid duel bots are on.' : 'Paid duel bots are off.'];
+    }
     if (action === 'announce') return String(a.text || '').trim() ? [true, 'Sent to everyone playing'] : [false, 'Nothing to send'];
     return [false, 'Unknown action'];
   }

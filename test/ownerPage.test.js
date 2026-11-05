@@ -183,7 +183,7 @@ test('signed in: draws the sheet from the state and never loads the wallet', asy
     assert.equal(pg.appended.length, 0, 'no script was added to the page');
     const text = panel.textContent;
     for (const s of ["Don't restart yet", '1 person has $1.85 on the table.', 'people playing', '$2.35', 'Escrow (all money held)',
-      'Slither', 'agar.io', 'Paper.io', 'Knockout', 'Battleship', 'Battle royale', 'bot joins after 15 s', 'people only',
+      'Slither', 'agar.io', 'Paper.io', 'Knockout', 'Battleship', 'Battle royale', 'bot after 15 s', 'people only',
       'not running', 'Off on this server', 'Waiting', '3 people', '$20 prize', 'Cashed-out strip in the lobby', 'Smooth turning']) {
       assert.ok(text.includes(s), 'shows ' + JSON.stringify(s));
     }
@@ -201,6 +201,18 @@ test('signed in: draws the sheet from the state and never loads the wallet', asy
     const paidPlus = panel.byKey('bots:slither:0.5:+');
     assert.equal(paidPlus.disabled, true);
     assert.equal(paidPlus.title, 'Paid duels stay people only: a bot would win or lose a real stake');
+    /* OWNER RULE 4 (2026-11-04): the paid duel bots' kill switch is in Control and reads Off (as at every boot), and
+       while it is off a paid duel rung's + is disabled with the reason as its title. Battleship takes no paid bots. */
+    assert.ok(text.includes('Paid duel bots'), 'the kill switch is in Control');
+    assert.equal(panel.byKey('duelbots:n').getAttribute('aria-pressed'), 'true', 'Off');
+    assert.equal(panel.byKey('duelbots:y').getAttribute('aria-pressed'), 'false');
+    const koPlus = panel.byKey('bots:knockout:1:+');
+    assert.ok(koPlus, 'a paid duel rung has its bot buttons');
+    assert.equal(koPlus.disabled, true, 'off: the + does nothing');
+    assert.equal(koPlus.title, 'Paid duel bots are off (Control, Paid duel bots)');
+    assert.equal(panel.byKey('bots:battleship:1:+'), null, 'Battleship: no bot buttons on a paid rung');
+    // the column labels sit over the bot buttons (Free / $0.50 / $1)
+    for (const s of ['Free', '$0.50', '$1']) assert.ok(text.includes(s), 'column ' + s);
     // a held room offers Auto, an automatic one does not
     assert.equal(panel.byKey('bots:agar:0:auto').hidden, false);
     assert.equal(panel.byKey('bots:slither:0:auto').hidden, true);

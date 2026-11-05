@@ -116,7 +116,7 @@ test('a Free duel after a paid one is remembered as Free, so no card comes back 
 });
 
 /* startFromDetail, cut from v2.html as the page runs it, against a stub launch. */
-async function detail(cur, STEPS, si, off, between) {
+async function detail(cur, STEPS, si, off, between, botShown) {
   const html = fs.readFileSync(path.join(ROOT, 'public/v2.html'), 'utf8');
   const a = html.indexOf('function startFromDetail(){');
   const b = html.indexOf('/* Spectate: the table at the chosen rung');
@@ -124,7 +124,7 @@ async function detail(cur, STEPS, si, off, between) {
   const calls = [];
   let loads = 0;
   const detailEl = { id: 'detail', shown: true };
-  const win = { cur, STEPS, si, STEPS_OFF: new Set(off),
+  const win = { cur, STEPS, si, STEPS_OFF: new Set(off), _botShown: botShown === true,
     document: { getElementById: (x) => (x === 'detail' ? detailEl : null) },
     screenShown: (el) => !!(el && el.shown),
     V2Play: { launch: (g, sel) => calls.push([g, sel]), playChosen: () => calls.push(['chosen']) },
@@ -151,6 +151,12 @@ test('Play on a paid duel\'s open rung stakes that rung after a fresh board; Fre
     'another card opened before the board answered: nothing staked');
   assert.deepStrictEqual((await detail(ko, [0, 0.5, 1], 1, [], (set) => set('back'))).calls, [],
     'Back to home before the board answered: nothing staked');
+  /* "Bot opponent waiting" on screen when Play was pressed (drawStake's _botShown, server/duelBots.js): the launch is
+     told sawBot, and only then (owner rule 1: a paid bot meets only a person shown it before paying). */
+  assert.deepStrictEqual(await detail(ko, [0, 0.5, 1], 1, [], null, true), { calls: [['knockout', { stake: 0.5, sawBot: true }]], loads: 1 },
+    'the bot notice was showing: the launch knows');
+  assert.deepStrictEqual((await detail(ko, [0, 0.5, 1], 0, [], null, true)).calls, [['knockout', { lobbyType: 'free' }]],
+    'Free never carries it');
   const tanks = { id: 'tanks', duel: 1, built: 1, freeOnly: 1 };
   assert.deepStrictEqual((await detail(tanks, [0, 0.5, 1], 1, [])).calls, [['tanks', { lobbyType: 'free' }]], 'a free-only duel is Free');
   assert.deepStrictEqual((await detail({ id: 'snake', ladder: 1 }, [0, 0.5, 1], 1, [])).calls, [['chosen']], 'the arenas keep their own path');

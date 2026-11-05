@@ -58,13 +58,13 @@ test('a paid table is never given a bot, however long it waits', () => {
   assert.strictEqual(refunds[0].amount, 1);
 });
 
-test('a free seat gets a labelled bot after its wait, and no money is on it', () => {
+test('a free seat gets a bot after its wait, not named a bot, and no money is on it', () => {
   const { lob, settled } = lobby();
   lob.enqueue(sock('A'), 'Ann', null, 0, 0, 0);
   lob.tick(FREE_WAIT_MS + 10);
   const room = lob.roomOf('A');
   assert.ok(room && room.bot, 'a bot sits down');
-  assert.strictEqual(room.publicState(FREE_WAIT_MS + 10).vsBot, true, 'and the screen is told');
+  assert.strictEqual(room.publicState(FREE_WAIT_MS + 10).vsBot, false, 'not named a bot (owner rule 5, 2026-11-04: a free table stand-in is never named a bot, only an owner paid bot is)');
   assert.strictEqual(room.pot(), 0);
   room.finish('A', 'test');
   assert.strictEqual(settled.length, 0, 'a free table never settles money');
