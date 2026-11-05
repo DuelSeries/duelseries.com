@@ -176,6 +176,13 @@
     rows = out;
     // The own row: theirs when their board lists it (place = row), else their length box's while playing.
     var box = at < 0 && S.playing ? ownBox() : null;
+    // A watcher's followed snake is no bold row in their list: when its rank is one the list shows, that row is the
+    // own row, never a second copy pinned under the list (Owen's screenshot 2026-11-04: the leader listed twice).
+    // Watchers only: a player's own row is always bold, so their length box never relabels another snake's row.
+    if (box && box.rank <= out.length && watchedName()) {
+      at = box.rank - 1;
+      out[at].me = true;
+    }
     me = at >= 0 ? { rank: at + 1, name: out[at].name, value: out[at].value }
       : box ? { rank: box.rank, name: watchedName() || nick(), value: box.value } : null;
     push();

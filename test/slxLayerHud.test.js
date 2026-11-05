@@ -862,6 +862,30 @@ test('slxHud: spectating (the free room or the battle royale), the pinned own ro
   assert.strictEqual(br.slx.errors, 0);
 });
 
+test('slxHud: spectating the leader lists it once: the watched row is the own row, no copy pinned under the list', () => {
+  // Owen's phone screenshot 2026-11-04 (battle royale watch): the leader at 1 and again pinned as "you"
+  const rows = TEN.filter((r) => r[0] !== 'Owen');
+  const br = hudPage({ innerWidth: 1280, innerHeight: 720 }, { playing: true });
+  let mode = 'watch';
+  br.slx.br = { mode: () => mode, watching: () => ({ id: 9, name: 'Ann' }) };
+  theirLengthBox(br, 9120, 1, 30);
+  theirBoard(br, rows, 0);
+  br.raf(1);
+  const got = ourRows(br);
+  assert.strictEqual(got.length, rows.length, 'no extra row');
+  assert.strictEqual(got[0], '1|Ann|9,120 *', 'the leader is the marked row');
+  assert.strictEqual(got.filter((r) => /\|Ann\|/.test(r)).length, 1);
+  assert.deepStrictEqual(plain(br.slx.hud.rows().me), { rank: 1, name: 'Ann', value: '9,120' });
+  // a player (not watching) whose rank is inside the list: their own row is pinned as before, never another's row
+  mode = 'play';
+  theirLengthBox(br, 396, 3, 30);
+  theirBoard(br, rows, 0);
+  br.raf(1);
+  assert.strictEqual(ourRows(br).filter((r) => / \*$/.test(r)).length, 1);
+  assert.ok(!/ \*$/.test(ourRows(br)[2]), 'the third row is not relabelled as the player');
+  assert.strictEqual(br.slx.errors, 0);
+});
+
 test('slxBr: every event line in one block at the top centre, in the slot slxHud keeps clear', () => {
   const store = { slBr: 'play' };
   const P = makePage({ win: { setInterval: () => 0, sessionStorage: { getItem: (k) => store[k] || null, removeItem: (k) => { delete store[k]; } } } });

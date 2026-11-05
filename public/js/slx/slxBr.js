@@ -366,6 +366,8 @@
   var hudW = 0; // the block's width, read when what it says changes
   var hudTop = -1;
   var TOP_PX = 8; // without slxHud
+  var SIDE_GAP = 8; // CHOSEN: the clear space round the block on an upright phone
+  var SIDE_MIN = 120; // CHOSEN: px, the narrowest block worth placing beside the board
   var FONT = 'Arial,"Helvetica Neue",Helvetica,sans-serif';
   var style = doc.createElement('style');
   style.textContent = [
@@ -521,11 +523,45 @@
       hudKey = key;
       hudW = hud.offsetWidth || 0;
     }
-    var top = hs && typeof hs.topSlot === 'function' ? hs.topSlot(hudW) : TOP_PX;
+    var side = sideSlot(hs);
+    var top = side ? side.top : hs && typeof hs.topSlot === 'function' ? hs.topSlot(hudW) : TOP_PX;
+    var sideKey = side ? side.left + '|' + side.width : '';
+    if (sideKey !== hudSide) {
+      hudSide = sideKey;
+      var hst = hud.style;
+      hst.left = side ? side.left + 'px' : '';
+      hst.transform = side ? 'none' : '';
+      hst.maxWidth = side ? side.width + 'px' : '';
+      hst.textAlign = side ? 'left' : '';
+    }
     if (top !== hudTop) {
       hudTop = top;
       hud.style.top = top + 'px';
     }
+  }
+
+  // An upright phone has no room for the block between the top left button and the leaderboard (Owen 2026-11-04:
+  // "Circle closing" was pushed down under the board): it sits under the top left button instead (the Spectate bar's
+  // Lobby, the chat button or this page's Lobby), left aligned, as wide as the space left of the board. null on a
+  // computer, a phone held sideways, or with too little room (then topSlot places it as before).
+  var hudSide = '';
+  function sideSlot(hs) {
+    if (!hs || typeof hs.phone !== 'function' || !hs.phone() || typeof hs.board !== 'function') return null;
+    var w = root.innerWidth || 0;
+    var h = root.innerHeight || 0;
+    if (!(h > w)) return null;
+    var b = hs.board();
+    var left = SIDE_GAP;
+    var top = SIDE_GAP;
+    var btns = doc.querySelectorAll ? doc.querySelectorAll('.dsw-lobby, .dsc-btn, .slx-br-lobby') : [];
+    for (var i = 0; i < btns.length; i++) {
+      var r = typeof btns[i].getBoundingClientRect === 'function' ? btns[i].getBoundingClientRect() : null;
+      if (!r || !(r.width > 0) || r.top > h / 3) continue;
+      if (r.bottom + SIDE_GAP > top) top = Math.round(r.bottom + SIDE_GAP);
+      if (r.left > 0 && r.left < w / 2 && r.left > left) left = Math.round(r.left);
+    }
+    var width = Math.floor((b.width > 0 ? b.left : w) - left - SIDE_GAP);
+    return width >= SIDE_MIN ? { left: left, top: top, width: width } : null;
   }
 
   if (startBtn && typeof slx.guard === 'function') bindStart();

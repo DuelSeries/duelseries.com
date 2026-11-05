@@ -32,6 +32,13 @@
   // Drawn back up from their 0.7 page only where the page really is at 0.7 (slxMain's layoutZoom, as slxHud).
   var ZOOM = typeof slx.layoutZoom === 'function' ? slx.layoutZoom() : 1;
 
+  function watching() {
+    var w = slx.watch && typeof slx.watch.state === 'function' ? slx.watch.state() : null;
+    if (w && w.on) return true;
+    var b = slx.br;
+    return !!(b && typeof b.mode === 'function' && b.mode() === 'watch');
+  }
+
   var pending = [];                              // own lines waiting for their echo: styling only
   var PENDING_MAX = 8;                           // CHOSEN: lines in flight at once (the old box's PENDING_MAX)
 
@@ -43,7 +50,10 @@
       if (pending.length > PENDING_MAX) pending.shift();
       return true;
     },
-    canSend: function () { return !!S.playing; },
+    // A watcher (the lobby's Spectate, slxWatch, or the battle royale's watch, slxBr) is "playing" in their client but
+    // never sends: no send, so the phone's chat button is hidden (dsChat dsc-nosend) and the Spectate bar's Lobby
+    // button, in the same top left corner, is alone there (Owen 2026-11-04: a second button peeked out under Lobby).
+    canSend: function () { return !!S.playing && !watching(); },
     phone: !!S.is_mobile,
     zoom: ZOOM,
     pc: { left: 10, bottom: 50 },                // above their length box (sl.html lbf, 37 px high at bottom 4)
