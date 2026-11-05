@@ -198,7 +198,7 @@
     var p = ((t / PP_LOOP) % 1 + 1) % 1, A = p * 6.2832;
     var main = loopCol(k, t / PP_LOOP), back = hsvScale(main, 0.75), nick = hsvScale(main, 0.5);
     // The lap's radius, the home's, the trail's width and how much of a lap it covers, the head, the lift.
-    var LAP = 12, HOME = 7, TW = 8, ARC = 0.68, HS = 8, LIFT = 2;
+    var LAP = 12, HOME = 5.5, TW = 8, ARC = 0.68, HS = 8, LIFT = 2;
     // A turning head reaches half its diagonal out; the whole piece fits its box with a unit of air each side.
     var reach = LAP + HS * 0.7072, u = Math.min(h / (2 * reach + LIFT + 2), w / (2 * reach + 2));
     var cx = w / 2, cy = h / 2 + LIFT * u / 2;

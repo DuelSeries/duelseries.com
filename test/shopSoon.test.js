@@ -49,7 +49,7 @@ test('the bar under Play says Shop, Coming soon, struck through and shut', () =>
   for (const rule of ['#detail .lookrow.shopsoon,#detail .lookrow.shopsoon:hover{cursor:not-allowed;background:rgba(23,20,15,.6)}',
                       '#detail .lookrow.shopsoon .lkt b{color:var(--tx3);text-decoration:line-through}',
                       '#detail .lookrow.shopsoon .lka{display:none}',
-                      '#detail .lookrow.shopsoon canvas{opacity:.45}',
+                      '#detail .lookrow.shopsoon canvas{opacity:.7}',
                       '.lookrow .lksoon[hidden]{display:none}'])
     assert.ok(html.includes(rule), 'css: ' + rule);
 });
