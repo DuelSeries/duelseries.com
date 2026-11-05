@@ -1504,7 +1504,7 @@ body.ingame #social-screen .lb-live::before{animation-play-state:paused!importan
 #events-screen .evclock.is-hot .ds-bc b{background:var(--ds-s3);box-shadow:var(--ds-edge2)}
 #events-screen .evclock.is-hot .ds-bc b::after{content:'';position:absolute;left:12px;right:12px;bottom:0;height:3px;
   border-radius:3px 3px 0 0;background:var(--ds-green)}
-/* The way in: Join, Spectate under it (Watch live leads while a match is on), the owner's start when it is theirs, and
+/* The way in: Join, Spectate under it (Watch live leads while a match is on), and
    How it works. Each button's second line says what is going on. */
 .ev-acts{display:flex;flex-direction:column;align-items:stretch;gap:var(--ds-sp2);width:100%;margin-top:auto;padding-top:var(--ds-sp5)}
 .evbar{display:flex;flex-direction:column;align-items:stretch;gap:var(--ds-sp2);min-width:0}
@@ -1518,8 +1518,6 @@ body.ingame #social-screen .lb-live::before{animation-play-state:paused!importan
 .evt b{font-weight:inherit;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
 .evt small{font-size:var(--ds-fs-2);font-weight:600;font-stretch:100%;opacity:.66;white-space:nowrap}
 .evt small:empty{display:none}
-#events-screen .evown{gap:var(--ds-sp2)}
-#events-screen .evown small{font-size:var(--ds-fs-1);font-weight:600;color:var(--ds-tx2)}
 #events-screen .evhow{align-self:center;--h:36px;font-size:var(--ds-fs-2)}
 .ev-why,.ev-note{display:none}
 @media(min-width:761px) and (max-width:1100px){
@@ -3236,7 +3234,6 @@ html.ds-building body>:not(#splash){visibility:hidden}
       if(watch){ watch.disabled=true; setText('ev-watch-t','Spectate'); setText('ev-watch-s','');
                  watch.classList.remove('ds-btn-primary'); watch.classList.add('ds-btn-secondary'); }
       setText('ev-why', ASKED?'The Battle Royale is not answering right now. This page checks again every few seconds.':'');
-      ownButton(null);
       return;
     }
     if(watch) watch.disabled=false;
@@ -3347,7 +3344,6 @@ html.ds-building body>:not(#splash){visibility:hidden}
     /* Spectate: watching the match while one is on, the arena between them.
        Its small line counts the arena between matches; while a match runs the
        card shows the timer alone (Owen 2026-10-17), so no count of who is left. */
-    ownButton(st);
     if(watch){
       setText('ev-watch-t', on ? 'Watch live' : 'Spectate');
       setText('ev-watch-s', live ? ''
@@ -3419,55 +3415,13 @@ html.ds-building body>:not(#splash){visibility:hidden}
     });
   }
 
-  /* THE OWNER'S START. Drawn only when the server says this wallet is the
-     owner's (POST /api/br/owner, asked once per wallet) and the arena is
-     waiting: one match at a time, so there is nothing to press while one runs
-     or finishes. Pressing it signs 'br:start' with the lobby's wallet and sends
-     it to /api/owner/do, which checks the signature and starts it (or says why
-     not). The button is a courtesy; the signature is the rule. */
-  var OWN={wallet:'', is:false, asking:false, busy:false};
-  function myWallet(){ var w=window.duelWallet||{}; return w.authenticated&&w.address?w.address:'' }
-  function ownButton(st){
-    var b=$('ev-own'); if(!b) return;
-    var w=myWallet();
-    if(w!==OWN.wallet && !OWN.asking){
-      OWN.wallet=w; OWN.is=false;
-      if(w){
-        OWN.asking=true;
-        fetch('/api/br/owner',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({wallet:w})})
-          .then(function(r){ return r.json() }).then(function(j){ if(OWN.wallet===w) OWN.is=!!(j&&j.isOwner) })
-          .catch(function(){}).then(function(){ OWN.asking=false; tick(true) });
-      }
-    }
-    var show=OWN.is && w===OWN.wallet && st==='waiting';
-    if(b.hidden===show) b.hidden=!show;
-    if(!OWN.busy && b.disabled) b.disabled=false;
-  }
-  function say(t,err){
-    if(window.DSToast) window.DSToast.show({kind:err?'err':'ok', title:t});
-  }
-  function ownerStart(){
-    var b=$('ev-own');
-    if(OWN.busy) return;
-    if(typeof window.duelWalletSignAction!=='function'){ say('Sign in with your wallet first.',true); return; }
-    OWN.busy=true; if(b){ b.disabled=true; b.firstChild.textContent='Check your wallet' }
-    Promise.resolve().then(function(){ return window.duelWalletSignAction('br:start',{}) }).then(function(p){
-      if(!p) throw new Error('The wallet did not sign.');
-      return fetch('/api/owner/do',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(p)})
-        .then(function(r){ return r.json().then(function(j){
-          if(r.ok) say(j.note||'Match started'); else say(j.error||'Refused',true);
-        }) });
-    }).catch(function(e){ say((e&&e.message)||'Could not reach the server.',true) }).then(function(){
-      OWN.busy=false; if(b){ b.disabled=false; b.firstChild.textContent='Start match now' }
-      pull(true);
-    });
-  }
-
+  /* The owner's Start match now button that sat here (owner wallet only) is gone (Owen 2026-11-05: the owner sees the
+     same Events tab as every player). Control's Start now (owner.html, /api/owner/do br:start) still starts a match. */
   /* engine(): which engine runs the event ('sl' or 'old', /api/live br.engine), read by play.js to open /sl or /game.html. */
   /* feed(): the same /api/live answer the lobby board already fetches (board.js), so the PC
      sidebar's Battle Royale clock costs no request of its own. untilStart(): seconds to the next
      scheduled start, run on locally since the last answer. */
-  window.V2Event={tick:tick, podium:podium, pull:pull, ownerStart:ownerStart,
+  window.V2Event={tick:tick, podium:podium, pull:pull,
                   feed:function(br){ if(br){ ASKED=true; BR=br; BRAT=Date.now(); } },
                   untilStart:untilStart,
                   engine:function(){ return BR&&BR.engine?BR.engine:null },
@@ -3822,7 +3776,6 @@ function openSwimHow(){
             <span class="evt"><b id="ev-watch-t">Spectate</b><small id="ev-watch-s"></small></span>
           </button>
         </div>
-        <button type="button" class="ds-btn ds-btn-secondary evown" id="ev-own" hidden onclick="V2Event.ownerStart()">Start match now<small>Owner</small></button>
         <!-- The rules live behind this, where there is room to say all of them. -->
         <button type="button" class="ds-btn ds-btn-quiet evhow" onclick="openEventHow()">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.2a2.5 2.5 0 1 1 3.2 2.4c-.5.2-.8.7-.8 1.2v.6"/><path d="M12 17h.01"/></svg>
