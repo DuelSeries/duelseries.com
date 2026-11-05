@@ -117,29 +117,39 @@ function fakeQuery(rows) {
   return q;
 }
 const row = (wallet, rake, name) => ({ wallet, game: 'slither', age: 3, n: 1, rake: String(rake), best_rake: String(rake), name });
+// A Top earners row (server/netEarnings.js NET_BOARD_SQL): what came back, what went in, the refunds recorded.
+const netRow = (wallet, out, inn, name, game = 'snake') =>
+  ({ wallet, name, paid_out: String(out), cashouts: 1, paid_in: String(inn), rounds: 1, refunded: '0', game });
 
-test('board: the strip\'s own read, ranked, ten at most, owner never on it', async () => {
+test('board: Top earners by NET, ranked, ten at most, never the owner (2026-11-05)', async () => {
   const rows = [];
-  for (let i = 0; i < 14; i++) rows.push(row('W' + String(i).padStart(43, 'x'), 0.1 + i / 100, 'p' + i));
-  let asked = null;
-  const q = (sql, params) => { asked = params; return Promise.resolve({ rows }); };
-  const e = createEarnings({ query: q, excludeWallets: [OWNER, REV], previewExclude: [REV], config: CFG, log: quiet });
+  for (let i = 0; i < 14; i++) rows.push(netRow('W' + String(i).padStart(43, 'x'), 2 + i / 10, 1, 'p' + i));
+  let asked = null, sql = null;
+  const q = (s, params) => { sql = s; asked = params; return Promise.resolve({ rows }); };
+  const e = createEarnings({ query: q, excludeWallets: [OWNER, REV], previewExclude: [REV], config: CFG, log: quiet,
+    boardExclude: () => ['BotBankWa11et1111111111111111111111111111111'] });
   const b = await e.board();
   assert.strictEqual(b.ok, true);
+  assert.strictEqual(sql, require('../server/netEarnings').NET_BOARD_SQL, 'the net read');
   assert.strictEqual(b.top.length, 10);
   assert.deepStrictEqual(b.top.map((r) => r.rank), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
-  assert.strictEqual(b.top[0].name, 'p13');
-  assert.ok(asked[1].includes(OWNER) && asked[1].includes(REV), 'the owner and revenue wallets are left out');
+  assert.deepStrictEqual(b.top[0], { rank: 1, name: 'p0', game: 'Slither.io', amount: 1, n: 1 }, 'net of buy-ins');
+  assert.ok(asked[0].includes(OWNER), 'the owner is left out');
+  assert.ok(asked[0].includes(REV), 'the revenue wallet is');
+  assert.ok(asked[0].includes('BotBankWa11et1111111111111111111111111111111'), 'and the Bot bank');
+  assert.strictEqual(asked[1], 10);
 });
 
 test('board: a failed read says so, and the strip switch does not empty the Social board', async () => {
   const bad = createEarnings({ query: () => Promise.reject(new Error('down')), excludeWallets: [OWNER, REV],
     previewExclude: [REV], config: CFG, log: quiet });
   assert.deepStrictEqual(await bad.board(), { ok: false, top: [] });
-  const off = createEarnings({ query: fakeQuery([row(A, 0.2, 'neo')]), excludeWallets: [OWNER, REV],
-    previewExclude: [REV], config: { ...CFG, SHOW: false }, log: quiet });
+  const off = createEarnings({ query: (s) => Promise.resolve({ rows: /paid_in/.test(s) ? [netRow(A, 1.8, 1, 'neo')] : [row(A, 0.2, 'neo')] }),
+    excludeWallets: [OWNER, REV], previewExclude: [REV], config: { ...CFG, SHOW: false }, log: quiet });
   assert.deepStrictEqual(await off.answer(false), { on: false }, 'the strip is off');
-  assert.strictEqual((await off.board()).top[0].name, 'neo', 'the board is its own screen');
+  const top = (await off.board()).top;
+  assert.strictEqual(top[0].name, 'neo', 'the board is its own screen');
+  assert.strictEqual(top[0].amount, 0.8, 'its figure is the net');
   const none = createEarnings({ query: null, excludeWallets: [], previewExclude: [], config: CFG, log: quiet });
   assert.deepStrictEqual(await none.board(), { ok: false, top: [] });
 });

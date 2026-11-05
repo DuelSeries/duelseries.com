@@ -13,6 +13,7 @@ const { EventEmitter } = require('events');
 const { Pool, Client } = require('pg');
 const db = require('../server/db');
 const playerStats = require('../server/playerStats');
+const netEarnings = require('../server/netEarnings');
 const { EARNINGS_SQL } = require('../server/earnings');
 
 const ROOT = path.join(__dirname, '..');
@@ -114,16 +115,17 @@ test('the profile, the search and /api/my-profile read through the read pool; a 
   assert.strictEqual(prof.name, 'Neo');
   assert.deepStrictEqual(prof.winRate && prof.winRate.entered, 0);
   assert.ok(reads.includes(playerStats.WIN_SQL), 'the win rate is a public read');
-  assert.strictEqual(reads.length, 7, 'the account, five earnings series and the win rate');
+  assert.strictEqual(reads.length, 9, 'the account, five earnings series, the net (its start and its sums) and the win rate');
+  assert.ok(reads.includes(netEarnings.NET_ONE_SQL) && reads.includes(netEarnings.SINCE_SQL), 'the net is a public read');
   assert.strictEqual((await db.getMyProfile(GID)).name, 'Neo');
-  assert.strictEqual(reads.length, 10);
+  assert.strictEqual(reads.length, 14, 'the account, the net (its start and its sums), cash-outs and buy-ins');
   assert.deepStrictEqual(await db.searchPlayerNames('ne'), ['Neo']);
-  assert.strictEqual(reads.length, 11);
+  assert.strictEqual(reads.length, 15);
   assert.deepStrictEqual(writes, [], 'none of them touched the main pool');
 
   await db.setAccountName(GID, 'Trinity');
   assert.strictEqual(writes.length, 2, 'the clash check and the upsert');
-  assert.strictEqual(reads.length, 11, 'and the write never went near the read pool');
+  assert.strictEqual(reads.length, 15, 'and the write never went near the read pool');
 });
 
 test('a win-rate read that Postgres cancels costs the tile, never the profile', async (t) => {
