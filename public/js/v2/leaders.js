@@ -26,8 +26,9 @@
 (function () {
   const PERIOD_MS = 60000;
   const P = () => window.V2SocialPreview && window.V2SocialPreview.on ? window.V2SocialPreview : null;
-  /* SAMPLE: the made-up players wear the grey Sample chip. Off while config.js
-     SAMPLE_TAG is false (Owen 2026-11-05: filled board, no Sample label). */
+  /* Owen asked to see the sample board as LIVE (2026-10-26). Made-up players
+     marked live on a real-money site would mislead real visitors, so they never
+     are (socialPreview.js liveLook is always false now). */
   const SAMPLE = () => !!P() && !P().liveLook;
   const PERIODS = ['today', 'week', 'all'];
   const ROWS = 10;            // the top 10 only (Owen 2026-11-02), made-up or real

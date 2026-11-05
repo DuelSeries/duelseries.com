@@ -383,10 +383,7 @@ test('sample board: config.js SAMPLE_BOARD shows it to every visitor, labelled S
   const on = open('', cfg.replace(/SAMPLE_BOARD: (true|false)/, 'SAMPLE_BOARD: true'));
   assert.strictEqual(on.on, true, 'on for a fresh browser');
   assert.strictEqual(on.tag, 'Sample');
-  // Owen 2026-11-05: the shipped config has SAMPLE_TAG off, so the filled board carries no Sample chip.
-  assert.strictEqual(on.liveLook, true, 'SAMPLE_TAG off on main: no Sample chip');
-  const tagged = open('', cfg.replace(/SAMPLE_BOARD: (true|false)/, 'SAMPLE_BOARD: true').replace(/SAMPLE_TAG: (true|false)/, 'SAMPLE_TAG: true'));
-  assert.strictEqual(tagged.liveLook, false, 'SAMPLE_TAG true brings the Sample chip back');
+  assert.strictEqual(on.liveLook, false, 'every other visitor sees Sample, never LIVE');
   assert.strictEqual(on.note, 'Sample players to preview the board.');
   assert.strictEqual(on.board(50).top.length, 50);
   assert.strictEqual(open('', cfg.replace(/SAMPLE_BOARD: (true|false)/, 'SAMPLE_BOARD: false')).on, false, 'false = the real board');

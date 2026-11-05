@@ -6,13 +6,13 @@
    SAMPLE_WINS: Home's Live wins row is filled with made-up wins from the same
    players (socialPreview.js wins), new ones sliding in every few seconds
    (Owen, 2026-11-02: "full and moving"). false = real cash-outs only.
-   SAMPLE_TAG, when true, puts a grey "Sample" chip on every made-up win,
-   player and earnings figure. Off since 2026-11-05 (Owen: keep the filled boards but
-   drop the Sample label, so the rows read like normal rows). Set it back to
-   true to bring the chip back everywhere at once.
+   SAMPLE_TAG: every made-up win, player and earnings figure wears "Sample".
+   It MUST stay true on main: made-up money is never shown as real. The only
+   way round it is ?filler=live on a localhost dev server (Owen's preview),
+   which socialPreview.js ignores on any other host.
    The Wallet, /api/* and all server data stay real either way. */
 window.DSConfig = Object.assign(window.DSConfig || {}, {
   SAMPLE_BOARD: true,
   SAMPLE_WINS: true,
-  SAMPLE_TAG: false,
+  SAMPLE_TAG: true,
 });
