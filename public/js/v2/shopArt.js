@@ -212,8 +212,11 @@
         SK.paperArt(ctx, k, cx + tx * tile, cy - LIFT * u + ty * tile, tile, k.art === 'stars' ? '#ffffff' : back);
       ctx.restore();
     }
-    // The trail: the arc the head has just run, on the ground under it, clockwise round to the head.
-    ctx.globalAlpha = 0.6; ctx.strokeStyle = main; ctx.lineWidth = TW * u; ctx.lineCap = 'round';
+    /* The trail: the arc the head has just run, on the ground under it, clockwise round to the head. On the arena
+       floor it is main at 0.6; on the dark chooser (bare) the same 0.6 would sink into the black, so it is drawn
+       solid in the colour it shows on the floor (main 0.6 over paperSkins.js arenaColor). */
+    ctx.globalAlpha = bare ? 1 : 0.6; ctx.strokeStyle = bare ? mix('#e7fff4', main, 0.6) : main;
+    ctx.lineWidth = TW * u; ctx.lineCap = 'round';
     ctx.beginPath(); ctx.arc(cx, cy, LAP * u, A - ARC * 6.2832, A, false); ctx.stroke();
     ctx.globalAlpha = 1;
     /* The head: the nick square on the ground, then the back square lifted over it with its main centre, each
