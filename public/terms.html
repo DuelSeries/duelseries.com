@@ -14,15 +14,34 @@
 <script src="/js/v2/support.js" defer></script>
 </head>
 <body>
-<!-- DRAFT, written 2026-10-15 to replace a page that was another company's
-     terms copied word for word (it named that company as the operator).
-     Every statement about how the site works was checked against the code
-     that day. Owen's answers the same day: the operator is named "DuelSeries"
-     until a lawyer has looked, the contact is playduelseries@gmail.com, the
-     minimum age is 21, and the excluded places wait for the lawyer. The
-     highlighted [brackets] left are for that review.
-     A lawyer has to review this before anyone relies on it: real money moves
-     through this site. -->
+<!-- Rewritten 2026-11-05 from the code on main that day (and branch owner/bots for
+     paid duel bots). Where each fact comes from:
+       money in SOL, shown in dollars       server/money.js (MONEY_MODE default 'sol'), server/solPrice.js
+       sign-in methods                       wallet-widget/src/main.jsx loginMethods google, email, wallet
+       Add funds (MoonPay card, Receive)     main.jsx fundWallet, card.preferredProvider 'moonpay'
+       Convert (old USDC to SOL, Jupiter)    server/swap.js, public/js/v2/wallet.js
+       Withdraw fee and 0.001 SOL kept       main.jsx sendSol feePayer = player, wallet-widget/src/solReserve.mjs
+       buy-ins $0.50 and $1                  shared/stakeLadder.js PAID_RUNGS, server/stakeRules.js
+       90% / 10% in arena games              server/paperPayout.js HOUSE_CUT_DIV, server/slPaid/slMoney.js
+       duels: pot less 10%                   server/duelMoney.js DUEL_HOUSE_CUT
+       disconnects                           server/sl/slLaws.js glideMs, server/ag/agMoney.js, server/paper/PaperRoom.js,
+                                             server/KnockoutRoom.js, server/duelQueue.js
+       restart and crash refunds             server/ag/agShutdown.js, server/index.js paidShutdownDirs
+       entry refunds                         server/entryExpiry.js (5 minute token), server/stakeLedger.js
+       failed payouts retried                server/payoutDrainer.js
+       floor money to the house              server/paper/PaperRoom.js, server/chomp/chompMoney.js, server/slPaid/slPaidConst.js
+       computer players                      server/botNames.js, server/botBank.js, server/slPaid/slMoney.js,
+                                             shared/duelWait.js; paid duel bots: owner/bots server/duelBots.js
+       Battle Royale                         shared/constants.js BR_*, server/slBr/brPrizeRule.js
+       skins, no refunds                     server/skinShop.js, shared/shopPrices.js
+       chat rules                            server/chatGuard.js
+       teaming checks                        server/CollusionMonitor.js (flags only, no ban exists)
+     Owen's answers of 2026-11-05: operator "DuelSeries" only (no personal name or address); contact through the
+     site's Contact sheet (public/js/v2/support.js) and the Discord, no email address shown; free games 13+, accounts
+     and paid play 21+; Ontario law and courts; liability capped at the last 12 months of buy-ins; money records kept
+     7 years, other account data deleted within 30 days of a request; self-exclusion and cheating handled by hand
+     (there is no wallet block in the code); no country blocked; helplines ConnexOntario and 988.
+     test/legalPages.test.js holds the facts most likely to drift: change the code, change this page. -->
 <header class="top">
   <div class="top-in">
     <a class="brand" href="/">Duel<span>Series</span></a>
@@ -41,8 +60,13 @@
       <a href="#who-we-are">Who we are</a>
       <a href="#who-can-play">Who can play</a>
       <a href="#your-account-and-wallet">Your account and wallet</a>
-      <a href="#money">Money</a>
+      <a href="#adding-and-withdrawing">Adding and withdrawing</a>
+      <a href="#paid-games">Paid games</a>
+      <a href="#if-something-goes-wrong">If something goes wrong</a>
+      <a href="#computer-players">Computer players</a>
       <a href="#free-play-and-events">Free play and events</a>
+      <a href="#skins">Skins</a>
+      <a href="#chat-and-clips">Chat and clips</a>
       <a href="#fair-play">Fair play</a>
       <a href="#the-service">The service</a>
       <a href="#changes">Changes</a>
@@ -51,64 +75,180 @@
 <main class="doc">
 
   <h1>Terms of service</h1>
-  <p class="meta">Draft, last updated October 15, 2026</p>
-
-  <div class="draft"><b>Draft.</b> These terms have not been reviewed by a lawyer and
-    are not final. Highlighted parts are still to be confirmed.</div>
+  <p class="meta">Last updated November 5, 2026</p>
 
   <h2 id="who-we-are">Who we are</h2>
-  <p>DuelSeries (duelseries.com, "we", "us") runs this site. You can reach us at
-    <a href="https://mail.google.com/mail/?view=cm&amp;to=playduelseries@gmail.com" target="_blank" rel="noopener noreferrer" data-support>playduelseries@gmail.com</a>.</p>
+  <p>DuelSeries (duelseries.com, "we", "us") runs this site.
+    For support, legal and privacy questions, reach us through the site's <a href="https://mail.google.com/mail/?view=cm&amp;to=playduelseries@gmail.com" target="_blank" rel="noopener noreferrer" data-support>Contact</a> page or the <a href="https://discord.gg/TkFaefHDFr" target="_blank" rel="noopener noreferrer">DuelSeries Discord</a>.</p>
+  <p>By playing on the site you agree to these terms. If you do not agree, do not use the site.</p>
 
   <h2 id="who-can-play">Who can play</h2>
-  <p>You must be at least 21 years old, and playing
+  <p>Free games are for anyone 13 or older and need no account. To make an account or play for
+    money you must be at least 21 years old, and playing
     skill games for money must be legal where you live. It is up to you to check the law
-    that applies to you. <mark class="todo">[places where paid play is not offered]</mark></p>
+    that applies to you. The site does not check your age or where you are, so by playing for
+    money you tell us both are true.</p>
+  <p>We do not block any country or region, so checking the law where you live is up to you.</p>
+  <p>One person, one account. Do not play paid games for someone else, or let someone else play
+    on your account.</p>
 
   <h2 id="your-account-and-wallet">Your account and wallet</h2>
-  <p>You sign in with Privy, using a Google account or an email address. Signing in
-    creates a Solana wallet that only you control. Your wallet address is your account
-    here. We never hold your money and never have your keys.</p>
+  <p>Sign-in is run by Privy, a separate company. You can sign in with a Google account, an
+    email address or a Solana wallet app (Phantom, Solflare or Backpack). If you use Google or
+    email, signing in creates a Solana wallet for you that only you control. If you use a wallet
+    app, that wallet is the one you play with. Either way, your wallet address is your account
+    here.</p>
+  <p>We never have your keys and cannot move money out of your wallet. The only time your money
+    is out of your wallet is while it is in a paid game: then it sits in our escrow wallet, which
+    holds the money in play and pays out at the end (see <a href="#paid-games">Paid games</a>).</p>
+  <p>Your money is held as SOL, the Solana network's own coin. The site shows it in US dollars,
+    using a live SOL price checked against several price sources. The price of SOL moves, so your
+    balance in dollars can go up or down even when you are not playing. If no reliable price is
+    available, paid games and payouts wait until one is.</p>
   <p>Keep your sign-in secure. Anything sent from your wallet is final: transfers on the
     Solana network cannot be reversed by you, by us or by anyone else.</p>
 
-  <h2 id="money">Money</h2>
+  <h2 id="adding-and-withdrawing">Adding and withdrawing</h2>
+  <ul>
+    <li><strong>Add funds</strong> opens Privy's funding sheet. Paying by card is done by MoonPay,
+      a separate company, on its own screen, under its own terms, checks and fees. You can also
+      send SOL on the Solana network to your wallet address. Send only SOL on Solana: anything
+      else sent to that address is lost.</li>
+    <li><strong>Convert</strong> turns USDC left in your wallet from before the site moved to SOL
+      into SOL, through Jupiter, a separate service. The price can move a little before it lands.
+      If it would pay less than the "at least" amount shown, nothing is converted.</li>
+    <li><strong>Withdraw</strong> sends money from your wallet to any Solana address you choose.
+      You pay the Solana network fee from your wallet, and 0.001 SOL always stays in your wallet
+      to cover fees. Check the address: a withdrawal to a wrong address cannot be reversed or
+      recovered.</li>
+    <li>We charge no fee to add, convert or withdraw. MoonPay, Jupiter and the Solana network
+      may charge their own.</li>
+  </ul>
+
+  <h2 id="paid-games">Paid games</h2>
   <ul>
     <li>Prices and amounts are shown in US dollars. Entry fees and payouts are paid in SOL on the
       Solana network, at the SOL price when you join or are paid.</li>
-    <li>Paid games have fixed buy-ins of $0.50 or $1.00. When you join, your buy-in goes
-      from your wallet to the game's escrow wallet.</li>
-    <li>When you cash out, the escrow sends 90% of your worth in that game to your wallet.
-      The other 10% is the house fee.</li>
-    <li>If a paid game you bought into cannot take you, your buy-in is refunded to the
-      wallet it came from.</li>
-    <li>Deposits of any token other than SOL or USDC, deposits on any network other than Solana,
-      and withdrawals to a wrong address cannot be recovered.</li>
+    <li>Paid games have fixed buy-ins of $0.50 or $1.00. When you press Play on a paid game,
+      your buy-in goes from your wallet to our escrow wallet straight away. You pay the small
+      network fee on that transfer; we pay it on payouts.</li>
+    <li><strong>Arena games</strong> (the snake, cell, Paper and maze games): you start worth
+      your buy-in, and your worth changes as you win or lose money in the game. When you cash
+      out, the escrow sends 90% of your worth in that game to your wallet. The other 10% is the
+      house fee. If you are knocked out first, you lose what you held, buy-in included.</li>
+    <li><strong>Duels</strong> (one against one): both players put in the same buy-in. The
+      winner gets both buy-ins less a 10% house fee ($1.80 from a $1 duel), and the loser loses
+      their buy-in. A draw gives both buy-ins back. Cancel while nobody has taken your table and
+      your buy-in comes back in full.</li>
+    <li>Money dropped in an arena that nobody picks up goes to the house after a while: in the
+      Paper and maze games after an hour, and in the snake game once the room has been empty
+      for five minutes. Rooms that had computer players in them work differently (see
+      <a href="#computer-players">Computer players</a>).</li>
+    <li>The site always asks for the exact buy-in. If more than that arrives, you get the
+      buy-in it covers and the extra is not returned.</li>
+  </ul>
+
+  <h2 id="if-something-goes-wrong">If something goes wrong</h2>
+  <ul>
+    <li><strong>You disconnect in an arena game.</strong> In the snake and Paper games, your
+      player keeps going for a few seconds and is then knocked out, and what you held drops into
+      play for others to pick up. In the cell and maze games, after a few seconds your player stops
+      and stays still for three minutes, where it can still be eaten or caught. Then whatever is left is
+      cashed out to your wallet as usual (90% to you, 10% house fee).</li>
+    <li><strong>You disconnect in a duel.</strong> Some games hold your seat for five seconds.
+      After that, leaving a match counts as a loss and your opponent is paid. If both players
+      drop at the same time, there is no winner and both buy-ins are refunded.</li>
+    <li><strong>Our server restarts or crashes during a paid game.</strong> What you held in
+      that game goes back to your wallet in full, with no house fee. A pool table whose result
+      was already decided pays its winner instead. Money dropped in an arena that nobody had
+      picked up yet goes to the house, except in rooms that had computer players in them.
+      The one exception is the snake game's older engine, which we only use while the current
+      one is switched off: a restart there is not refunded.</li>
+    <li><strong>A game cannot take you after your buy-in has landed</strong> (it is full, closed
+      or the join fails), or you do not use a buy-in within five minutes: it is refunded
+      automatically to the wallet it came from, with no house fee. A buy-in that confirms too
+      late to be used is refunded the same way.</li>
+    <li><strong>A payout cannot be sent right away.</strong> It is recorded and sent again
+      automatically until it goes through. If one still has not arrived, write to us.</li>
+    <li>There are no other refunds. Money lost in a game you played is not returned.</li>
+  </ul>
+
+  <h2 id="computer-players">Computer players</h2>
+  <p>Some players on DuelSeries are computer players (bots) run by us. Here is where you will
+    meet them and what they can do with money.</p>
+  <ul>
+    <li><strong>Free arenas</strong> (snake, cell, Paper and maze games) have computer players
+      in them. They have ordinary player names, are not marked as bots, and the player
+      counts in the lobby include them.</li>
+    <li><strong>Free duels</strong>: if no person takes your table within about ten seconds, you
+      play a computer player.</li>
+    <li><strong>Paid arenas</strong> (snake, cell, Paper and maze games) can also have computer
+      players in them, added by us. They look like any other player: ordinary names, not marked
+      as bots, and counted in the lobby. Each one starts carrying the room's buy-in, paid from our
+      own money. They play like anyone else: they can knock you out and pick up the money you
+      drop, and you can knock them out and win what they carry. They never cash out and are never
+      paid. When one is knocked out, everything it held drops into play. If one leaves any other
+      way, the money it picked up goes back to the players it came from, and its own buy-in comes
+      back to us. In a room they played in, money nobody picks up goes back to the player who
+      dropped it.</li>
+    <li><strong>Paid duels</strong> ($0.50 or $1) can be against a computer player run by us. When
+      one is, the table shows "Bot opponent waiting" before you pay, and the match names it a bot.
+      You only meet one if you pressed Play while that showed. It puts in the same buy-in from our
+      own money and plays by the same game rules. If you win, you are paid exactly as against a
+      person. If it wins, we keep your buy-in. How well a computer player plays depends on the
+      game, and some are hard to beat.</li>
+    <li><strong>The Battle Royale</strong> fills up with computer players. A computer player that
+      wins is never paid a prize.</li>
   </ul>
 
   <h2 id="free-play-and-events">Free play and events</h2>
-  <p>Free games cost nothing and pay nothing. The nightly Battle Royale is free to enter;
-    the last player left wins $20, paid to their wallet in SOL.</p>
-  <p>Rooms, free or paid, may include computer players run by us. In a paid room one may carry the
-    room's stake, funded by us, which whoever knocks it out wins. They never cash out and are never
-    paid: money one picks up drops back into play when it is knocked out, and if it leaves the room any
-    other way, that money goes back to the players it came from, never to us. In a room they played in,
-    money nobody picks up goes back to the player who dropped it.</p>
-  <p>A paid duel ($0.50 or $1) can also have a computer opponent run by us. It is always shown as
-    "Bot opponent waiting" on the table before you pay, and the match names it a bot; you only meet one
-    if you pressed Play while that showed. It plays by the same rules and sees only what your screen shows.
-    It puts in the same buy-in from our own money. If you win, you are paid exactly as against a person.
-    If it wins, the pot less the 10% house fee goes back to us.</p>
+  <p>Free rooms cost nothing and pay nothing, and need no sign-up. The Battle Royale below is
+    the one free game with a prize.</p>
+  <p>The Battle Royale runs every six hours (2 AM, 8 AM, 2 PM and 8 PM Eastern time) and is free
+    to enter. The last person left wins $20, paid to their wallet in SOL. The prize is paid
+    automatically when at least two different people played in the match, the winner and at
+    least one other player have played a paid game before, and the winner's wallet and network
+    have not won an automatic prize in the last seven days. Otherwise the prize is held for us
+    to check by hand. A match with only one person in it, or one cut short by a server restart,
+    pays no prize.</p>
+  <p>The Swim race event is free and has no prize.</p>
+
+  <h2 id="skins">Skins</h2>
+  <p>Skins change how you look in a game and nothing else. They cost $1 to $5, paid in SOL from
+    your wallet at the live price. Once bought, a skin is yours on every device. Skins are final,
+    so there are no refunds.</p>
+
+  <h2 id="chat-and-clips">Chat and clips</h2>
+  <p>Game chat is public. Links, wallet addresses, usernames for other apps, asking anyone for a
+    recovery phrase or private key, slurs and telling anyone to hurt themselves are not allowed and
+    are not sent. Common swear
+    words are hidden. Breaking these rules a few times in a row pauses your chat for a couple of
+    minutes. Never share your recovery phrase or keys with anyone, including someone who says they
+    work for us.</p>
+  <p>You can share a link to a clip on X, YouTube or TikTok, or, on a PC, the last 30 seconds of a
+    game you played on the site. We decide which clips are shown. By sharing a clip you let us show
+    it on DuelSeries and on its own share page. Only share clips you have the right to share. You
+    can delete your own clips at any time.</p>
 
   <h2 id="fair-play">Fair play</h2>
   <p>Win with your own skill. Bots, scripts, modified game clients, playing several
-    accounts together and teaming up against other players are not allowed. We watch for
-    them. <mark class="todo">[what happens to results and payouts when cheating is found]</mark></p>
+    accounts together and teaming up against other players are not allowed. We record money
+    that moves between accounts in paid games and check pairs of accounts that look like they
+    are teaming up. If we find cheating, the results involved are void and we remove that
+    account's access to paid games.</p>
 
   <h2 id="the-service">The service</h2>
   <p>Games run on our servers and can be interrupted by maintenance, network problems or
-    bugs. The site is provided as it is, without a promise that it will always be
-    available or free of errors. <mark class="todo">[limits of liability]</mark></p>
+    bugs. We can close a game, or the paid games, at any time; money in play is then refunded
+    as described above. The site is provided as it is, without a promise that it will always be
+    available or free of errors. Privy, MoonPay, Jupiter and the Solana network are run by
+    others, and we are not responsible for them.</p>
+  <p>As far as the law allows, our total responsibility to you for any claim about the site is
+    limited to the buy-ins you paid on the site in the 12 months before the claim.</p>
+  <p>The leaderboards and the list of recent wins can show made-up sample players while the site
+    is new. Every one of them is marked "Sample".</p>
+  <p>These terms are governed by the laws of Ontario, Canada. Any dispute about them or the
+    site is settled in the courts of Ontario.</p>
 
   <h2 id="changes">Changes</h2>
   <p>We may update these terms. The date at the top shows the current version.</p>

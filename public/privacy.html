@@ -14,11 +14,30 @@
 <script src="/js/v2/support.js" defer></script>
 </head>
 <body>
-<!-- DRAFT, written 2026-10-15 to replace another company's privacy policy that
-     had been copied here. What it says the site collects was read off the code
-     that day (server/db.js accounts and history tables, the Privy widget,
-     public/js/posthog-init.js, the localStorage keys in public/v2.html). The
-     highlighted [brackets] wait for a lawyer's review, which this needs. -->
+<!-- Rewritten 2026-11-05 from the code on main that day. Where each fact comes from:
+       what the database keeps        server/db.js (accounts, earnings_history, stakes_history, used_stake_sigs,
+                                      failed_payouts, house_revenue, collusion_flags, cosmetics_owned, skin_purchases)
+       files on the server            server/ag/agJournal.js, server/slBr/brJournal.js (last 100 prizes, winner's network)
+       no automatic deletion          server/db.js has no prune job; only a paid failed_payouts row is deleted
+       sign-in                        wallet-widget/src/main.jsx; server/index.js asks Privy for the wallet only
+       PostHog                        public/js/posthog-init.js (session recording, masked inputs, /ingest proxy),
+                                      public/js/shared/dsTrack.js (identify by wallet, first-touch record), server/analytics.js
+       chat                           server/chatGuard.js ("Nothing here logs message text")
+       clips                          server/clips.js, public/js/clip/clipRec.js (bucket rules: inbox 7 days, ok 45 days)
+       owner alerts                   server/notify.js (ntfy.sh), server/joinAlerts.js, server/visitAlerts.js
+       browser storage and cookies    localStorage/sessionStorage keys across public/ and wallet-widget/src;
+                                      server/ownerSession.js and server/autoMark.js cookies
+       what is public                 server/db.js getProfile/getMyProfile, server/leaderboard.js, server/earnings/
+       other services                 MoonPay (main.jsx fundWallet), Jupiter (server/swap.js), Helius (RPC_URL),
+                                      Google Fonts, YouTube, TikTok and X players (public/js/v2/clips.js)
+     Owen's answers of 2026-11-05: operator "DuelSeries" only (no personal name or address); contact through the
+     site's Contact sheet (public/js/v2/support.js) and the Discord, no email address shown; free games 13+, accounts
+     and paid play 21+; Ontario law and courts; liability capped at the last 12 months of buy-ins; money records kept
+     7 years, other account data deleted within 30 days of a request; self-exclusion and cheating handled by hand
+     (there is no wallet block in the code); no country blocked; helplines ConnexOntario and 988.
+     Server regions: the NA game server and the database in AWS ca-central-1 (Canada); the EU server in eu-west-1
+     (Ireland) only while it is switched on (.github/workflows/deploy.yml).
+     test/legalPages.test.js holds the facts most likely to drift: change the code, change this page. -->
 <header class="top">
   <div class="top-in">
     <a class="brand" href="/">Duel<span>Series</span></a>
@@ -34,64 +53,157 @@
     </nav>
     <p class="side-hd">On this page</p>
     <nav class="side-nav toc" aria-label="On this page">
+      <a href="#who-we-are">Who we are</a>
       <a href="#what-we-keep">What we keep</a>
       <a href="#signing-in">Signing in</a>
       <a href="#analytics">Analytics</a>
+      <a href="#chat-and-clips">Chat and clips</a>
       <a href="#what-is-public">What is public</a>
       <a href="#on-your-device">On your device</a>
       <a href="#who-else-handles-it">Who else handles it</a>
       <a href="#how-long-we-keep-it">How long we keep it</a>
       <a href="#your-choices">Your choices</a>
+      <a href="#changes">Changes</a>
     </nav>
   </aside>
 <main class="doc">
 
   <h1>Privacy policy</h1>
-  <p class="meta">Draft, last updated October 15, 2026</p>
+  <p class="meta">Last updated November 5, 2026</p>
 
-  <div class="draft"><b>Draft.</b> This policy has not been reviewed by a lawyer and is
-    not final. Highlighted parts are still to be confirmed.</div>
+  <h2 id="who-we-are">Who we are</h2>
+  <p>DuelSeries (duelseries.com, "we", "us") runs this site and decides what happens to the
+    information on this page. Reach us through the site's <a href="https://mail.google.com/mail/?view=cm&amp;to=playduelseries@gmail.com" target="_blank" rel="noopener noreferrer" data-support>Contact</a> page or the <a href="https://discord.gg/TkFaefHDFr" target="_blank" rel="noopener noreferrer">DuelSeries Discord</a>
+    with any question about it.</p>
+  <p>Free games are for anyone 13 or older and need no account. Accounts and paid games are only
+    for players 21 and over.</p>
 
   <h2 id="what-we-keep">What we keep</h2>
   <ul>
     <li><strong>Your wallet address</strong>, which is your account.</li>
-    <li><strong>The player name</strong> you choose, and names you used before it.</li>
-    <li><strong>Your game record:</strong> games played, time played, buy-ins, cash-outs
-      and earnings.</li>
-    <li><strong>Technical details</strong> such as your IP address and browser, which our
-      servers see on every request and use for security and to limit abuse.</li>
+    <li><strong>The player name</strong> you choose.</li>
+    <li><strong>Your game record:</strong> games played, time played, high scores, and every
+      buy-in, cash-out, prize and refund, with its amount, game and time.</li>
+    <li><strong>Money records:</strong> the Solana transactions of your buy-ins and payouts, the
+      house fee taken from each cash-out with your name and wallet, payouts we still owe you, and
+      skins you bought.</li>
+    <li><strong>Fair play records:</strong> money that moves between accounts in paid games, and
+      pairs of accounts we flag for a closer look.</li>
+    <li><strong>Battle Royale prizes:</strong> for each prize, the winner's wallet, name and
+      internet address, used to stop one person collecting prizes on several accounts.</li>
+    <li><strong>Technical details</strong> such as your internet (IP) address and browser,
+      which our servers see on every request. We use them for security and to limit abuse, for
+      example to cap how many paid seats one network can take in a room. Apart from Battle Royale
+      prizes, we do not store your IP address with your account.</li>
+    <li><strong>Not</strong> your email address, your real name or your card details. Accounts made
+      before sign-in moved to Privy may still hold the email address and picture that came with an
+      old Google sign-in. Nothing collects them now.</li>
   </ul>
 
   <h2 id="signing-in">Signing in</h2>
-  <p>Privy runs sign-in and creates your wallet. When you sign in with Google or an email
-    address, Privy handles those details under its own privacy policy.</p>
+  <p>Privy runs sign-in and creates your wallet. If you sign in with Google or an email address,
+    Privy handles those details under its own privacy policy. Our server asks Privy only which
+    wallet is yours. Privy's sign-in tokens are kept in your browser while you are signed in, and
+    they can include your email address; they are removed when you sign out.</p>
 
   <h2 id="analytics">Analytics</h2>
-  <p>Some game pages use PostHog to show us how the site is used, including recordings of
-    sessions with anything you type hidden.</p>
+  <p>The lobby and the game pages use PostHog to show us how the site is used. These legal pages
+    do not. PostHog records:</p>
+  <ul>
+    <li>the pages you open, what you click, errors, and game events such as paid games started
+      and finished, buy-ins, refunds, withdrawals and adding funds;</li>
+    <li>where you came from: the site that sent you and any campaign tags in the link;</li>
+    <li>recordings of your session on the site. Anything you type, the sign-in and funding windows,
+      wallet addresses and balances are hidden in them;</li>
+    <li>your IP address and browser, which reach PostHog through our own domain.</li>
+    <li>Once you sign in, PostHog links all of this to your wallet address. Our server also sends
+      PostHog the money events of paid games under your wallet address, never a key, signature,
+      email or balance.</li>
+    <li>There is no way to turn analytics off on the site today.</li>
+  </ul>
+
+  <h2 id="chat-and-clips">Chat and clips</h2>
+  <p><strong>Chat</strong> in a game is sent live, with your player name, to the players in that
+    game. We do not save chat messages.</p>
+  <p><strong>Clips:</strong> if you share a link to a clip on X, YouTube or TikTok, we keep the
+    link, your caption, your player name, your X handle if the link has one, the game and your
+    wallet address. If you share a clip recorded in a game, the recording is the last 30 seconds
+    of the game screen and its sound, plus your microphone only if you turned it on. Nothing is
+    uploaded unless you press Share. Recordings are stored on Amazon Web Services. We also keep a
+    scrambled form of the uploader's IP address to limit abuse. The clips wall shows your name,
+    caption, game, date and video, never your wallet address.</p>
 
   <h2 id="what-is-public">What is public</h2>
-  <p>Your player name, earnings, games played, time played and rank appear on the
-    leaderboard and on your profile. Everything sent to or from your wallet is recorded on
-    the Solana network, which anyone can read.</p>
+  <ul>
+    <li>Your player name, earnings, games played, time played, join date, win rate, and every
+      cash-out with its amount and time appear on your profile, and your name and results appear
+      on the leaderboards.</li>
+    <li>Anyone who has your wallet address can look up the same profile by it, including your
+      buy-ins.</li>
+    <li>Your player name and chat are seen by the other players in your game.</li>
+    <li>Everything sent to or from your wallet, including buy-ins and payouts, is recorded on the
+      Solana network, which anyone can read.</li>
+  </ul>
 
   <h2 id="on-your-device">On your device</h2>
-  <p>Your browser stores your player name, your skin and a few display preferences so they
-    are there next time. Clearing your browser's site data removes them.</p>
+  <p>Your browser stores your player name, skins, sound and display choices, clip settings and
+    the region you play in, so they are there next time. It also keeps:</p>
+  <ul>
+    <li>Privy's sign-in cookies and tokens, while you are signed in;</li>
+    <li>if you sign in with a wallet app, a device key for 30 days that lets games recognise you
+      without asking every time. It cannot move money;</li>
+    <li>where you first came from (the site that sent you and any campaign tags), for analytics,
+      until you clear it;</li>
+    <li>PostHog's own cookie and storage;</li>
+    <li>while a game tab is open, your name, wallet address and entry details for that game.</li>
+    <li>We use no advertising cookies. Clearing your browser's site data removes all of this.</li>
+  </ul>
 
   <h2 id="who-else-handles-it">Who else handles it</h2>
-  <p>Only the services that run the site: Privy (sign-in and wallets), Amazon Web Services
-    (our servers), Helius (our connection to the Solana network) and PostHog (analytics).
-    We do not sell your information.</p>
+  <p>We do not sell your information or share it for advertising. Only the services that run the
+    site handle it, each for its own part:</p>
+  <ul>
+    <li><strong>Privy</strong>: sign-in and wallets.</li>
+    <li><strong>MoonPay</strong>: card payments when you add funds. You give your payment details
+      and any identity checks to MoonPay, not to us, under its own privacy policy.</li>
+    <li><strong>Jupiter</strong>: Convert. It sees your wallet address.</li>
+    <li><strong>Amazon Web Services</strong>: our servers, the database and clip storage. Our main
+      game server and the database are in Canada; a second game server in Ireland is used only
+      while it is switched on.</li>
+    <li><strong>Helius</strong> and the public Solana network: our connection to Solana. They
+      see wallet addresses and transactions we look up or send.</li>
+    <li><strong>PostHog</strong>: analytics, in the United States.</li>
+    <li><strong>ntfy</strong>: alerts we send to our own phone, which can include your player name,
+      the game and the buy-in you joined, or a Battle Royale winner's name.</li>
+    <li><strong>Google Fonts</strong>: the site's typeface, which your browser loads from Google.</li>
+    <li><strong>YouTube, TikTok and X</strong>: when you play a clip, it plays from that site.</li>
+  </ul>
 
   <h2 id="how-long-we-keep-it">How long we keep it</h2>
-  <p><mark class="todo">[retention period]</mark></p>
+  <ul>
+    <li>Money records (buy-ins, payouts, refunds, fees and their transactions) are kept for 7
+      years, for tax.</li>
+    <li>Your account, name and game record are kept until you ask us to delete them, and then
+      deleted within 30 days. Nothing deletes them automatically.</li>
+    <li>Chat is not kept.</li>
+    <li>Battle Royale prize records keep the last 100 prizes.</li>
+    <li>A clip recording that is never approved is deleted within 45 days. An approved clip stays
+      until you or we remove it.</li>
+    <li>Our server logs include wallet addresses.</li>
+  </ul>
 
   <h2 id="your-choices">Your choices</h2>
-  <p>You can change your player name in Settings and sign out at any time. To ask what we
-    hold about you, or to have it deleted, write to
-    <a href="https://mail.google.com/mail/?view=cm&amp;to=playduelseries@gmail.com" target="_blank" rel="noopener noreferrer" data-support>playduelseries@gmail.com</a>.
-    Records on the Solana network cannot be deleted by anyone.</p>
+  <ul>
+    <li>Change your player name in Settings, and sign out at any time.</li>
+    <li>Delete a clip you shared, from the Clips tab.</li>
+    <li>Clear your browser's site data to remove what is stored on your device.</li>
+    <li>To ask what we hold about you, to correct it or to have it deleted, reach us through
+      the site's <a href="https://mail.google.com/mail/?view=cm&amp;to=playduelseries@gmail.com" target="_blank" rel="noopener noreferrer" data-support>Contact</a> page or the <a href="https://discord.gg/TkFaefHDFr" target="_blank" rel="noopener noreferrer">DuelSeries Discord</a> and include your wallet address. There is no delete button on the site yet.</li>
+    <li>Records on the Solana network cannot be deleted by anyone.</li>
+  </ul>
+
+  <h2 id="changes">Changes</h2>
+  <p>We may update this policy. The date at the top shows the current version.</p>
 
   <nav class="links" aria-label="Legal">
     <a href="/terms.html">Terms of service</a>
