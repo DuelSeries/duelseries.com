@@ -149,3 +149,23 @@ test('the Events countdown runs on: the live feed sends the second and the page 
   // Without it each 3 s poll re-anchored at :00 and the clock stood still.
   assert.ok(/BR\.etMin\*60\+\(BR\.etSec\|\|0\)\+Math\.floor\(\(Date\.now\(\)-BRAT\)\/1000\)/.test(v2()), 'the page counts from the second');
 });
+
+/* Header and profile polish (Owen 2026-11-05, PC review). */
+test('the Wallet tab\'s Copy address is joined to Add funds, not a chip over the balance', () => {
+  const w = read('public/js/v2/wallet.js');
+  const card = w.slice(w.indexOf("'<section class=\"ds-panel ds-lit ds-balp wbal\""), w.indexOf("addChip() +", w.indexOf('ds-balp wbal')));
+  assert.ok(!/wtop-addr/.test(card), 'no address chip on top of the card');
+  assert.ok(/<div class="wa-addg"[^>]*>' \+\s*'<button type="button" class="ds-btn ds-btn-primary ds-btn-lg wa-add" onclick="V2Wallet\.fund\(\)">Add funds<\/button>' \+\s*addrRow\('w-addr', addr\) \+\s*'<\/div>'/.test(card),
+    'Add funds, then the address row, in one group');
+  assert.ok(/box\.classList\.toggle\('bad', !ok\);/.test(w), 'a refused clipboard is marked, so the whole address shows');
+  const css = v2();
+  assert.ok(/#wallet-screen \.wa-addg \.waddr\.bad code\{[^}]*clip:auto/.test(css), 'and the joined row shows it then');
+});
+
+test('Profile is centred like Home, and the header\'s right group sits on the page\'s right gutter', () => {
+  const css = v2();
+  const dial = css.slice(css.indexOf('/* ── Dial-in (Owen 2026-11-02)'), css.indexOf('</style>', css.indexOf('/* ── Dial-in (Owen 2026-11-02)')));
+  assert.ok(/#join-screen,#profile-screen\)>\*\{margin-left:auto;margin-right:auto\}/.test(dial), 'Profile is in the centred screens');
+  assert.ok(/header>\.wrap\{max-width:none\}/.test(css), 'the header is not capped short of the right edge');
+  assert.ok(/\.hd\{height:56px;gap:8px;padding:0 16px\}/.test(css), 'a phone\'s header on the same 16px gutter as the page');
+});

@@ -177,6 +177,8 @@
     const v = el('hdr-balance');
     if (!v) return;
     v.textContent = connected() ? bigBal(w().balance) : '…';
+    // Still starting: the "…" stays for screen readers and is drawn as a shimmer where the figure will be (v2.html .balbox .v.wait).
+    v.classList.toggle('wait', !connected());
     /* Target the label span, not lastChild: the button's last node is the
        whitespace after the span, so writing to it appends a second label. */
     const label = document.querySelector('#wbtn span');
@@ -239,7 +241,8 @@
       drawnFor = null;
       clearMoves();
       hist(false);
-      body.innerHTML = '<div class="ds-panel wstart" role="status"><span class="ds-spin" aria-hidden="true"></span>' +
+      /* A shimmer where the balance will be, not a spinner (Owen 2026-11-05: "a plain spinning circle"). */
+      body.innerHTML = '<div class="ds-panel wstart" role="status"><span class="wshim" aria-hidden="true"></span>' +
         '<p class="ds-hint">Starting your wallet…</p></div>';
       return;
     }
@@ -282,10 +285,11 @@
          them rather than hidden, because an on-chain balance can be a few seconds behind and the only honest answer
          to "is it there yet" is a button that asks again. */
       '<section class="ds-panel ds-lit ds-balp wbal" aria-labelledby="w-bal-t">' +
-        /* Owen's pick W2 "Centered" with W1's buttons (2026-11-03, mockup tab-mockups/w2.html): the address as a chip
-           on top, the balance big and centred under it, the SOL under that, then Add funds, Withdraw and Refresh in
-           one row. The two labels stay for screen readers. */
-        '<div class="wtop"><div class="wtop-addr"><span class="ds-sr" id="w-addr-t">Your wallet address</span>' + addrRow('w-addr', addr) + '</div>' +
+        /* Owen's pick W2 "Centered" with W1's buttons (2026-11-03, mockup tab-mockups/w2.html): the balance big and
+           centred, the SOL under it, then Add funds, Withdraw and Refresh in one row. The address chip that sat on
+           top "looked weird" (Owen 2026-11-05): its Copy is joined to Add funds now (the row below), the same address
+           row drawn as the button's second half. The label stays for screen readers. */
+        '<div class="wtop">' +
         '<div class="wtop-bal">' +
         '<span class="ds-sr" id="w-bal-t">Your balance</span>' +
         '<div style="--n:' + fitLen(bigBal(bal)) + '" class="ds-led num ph-no-capture" id="w-bal" data-cu>' + bigBal(bal) + '</div>' +
@@ -297,7 +301,13 @@
         '<div class="wsol wusdc" id="w-usdc">' + usdcLine() + '</div>' +
         /* The form lives in its own sheet now, so this row never swaps out. */
         ('<div class="wacts">' +
-            '<button type="button" class="ds-btn ds-btn-primary ds-btn-lg wa-add" onclick="V2Wallet.fund()">Add funds</button>' +
+            /* Add funds and Copy address, one control: what you need to put money in, side by side. The address row
+               keeps its code (shown, selected, if the clipboard refuses) and its Copy (an icon here, its word for
+               screen readers); the title says which address. */
+            '<div class="wa-addg" role="group" aria-label="Add funds or copy your wallet address">' +
+              '<button type="button" class="ds-btn ds-btn-primary ds-btn-lg wa-add" onclick="V2Wallet.fund()">Add funds</button>' +
+              addrRow('w-addr', addr) +
+            '</div>' +
             '<button type="button" class="ds-btn ds-btn-secondary ds-btn-lg wa-wd" onclick="V2Wallet.cashOut()">Withdraw</button>' +
             '<button type="button" class="ds-btn ds-btn-secondary ds-btn-lg ds-btn-icon wref" id="w-refresh" onclick="V2Wallet.refresh()" ' +
               'aria-label="Refresh balance" title="Refresh balance">' +
@@ -312,7 +322,7 @@
            their money. SOL mode says SOL only, the same as Add funds' Receive page (stage 3 audit); USDC mode
            takes SOL too, since card top-ups arrive as SOL (Owen, 2026-10-15). */
         '<p class="ds-t-meta">' + (solMode()
-          ? 'Send only SOL on the Solana network to this address. Anything else sent here is lost.'
+          ? 'Send only SOL on the Solana network to your wallet address. Anything else sent here is lost.'
           : 'SOL or USDC on Solana only. Anything else is unrecoverable.') + '</p>' +
       '</section>' +
       (linkedRow() ? '<section class="ds-panel wdep">' + linkedRow() + '</section>' : '');
@@ -574,15 +584,33 @@
     try { navigator.clipboard.writeText(a).then(() => done(true), () => done(false)); }
     catch (_) { done(false); }
   }
-  /* Asks the chain again for both numbers, and says it is doing it. */
-  async function refresh() {
-    const b = el('w-refresh'); if (b) b.classList.add('spin');
-    try { if (window.duelWalletRefresh) await window.duelWalletRefresh(); } catch (_) {}
+  /* Asks the chain again for both numbers, and says it is doing it (Owen 2026-11-05): while the read is out the
+     balance shimmers where it stands (header and Wallet tab, v2.html .shim), never a spinning circle, and once it is
+     back both figures count up from $0 to it in 0.6 s (countUp.js DSCount.replay). Display only: the figures are
+     the widget's own reading, written as before; only how they arrive on screen changed. Refresh and Try again
+     are the same press, and a second one while the first is out is the same refresh. */
+  const BAL_IDS = ['w-bal', 'hdr-balance'];
+  const shim = on => BAL_IDS.forEach(id => { const f = el(id); if (f) f.classList.toggle('shim', on); });
+  let refreshing = null;
+  function refresh() {
+    if (!refreshing) refreshing = refreshNow().finally(() => { refreshing = null; });
+    return refreshing;
+  }
+  async function refreshNow() {
+    const b = el('w-refresh'); if (b) b.setAttribute('aria-busy', 'true');
+    shim(true);
+    let read = true;
+    try { if (window.duelWalletRefresh) await window.duelWalletRefresh(); } catch (_) { read = false; }
+    /* The widget publishes what it read on its next render (its duelwallet:change redraws the figures): two
+       frames, so the count lands on the new figure, not the old one. */
+    await new Promise(r => { requestAnimationFrame(() => requestAnimationFrame(r)); setTimeout(r, 150); });   // no frames in a hidden tab
+    shim(false);
+    const bb = el('w-refresh'); if (bb) bb.removeAttribute('aria-busy');
+    if (read && connected() && window.DSCount && window.DSCount.replay) BAL_IDS.forEach(id => window.DSCount.replay(el(id)));
     // The earnings under it too: it was the one section refresh left as it was.
     if (window.V2Stats) window.V2Stats.load();
     loadMoves();
     await loadTx();
-    if (b) setTimeout(() => b.classList.remove('spin'), 300);
   }
 
   /* Two steps in one panel, replacing three stacked browser dialogs: a prompt
@@ -1409,6 +1437,7 @@
     const a = w().address || '';
     const done = (ok) => {
       box.classList.toggle('done', ok);
+      box.classList.toggle('bad', !ok);
       if (lbl) lbl.textContent = ok ? 'Copied' : 'Select';
       /* Refused (an old browser, a blocked clipboard): the row shows the whole
          address, selected, so a long-press or Ctrl+C still gets it. */

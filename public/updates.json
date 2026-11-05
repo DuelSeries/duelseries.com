@@ -2,6 +2,23 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-11-05-tidier-header-wallet",
+      "date": "2026-11-05",
+      "tag": "fix",
+      "title": "A tidier header and Wallet",
+      "body": "Your balance at the top now says USD beside it, and on a big screen it sits on the right edge of the page where it belongs.\n\nOn the Wallet, Copy address is now part of the Add funds button instead of floating over your balance. Press refresh and your balance shimmers while it checks, then counts up to the real number.\n\nAlso: your Profile sits in the middle of the page on wide screens, and the Battle Royale banner shows the snake's face.",
+      "image": {
+        "src": "/updates/wallet-copy-beside-add-funds.webp",
+        "alt": "The Wallet with Copy address joined to the Add funds button and USD beside the balance at the top"
+      },
+      "gallery": [
+        {
+          "src": "/updates/br-banner-snake-face.webp",
+          "alt": "The Battle Royale banner showing the snake's face"
+        }
+      ]
+    },
+    {
       "id": "2026-11-04-road-hop-new-chicken",
       "date": "2026-11-04",
       "tag": "new",
