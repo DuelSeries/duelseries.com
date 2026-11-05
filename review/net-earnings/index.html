@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Net earnings review</title>
+<style>
+  :root { --bg: #0c0b0a; --ink: #f3ede4; --dim: #a59c8f; --line: #2b2722; --gold: #f2a93b; --red: #ef6a5a; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, Segoe UI, sans-serif; }
+  main { max-width: 1500px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  h2 { font-size: 19px; margin: 36px 0 6px; }
+  p { margin: 6px 0; color: var(--dim); max-width: 900px; }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 10px; }
+  .pair.phone { grid-template-columns: repeat(2, minmax(0, 384px)); }
+  figure { margin: 0; }
+  figure img { width: 100%; height: auto; display: block; border: 1px solid var(--line); border-radius: 8px; }
+  figcaption { font-size: 13px; color: var(--dim); margin-top: 4px; }
+  b.before { color: var(--dim); } b.after { color: var(--gold); }
+  table { border-collapse: collapse; margin-top: 10px; font-variant-numeric: tabular-nums; }
+  td, th { border: 1px solid var(--line); padding: 6px 10px; text-align: left; }
+  th { color: var(--dim); font-weight: 600; }
+  .neg { color: var(--red); }
+  code { background: #1b1916; padding: 1px 5px; border-radius: 4px; }
+  @media (max-width: 760px) { .pair, .pair.phone { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Net earnings: before and after</h1>
+  <p>Branch <code>claude/net-earnings</code> against <code>origin/main</code>, both run locally on the same seeded Postgres.
+     Total earnings is now what came back minus what went in, and the owner is on Top earners.
+     Sample players are switched off in both runs so the real board shows.</p>
+  <p>The owner's rows are his real cash-outs and buy-ins (amounts and times) from the live site's public profile answer;
+     the game names on his rounds and every other player are made up for the review.</p>
+
+  <h2>The owner account (MrPeanutK)</h2>
+  <table>
+    <tr><th></th><th>Old figure</th><th>New figure</th></tr>
+    <tr><td>Total earnings</td><td>$105.40</td><td>$11.29</td></tr>
+    <tr><td>What it adds up</td><td>All 138 payouts ever recorded, including 28 from the SOL era (in SOL, not dollars) and 15 more from before buy-ins were recorded</td><td>$101.39 paid out (95 cash-outs since the first recorded buy-in, Aug 15, 2026) minus $90.10 paid in (198 buy-ins)</td></tr>
+  </table>
+  <p>Not seen from here: refunds the owed lane paid (they would add back), and refunds that landed straight away since Oct 29, which leave no record and read as a loss. The live figure is the same formula run on the live database.</p>
+
+  <h2>Profile, a player who is up (Maya)</h2>
+  <div class="pair">
+    <figure><img src="before-pc-up.jpg" alt="Before: Maya's profile shows $7.40, 4 cash-outs"><figcaption><b class="before">Before</b> $7.40: her four cash-outs added up.</figcaption></figure>
+    <figure><img src="after-pc-up.jpg" alt="After: Maya's profile shows $2.40, cash-outs minus buy-ins"><figcaption><b class="after">After</b> $2.40: $7.40 back minus $5.00 in buy-ins.</figcaption></figure>
+  </div>
+  <div class="pair phone">
+    <figure><img src="before-phone-up.jpg" alt="Before on a phone: $7.40"><figcaption><b class="before">Before</b> phone.</figcaption></figure>
+    <figure><img src="after-phone-up.jpg" alt="After on a phone: $2.40"><figcaption><b class="after">After</b> phone.</figcaption></figure>
+  </div>
+
+  <h2>Profile, a player who is down (Blaze)</h2>
+  <div class="pair">
+    <figure><img src="before-pc-down.jpg" alt="Before: Blaze shows $7.20, 8 cash-outs"><figcaption><b class="before">Before</b> $7.20 looks like a win, but he paid $11.00 to play.</figcaption></figure>
+    <figure><img src="after-pc-down.jpg" alt="After: Blaze shows -$3.80 in red"><figcaption><b class="after">After</b> <span class="neg">-$3.80</span> in red: eight flat cash-outs at -$0.10 each and three lost rounds.</figcaption></figure>
+  </div>
+  <div class="pair phone">
+    <figure><img src="before-phone-down.jpg" alt="Before on a phone: $7.20"><figcaption><b class="before">Before</b> phone.</figcaption></figure>
+    <figure><img src="after-phone-down.jpg" alt="After on a phone: -$3.80"><figcaption><b class="after">After</b> phone.</figcaption></figure>
+  </div>
+
+  <h2>Profile, the owner</h2>
+  <div class="pair">
+    <figure><img src="before-pc-owner.jpg" alt="Before: the owner's profile shows $105.40"><figcaption><b class="before">Before</b> $105.40, 138 cash-outs.</figcaption></figure>
+    <figure><img src="after-pc-owner.jpg" alt="After: the owner's profile shows $11.29 since Aug 15, 2026"><figcaption><b class="after">After</b> $11.29, and the caption says it counts since Aug 15, 2026 because he has older cash-outs.</figcaption></figure>
+  </div>
+  <div class="pair phone">
+    <figure><img src="before-phone-owner.jpg" alt="Before on a phone: $105.40"><figcaption><b class="before">Before</b> phone.</figcaption></figure>
+    <figure><img src="after-phone-owner.jpg" alt="After on a phone: $11.29"><figcaption><b class="after">After</b> phone.</figcaption></figure>
+  </div>
+
+  <h2>Leaderboards</h2>
+  <div class="pair">
+    <figure><img src="before-pc-board.jpg" alt="Before: Top earners by cash-outs, no owner, Blaze third"><figcaption><b class="before">Before</b> ranked by cash-outs, no owner, and Blaze is 3rd while down $3.80.</figcaption></figure>
+    <figure><img src="after-pc-board.jpg" alt="After: Top earners by net, the owner first"><figcaption><b class="after">After</b> ranked by net, the owner on it, only players who are up.</figcaption></figure>
+  </div>
+  <div class="pair phone">
+    <figure><img src="before-phone-board.jpg" alt="Before on a phone: Global player earnings and Top earners by cash-outs"><figcaption><b class="before">Before</b> phone.</figcaption></figure>
+    <figure><img src="after-phone-board.jpg" alt="After on a phone: Player cash-outs and Top earners by net"><figcaption><b class="after">After</b> the cash-out total is called Player cash-outs, not earnings.</figcaption></figure>
+  </div>
+</main>
+</body>
+</html>
