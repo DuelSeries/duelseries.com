@@ -43,6 +43,10 @@ const EXPIRED_READS = 5;        // past its block height and not found this many
 const FUND_BOTS = 5;            // one fund covers this many seeds at most (fewer transactions when many bots start)
 const LOG_MAX = 50;
 const isMicro = (v) => Number.isSafeInteger(v) && v >= 0;
+/* The cap's day is Owen's Toronto calendar day, the same day Control's Spent today shows (server/ownerSpend.js;
+   Fable review 2026-11-05: it rolled on the UTC day, at 7 or 8 pm Toronto). */
+const { torontoDay } = require('./ownerSpend');
+const utcDay = (t) => new Date(t).toISOString().slice(0, 10);
 
 // onMove(ev): told after every saved move, for the owner's Spent today record (server/ownerSpend.js). Display only:
 // it never throws into the bank and nothing it does changes a balance. ev = { kind: 'seed' | 'back' | 'won' | 'lost'
@@ -62,6 +66,8 @@ function createBotBank({ file, fsx = fs, now = Date.now, log = console, chain = 
   }
 
   if (!isMicro(st.inflight)) st.inflight = 0;
+  // a file from before the Toronto day: today's UTC date is today, so today's spent carries over (no free reset)
+  if (st.day && st.day === utcDay(now())) st.day = torontoDay(now());
   const isRec = (r) => !!r && isMicro(r.micro) && r.micro > 0 && typeof r.sig === 'string' && typeof r.raw === 'string';
   if (!isRec(st.fund)) st.fund = null;
   if (!isRec(st.sweep)) st.sweep = null;
@@ -71,7 +77,7 @@ function createBotBank({ file, fsx = fs, now = Date.now, log = console, chain = 
   let lastTake = now();
   let retryAt = 0;
   const ready = [];
-  const today = () => new Date(now()).toISOString().slice(0, 10);
+  const today = () => torontoDay(now());
   function roll() {
     const d = today();
     if (st.day !== d) {
@@ -106,7 +112,7 @@ function createBotBank({ file, fsx = fs, now = Date.now, log = console, chain = 
     st.balance += m;
     st.inflight = 0;
     // seed handed out today and now back does not count against today's limit (the restored bots take it again)
-    if (st.day === new Date(now()).toISOString().slice(0, 10)) st.spent = st.spent > m ? st.spent - m : 0;
+    if (st.day === today()) st.spent = st.spent > m ? st.spent - m : 0;
     st.log.push({ at: now(), kind: 'back', micro: m, balance: st.balance, why: 'hard-stop' });
     log.error('[BOTBANK] ' + m + ' micro of seed held by bots at a hard stop given back to the bank');
     save();
@@ -259,22 +265,21 @@ function createBotBank({ file, fsx = fs, now = Date.now, log = console, chain = 
     // since) is no longer held, and backMicro comes home in the SAME save. 0 = it lost (the human won it);
     // stakeMicro = handed back (nobody came, a draw, a restart); more than its stake = it won (the pot less the
     // house cut). Today's spent goes down by what came back, never past the stake (a win's profit is not a refund).
-    // -> true once saved; false (nothing changed) for a bad amount or a failed save.
+    // -> true once applied (saved, or kept in memory for the next save after a failed one); false for a bad amount.
     settleSeat(stakeMicro, backMicro, why, label) {
       if (!isMicro(stakeMicro) || stakeMicro < 1 || !isMicro(backMicro)) return false;
       roll();
-      const before = { inflight: st.inflight, balance: st.balance, spent: st.spent, log: st.log.length };
       st.inflight = st.inflight > stakeMicro ? st.inflight - stakeMicro : 0;
       st.balance += backMicro;
       const down = Math.min(stakeMicro, backMicro);
       st.spent = st.spent > down ? st.spent - down : 0;
       note(backMicro > stakeMicro ? 'won' : backMicro > 0 ? 'back' : 'lost', backMicro,
         { why: String(why || ''), room: String(label || ''), stake: stakeMicro });
+      /* A failed save KEEPS the move in memory (giveBack's rule) so the next save writes it. Rolling it back left the
+         stake in the in-flight count, which every later save wrote and the next boot paid back to the balance: a lost
+         seat's stake (already the winner's) credited to the bank twice over (Fable review 2026-11-05). */
       if (!save()) {
-        st.inflight = before.inflight; st.balance = before.balance; st.spent = before.spent;
-        st.log.length = before.log;
-        log.error('[BOTBANK] CRITICAL a duel bot seat (' + stakeMicro + ' micro, ' + label + ') could not be saved; left in flight');
-        return false;
+        log.error('[BOTBANK] CRITICAL a duel bot seat (' + stakeMicro + ' micro, ' + label + ') settled but not saved; the next save writes it');
       }
       tell({ kind: backMicro > stakeMicro ? 'won' : backMicro > 0 ? 'back' : 'lost', micro: backMicro, stake: stakeMicro,
         label: String(label || ''), why: String(why || '') });

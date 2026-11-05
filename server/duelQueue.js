@@ -56,18 +56,24 @@ function mayPair(a, b) {
 /* Every pair the queue can make right now, oldest first: same rung, two
    different people. Matched by rung because two seats that paid different
    amounts have no honest way to split a pot. */
+/* People meet people FIRST, then an owner's paid bot takes a person still left (Fable review 2026-11-05): one pass
+   oldest first let a waiting bot take the person who could have met another person, leaving that other one alone. */
 function pairUp(queue) {
   const pairs = [];
   const used = new Set();
-  for (let i = 0; i < queue.length; i++) {
-    const a = queue[i];
-    if (used.has(a)) continue;
-    for (let j = i + 1; j < queue.length; j++) {
-      const b = queue[j];
-      if (used.has(b) || (a.stake || 0) !== (b.stake || 0) || samePerson(a, b) || !mayPair(a, b)) continue;
-      used.add(a); used.add(b);
-      pairs.push([a, b]);
-      break;
+  const list = queue || [];
+  for (const withBot of [false, true]) {
+    for (let i = 0; i < list.length; i++) {
+      const a = list[i];
+      if (used.has(a) || (!withBot && isPaidBot(a))) continue;
+      for (let j = i + 1; j < list.length; j++) {
+        const b = list[j];
+        if (used.has(b) || (!withBot && isPaidBot(b))) continue;
+        if ((a.stake || 0) !== (b.stake || 0) || samePerson(a, b) || !mayPair(a, b)) continue;
+        used.add(a); used.add(b);
+        pairs.push([a, b]);
+        break;
+      }
     }
   }
   return pairs;

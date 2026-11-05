@@ -285,7 +285,10 @@ class KnockoutLobby {
         if (!e || !e.socket) continue;
         /* A match that did start holds the seat. One registered but never started (start threw) is
            taken down and marked settled, so it can neither pay nor strand the stakes it was given. */
-        const rid = this.bySocket.get(e.socket.id);
+        /* An owner's paid bot is never in bySocket (makeMatch): its table is the one that seats it. Without this a
+           throw after the table started gave the bot's stake back to the Bot bank while the table played on, and
+           the table then settled as a person-only one (Fable review 2026-11-05). */
+        const rid = this.bySocket.get(e.socket.id) || (e.paidBot ? this.roomSeating(e.socket.id) : undefined);
         const r = rid ? this.rooms.get(rid) : null;
         if (r && r.state !== 'waiting') continue;
         if (r) { r.settled = true; this.rooms.delete(rid); }
@@ -295,6 +298,12 @@ class KnockoutLobby {
       }
       return null;
     }
+  }
+
+  /* The id of the table that seats this socket id, by its players (an owner's paid bot, which bySocket never holds). */
+  roomSeating(id) {
+    for (const [rid, room] of this.rooms) if (room && room.players && room.players.has(id)) return rid;
+    return undefined;
   }
 
   dequeue(socketId) {
@@ -530,7 +539,7 @@ class KnockoutLobby {
     const ordered = entries.filter(e => !(e && e.paidBot)).concat(entries.filter(e => e && e.paidBot));
     for (const e of ordered) {
       if (e.paidBot) {
-        room.addPlayer(e.socket, e.name, null, e.worth, e.paid, null);
+        if (!room.addPlayer(e.socket, e.name, null, e.worth, e.paid, null)) throw new Error('the paid bot seat was refused');
         // paid: the screen says "Playing a bot" (Owen 2026-11-04: a bot that can win your money is always shown)
         room.bot = { id: e.socket.id, aimedTurn: 0, paidBot: true };
         if (typeof this.onBotSeated === 'function') { try { this.onBotSeated(e, room); } catch (_) { /* display only */ } }

@@ -150,7 +150,8 @@ test('L8: a free table\'s stand-in is not named a bot any more', () => {
   const w = world();
   const s = sock('f');
   w.ko.enqueue(s, 'Pf', null, 0, 0, w.now);
-  w.tick(60000);
+  // just past the free wait: ticking a whole minute let the bot match itself finish and be swept (flaky)
+  w.tick(KnockoutLobby.FREE_WAIT_MS + 400);
   const room = w.ko.roomOf('f');
   assert.ok(room && room.bot, 'the free table got its stand-in');
   assert.equal(room.publicState(w.now).vsBot, false);
@@ -502,4 +503,109 @@ test('ledger: balances always sum, step by step, over a mixed run of spawns, joi
   check('end');
   assert.equal(inflight(w.file), 0, 'no bot stake left in flight');
   assert.ok(botTables > 0, 'the run did put people at bot tables');
+});
+
+/* Fable review 2026-11-05, finding 1: a throw after the table started (matchStarted here) left the person seated and
+   used to give the bot's stake back to the bank (the bot is never in bySocket), so the table then paid as a
+   person-only one. The catch now finds the bot's table by its players, so the table plays on and settles once. */
+for (const lobbyName of ['ko', 'sw']) {
+  test('ledger: ' + lobbyName + ': a match that throws after it started keeps the bot seated and settles once', () => {
+    const w = world();
+    const lob = w[lobbyName];
+    const game = lobbyName === 'ko' ? 'knockout' : 'swim';
+    w.bots.setEnabled(true);
+    const { id } = w.bots.spawn(game, 0.5);
+    const real = lob.matchStarted;
+    let threw = false;
+    lob.matchStarted = function () { threw = true; throw new Error('test: after start'); };
+    personQueues(w, lob, 'p', 0.5, true);
+    lob.matchStarted = real;
+    assert.ok(threw, 'the throw happened');
+    const room = lob.roomOf('p');
+    assert.ok(room && room.players.has(id), 'the table plays on with the bot at it');
+    assert.equal(w.bal(), M(19.5), 'the bot stake was NOT handed back while it is at the table');
+    assert.equal(inflight(w.file), M(0.5));
+    room.finish(id, 'test');
+    assert.equal(w.humanTables.length, 0, 'settled by duelBots, not as a person-only table');
+    assert.equal(w.bal(), M(19.5) + M(0.9), 'the bot won the pot less the cut, once');
+    assert.equal(inflight(w.file), 0);
+  });
+  test('ledger: ' + lobbyName + ': a match that throws before it started refunds both, once', () => {
+    const w = world();
+    const lob = w[lobbyName];
+    const game = lobbyName === 'ko' ? 'knockout' : 'swim';
+    w.bots.setEnabled(true);
+    w.bots.spawn(game, 0.5);
+    const RealRoom = lob.Room;
+    if (lobbyName === 'ko') lob.Room = class extends RealRoom { start() { throw new Error('test: start'); } };
+    else { const real = lob.makeMatch; lob.makeMatch = function () { throw new Error('test: make'); }; lob._real = real; }
+    personQueues(w, lob, 'p', 0.5, true);
+    if (lobbyName === 'ko') lob.Room = RealRoom; else lob.makeMatch = lob._real;
+    assert.equal(lob.roomOf('p'), null);
+    assert.deepEqual(w.out.refunds.map(r => [r.wallet, M(r.amount)]), [['Wp', M(0.5)]], 'the person refunded once');
+    assert.equal(w.bal(), M(20), 'the bot stake home once');
+    assert.equal(inflight(w.file), 0);
+  });
+}
+
+// Fable review 2026-11-05, finding 2: a waiting bot no longer takes the person another person could have met.
+test('pairing: people meet people first; the bot takes only a person left over', () => {
+  const w = world();
+  w.bots.setEnabled(true);
+  const { id } = w.bots.spawn('knockout', 0.5);
+  w.tick(200);
+  // A queues while the bot waits but was not shown it (no botOk), so A waits for people
+  personQueues(w, w.ko, 'a', 0.5, false);
+  assert.equal(w.ko.roomOf('a'), null);
+  // B was shown the bot: B and A are both people, so they meet each other, and the bot keeps waiting
+  personQueues(w, w.ko, 'b', 0.5, true);
+  const room = w.ko.roomOf('a');
+  assert.ok(room && room === w.ko.roomOf('b'), 'the two people met');
+  assert.ok(!room.players.has(id), 'not the bot');
+  assert.deepEqual(w.ko.botsWaitingByRung(), { 0.5: 1 }, 'the bot still waits');
+  // a third person who was shown it then meets the bot
+  personQueues(w, w.ko, 'c', 0.5, true);
+  assert.ok(w.ko.roomOf('c') && w.ko.roomOf('c').players.has(id));
+});
+
+// Finding 3: a failed save of a settled seat keeps the move for the next save; the next boot never pays it twice.
+test('bank: a seat settled while the disk refuses a save is written by the next save, not given back at boot', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'duelbots-'));
+  const file = path.join(dir, 'bot-bank.json');
+  fs.writeFileSync(file, JSON.stringify({ balance: M(20), capMicro: M(200), day: '', spent: 0, inflight: 0, topups: [], log: [] }));
+  let refuse = false;
+  const fsx = Object.assign({}, fs, { writeFileSync: (...a) => { if (refuse) throw new Error('disk full'); return fs.writeFileSync(...a); } });
+  const bank = createBotBank({ file, fsx, log: quiet });
+  assert.equal(bank.take(M(1), 'duel:knockout:1'), true);
+  refuse = true;
+  assert.equal(bank.settleSeat(M(1), 0, 'ko_1', 'duel:knockout:1'), true, 'applied, though not saved');   // the bot lost
+  assert.equal(bank.balanceMicro(), M(19));
+  refuse = false;
+  assert.equal(bank.take(M(0.5), 'duel:knockout:0.5'), true);    // any later save writes the lost seat too
+  assert.equal(bank.settleSeat(M(0.5), M(0.5), 'nobody joined', 'duel:knockout:0.5'), true);
+  const onDisk = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.equal(onDisk.inflight, 0, 'no stale stake in flight');
+  assert.equal(onDisk.balance, M(19));
+  const again = createBotBank({ file, log: quiet });
+  assert.equal(again.balanceMicro(), M(19), 'the next boot does not pay the lost stake back to the bank');
+});
+
+// Finding 5: the daily cap rolls on the Toronto day, the day Spent today shows.
+test('bank: the daily cap day is the Toronto day', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'duelbots-'));
+  const file = path.join(dir, 'bot-bank.json');
+  // 9 pm Toronto on Nov 4 is already Nov 5 in UTC
+  let clock = Date.parse('2026-11-05T02:00:00Z');
+  fs.writeFileSync(file, JSON.stringify({ balance: M(20), capMicro: M(2), day: '2026-11-04', spent: M(1.5), inflight: 0, topups: [], log: [] }));
+  const bank = createBotBank({ file, now: () => clock, log: quiet });
+  assert.equal(bank.take(M(1), 'duel:knockout:1'), false, 'still Nov 4 in Toronto: $1.50 of the $2 cap is used');
+  assert.equal(bank.take(M(0.5), 'duel:knockout:0.5'), true);
+  clock = Date.parse('2026-11-05T05:30:00Z');   // 12:30 am Toronto, Nov 5
+  assert.equal(bank.take(M(1), 'duel:knockout:1'), true, 'a new Toronto day, a new cap');
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).day, '2026-11-05');
+  // a file from before this change, stamped with today's UTC date, keeps today's spent (no free reset)
+  fs.writeFileSync(file, JSON.stringify({ balance: M(20), capMicro: M(2), day: '2026-11-05', spent: M(2), inflight: 0, topups: [], log: [] }));
+  clock = Date.parse('2026-11-05T03:00:00Z');   // 10 pm Toronto Nov 4, UTC Nov 5
+  const old = createBotBank({ file, now: () => clock, log: quiet });
+  assert.equal(old.take(M(0.5), 'duel:knockout:0.5'), false, 'the cap used today stays used');
 });

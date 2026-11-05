@@ -167,7 +167,8 @@ class SwimLobby {
       console.error('[SW] a race could not start: ' + (err && err.stack ? err.stack : err));
       for (const e of entries) {
         if (!e || !e.socket) continue;
-        const rid = this.bySocket.get(e.socket.id);
+        // An owner's paid bot is never in bySocket: its table is the one that seats it (KnockoutLobby.startMatch).
+        const rid = this.bySocket.get(e.socket.id) || (e.paidBot ? this.roomSeating(e.socket.id) : undefined);
         const r = rid ? this.rooms.get(rid) : null;
         if (r && r.state !== 'waiting') continue;
         if (r) { r.settled = true; this.rooms.delete(rid); }
@@ -177,6 +178,11 @@ class SwimLobby {
       }
       return null;
     }
+  }
+
+  roomSeating(id) {
+    for (const [rid, room] of this.rooms) if (room && room.players && room.players.has(id)) return rid;
+    return undefined;
   }
 
   dequeue(socketId) {
@@ -357,7 +363,7 @@ class SwimLobby {
     }
     for (const e of entries) {
       if (!e.paidBot) continue;
-      room.addBot(e.name, { socket: e.socket, worth: e.worth, paid: e.paid });
+      if (!room.addBot(e.name, { socket: e.socket, worth: e.worth, paid: e.paid })) throw new Error('the paid bot seat was refused');
       if (typeof this.onBotSeated === 'function') { try { this.onBotSeated(e, room); } catch (_) { /* display only */ } }
     }
     /* A paid room can never be given a bot, whatever the caller asked for. */
