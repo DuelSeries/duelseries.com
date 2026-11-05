@@ -43,7 +43,7 @@ test('the router knows both screens, and each fills itself on arrival', () => {
   assert.match(html, /else if\(tab==='clips'&&window\.V2Clips\)V2Clips\.render\(\);/);
   assert.match(html, /else if\(tab==='updates'&&window\.V2Updates\)V2Updates\.render\(\);/);
   assert.match(html, /#clips-screen,#updates-screen\{display:none\}/, 'not showing until routed to');
-  for (const id of ['clips-screen', 'updates-screen', 'cl-grid', 'cl-top', 'cl-queue', 'up-list', 'clveil', 'clbox',
+  for (const id of ['clips-screen', 'updates-screen', 'cl-grid', 'cl-top', 'up-list', 'clveil', 'clbox',
                     'clsubveil', 'cl-form', 'cl-url', 'cl-cap', 'cl-games', 'cl-err', 'cl-send']) {
     assert.ok(html.includes('id="' + id + '"'), id);
   }
@@ -56,7 +56,10 @@ test('clips.js: player words are text, players are built from checked ids only',
   assert.match(js, /'https:\/\/www\.youtube-nocookie\.com\/embed\/' \+ encodeURIComponent\(c\.vid\)/);
   assert.match(js, /'https:\/\/www\.tiktok\.com\/player\/v1\/' \+ encodeURIComponent\(c\.vid\)/);
   assert.match(js, /rel = 'noopener noreferrer'/);
-  for (const a of ["'clip:submit'", "'clips:queue'", "'clip:decide'"]) assert.ok(js.includes(a), a);
+  assert.ok(js.includes("'clip:submit'"), 'clip:submit');
+  // The owner sees the tab every player sees (Owen 2026-11-05): no review box, no Take down, no owner note.
+  for (const a of ["'clips:queue'", "'clip:decide'", 'cl-queue', 'Waiting for you', 'Take down', 'dsClipsOwner']) assert.ok(!js.includes(a), a);
+  assert.ok(!read('public/v2.html').includes('id="cl-queue"'), 'no review box on the page');
 });
 
 test('updates.json: valid, every post complete, newest first, ids never reused', () => {

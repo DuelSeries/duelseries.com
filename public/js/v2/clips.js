@@ -5,14 +5,15 @@
    owner approves it, plays here from CloudFront with Download, Copy link and
    Post on X (provider 'upload'). Or, like onlinemoneygames.com/clips: a player
    posts a clip on their own X, YouTube or TikTok and pastes the link; that video
-   plays from their site. Either way the owner approves it first. PC only (the
+   plays from their site. Either way the owner approves it first (Owen
+   2026-11-05: the review box, the owner's remove button and the owner's note on
+   this tab are gone, so the owner sees the tab every player sees). PC only (the
    tab is hidden on phones, see the .pconly rules in v2.html). A shared link,
    /clip/<id>, is its own page that works on a phone too (server/clips.js).
 
      GET  /api/clips            -> { clips: [...], top: [{ name, clips }], waiting }
      POST /api/clips/submit     signed 'clip:submit' { url, caption, game }
-     POST /api/clips/queue      signed 'clips:queue' {}  -> { owner, waiting }
-     POST /api/clips/decide     signed 'clip:decide' { id, verdict }   owner only
+     POST /api/clips/queue, /api/clips/decide   the owner's review (server only now, no button here)
      POST /api/clips/mine       signed 'clips:mine' {}  -> { clips }: the player's own, any state
      POST /api/clips/delete     signed 'clip:delete' { id }: a player deletes their own, any time
      POST /api/clips/upload     signed 'clip:upload' { size, psize, game, caption } -> upload links
@@ -22,7 +23,7 @@
 
    Every word a player typed is set as text, never as markup, and every player
    or picture is built from an id the server already checked, never from a URL a
-   player sent. ?clips=preview fills the wall and the queue with sample clips made
+   player sent. ?clips=preview fills the wall with sample clips made
    in this browser only. */
 (function () {
   const $ = (id) => document.getElementById(id);
@@ -39,32 +40,9 @@
   let data = { clips: [], top: [], waiting: 0 };
   let mineList = [];          // this player's own clips (Your clips)
   let failed = false;
-  let queue = [];
   let busy = false;
 
-  /* Owner or not, per wallet, kept in this browser: asking costs a signature, and
-     a player who is not the owner should never be asked twice. It only decides
-     what is drawn; the server checks the owner's signature on every decision. */
-  const OWNER_KEY = 'dsClipsOwner';
   const addr = () => { const w = window.duelWallet || {}; return w.authenticated && w.address ? w.address : ''; };
-  /* Nobody signed in is never the owner, and the sample page's owner view lives in memory only: it once stored an
-     owner verdict for "no wallet", and every later signed-out visit showed the review box and Take down (stage 3
-     audit). A verdict stored for no wallet is dropped on sight. */
-  let previewOwner = false;
-  function ownerVerdict() {
-    if (PREVIEW) return previewOwner || null;
-    const a = addr();
-    try {
-      const v = JSON.parse(localStorage.getItem(OWNER_KEY) || 'null');
-      if (v && !v.w) { localStorage.removeItem(OWNER_KEY); return null; }
-      return a && v && v.w === a ? v.owner : null;
-    } catch (_) { return null; }
-  }
-  function keepVerdict(owner) {
-    if (PREVIEW) { previewOwner = !!owner; return; }
-    const a = addr(); if (!a) return;
-    try { localStorage.setItem(OWNER_KEY, JSON.stringify({ w: a, owner: !!owner })); } catch (_) {}
-  }
 
   const el = (tag, cls, text) => {
     const n = document.createElement(tag);
@@ -136,28 +114,6 @@
     wrap.appendChild(el('div', 'clcap', titleOf(c)));
     wrap.appendChild(byLine(c, true));
     if (isUp(c) && c.status === 'live' && c.media && c.media.video && o.share !== false) wrap.appendChild(shareRow(c, 'clsh'));
-    if (o.owner) {
-      const acts = el('div', 'clacts');
-      if (c.status === 'waiting') {
-        const ok = btn('ds-btn-primary ds-btn-sm clok', 'Approve');
-        ok.onclick = () => decide(c, 'live', ok);
-        const no = btn('ds-btn-danger ds-btn-sm clno', 'Reject');
-        no.onclick = () => decide(c, 'rejected', no);
-        acts.appendChild(ok); acts.appendChild(no);
-      } else {
-        const rm = btn('ds-btn-danger ds-btn-sm clno', 'Take down');
-        rm.onclick = () => decide(c, 'removed', rm);
-        acts.appendChild(rm);
-      }
-      if (!isUp(c)) {
-        const open = el('a', 'ds-btn ds-btn-quiet ds-btn-sm cllink', ON_SITE[c.provider] || 'Open');
-        open.href = c.url; open.target = '_blank'; open.rel = 'noopener noreferrer';
-        acts.appendChild(open);
-      } else if (c.status === 'waiting') {
-        acts.appendChild(el('span', 'ds-t-meta clnote', c.media && c.media.ms ? 'Uploaded, ' + clock(c.media.ms) : 'Uploaded'));
-      }
-      wrap.appendChild(acts);
-    }
     return wrap;
   }
 
@@ -177,7 +133,6 @@
     const grid = $('cl-grid'); const top = $('cl-top');
     if (!grid || !top) return;
     grid.textContent = '';
-    const owner = ownerVerdict() === true;
     const n = $('cl-wall-n');
     if (n) n.textContent = data.clips.length ? data.clips.length + (data.clips.length === 1 ? ' clip' : ' clips') : '';
     if ((failed && !data.clips.length) || !data.clips.length) {
@@ -195,7 +150,7 @@
       e.appendChild(m);
       grid.appendChild(e);
     } else {
-      data.clips.forEach(c => grid.appendChild(card(Object.assign({ status: 'live' }, c), { owner })));
+      data.clips.forEach(c => grid.appendChild(card(Object.assign({ status: 'live' }, c))));
     }
     top.textContent = '';
     const hd = el('div', 'ds-panel-head');
@@ -289,25 +244,6 @@
     } finally { busy = false; }
   }
 
-  function drawQueue() {
-    const q = $('cl-queue');
-    if (!q) return;
-    const owner = ownerVerdict() === true;
-    q.hidden = !owner;
-    if (!owner) { q.textContent = ''; return; }
-    q.textContent = '';
-    const hd = el('div', 'ds-panel-head');
-    const h = el('h2', 'clqh', 'Waiting for you');
-    h.appendChild(el('span', 'ds-chip ds-chip-new clqn', String(queue.length)));
-    hd.appendChild(h);
-    hd.appendChild(el('span', 'ds-t-meta', 'Only you see this'));
-    q.appendChild(hd);
-    if (!queue.length) { q.appendChild(el('p', 'clqnone', 'Nothing to review. New clips show up here and you get a note when one arrives.')); return; }
-    const list = el('div', 'clqlist');
-    queue.forEach(c => list.appendChild(card(c, { owner: true })));
-    q.appendChild(list);
-  }
-
   async function pull() {
     if (PREVIEW) { data = sample(); failed = false; return; }
     try {
@@ -337,45 +273,12 @@
     return j;
   }
 
-  // Asked once per wallet per tab life; the answer decides whether the queue exists.
-  async function pullQueue() {
-    if (PREVIEW) { keepVerdict(true); queue = sample().queue; return; }   // in memory only (keepVerdict)
-    if (!addr()) return;
-    const v = ownerVerdict();
-    if (v === false) return;
-    try {
-      const j = await postSigned('/api/clips/queue', 'clips:queue', {});
-      keepVerdict(!!j.owner);
-      queue = j.owner && Array.isArray(j.waiting) ? j.waiting : [];
-      if (j.owner) seenWaiting = data.waiting;
-    } catch (_) { /* not logged in yet, or the wallet is still loading: ask again next visit */ }
-  }
-
-  async function decide(c, verdict, btn) {
-    if (busy) return;
-    if (PREVIEW) { toast({ kind: 'info', title: 'Preview', detail: 'Nothing is sent from the preview.' }); return; }
-    busy = true; btn.disabled = true;
-    try {
-      const j = await postSigned('/api/clips/decide', 'clip:decide', { id: c.id, verdict });
-      queue = Array.isArray(j.waiting) ? j.waiting : queue.filter(x => x.id !== c.id);
-      toast({ kind: 'ok', title: verdict === 'live' ? 'Clip approved' : verdict === 'rejected' ? 'Clip rejected' : 'Clip taken down', detail: c.caption || c.name });
-      await pull();
-      seenWaiting = data.waiting;
-      drawQueue(); drawWall(); paintDot();
-    } catch (e) {
-      toast({ kind: 'err', title: 'Could not save that', detail: e.message });
-      btn.disabled = false;
-    } finally { busy = false; }
-  }
-
   async function render() {
-    drawMine(); drawWall(); drawQueue();
+    drawMine(); drawWall();
     await pull();
     drawWall();
     await pullMine();
     drawMine();
-    await pullQueue();
-    drawQueue(); drawWall(); paintDot();
   }
 
   /* ── the player ─────────────────────────────────────────────────────────
@@ -672,32 +575,8 @@
     }
   }
 
-  /* ── the owner's note when a clip comes in ──────────────────────────────
-     Only for a wallet already known to be the owner. The waiting count is on
-     the public GET, so watching it costs no signature; a rise is a toast and a
-     dot on the Clips tab. Once a minute, and not while the page is hidden. */
-  let seenWaiting = null;
-  function paintDot() {
-    const owner = ownerVerdict() === true;
-    document.querySelectorAll('.ni[data-tab="clips"]').forEach(b => {
-      b.classList.toggle('isnew', owner && data.waiting > 0);
-    });
-  }
-  async function watch() {
-    if (PREVIEW || document.hidden || ownerVerdict() !== true) return;
-    await pull();
-    if (seenWaiting !== null && data.waiting > seenWaiting) {
-      const n = data.waiting - seenWaiting;
-      toast({ kind: 'info', title: n === 1 ? 'New clip to review' : n + ' new clips to review', detail: 'Open Clips to approve or reject.' });
-    }
-    seenWaiting = data.waiting;
-    paintDot();
-    if (window.route === 'clips') drawWall();
-  }
-  setInterval(watch, 60000);
-  setTimeout(watch, 4000);   // an owner already known this tab hears about a waiting clip without opening Clips
   window.addEventListener('duelwallet:change', () => {
-    setTimeout(() => { watch(); paintDot(); if (onClips()) { drawMine(); pullMine().then(drawMine); } }, 500);
+    setTimeout(() => { if (onClips()) { drawMine(); pullMine().then(drawMine); } }, 500);
   });
 
   document.addEventListener('keydown', (e) => {
@@ -727,14 +606,9 @@
       mk(5, 'slinky', 'slither', 'x', 'Comeback from the smallest snake in the room'),
       mk(6, 'cellmate', 'agar', 'tiktok', 'Two splits, one big cell gone', { vertical: true }),
     ];
-    const queueS = [
-      mk(7, 'zigzag', 'slither', 'x', 'Boosted through a gap I should not fit', { status: 'waiting', wallet: 'preview' }),
-      mk(8, 'blobby', 'agar', 'tiktok', 'Fed the virus into a 400 mass cell', { status: 'waiting', wallet: 'preview', vertical: true }),
-    ];
-    return { clips, queue: queueS, waiting: queueS.length,
+    return { clips, waiting: 0,
              top: [{ name: 'nightcoil', clips: 2 }, { name: 'cellmate', clips: 2 }, { name: 'paperboy', clips: 1 }, { name: 'slinky', clips: 1 }] };
   }
 
-  const dot = () => ownerVerdict() === true && data.waiting > 0;
-  window.V2Clips = { render, openSubmit, openUpload, closeSubmit, send, openPlayer, closePlayer, dot, get preview() { return PREVIEW; } };
+  window.V2Clips = { render, openSubmit, openUpload, closeSubmit, send, openPlayer, closePlayer, get preview() { return PREVIEW; } };
 })();
