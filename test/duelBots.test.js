@@ -317,3 +317,189 @@ test('Spent today: the Bot bank moves are written per game for the Toronto day',
   assert.equal(Math.round(ko.net * 1e6), M(1.5 - 2.3));
   assert.equal(ko.wins, 1);
 });
+
+/* ─── The ledger cases the dispatcher listed (2026-11-04, finished on Owen's PC) ──────────────────────────────────── */
+
+test('ledger: the kill switch OFF means no bot, even for a page that says botOk; the person waits for people', () => {
+  const w = world();
+  assert.equal(w.bots.enabled(), false, 'off at boot');
+  personQueues(w, w.ko, 'p', 0.5, true);           // a patched page claims it was shown a bot
+  w.tick(5000);
+  assert.equal(w.ko.roomOf('p'), null, 'no table: there is no bot and nobody else');
+  assert.equal(w.bots.held().length, 0, 'no seat was ever made');
+  assert.equal(w.bal(), M(20), 'the bank never moved');
+  assert.equal(inflight(w.file), 0);
+  assert.deepEqual(w.ko.botsWaitingByRung(), {});
+});
+
+test('ledger: the bot loses: the person gets the pot less 10%, the bank gets nothing back, sums hold', () => {
+  const w = world();
+  w.bots.setEnabled(true);
+  const { id } = w.bots.spawn('knockout', 0.5);
+  w.tick(200);
+  personQueues(w, w.ko, 'p', 0.5, true);
+  const room = w.ko.roomOf('p');
+  assert.ok(room && room.players.has(id));
+  room.finish('p', 'test');
+  assert.deepEqual(w.out.sends.map(x => [x.wallet, x.micro]), [['Wp', M(0.9)]]);
+  assert.equal(w.out.rake.reduce((a, x) => a + x, 0), M(0.1));
+  assert.equal(w.bal(), M(19.5));
+  assert.equal(M(20) + M(0.5), w.bal() + M(0.9) + M(0.1), 'in == out');
+  assert.equal(inflight(w.file), 0);
+});
+
+test('ledger: the bot wins: it keeps the stake and the pot less 10% comes home', () => {
+  const w = world();
+  w.bots.setEnabled(true);
+  const { id } = w.bots.spawn('knockout', 1);
+  w.tick(200);
+  personQueues(w, w.ko, 'p', 1, true);
+  w.ko.roomOf('p').finish(id, 'test');
+  assert.equal(w.out.sends.length, 0, 'nothing to the person');
+  assert.equal(w.bal(), M(19) + M(1.8));
+  assert.equal(M(20) + M(1), w.bal() + M(0.2), 'in == out');
+  assert.equal(inflight(w.file), 0);
+  const recent = w.bots.view().recent;
+  assert.equal(recent[recent.length - 1].result, 'won');
+});
+
+test('ledger: nobody joins: after 60 s the stake goes back to the Bot bank, and only once', () => {
+  const w = world();
+  w.bots.setEnabled(true);
+  w.bots.spawn('knockout', 0.5);
+  w.bots.spawn('knockout', 1);
+  assert.equal(w.bal(), M(18.5));
+  w.tick(BOT_WAIT_MS + 400);
+  assert.equal(w.bal(), M(20));
+  assert.equal(inflight(w.file), 0);
+  w.tick(BOT_WAIT_MS * 2);
+  assert.equal(w.bal(), M(20), 'no second return');
+  assert.deepEqual(w.bots.view().recent.map(r => r.result), ['back', 'back']);
+});
+
+test('ledger: two people shown one bot at once: one table, one bot seat, the other waits for people', () => {
+  const w = world();
+  w.bots.setEnabled(true);
+  const { id } = w.bots.spawn('knockout', 0.5);
+  w.tick(200);
+  personQueues(w, w.ko, 'a', 0.5, true);
+  personQueues(w, w.ko, 'b', 0.5, true);
+  const ra = w.ko.roomOf('a'), rb = w.ko.roomOf('b');
+  assert.ok(ra && ra.players.has(id), 'the first one met the bot');
+  assert.equal(rb, null, 'the second waits (it may not take a seat the bot already has)');
+  ra.finish(id, 'test');
+  assert.equal(w.bal(), M(19.5) + M(0.9), 'the bank paid in once and got the prize once');
+  w.ko.leave('b');
+  assert.deepEqual(w.out.refunds.map(r => [r.wallet, M(r.amount)]), [['Wb', M(0.5)]], 'b got their own stake back, once');
+});
+
+test('ledger: double-join and disconnects never double-pay or lose a stake', () => {
+  const w = world();
+  w.bots.setEnabled(true);
+  const { id } = w.bots.spawn('knockout', 0.5);
+  w.tick(200);
+  // p queues at $1 (no bot there), then presses again at $0.50 where the bot waits: the $1 seat is refunded once
+  const s = sock('p');
+  w.ko.enqueue(s, 'Pp', 'Wp', 1, 1, w.now, 1, null, { botOk: true });
+  assert.equal(w.ko.roomOf('p'), null);
+  w.ko.enqueue(s, 'Pp', 'Wp', 0.5, 0.5, w.now, 0.5, null, { botOk: true });
+  const room = w.ko.roomOf('p');
+  assert.ok(room && room.players.has(id), 'met the bot on the second press');
+  assert.deepEqual(w.out.refunds.map(r => [r.wallet, M(r.amount)]), [['Wp', M(1)]], 'the $1 seat back, once');
+  // a third press from a socket at a live table is refused (the handler refunds it through the stake row)
+  assert.equal(w.ko.enqueue(s, 'Pp', 'Wp', 0.5, 0.5, w.now, 0.5, null, { botOk: true }), false);
+  assert.equal(w.out.refunds.length, 1, 'the lobby touched nothing');
+  // the person drops twice: one walk-out, the bot wins once
+  w.ko.leave('p');
+  w.ko.leave('p');
+  w.tick(400);
+  assert.equal(w.out.sends.length, 0);
+  assert.equal(w.bal(), M(19.5) + M(0.9));
+  // and the room cannot be settled again by a late finish
+  room.finish('p', 'late');
+  room.payResult('p', 'late');
+  assert.equal(w.out.sends.length, 0, 'never paid after the walk-out');
+  assert.equal(w.bal(), M(19.5) + M(0.9));
+  assert.equal(inflight(w.file), 0);
+  // a removeBot or a back for a seat that already settled does nothing
+  assert.equal(w.ko.removeBot(id, 'late'), false);
+  w.bots.setEnabled(false);
+  assert.equal(w.bal(), M(19.5) + M(0.9));
+});
+
+/* A long scripted mixed run on one seeded sequence (not a fuzz test: one fixed seed, a few hundred steps, well
+   under a second). After EVERY step: what came in (the bank's $20 and every person's stake) equals what is held
+   (the bank's balance, the bots' stakes in flight, every person's stake still waiting or at an unsettled table)
+   plus what went out (payouts, refunds, the house cut). And the bank's in-flight count is exactly the bots' stakes
+   still waiting or at an unsettled table. */
+test('ledger: balances always sum, step by step, over a mixed run of spawns, joins, leaves, results and the switch', () => {
+  const w = world();
+  let seed = 20261104;
+  const rnd = () => { seed = (Math.imul(seed, 1103515245) + 12345) >>> 0; return seed / 4294967296; };
+  const pick = (a) => a[Math.floor(rnd() * a.length)];
+  // person-only tables: paid by the same 90/10 split the lobby's own onSettled uses
+  w.ko.onSettled = (o) => {
+    if (w.bots.settleTable(o, {
+      game: 'knockout', tag: '[T]', houseCut: DUEL_HOUSE_CUT, region: 'na',
+      koSend: (wallet, amount) => w.out.sends.push({ wallet, micro: M(amount) }),
+      sweepRake: (cut) => w.out.rake.push(M(cut)), trackEarning() {},
+    })) return;
+    const winner = o.seats.find(x => x.id === o.winnerId);
+    if (winner && winner.wallet) {
+      w.out.rake.push(M(o.pot * DUEL_HOUSE_CUT));
+      w.out.sends.push({ wallet: winner.wallet, micro: M(o.pot) - M(o.pot * DUEL_HOUSE_CUT) });
+    } else for (const x of o.seats) if (x.wallet && x.worth > 0) w.out.sends.push({ wallet: x.wallet, micro: M(x.refund) });
+  };
+  let stakesIn = 0, callerRefunds = 0, botTables = 0;
+  const people = ['a', 'b', 'c', 'd', 'e'];
+  const sockets = Object.fromEntries(people.map(id => [id, sock(id)]));
+  const isBot = (id) => String(id).startsWith('bot_');
+  function check(step) {
+    let heldPeople = 0, heldBots = 0;
+    for (const e of w.ko.queue) {
+      if (e.refunded) continue;
+      if (e.paidBot) heldBots += M(e.worth); else heldPeople += M(e.worth);
+    }
+    for (const r of w.ko.rooms.values()) {
+      if (!(r.stake > 0) || r.settled) continue;
+      for (const [sid, v] of r.worth) { if (isBot(sid)) heldBots += M(v); else heldPeople += M(v); }
+    }
+    const out = w.out.sends.reduce((a, x) => a + x.micro, 0) + w.out.rake.reduce((a, x) => a + x, 0)
+      + w.out.refunds.reduce((a, r) => a + M(r.amount), 0) + callerRefunds;
+    assert.equal(inflight(w.file), heldBots, 'step ' + step + ': in flight == bots held');
+    assert.equal(M(20) + stakesIn, w.bal() + heldBots + heldPeople + out, 'step ' + step + ': in == held + out');
+  }
+  w.bots.setEnabled(true);
+  for (let step = 0; step < 400; step++) {
+    const r = rnd();
+    if (r < 0.18) w.bots.spawn('knockout', pick([0.5, 1]));
+    else if (r < 0.45) {
+      const id = pick(people), stake = pick([0.5, 1]);
+      stakesIn += M(stake);
+      const took = w.ko.enqueue(sockets[id], 'P' + id, 'W' + id, stake, stake, w.now, stake, null, { botOk: rnd() < 0.7 });
+      if (!took) callerRefunds += M(stake);      // index.js refunds a refused seat through its stake row
+      const room = w.ko.roomOf(id);
+      if (took && room && room.bot && room.bot.paidBot) botTables++;
+    } else if (r < 0.55) w.ko.leave(pick(people));
+    else if (r < 0.70) {
+      const rooms = [...w.ko.rooms.values()].filter(x => x.state !== 'over');
+      if (rooms.length) {
+        const room = pick(rooms);
+        const ids = [...room.players.keys()];
+        const who = rnd() < 0.15 ? null : pick(ids);
+        room.finish(who, who ? 'test' : 'draw');
+      }
+    } else if (r < 0.73) w.bots.setEnabled(!w.bots.enabled());
+    else if (r < 0.76) w.bots.setCount('knockout', pick([0.5, 1]), Math.floor(rnd() * 4));
+    else w.tick(Math.floor(rnd() * 20000));
+    check(step);
+  }
+  // wind down: every table ends, every queue empties, then a restart owes only people
+  for (const room of [...w.ko.rooms.values()]) if (room.state !== 'over') room.finish(null, 'draw');
+  w.tick(BOT_WAIT_MS + 1000);
+  const rows = w.ko.shutdownSettle('shutdown');
+  callerRefunds += rows.reduce((a, x) => a + x.micro, 0);
+  check('end');
+  assert.equal(inflight(w.file), 0, 'no bot stake left in flight');
+  assert.ok(botTables > 0, 'the run did put people at bot tables');
+});
