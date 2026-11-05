@@ -21,8 +21,8 @@
    "Waiting for players to join" with how many are in and the time to the
    start. Nothing moves until the countdown, but the gas revs the engine (Owen:
    rev it up while you wait): the revs climb and fall, the body rocks, the pipes
-   pop. The owner gets a small bar to run a test race (the server checks it is
-   him on every press).
+   pop. The same for everyone: the owner's test race bar is gone (Owen
+   2026-11-05, the owner sees the page every player sees).
 
    SOUND (Owen 2026-10-30). Your own engine, or the watched car's when you are
    out or watching, and the cars around it heard where they are: the nearest few
@@ -719,93 +719,6 @@ function join() {
   socket.emit('se:join', { name: myName, wallet: myWallet, car: look.car, v: S.VERSION });
 }
 
-/* ── the owner's test race ─────────────────────────────────────────────────
-   Shown only to the owner: a device signed into Control (its session cookie, asked at /api/owner/session), or the
-   lobby's wallet when the server says it is an owner's (then each press is signed in the lobby, over the bridge
-   play.js keeps for game frames). Either way the server checks it on every press (/api/owner/do).
-   The wallet is the lobby's signed-in one (window.duelWallet, same origin), not localStorage.duelseries_wallet:
-   nothing writes that key, so only a device signed into Control ever saw the bar (Owen's phone never did,
-   2026-10-31). The lobby's wallet can sign in after this page loads (Privy is slower on a phone), so its
-   duelwallet:change asks again. */
-const OWNER = { via: null, busy: false, asked: '' };
-function lobbyWallet() {
-  try {
-    const p = window.parent;
-    if (!p || p === window) return '';
-    const w = p.duelWallet || {};
-    return w.authenticated && typeof w.address === 'string' ? w.address : '';
-  } catch (_) { return ''; }   // a parent on another origin: no wallet
-}
-function ownerWalletCheck() {
-  const w = lobbyWallet();
-  if (OWNER.via || !w || w === OWNER.asked) return;
-  OWNER.asked = w;
-  /* Only a real answer is kept: a refusal (a 429 from the limiter) or no answer leaves the wallet to be asked again. */
-  fetch('/api/br/owner', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ wallet: w }) })
-    .then(r => { if (!r.ok) throw new Error('owner check ' + r.status); return r.json(); })
-    .then(k => { if (k && k.isOwner && !OWNER.via && lobbyWallet() === w) { OWNER.via = 'wallet'; paintOwner(); } })
-    .catch(() => { if (OWNER.asked === w) OWNER.asked = ''; });
-}
-function ownerOnWallet() {
-  /* Signed out, or another wallet signed in, in the lobby: the wallet path's bar goes (a session's stays, it is the
-     device's), and a wallet asked about while signed in is asked again when it comes back. */
-  const w = lobbyWallet();
-  if (OWNER.via === 'wallet' && w !== OWNER.asked) { OWNER.via = null; paintOwner(); }
-  if (w !== OWNER.asked) OWNER.asked = '';
-  ownerWalletCheck();
-}
-function ownerCheck() {
-  fetch('/api/owner/session', { credentials: 'same-origin', headers: { 'X-DS-Owner': '1' } })
-    .then(r => r.json()).then(j => {
-      if (j && j.signedIn) { OWNER.via = 'session'; paintOwner(); return; }
-      ownerWalletCheck();
-    }).catch(() => ownerWalletCheck());
-  try {
-    const p = window.parent;
-    if (p && p !== window) {
-      p.addEventListener('duelwallet:change', ownerOnWallet);
-      addEventListener('pagehide', () => { try { p.removeEventListener('duelwallet:change', ownerOnWallet); } catch (_) {} });
-    }
-  } catch (_) {}
-}
-function paintOwner() {
-  const bar = $('ownerBar');
-  if (!OWNER.via) { bar.hidden = true; return; }
-  bar.hidden = false;
-  const on = race && (race.state === 'countdown' || race.state === 'racing');
-  $('ownOpen').hidden = !!on; $('ownStart').hidden = !!on; $('ownStop').hidden = !on;
-  for (const id of ['ownOpen', 'ownStart', 'ownStop']) $(id).disabled = OWNER.busy;
-}
-let signId = 0;
-function signInLobby(action) {
-  return new Promise((resolve, reject) => {
-    const id = 'se' + (++signId), origin = location.origin;
-    const done = (e) => {
-      const d = e.data;
-      if (e.source !== window.parent || e.origin !== origin || !d || d.id !== id) return;
-      window.removeEventListener('message', done);
-      if (d.type === 'duel:signaction:done' && d.proof) resolve(d.proof); else reject(new Error(d.message || 'The wallet did not sign.'));
-    };
-    window.addEventListener('message', done);
-    window.parent.postMessage({ type: 'duel:signaction', id, action, args: {} }, origin);
-    setTimeout(() => { window.removeEventListener('message', done); reject(new Error('The wallet did not answer.')); }, 15000);
-  });
-}
-function ownerDo(action) {
-  if (OWNER.busy || !OWNER.via) return;
-  OWNER.busy = true; paintOwner();
-  const body = OWNER.via === 'session' ? Promise.resolve({ action, args: {} }) : signInLobby(action);
-  body.then(b => fetch('/api/owner/do', { method: 'POST', credentials: 'same-origin',
-      headers: { 'content-type': 'application/json', 'X-DS-Owner': '1' }, body: JSON.stringify(b) }))
-    .then(r => r.json().then(j => note(r.ok ? (j.note || 'Done') : (j.error || 'Refused'), 4000)))
-    .catch(e => note((e && e.message) || 'Could not reach the server', 4000))
-    .then(() => { OWNER.busy = false; paintOwner(); pullLive(); });
-}
-$('ownOpen').addEventListener('click', () => ownerDo('se:open'));
-$('ownStart').addEventListener('click', () => ownerDo('se:start'));
-$('ownStop').addEventListener('click', () => ownerDo('se:stop'));
-ownerCheck();
-
 /* ── the server ────────────────────────────────────────────────────────── */
 socket.on('connect', () => {
   pingBurst();
@@ -909,7 +822,6 @@ socket.on('se:ko', (k) => {
 socket.on('se:over', (m) => {
   if (!race || !m) return;
   race.state = 'over'; race.overMsg = m;
-  paintOwner();
   seatKey = null; joined = false;
   for (const p of m.places || []) { const s = race.seats.get(p.seat); if (s) s.out = p.place; }
   $('count').hidden = true; $('pads').hidden = true;
@@ -920,7 +832,6 @@ socket.on('se:over', (m) => {
 function showRaceUi() {
   if (!race) return;
   $('wait').hidden = true; $('lobbyBar').hidden = true;
-  paintOwner();
   $('board').hidden = false; $('dash').hidden = false;
   $('pads').hidden = !TOUCH || !(race.car && !race.out);
   if (window.DSEnd) DSEnd.hide();
