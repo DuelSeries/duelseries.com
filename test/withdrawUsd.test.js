@@ -427,6 +427,53 @@ test('the confirm step left open past a minute: Send it asks the price again and
   assert.deepStrictEqual(r.calls.send, []);
 });
 
+test('the confirm step\'s minute runs from when the price was asked, not from the tap (money review 2026-11-05)', async () => {
+  const p = await open(BIG);                          // the price asked as the sheet opened
+  p.clock(25_000);                                    // under half its life: typing asks no new one
+  type(p, '20');
+  p.V.submitCash();
+  assert.match(p.form(), /Send <b>\$20\.00<\/b> as/);
+  const asks = p.calls.priceAsks;
+  p.clock(40_000);                                    // 40 s after the tap, 65 s after the price
+  p.V.confirmCash();
+  assert.deepStrictEqual(p.calls.send, [], 'never sent on a price over a minute old');
+  await tick();
+  assert.ok(p.calls.priceAsks > asks, 'the price is asked again');
+  p.V.confirmCash();
+  assert.deepStrictEqual(p.lamportsSent(), [133_333_000]);
+});
+
+test('Max\'s exact lamports go once the box is typed over, even if the same text comes back', async () => {
+  const p = await open();
+  p.V.max();
+  await tick();
+  assert.strictEqual(p.el('co-amt').value, '14.84');
+  type(p, '14.8');
+  type(p, '14.84');                                   // typed by hand: $14.84 at the price, not Max's 0.098995 SOL
+  p.V.submitCash();
+  p.V.confirmCash();
+  assert.deepStrictEqual(p.lamportsSent(), [98_933_000]);
+});
+
+test('an amount is digits and one point: "1,000", "0x10" and "1e2" are refused in words, "2,5" is 2.5', async () => {
+  const p = await open(BIG);
+  for (const [v, why] of [['1,000', /without commas/], ['$1,000.00', /without commas/], ['0x10', /plain number/], ['1e2', /plain number/], ['-5', /plain number/]]) {
+    type(p, v);
+    p.V.submitCash();
+    assert.match(p.msg(), why, v);
+    assert.match(p.form(), /id="co-amt"/, 'still on the form: ' + v);
+  }
+  p.V.setUnit('sol');
+  type(p, '0x10');
+  p.V.submitCash();
+  assert.match(p.msg(), /plain number/);
+  type(p, '0,5');
+  p.V.submitCash();
+  p.V.confirmCash();
+  assert.deepStrictEqual(p.lamportsSent(), [500_000_000]);
+  assert.deepStrictEqual(p.calls.send.length, 1);
+});
+
 test('a late price answer for a sheet that was closed or switched does nothing', async () => {
   const p = await open(SOL_MODE, { price: null });
   p.price(150);

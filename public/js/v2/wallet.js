@@ -734,11 +734,17 @@
   const NO_PRICE = 'The SOL price is not available right now, so dollars cannot be turned into SOL. Try again in a moment, or switch to SOL.';
   const usdUnit = () => curAsset() === 'sol' && wdUnit === 'usd';
   const amountRaw = () => ((el('co-amt') || {}).value || '').trim().replace(',', '.').replace(/^\$\s*/, '');
+  /* Only digits and one point count as an amount (money review 2026-11-05): Number() would also take "0x10" or "1e2",
+     and "1,000" could mean a thousand or one, so neither is ever read as an amount. */
+  const PLAIN_AMOUNT = /^(\d+\.?\d*|\.\d+)$/;
+  const THOUSANDS = /^\$?\s*\d{1,3}(,\d{3})+(\.\d*)?$/;
+  // When the price in hand was asked for: the confirm step's minute runs from here, never from the tap.
+  const pxAt = () => (px ? px.at : Date.now());
   // The lamports the box holds now, in its unit: 0 for nothing, or for dollars with no price.
   function typedLamports(raw, rate) {
     if (wdExact && wdExact.unit === wdUnit && raw === wdExact.text) return wdExact.lamports;
     const n = Number(raw);
-    if (!raw || !isFinite(n) || n <= 0) return 0;
+    if (!raw || !PLAIN_AMOUNT.test(raw) || !isFinite(n) || n <= 0) return 0;
     if (wdUnit === 'usd') return rate ? usdToLamports(n, rate) : 0;
     return Math.round(n * 1e9);
   }
@@ -1220,6 +1226,8 @@
     if (!solMode() || curAsset() !== 'sol') return;
     const m = el('co-msg');
     if (m && m.dataset.state === 'bad') say('');
+    // Typed over: Max's (or a switch's) exact lamports no longer stand for the box, even if the same text comes back.
+    if (wdExact && amountRaw() !== wdExact.text) wdExact = null;
     wdFigures();
   }
   // A refusal in the form reads as one: the error red, not the hint grey (calm: a plain line, like a wait).
@@ -1246,6 +1254,8 @@
     if (!to) return say('Paste the Solana address to send to.');
     if (!SOL_ADDR.test(to)) return say('That is not a Solana address.');
     if (to === w().address) return say('That is this wallet\'s own address.');
+    if (THOUSANDS.test(((el('co-amt') || {}).value || '').trim())) return say('Type the amount without commas, like 1000 or 0.05.');
+    if (raw && !PLAIN_AMOUNT.test(raw)) return say('Type the amount as a plain number, like 20 or 0.05.');
     if (!raw || !isFinite(amt) || amt <= 0) return say('Enter an amount to withdraw.');
     if (as === 'usdc') {
       if (/\.\d{3,}$/.test(raw)) return say('Use dollars and cents, two decimal places at most.');
@@ -1277,7 +1287,7 @@
     if (why) return say(why);
     // usd: the dollars typed (Max's or a switch's exact lamports: what they are worth now, down to the cent)
     const exact = !!(wdExact && wdExact.unit === wdUnit && raw === wdExact.text);
-    pending = { to: to, asset: 'sol', unit: wdUnit, text: raw, lamports: lamports, amt: lamports / 1e9, rate: r, at: Date.now(),
+    pending = { to: to, asset: 'sol', unit: wdUnit, text: raw, lamports: lamports, amt: lamports / 1e9, rate: r, at: pxAt(),
                 usd: usd ? (exact ? lamportsToCents(lamports, r) / 100 : amt) : 0, exact: exact };
     drawCash();
   }
@@ -1296,7 +1306,7 @@
       const why = solProblem(lamports, r);
       if (why) return back(why);
       p.moved = p.moved || lamports !== p.lamports;
-      p.lamports = lamports; p.amt = lamports / 1e9; p.rate = r; p.at = Date.now();
+      p.lamports = lamports; p.amt = lamports / 1e9; p.rate = r; p.at = pxAt();
       if (p.exact) p.usd = lamportsToCents(lamports, r) / 100;
       drawCash();
     });
