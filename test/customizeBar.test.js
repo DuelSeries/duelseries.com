@@ -52,7 +52,8 @@ test('every game shows the bar, built or not (BACKLOG 2.2: one layout for every 
   assert.deepStrictEqual(withLook, ['snake']);
   assert.ok(html.includes("const hasLook=g=>!!(g&&(g.look||(window.V2Shop&&V2Shop.game(g.id))||(g.id==='crossy'&&CR_LOOKS.length)||(g.id==='pool8'&&P8_LOOKS.length)||(g.id==='rooftop'&&RT_LOOKS.length)||(g.id==='swim'&&SW_LOOKS.length)||(g.id==='headsoccer'&&HS_LOOKS.length)));"),
     'a game has a chooser if it saves a skin, the Shop has skins for it, or (8 Ball Pool, Crossy Road, Rooftop, Swim) it has free looks');
-  assert.ok(/function openLook\(\)\{\s*if\(!hasLook\(cur\)\)return;/.test(html), 'and does not open otherwise');
+  // The one switch (CUSTOMIZE_ON, Owen 2026-11-05) comes first: while it is off nothing opens at all.
+  assert.ok(/function openLook\(\)\{\s*if\(!CUSTOMIZE_ON\)return;\s*if\(!hasLook\(cur\)\)return;/.test(html), 'and does not open otherwise');
   assert.ok(html.includes("det.classList.toggle('nolook',!hasLook(cur));"), 'the shut bar is a class');
   // Owen 2026-10-15: no small print. The shut bar no longer says there is nothing to change.
   assert.ok(!html.includes('Nothing to change in'), 'the shut bar carries no sentence');
