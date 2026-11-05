@@ -63,7 +63,7 @@ test('even asked to, makeMatch seats no bot on a paid table', () => {
   assert.ok(room instanceof HeadSoccerRoom);
 });
 
-test('a free seat gets a labelled bot after its minute, and no money is on it', () => {
+test('a free seat gets a bot after its minute, not named a bot, and no money is on it', () => {
   const { lob, settled } = lobby();
   const t0 = 2e6;
   lob.enqueue(sock('A'), 'Owen', null, 0, 0, t0);
@@ -71,7 +71,7 @@ test('a free seat gets a labelled bot after its minute, and no money is on it', 
   const room = lob.roomOf('A');
   assert.ok(room && room.bot, 'a bot match');
   assert.strictEqual(room.pot(), 0);
-  assert.strictEqual(room.publicState(t0).vsBot, true, 'the screen is told it is a bot');
+  assert.strictEqual(room.publicState(t0).vsBot, false, 'not named a bot (owner rule 5, 2026-11-04: a free table stand-in is never named a bot, only an owner paid bot is)');
   assert.ok(!room.publicState(t0).players.some(p => String(p.id).startsWith('bot_')), 'no bot_ id on the wire');
   room.finish(room.players.keys().next().value, 'full time');
   assert.strictEqual(settled.length, 0, 'a free table never settles money');

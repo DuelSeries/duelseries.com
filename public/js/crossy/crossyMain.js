@@ -402,6 +402,9 @@ function showOver(m, who) {
 
 /* ── the wait (Head Soccer's, word for word) ──────────────────────────────── */
 const WAIT_MS = window.DS_DUEL_WAIT_MS;
+/* waitBot: this paid seat was shown "Bot opponent waiting" before paying (public/js/duelBotOk.js), so its card says
+   it may meet that bot; every other paid seat is told it meets people only (server/duelQueue.mayPair). */
+let waitBot = false;
 let waiting = false, waitPaid = false, waitEndsAt = 0, waitFrom = 0, waitTimer = 0, resumeKey = null, queuedOk = false, closed = false;
 function waitClock(ms) { const s = Math.max(0, Math.ceil(ms / 1000)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
 function paintWait() {
@@ -411,7 +414,8 @@ function paintWait() {
   if (waitPaid) {
     // A paid table is one card from stake to match (Owen 2026-10-30): the clock counts up, nothing changes at 0:00.
     $('waitMain').textContent = 'Looking for a player… ' + waitClock(Math.floor((Date.now() - waitFrom) / 1000) * 1000);
-    $('waitSub').textContent = table + 'Cancel any time for a full refund.';
+    $('waitSub').textContent = table + (waitBot ? 'You may play the bot opponent the lobby showed you. '
+      : 'Real players only, never a bot. ') + 'Cancel any time for a full refund.';
   } else if (left > 0) {
     $('waitMain').textContent = 'Looking for a player… ' + waitClock(left);
     $('waitSub').textContent = 'Free table. Nothing staked.';
@@ -432,7 +436,8 @@ socket.on('cr:queued', (q = {}) => {
   trackStep('queue');
 });
 /* An owner's paid bot (server/duelBots.js) meets only a person the lobby showed "Bot opponent waiting" on this rung
-   before they paid; the lobby leaves that note for this page (public/js/duelBotOk.js). Paid seats only, used once. */
+   before they paid; the lobby leaves that note for this page (public/js/duelBotOk.js). Paid seats only, used once,
+   and sent only when true (a false is left off the queue message). */
 function botOkFor(game) {
   return !!(myStake > 0 && window.DSDuelBotOk && window.DSDuelBotOk.take(game, myStake));
 }
@@ -444,12 +449,13 @@ function queue(token, resume) {
   $('wait').hidden = false;
   waitSpin(true);
   waitPaid = myStake > 0;
+  if (!resume) waitBot = botOkFor('crossy');   // read once; a reconnect's seat keeps its own (resumeSeat)
   $('waitCancel').textContent = waitPaid ? 'Cancel and refund' : 'Back to the lobby';
   if (!resume) startWait(WAIT_MS); else paintWait();
   socket.emit('cr:queue', {
     name: myName, wallet: myWallet, stake: myStake, entryToken: token || myEntryToken,
     resume: resume || undefined, v: Sim.VERSION, look: myLook(),
-    botOk: botOkFor('crossy'),   // shown "Bot opponent waiting" before paying (public/js/duelBotOk.js)
+    botOk: waitBot || undefined,
   });
   myEntryToken = null;   // one use only
   try { sessionStorage.removeItem('entryToken'); } catch (_) {}

@@ -146,12 +146,37 @@ test('state v2, maintenance and the paid Knockout door across a restart, bots:se
     assert.deepStrictEqual(g.rungs.map((x) => x.rung), [0, 0.5, 1], g.id);
     for (const row of g.rungs) {
       for (const k of ['room', 'people', 'bots', 'money', 'botTarget', 'botsAllowed', 'botsNote']) assert.ok(k in row, g.id + ' ' + k);
-      // paid duels stay people only; a paid arena rung takes the owner's bots when its paid directory is on
-      if (row.rung > 0 && g.duel) assert.deepStrictEqual([row.botsAllowed, row.botsNote], [false, 'Paid duels stay people only: a bot would win or lose a real stake']);
+      /* A paid duel rung takes the owner's PAID duel bots (server/duelBots.js) only while their kill switch is on, and
+         it is OFF at every boot (owner rule 4): no + works there until Owen turns them on. Battleship takes none at all.
+         A paid arena rung takes the owner's bots when its paid directory is on. */
+      if (row.rung > 0 && g.duel && g.id === 'battleship') {
+        assert.deepStrictEqual([row.room, row.botsAllowed, row.botsNote], [null, false, 'Paid duels stay people only: a bot would win or lose a real stake']);
+      } else if (row.rung > 0 && g.duel) {
+        assert.deepStrictEqual([row.room, row.botsAllowed, row.botsNote, row.bots, row.duelBot],
+          ['duelbots:' + g.id + ':' + row.rung, false, 'Paid duel bots are off (Control, Paid duel bots)', 0, true], g.id);
+      }
       if (row.rung > 0 && !g.duel && row.botsAllowed) assert.match(String(row.room), /^paidbots:(sl|ag|paper|chomp):/);
     }
   }
   assert.ok(!s.games.some((g) => g.rungs.some((x) => /^na_(free|br)$/.test(String(x.room)))), 'the old tiers are not rows');
+  // The kill switch itself: off at boot (owner rule 4), every bot-taking duel listed, nobody waiting.
+  assert.strictEqual(s.duelBots.enabled, false, 'paid duel bots are OFF at boot');
+  assert.deepStrictEqual(s.duelBots.games.slice().sort(), ['airhockey', 'crossy', 'headsoccer', 'knockout', 'pool8', 'rooftop', 'swim']);
+  r = await act(one.port, 'bots:set', { room: 'duelbots:knockout:0.5', count: 1 });
+  assert.deepStrictEqual([r.status, r.json.error], [409, 'Paid duel bots are off. Turn them on first.'], 'off: a + is refused');
+  r = await act(one.port, 'duelbots:on');
+  assert.strictEqual(r.status, 200, r.body);
+  assert.strictEqual(r.json.state.duelBots.enabled, true);
+  // on, but this box's Bot bank holds nothing: refused, nothing staked, nobody waiting
+  r = await act(one.port, 'bots:set', { room: 'duelbots:knockout:0.5', count: 1 });
+  assert.strictEqual(r.status, 409, r.body);
+  assert.match(r.json.error, /Bot bank/);
+  assert.strictEqual(gameOf((await state(one.port)).json, 'knockout').rungs[1].bots, 0);
+  r = await act(one.port, 'bots:set', { room: 'duelbots:battleship:0.5', count: 1 });
+  assert.notStrictEqual(r.status, 200, 'Battleship takes no paid bots');
+  r = await act(one.port, 'duelbots:off');
+  assert.strictEqual(r.status, 200, r.body);
+  assert.strictEqual(r.json.state.duelBots.enabled, false);
   assert.deepStrictEqual(gameOf(s, 'knockout').paid, { enabled: true, open: true, stopping: false, saved: false, action: 'ko:paid' });
   assert.strictEqual(gameOf(s, 'agar').paid.action, 'agar:paid');
   // 8 Ball Pool's paid door: a row of its own, shut and opened from the console like the others.
