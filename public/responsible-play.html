@@ -13,12 +13,17 @@
 <link rel="stylesheet" href="/css/legal.css">
 </head>
 <body>
-<!-- DRAFT, rewritten 2026-11-05 from the code on main that day. The site has no age check, no spending or time
+<!-- Rewritten 2026-11-05 from the code on main that day. The site has no age check, no spending or time
      limit and no self-exclusion (nothing in server/index.js's stake routes checks any of them), so this page says
-     what a player can do today and asks Owen about the rest. Buy-ins are shared/stakeLadder.js ($0.50 and $1);
+     what a player can do today and, for a break, what we do by hand. Buy-ins are shared/stakeLadder.js ($0.50 and $1);
      computer players are described in public/terms.html. ConnexOntario's number was checked 2026-10-15; the US
      national helpline number was changing hands in 2025, so this links to the council's own help page rather than
-     printing a number that may be stale. A lawyer has to review this before anyone relies on it.
+     printing a number that may be stale.
+     Owen's answers of 2026-11-05: operator "DuelSeries" only (no personal name or address); contact through the
+     site's Contact sheet (public/js/v2/support.js) and the Discord, no email address shown; free games 13+, accounts
+     and paid play 21+; Ontario law and courts; liability capped at the last 12 months of buy-ins; money records kept
+     7 years, other account data deleted within 30 days of a request; self-exclusion and cheating handled by hand
+     (there is no wallet block in the code); no country blocked; helplines ConnexOntario and 988.
      test/legalPages.test.js holds the facts most likely to drift: change the code, change this page. -->
 <header class="top">
   <div class="top-in">
@@ -46,10 +51,7 @@
 <main class="doc">
 
   <h1>Responsible play</h1>
-  <p class="meta">Draft, last updated November 5, 2026</p>
-
-  <div class="draft"><b>Draft.</b> This page has not been reviewed by a lawyer and is
-    not final. Highlighted parts are still to be confirmed.</div>
+  <p class="meta">Last updated November 5, 2026</p>
 
   <h2 id="you-can-lose-money">You can lose money</h2>
   <p>Paid games on DuelSeries are skill games played for real money. Every paid game can end
@@ -60,8 +62,7 @@
   <p>Only play for money you can afford to lose.</p>
 
   <h2 id="who-can-play-for-money">Who can play for money</h2>
-  <p>Paid games are only for players 21 and over
-    <mark class="todo">[Owen to confirm: 21 is the minimum age]</mark>, where playing skill games
+  <p>Paid games are only for players 21 and over, where playing skill games
     for money is legal. The site does not check your age, so please do not play for money if you
     are under age, and do not let anyone under age use your account.</p>
 
@@ -91,7 +92,9 @@
   </ul>
 
   <h2 id="taking-a-break">Taking a break</h2>
-  <p><mark class="todo">[Owen to confirm: whether players can ask to be kept out of paid games, how (for example by writing to playduelseries@gmail.com), and how long for. The site cannot block a wallet from paid games today.]</mark></p>
+  <p>You can ask to be kept out of paid games. Reach us through the site's <a href="https://mail.google.com/mail/?view=cm&amp;to=playduelseries@gmail.com" target="_blank" rel="noopener noreferrer" data-support>Contact</a> page or the <a href="https://discord.gg/TkFaefHDFr" target="_blank" rel="noopener noreferrer">DuelSeries Discord</a>, give us your wallet
+    address and say for how long. We handle each request by hand and block that wallet from
+    paid rooms. Free games stay open to you.</p>
 
   <h2 id="getting-help">Getting help</h2>
   <p>If playing for money has stopped being fun, talk to someone. It is free and
@@ -101,7 +104,8 @@
       1-866-531-2600, any time of day.</li>
     <li>United States: the <a href="https://www.ncpgambling.org/help-treatment/about-the-national-problem-gambling-helpline/" rel="noopener">National
       Council on Problem Gambling</a> helpline, by phone, text or chat.</li>
-    <li><mark class="todo">[Owen to confirm: helplines for the other places players come from, such as the rest of Canada and Europe]</mark></li>
+    <li>Canada and the United States: call or text 988, any time of day, if you are in crisis
+      or need someone to talk to right now.</li>
   </ul>
 
   <nav class="links" aria-label="Legal">

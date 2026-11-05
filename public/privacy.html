@@ -14,7 +14,7 @@
 <script src="/js/v2/support.js" defer></script>
 </head>
 <body>
-<!-- DRAFT, rewritten 2026-11-05 from the code on main that day. Where each fact comes from:
+<!-- Rewritten 2026-11-05 from the code on main that day. Where each fact comes from:
        what the database keeps        server/db.js (accounts, earnings_history, stakes_history, used_stake_sigs,
                                       failed_payouts, house_revenue, collusion_flags, cosmetics_owned, skin_purchases)
        files on the server            server/ag/agJournal.js, server/slBr/brJournal.js (last 100 prizes, winner's network)
@@ -30,7 +30,13 @@
        what is public                 server/db.js getProfile/getMyProfile, server/leaderboard.js, server/earnings/
        other services                 MoonPay (main.jsx fundWallet), Jupiter (server/swap.js), Helius (RPC_URL),
                                       Google Fonts, YouTube, TikTok and X players (public/js/v2/clips.js)
-     Every [Owen to confirm] waits for him and a lawyer, who has to review this before anyone relies on it.
+     Owen's answers of 2026-11-05: operator "DuelSeries" only (no personal name or address); contact through the
+     site's Contact sheet (public/js/v2/support.js) and the Discord, no email address shown; free games 13+, accounts
+     and paid play 21+; Ontario law and courts; liability capped at the last 12 months of buy-ins; money records kept
+     7 years, other account data deleted within 30 days of a request; self-exclusion and cheating handled by hand
+     (there is no wallet block in the code); no country blocked; helplines ConnexOntario and 988.
+     Server regions: the NA game server and the database in AWS ca-central-1 (Canada); the EU server in eu-west-1
+     (Ireland) only while it is switched on (.github/workflows/deploy.yml).
      test/legalPages.test.js holds the facts most likely to drift: change the code, change this page. -->
 <header class="top">
   <div class="top-in">
@@ -63,20 +69,14 @@
 <main class="doc">
 
   <h1>Privacy policy</h1>
-  <p class="meta">Draft, last updated November 5, 2026</p>
-
-  <div class="draft"><b>Draft.</b> This policy has not been reviewed by a lawyer and is
-    not final. Highlighted parts are still to be confirmed.</div>
+  <p class="meta">Last updated November 5, 2026</p>
 
   <h2 id="who-we-are">Who we are</h2>
   <p>DuelSeries (duelseries.com, "we", "us") runs this site and decides what happens to the
-    information on this page.
-    <mark class="todo">[Owen to confirm: the legal name and address of the person or business responsible for this data]</mark>
-    Write to us at
-    <a href="https://mail.google.com/mail/?view=cm&amp;to=playduelseries@gmail.com" target="_blank" rel="noopener noreferrer" data-support>playduelseries@gmail.com</a>
+    information on this page. Reach us through the site's <a href="https://mail.google.com/mail/?view=cm&amp;to=playduelseries@gmail.com" target="_blank" rel="noopener noreferrer" data-support>Contact</a> page or the <a href="https://discord.gg/TkFaefHDFr" target="_blank" rel="noopener noreferrer">DuelSeries Discord</a>
     with any question about it.</p>
-  <p>Paid games are only for players 21 and over. Free games need no account.
-    <mark class="todo">[Owen to confirm: the youngest age allowed to use free games and to make an account]</mark></p>
+  <p>Free games are for anyone 13 or older and need no account. Accounts and paid games are only
+    for players 21 and over.</p>
 
   <h2 id="what-we-keep">What we keep</h2>
   <ul>
@@ -119,8 +119,7 @@
     <li>Once you sign in, PostHog links all of this to your wallet address. Our server also sends
       PostHog the money events of paid games under your wallet address, never a key, signature,
       email or balance.</li>
-    <li>There is no way to turn analytics off on the site today.
-      <mark class="todo">[Owen to confirm: whether to add an analytics opt-out or consent choice, which some places (for example the EU) require]</mark></li>
+    <li>There is no way to turn analytics off on the site today.</li>
   </ul>
 
   <h2 id="chat-and-clips">Chat and clips</h2>
@@ -168,8 +167,9 @@
     <li><strong>MoonPay</strong>: card payments when you add funds. You give your payment details
       and any identity checks to MoonPay, not to us, under its own privacy policy.</li>
     <li><strong>Jupiter</strong>: Convert. It sees your wallet address.</li>
-    <li><strong>Amazon Web Services</strong>: our servers, the database and clip storage.
-      <mark class="todo">[Owen to confirm: the countries where our servers and the database are]</mark></li>
+    <li><strong>Amazon Web Services</strong>: our servers, the database and clip storage. Our main
+      game server and the database are in Canada; a second game server in Ireland is used only
+      while it is switched on.</li>
     <li><strong>Helius</strong> and the public Solana network: our connection to Solana. They
       see wallet addresses and transactions we look up or send.</li>
     <li><strong>PostHog</strong>: analytics, in the United States.</li>
@@ -181,14 +181,15 @@
 
   <h2 id="how-long-we-keep-it">How long we keep it</h2>
   <ul>
-    <li>Your account, game record and money records are kept until you ask us to delete them.
-      Nothing deletes them automatically.</li>
+    <li>Money records (buy-ins, payouts, refunds, fees and their transactions) are kept for 7
+      years, for tax.</li>
+    <li>Your account, name and game record are kept until you ask us to delete them, and then
+      deleted within 30 days. Nothing deletes them automatically.</li>
     <li>Chat is not kept.</li>
     <li>Battle Royale prize records keep the last 100 prizes.</li>
     <li>A clip recording that is never approved is deleted within 45 days. An approved clip stays
       until you or we remove it.</li>
     <li>Our server logs include wallet addresses.</li>
-    <li><mark class="todo">[Owen to confirm: how long to keep accounts and money records, and server logs, including after a deletion request]</mark></li>
   </ul>
 
   <h2 id="your-choices">Your choices</h2>
@@ -196,9 +197,8 @@
     <li>Change your player name in Settings, and sign out at any time.</li>
     <li>Delete a clip you shared, from the Clips tab.</li>
     <li>Clear your browser's site data to remove what is stored on your device.</li>
-    <li>To ask what we hold about you, to correct it or to have it deleted, write to
-      <a href="https://mail.google.com/mail/?view=cm&amp;to=playduelseries@gmail.com" target="_blank" rel="noopener noreferrer" data-support>playduelseries@gmail.com</a>
-      and include your wallet address. There is no delete button on the site yet.</li>
+    <li>To ask what we hold about you, to correct it or to have it deleted, reach us through
+      the site's <a href="https://mail.google.com/mail/?view=cm&amp;to=playduelseries@gmail.com" target="_blank" rel="noopener noreferrer" data-support>Contact</a> page or the <a href="https://discord.gg/TkFaefHDFr" target="_blank" rel="noopener noreferrer">DuelSeries Discord</a> and include your wallet address. There is no delete button on the site yet.</li>
     <li>Records on the Solana network cannot be deleted by anyone.</li>
   </ul>
 

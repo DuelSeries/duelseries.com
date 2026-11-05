@@ -1,7 +1,7 @@
 'use strict';
 /* The legal pages, rewritten from the code on 2026-11-05 (Terms, Privacy, Responsible play). What a player reads has
    to stay true to what the site does, so the facts most likely to drift are held here next to the code they come
-   from. Owen's open questions stay visible on the page as [Owen to confirm: ...] marks until he and a lawyer answer. */
+   from. Owen answered every open question on 2026-11-05: no [Owen to confirm] mark or draft notice is left. */
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
@@ -13,18 +13,35 @@ const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8');
 const shown = (s) => s.replace(/<!--[\s\S]*?-->/g, '').replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ');
 const PAGES = ['public/terms.html', 'public/privacy.html', 'public/responsible-play.html'];
 
-test('each legal page is dated, has no em dash, and shows its open questions as marks', () => {
+test('each legal page is dated, has no em dash, no open question, no draft notice and no email address shown', () => {
   for (const f of PAGES) {
     const html = read(f);
     const t = shown(html);
-    assert.match(t, /Draft, last updated [A-Z][a-z]+ \d{1,2}, 20\d\d/, f + ' says when it was last updated');
+    assert.match(t, /Last updated [A-Z][a-z]+ \d{1,2}, 20\d\d/, f + ' says when it was last updated');
     assert.ok(!/—|&mdash;/.test(html), f + ' has an em dash');
-    // every open question is a visible mark, and every mark is an open question for Owen
-    const marks = html.match(/<mark class="todo">[\s\S]*?<\/mark>/g) || [];
-    assert.ok(marks.length >= 1, f + ' lists its open questions');
-    for (const m of marks) assert.match(m, /^<mark class="todo">\[Owen to confirm: [^\]]+\]<\/mark>$/, f + ': ' + m);
-    assert.ok(!/<mark class="todo">\[(?!Owen to confirm)/.test(html), f + ' has an old-style blank');
+    assert.ok(!/<mark class="todo">|Owen to confirm/.test(html), f + ' still has an open question');
+    assert.ok(!/class="draft"|\bDraft\b/.test(html.replace(/<!--[\s\S]*?-->/g, '')), f + " still says draft");
+    assert.ok(!/@/.test(t), f + ' shows an email address');
   }
+});
+
+test("Owen's answers (2026-11-05): DuelSeries only, Contact and Discord, 13 and 21, Ontario, 988", () => {
+  const terms = shown(read('public/terms.html'));
+  const priv = shown(read('public/privacy.html'));
+  const rp = shown(read('public/responsible-play.html'));
+  for (const [f, html] of [['terms', read('public/terms.html')], ['privacy', read('public/privacy.html')]]) {
+    assert.match(html, /data-support>Contact<\/a>/, f + ' links the Contact sheet');
+    assert.ok(html.includes('https://discord.gg/TkFaefHDFr'), f + ' links the Discord');
+  }
+  assert.match(terms, /Free games are for anyone 13 or older/);
+  assert.match(terms, /at least 21 years old/);
+  assert.match(terms, /governed by the laws of Ontario, Canada/);
+  assert.match(terms, /courts of Ontario/);
+  assert.match(terms, /in the 12 months before the claim/);
+  assert.match(priv, /kept for 7 years, for tax/);
+  assert.match(priv, /deleted within 30 days/);
+  assert.match(priv, /in Canada/);
+  assert.match(rp, /988/);
 });
 
 test('the terms match the money code: SOL shown in dollars, the ladder, 90/10, the duel split, no fee of ours', () => {

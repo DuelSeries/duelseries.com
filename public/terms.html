@@ -14,7 +14,7 @@
 <script src="/js/v2/support.js" defer></script>
 </head>
 <body>
-<!-- DRAFT, rewritten 2026-11-05 from the code on main that day (and branch owner/bots for
+<!-- Rewritten 2026-11-05 from the code on main that day (and branch owner/bots for
      paid duel bots). Where each fact comes from:
        money in SOL, shown in dollars       server/money.js (MONEY_MODE default 'sol'), server/solPrice.js
        sign-in methods                       wallet-widget/src/main.jsx loginMethods google, email, wallet
@@ -36,9 +36,11 @@
        skins, no refunds                     server/skinShop.js, shared/shopPrices.js
        chat rules                            server/chatGuard.js
        teaming checks                        server/CollusionMonitor.js (flags only, no ban exists)
-     Owen's answers of 2026-10-15 are kept (operator "DuelSeries", playduelseries@gmail.com, 21) and marked to
-     confirm. Every [Owen to confirm] waits for him and a lawyer, who has to review this before anyone relies on
-     it: real money moves through this site.
+     Owen's answers of 2026-11-05: operator "DuelSeries" only (no personal name or address); contact through the
+     site's Contact sheet (public/js/v2/support.js) and the Discord, no email address shown; free games 13+, accounts
+     and paid play 21+; Ontario law and courts; liability capped at the last 12 months of buy-ins; money records kept
+     7 years, other account data deleted within 30 days of a request; self-exclusion and cheating handled by hand
+     (there is no wallet block in the code); no country blocked; helplines ConnexOntario and 988.
      test/legalPages.test.js holds the facts most likely to drift: change the code, change this page. -->
 <header class="top">
   <div class="top-in">
@@ -73,26 +75,20 @@
 <main class="doc">
 
   <h1>Terms of service</h1>
-  <p class="meta">Draft, last updated November 5, 2026</p>
-
-  <div class="draft"><b>Draft.</b> These terms have not been reviewed by a lawyer and
-    are not final. Highlighted parts are still to be confirmed.</div>
+  <p class="meta">Last updated November 5, 2026</p>
 
   <h2 id="who-we-are">Who we are</h2>
   <p>DuelSeries (duelseries.com, "we", "us") runs this site.
-    <mark class="todo">[Owen to confirm: the legal name of the person or business that runs the site, and its address]</mark>
-    You can reach us at
-    <a href="https://mail.google.com/mail/?view=cm&amp;to=playduelseries@gmail.com" target="_blank" rel="noopener noreferrer" data-support>playduelseries@gmail.com</a>.
-    <mark class="todo">[Owen to confirm: this is the address for legal and privacy requests too]</mark></p>
+    For support, legal and privacy questions, reach us through the site's <a href="https://mail.google.com/mail/?view=cm&amp;to=playduelseries@gmail.com" target="_blank" rel="noopener noreferrer" data-support>Contact</a> page or the <a href="https://discord.gg/TkFaefHDFr" target="_blank" rel="noopener noreferrer">DuelSeries Discord</a>.</p>
   <p>By playing on the site you agree to these terms. If you do not agree, do not use the site.</p>
 
   <h2 id="who-can-play">Who can play</h2>
-  <p>Free games need no account. To play for money you must be at least 21 years old
-    <mark class="todo">[Owen to confirm: 21 is the minimum age]</mark>, and playing
+  <p>Free games are for anyone 13 or older and need no account. To make an account or play for
+    money you must be at least 21 years old, and playing
     skill games for money must be legal where you live. It is up to you to check the law
     that applies to you. The site does not check your age or where you are, so by playing for
     money you tell us both are true.</p>
-  <p><mark class="todo">[Owen to confirm: places where paid play is not offered. The site does not block any country or region today.]</mark></p>
+  <p>We do not block any country or region, so checking the law where you live is up to you.</p>
   <p>One person, one account. Do not play paid games for someone else, or let someone else play
     on your account.</p>
 
@@ -166,7 +162,8 @@
       that game goes back to your wallet in full, with no house fee. A pool table whose result
       was already decided pays its winner instead. Money dropped in an arena that nobody had
       picked up yet goes to the house, except in rooms that had computer players in them.
-      <mark class="todo">[Owen to confirm: paid snake on the old engine, used only while the new one is switched off, has no restart refund in the code]</mark></li>
+      The one exception is the snake game's older engine, which we only use while the current
+      one is switched off: a restart there is not refunded.</li>
     <li><strong>A game cannot take you after your buy-in has landed</strong> (it is full, closed
       or the join fails), or you do not use a buy-in within five minutes: it is refunded
       automatically to the wallet it came from, with no house fee. A buy-in that confirms too
@@ -237,19 +234,21 @@
   <p>Win with your own skill. Bots, scripts, modified game clients, playing several
     accounts together and teaming up against other players are not allowed. We record money
     that moves between accounts in paid games and check pairs of accounts that look like they
-    are teaming up.
-    <mark class="todo">[Owen to confirm: what happens to results, payouts and access when cheating is found. The site has no way to ban a wallet today.]</mark></p>
+    are teaming up. If we find cheating, the results involved are void and we remove that
+    account's access to paid games.</p>
 
   <h2 id="the-service">The service</h2>
   <p>Games run on our servers and can be interrupted by maintenance, network problems or
     bugs. We can close a game, or the paid games, at any time; money in play is then refunded
     as described above. The site is provided as it is, without a promise that it will always be
     available or free of errors. Privy, MoonPay, Jupiter and the Solana network are run by
-    others, and we are not responsible for them.
-    <mark class="todo">[Owen to confirm: limits of liability]</mark></p>
+    others, and we are not responsible for them.</p>
+  <p>As far as the law allows, our total responsibility to you for any claim about the site is
+    limited to the buy-ins you paid on the site in the 12 months before the claim.</p>
   <p>The leaderboards and the list of recent wins can show made-up sample players while the site
     is new. Every one of them is marked "Sample".</p>
-  <p><mark class="todo">[Owen to confirm: which law governs these terms, and where disputes are settled]</mark></p>
+  <p>These terms are governed by the laws of Ontario, Canada. Any dispute about them or the
+    site is settled in the courts of Ontario.</p>
 
   <h2 id="changes">Changes</h2>
   <p>We may update these terms. The date at the top shows the current version.</p>
