@@ -46,7 +46,10 @@ function page(wallet) {
     navigator: {}, location: { origin: 'https://duelseries.com' },
     addEventListener(t, fn) { (on[t] = on[t] || []).push(fn); },
     dispatchEvent(e) { (on[e.type] || []).forEach((fn) => fn(e)); },
-    fetch: async () => ({ ok: true, json: async () => ({ transactions: [], transfers: [], complete: true }) }),
+    // the server's display price (/api/money-config), the one the Withdraw sheet turns dollars into SOL at: the wallet's own
+    fetch: async (url) => (String(url).indexOf('/api/money-config') === 0
+      ? { ok: true, json: async () => ({ mode: 'sol', solUsd: wallet.solUsd == null ? null : wallet.solUsd }) }
+      : { ok: true, json: async () => ({ transactions: [], transfers: [], complete: true }) }),
     DSToast: { show(o) { calls.toasts.push(o); return { update() {} }; }, expectRise() { return () => {}; } },
     V2Play: { toast(m) { calls.notes.push(m); } },
     duelWalletSend: async (a, t, asset) => { calls.send.push([a, t, asset]); },
@@ -115,6 +118,9 @@ test('SOL mode: old USDC is one line, "You have $X USDC", with Convert to SOL an
 test('SOL mode: Max is the SOL less 0.001 SOL and the fee; an amount past it is refused; Max itself sends as SOL', async () => {
   const p = page(SOL_MODE);
   p.win.V2Wallet.cashOut();
+  await tick();                                      // the sheet's price, asked as it opened
+  // the amount opens in dollars now (withdrawUsd.test.js); this test is the SOL side of the toggle
+  p.win.V2Wallet.setUnit('sol');
   const form = p.el('wdr-body').innerHTML;
   assert.ok(/aria-label="Amount in SOL"/.test(form), 'the amount is in SOL');
   assert.ok(/Send as/.test(form) && />USDC<\/button>/.test(form), 'USDC is offered because there is some');
@@ -122,7 +128,7 @@ test('SOL mode: Max is the SOL less 0.001 SOL and the fee; an amount past it is 
   assert.strictEqual(p.el('co-amt').value, '0.098995');
   // 0.1 SOL = 100000000 lamports; 98995000 sent + 5000 fee leaves exactly the 1000000 (0.001 SOL) that is kept.
   assert.strictEqual(100000000 - Math.round(0.098995 * 1e9) - 5000, 1000000);
-  assert.strictEqual(p.el('co-msg').textContent, 'About $14.85', 'the small dollar figure is the amount times the server\'s rate');
+  assert.strictEqual(p.el('co-alt').textContent, '≈ $14.84', 'the other unit under the box: the SOL at the server\'s rate, down to the cent');
 
   p.el('co-to').value = TO;
   p.el('co-amt').value = '0.099';   // 1000 lamports too many
@@ -135,7 +141,8 @@ test('SOL mode: Max is the SOL less 0.001 SOL and the fee; an amount past it is 
 
   p.el('co-amt').value = '0.098995';
   p.win.V2Wallet.submitCash();
-  assert.match(p.el('wdr-body').innerHTML, /Send <b>0\.098995 SOL<\/b> \(about \$14\.85\) to/);
+  assert.match(p.el('wdr-body').innerHTML, /Send <b>0\.098995 SOL<\/b> \(about \$14\.84\) to/);
+  assert.match(p.el('wdr-body').innerHTML, /Plus the 0\.000005 SOL network fee\. On-chain transfers cannot be reversed\./);
   p.win.V2Wallet.confirmCash();
   assert.deepStrictEqual(p.calls.send, [[0.098995, TO, 'sol']]);
 });
@@ -163,7 +170,8 @@ test('SOL mode: Withdraw USDC opens on USDC, Max is the whole USDC, and it sends
   // Not offered when there is none.
   const q = page(Object.assign({}, SOL_MODE, { usdc: 0 }));
   q.win.V2Wallet.cashOut('usdc');
-  assert.ok(/aria-label="Amount in SOL"/.test(q.el('wdr-body').innerHTML), 'falls back to SOL');
+  assert.ok(/aria-label="Amount in US dollars"/.test(q.el('wdr-body').innerHTML) && /V2Wallet\.setUnit\('sol'\)/.test(q.el('wdr-body').innerHTML),
+    'falls back to SOL (its amount in dollars, with the USD and SOL toggle)');
   assert.ok(!/>USDC<\/button>/.test(q.el('wdr-body').innerHTML));
 });
 
@@ -223,6 +231,7 @@ test('SOL mode: Withdraw with a balance not read yet still opens and sends; a re
   const form = p.el('wdr-body').innerHTML;
   assert.match(form, /Could not read your balance just now\. You can still withdraw: the network refuses more than your wallet has\./);
   assert.match(form, /class="maxbtn" onclick="V2Wallet\.max\(\)" disabled>Max</, 'no Max without a balance to take it from');
+  p.win.V2Wallet.setUnit('sol');
   p.el('co-to').value = TO;
   p.el('co-amt').value = '0.5';
   p.win.V2Wallet.submitCash();
@@ -306,6 +315,7 @@ test('SOL mode: a stale balance is shown but never refuses a withdraw, and Max w
   assert.match(form, /class="maxbtn" onclick="V2Wallet\.max\(\)" disabled>Max</, 'no Max from an old figure');
   p.win.V2Wallet.max();
   assert.strictEqual(p.el('co-amt').value, '', 'and Max itself does nothing');
+  p.win.V2Wallet.setUnit('sol');
   p.el('co-to').value = TO;
   p.el('co-amt').value = '0.5';                      // more than the stale 0.1 SOL: a payout landed since
   p.win.V2Wallet.submitCash();
@@ -315,6 +325,7 @@ test('SOL mode: a stale balance is shown but never refuses a withdraw, and Max w
   // The same figure read fresh is checked exactly as before.
   const q = page(SOL_MODE);
   q.win.V2Wallet.cashOut();
+  q.win.V2Wallet.setUnit('sol');
   q.el('co-to').value = TO;
   q.el('co-amt').value = '0.5';
   q.win.V2Wallet.submitCash();

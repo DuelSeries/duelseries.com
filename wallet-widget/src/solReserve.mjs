@@ -7,7 +7,13 @@
    its Max button (the widget stays the authority: it re-checks every send against a fresh balance). */
 
 export const KEEP_LAMPORTS = 1_000_000;        // 0.001 SOL stays in the wallet
-export const SEND_FEE_LAMPORTS = 5000;         // the base fee of a plain transfer
+export const SEND_FEE_LAMPORTS = 5000;         // the base fee of a plain transfer (one signature, no priority fee: solSend.mjs)
+/* The receiving side (withdraw fee review 2026-11-05): a plain account the network has never seen must be given at
+   least its rent minimum (890,880 lamports for an account with no data, Rent::default().minimum_balance(0)), or the
+   whole transfer fails on chain with "insufficient funds for rent". The destination is not read (that costs a
+   provider call per withdraw), so every SOL withdraw is at least 0.001 SOL, which clears it for any address. */
+export const RENT_EXEMPT_MIN_LAMPORTS = 890_880;
+export const MIN_SEND_LAMPORTS = 1_000_000;    // 0.001 SOL, the smallest SOL withdraw
 
 /* True when spending `spendLamports` plus `feeLamports` still leaves KEEP_LAMPORTS or more. */
 export function leavesReserve(balanceLamports, spendLamports, feeLamports) {

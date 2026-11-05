@@ -232,6 +232,7 @@ test('Add funds and Withdraw opening, and a failed withdraw as words only (no fi
   assert.deepStrictEqual(named(p.sent, 'withdraw_opened'), [{ where: 'wallet' }, { where: 'usdc_line' }]);
 
   p.win.V2Wallet.cashOut();
+  p.win.V2Wallet.setUnit('sol');                    // typed in SOL (the sheet opens in dollars)
   p.el('co-to').value = TO; p.el('co-amt').value = '0.05';
   p.win.V2Wallet.submitCash();
   p.win.V2Wallet.confirmCash();
