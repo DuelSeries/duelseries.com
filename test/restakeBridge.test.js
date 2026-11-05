@@ -288,7 +288,7 @@ test('the widget routes an sl Play again by its engine, and its relaunch opens /
   const src = fs.readFileSync(path.join(ROOT, 'wallet-widget/src/main.jsx'), 'utf8');
   const bridge = src.slice(src.indexOf('restakeRef.current = createRestakeBridge('));
   assert.match(bridge, /stakeRoute\(req\.game, pageRegion\(\), engineOf\(req\.game, req\.sel\)\)/);
-  const launch = src.slice(src.indexOf('function launchStaked('), src.indexOf('// Self-custody Cash Out'));
+  const launch = src.slice(src.indexOf('function launchStaked('), src.indexOf('// Self-custody Withdraw'));
   assert.ok(launch.includes("const sl = engineOf(game, sel) === 'sl';"));
   assert.ok(launch.includes("if (sl) sessionStorage.setItem('slPaidLaunch', launchNonce());"));
   assert.ok(launch.includes("else sessionStorage.removeItem('slPaidLaunch');"));

@@ -80,7 +80,8 @@ function lobbyHarness(liveRows, opts) {
   }
   let a = widget.indexOf('function lobbyRegion()');
   if (a < 0) a = widget.indexOf('const SERVER_URLS = '); // the widget before stakeRoute.mjs
-  const b = widget.indexOf('// Self-custody Cash Out');
+  let b = widget.indexOf('// Self-custody Withdraw');
+  if (b < 0) b = widget.indexOf('// Self-custody Cash Out'); // the widget before Withdraw in dollars
   const c = widget.indexOf('const onPlay = (e) => {');
   const d = widget.indexOf("window.addEventListener('duel:play', onPlay);", c);
   assert.ok(a > -1 && b > a && c > -1 && d > c, 'the widget launch code is where this test cuts it');

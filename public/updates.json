@@ -2,6 +2,27 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-11-05-cleaner-popup-withdraw-dollars",
+      "date": "2026-11-05",
+      "tag": "new",
+      "title": "A cleaner game popup, Withdraw in dollars and a tidier header",
+      "body": "The game popup is cleaner, and Customize is now the Shop, coming soon.\n\nWithdraw on the Wallet works in dollars now. Type the amount in USD, or switch to SOL.\n\nSlither on a phone is tidier: Circle closing sits beside the board, and watching keeps the screen clear.\n\nYour balance says USD and sits on the right on big screens, Copy address is part of Add funds, and your Profile is centred.\n\nTotal earnings on your profile now shows what you really made, counting what you paid to play. If you are down, it says so.",
+      "image": {
+        "src": "/updates/wallet-copy-beside-add-funds.webp",
+        "alt": "The Wallet with Copy address joined to the Add funds button and USD beside the balance at the top"
+      },
+      "gallery": [
+        {
+          "src": "/updates/net-earnings.webp",
+          "alt": "A profile showing Total earnings below zero"
+        },
+        {
+          "src": "/updates/br-banner-snake-face.webp",
+          "alt": "The Battle Royale banner showing the snake's face"
+        }
+      ]
+    },
+    {
       "id": "2026-11-05-pac-man-real-maze",
       "date": "2026-11-05",
       "tag": "new",
@@ -384,7 +405,7 @@
       "date": "2026-10-28",
       "tag": "new",
       "title": "Duel buy-ins start from the lobby",
-      "body": "The $0.50 and $1.00 buttons on every duel's card now work. Pick one and press Play to go straight to that table in Knockout, Battleship, Swim, Head Soccer, 8 Ball Pool, Air Hockey, Rooftop Snipers or Crossy Road.\n\nYou still wait for a real player at those tables, never a bot, and Cancel on the waiting card gives your buy-in straight back."
+      "body": "The $0.50 and $1.00 buttons on every duel's card now work. Pick one and press Play to go straight to that table in Knockout, Battleship, Swim, Head Soccer, 8 Ball Pool, Air Hockey, Rooftop Snipers or Crossy Road.\n\nCancel on the waiting card gives your buy-in straight back while nobody has taken your table."
     },
     {
       "id": "2026-10-28-rooftop-even-roofs",
@@ -458,7 +479,7 @@
       "date": "2026-10-28",
       "tag": "new",
       "title": "8 Ball Pool: paid tables and new looks",
-      "body": "8 Ball Pool now has $0.50 and $1 tables next to the free ones. A paid table always seats a real person, never a bot.\n\nOpen Customize on the 8 Ball Pool screen to pick a cloth and cue: Tournament green, Wine red or Midnight. Your cue is the one your opponent sees.\n\nThe table plays truer too: the balls slide, roll, bounce off the cushions and drop the way they should."
+      "body": "8 Ball Pool now has $0.50 and $1 tables next to the free ones.\n\nOpen Customize on the 8 Ball Pool screen to pick a cloth and cue: Tournament green, Wine red or Midnight. Your cue is the one your opponent sees.\n\nThe table plays truer too: the balls slide, roll, bounce off the cushions and drop the way they should."
     },
     {
       "id": "2026-10-28-air-hockey-colours-music",

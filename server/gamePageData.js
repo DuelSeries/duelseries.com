@@ -262,7 +262,7 @@ const KIND = Object.freeze({
     facts: '1v1 duel · Free in your browser · Phone and PC · No download',
     paidTag: '$0.50 / $1 duels, 21+',
     free: 'Free games cost nothing and pay nothing, and need no sign-up. You wait up to ten seconds for another player, then play a computer player that is labelled as one.',
-    paid: 'Paid duels are $0.50 or $1.00 a side, paid in SOL from your own wallet and shown in dollars, and always against a real person. The winner gets both buy-ins less a 10% house fee ($1.80 from a $1 duel), and the loser loses their buy-in. A draw gives both back, and so does Cancel while nobody has taken your table. Only for players 21 and over, where playing skill games for money is legal.',
+    paid: 'Paid duels are $0.50 or $1.00 a side, paid in SOL from your own wallet and shown in dollars. The winner gets both buy-ins less a 10% house fee ($1.80 from a $1 duel), and the loser loses their buy-in. A draw gives both back, and so does Cancel while nobody has taken your table. Only for players 21 and over, where playing skill games for money is legal.',
   }),
 });
 

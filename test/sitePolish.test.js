@@ -11,11 +11,11 @@ const ROOT = path.join(__dirname, '..');
 const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8');
 const v2 = () => read('public/v2.html');
 
-test('the legal pages are DuelSeries\'s own drafts, and nothing is copied from another company', () => {
+test('the legal pages are DuelSeries\'s own, final since Owen\'s answers of 2026-11-05, and nothing is copied from another company', () => {
   for (const f of ['public/terms.html', 'public/privacy.html', 'public/responsible-play.html']) {
     const s = read(f);
     assert.ok(!/damnbruh/i.test(s), f + ' names no other company');
-    assert.ok(/class="draft"/.test(s) && /not been reviewed by a lawyer/.test(s), f + ' says it is a draft for a lawyer');
+    assert.ok(!/class="draft"/.test(s) && !/Owen to confirm/.test(s), f + ' has no draft notice or open question left');
     assert.ok(s.includes('/css/legal.css'), f + ' uses the site\'s own look');
   }
   assert.ok(/at least 21 years old/.test(read('public/terms.html')), 'Owen\'s minimum age');

@@ -8,7 +8,7 @@ const path = require('path');
 const vm = require('vm');
 
 const ROOT = path.join(__dirname, '..');
-const html = fs.readFileSync(path.join(ROOT, 'public/v2.html'), 'utf8');
+const html = fs.readFileSync(path.join(ROOT, 'public/v2.html'), 'utf8').replace(/\r\n/g, '\n');   // CRLF on a Windows checkout
 const ART = fs.readFileSync(path.join(ROOT, 'public/js/v2/shopArt.js'), 'utf8');
 const fnBody = (src, head) => {
   const i = src.indexOf(head);
