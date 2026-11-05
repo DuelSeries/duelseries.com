@@ -728,8 +728,13 @@
       .then(() => { pxAsk = null; wdFigures(); return rateNow(); });
     return pxAsk;
   }
-  // Asked again once the one held is half its life old; a failed ask waits as long before the next, so never a loop.
-  const priceWanted = () => !pxAsk && (!px || !(Date.now() - px.at < PRICE_MAX_AGE_MS / 2));
+  /* Asked again once the one held is half its life old (or from a clock since set back); a failed ask waits as long
+     before the next, so never a loop. */
+  function priceWanted() {
+    if (pxAsk) return false;
+    const age = px ? Date.now() - px.at : Infinity;
+    return !(age >= 0 && age < PRICE_MAX_AGE_MS / 2);
+  }
   const NO_PRICE = 'The SOL price is not available right now, so dollars cannot be turned into SOL. Try again in a moment, or switch to SOL.';
   const usdUnit = () => curAsset() === 'sol' && wdUnit === 'usd';
   const amountRaw = () => ((el('co-amt') || {}).value || '').trim().replace(',', '.').replace(/^\$\s*/, '');
@@ -798,6 +803,7 @@
       wdExact = { unit: u, text: text, lamports: lam, back: from };
       box.value = text;
     } else if (box && raw) {
+      box.value = '';
       wdExact = { unit: u, text: '', lamports: 0, back: from };   // no price to convert at: empty, and back gives it again
     }
     wdFigures();
@@ -1202,7 +1208,10 @@
         const r = rateNow();
         if (t !== wdTicket || pending || el('co-amt') !== a) return;
         if (!r) return say(NO_PRICE);
-        const text = centsText(lamportsToCents(lam, r));
+        const c = lamportsToCents(lam, r);
+        // (a few thousandths of a dollar at a very low price: $0.00 is not an amount to send)
+        if (!(c > 0)) return say('That is less than a cent at the SOL price now. Switch to SOL to send it.');
+        const text = centsText(c);
         wdExact = { unit: 'usd', text: text, lamports: lam };
         a.value = text; say(''); hint();
       };
