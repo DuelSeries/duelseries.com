@@ -683,17 +683,13 @@
      under a minute old. With no such price a dollar amount is refused, never guessed: switch to SOL, or wait.
      Dollars to SOL rounds DOWN to the 0.000001 SOL the form shows, so $20 never sends more than $20 of SOL, and
      every check is on the lamports themselves, so no rounding can take a send past the balance after the fee.
-     The toggle is remembered on this device (localStorage, wrapped: no storage starts in USD). */
+     Every open starts in USD (money review 2026-11-05): a remembered SOL would turn a "20" typed as dollars into
+     20 SOL, so the choice lasts only while the sheet is open. */
   const PRICE_MAX_AGE_MS = 60000;
-  const UNIT_KEY = 'ds.wdUnit';
   let wdUnit = 'usd';
   let wdExact = null;       // { unit, text, lamports }: Max (or a unit switch) filled exactly this many lamports
   let wdTicket = 0;         // bumped on every open, close, back and switch: a price that comes back late is dropped
   let px = null, pxAsk = null;   // { usd, at }: the last price asked for (usd 0: none came), and the ask in flight
-  function savedUnit() {
-    try { return window.localStorage.getItem(UNIT_KEY) === 'sol' ? 'sol' : 'usd'; } catch (_) { return 'usd'; }
-  }
-  function saveUnit(u) { try { window.localStorage.setItem(UNIT_KEY, u); } catch (_) {} }
   /* Integer-exact on the lamport side, like the server's solPrice.js: micro-dollars first, then BigInt. */
   function usdToLamports(usd, rate) {
     const micro = Math.round(Number(usd) * 1e6), rateMicro = Math.round(Number(rate) * 1e6);
@@ -792,7 +788,7 @@
     const was = wdExact, untouched = !!(was && was.unit === wdUnit && raw === was.text);
     const lam = Math.floor(typedLamports(raw, r) / 1000) * 1000;
     const from = { unit: wdUnit, text: raw, exact: untouched ? was : null };
-    wdUnit = u; saveUnit(u); wdTicket++; wdExact = null;
+    wdUnit = u; wdTicket++; wdExact = null;
     drawCash();
     if (el('co-to')) el('co-to').value = to;
     const box = el('co-amt');
@@ -1157,8 +1153,8 @@
       if (solKnown() && !canSendSol() && !usdcOn()) return note(solLamports() > 0
         ? 'The SOL in your wallet is kept for network fees.' : 'There is nothing to withdraw yet.');
       wdAsset = (asset === 'usdc' && usdcOn()) || (solKnown() && !canSendSol()) ? 'usdc' : 'sol';
-      // USD unless this device last chose SOL; a fresh price for the dollars, asked now
-      wdUnit = savedUnit(); wdExact = null; wdTicket++;
+      // USD on every open; a fresh price for the dollars, asked now
+      wdUnit = 'usd'; wdExact = null; wdTicket++;
       if (priceWanted()) askPrice();
     } else if ((Number(w().balance) || 0) <= 0) return note('There is nothing to withdraw yet.');
     cashing = true; pending = null;

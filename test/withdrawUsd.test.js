@@ -161,29 +161,23 @@ test('the toggle: opens in USD, beside the amount\'s label, the other unit live 
   assert.strictEqual(p.el('co-to').value, TO, 'the address stays across a switch');
 });
 
-test('the toggle is remembered on this device; with no storage, or anything odd in it, it starts in USD', async () => {
+test('every open starts in USD: SOL chosen last time, or stored by an older build, is never remembered', async () => {
   const p = await open();
   p.V.setUnit('sol');
-  assert.strictEqual(p.store.get('ds.wdUnit'), 'sol');
+  assert.match(p.form(), /Amount in SOL/);
+  assert.ok(!p.store.has('ds.wdUnit'), 'nothing written to storage');
   p.V.cancelCash();
   p.V.cashOut();
-  assert.match(p.form(), /Amount in SOL/, 'opens in SOL next time');
-  p.V.setUnit('usd');
-  assert.strictEqual(p.store.get('ds.wdUnit'), 'usd');
-  p.V.cancelCash();
-  p.V.cashOut();
-  assert.match(p.form(), /Amount in dollars/);
+  assert.match(p.form(), /Amount in dollars/, 'opens in USD again');
   // storage that throws (a private window, blocked site data): USD, and switching still works
   const q = await open(SOL_MODE, { storage: false });
   assert.match(q.form(), /Amount in dollars/);
   q.V.setUnit('sol');
   assert.match(q.form(), /Amount in SOL/);
-  for (const v of ['SOL', 'usdc', '', '1', 'sol ']) {
+  for (const v of ['sol', 'SOL', 'usdc', '', '1']) {
     const r = await open(SOL_MODE, { stored: { 'ds.wdUnit': v } });
     assert.match(r.form(), /Amount in dollars/, JSON.stringify(v));
   }
-  const s = await open(SOL_MODE, { stored: { 'ds.wdUnit': 'sol' } });
-  assert.match(s.form(), /Amount in SOL/);
 });
 
 test('switching keeps the amount: $20 becomes 0.133333 SOL, and straight back it is $20 again, as typed', async () => {
