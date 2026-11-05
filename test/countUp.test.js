@@ -118,6 +118,9 @@ function page() {
   return {
     // The renderer writes the final figure; the observer sees it.
     render(txt) { node.data = txt; mo([{ target: el, addedNodes: [] }]); while (micro.length) micro.shift()(); },
+    replay(ms) { win.DSCount.replay(el, ms); while (micro.length) micro.shift()(); },
+    // The clock jumps ms ahead; one frame is drawn there.
+    after(ms) { clock += ms; const q = frames.splice(0); q.forEach(f => f(clock)); return node.data; },
     // A frame whose start time is `back` ms before the clock (rAF is given the frame's start).
     frame(back) { clock += 16; const q = frames.splice(0); q.forEach(f => f(clock - back)); return node.data; },
     shown: () => node.data,
@@ -135,4 +138,41 @@ test('countUp: no frame is ever negative or NaN, even when the frame time is bef
       assert.strictEqual(seen[seen.length - 1], fin, 'and it lands on the renderer\'s own string');
     }
   }
+});
+
+/* Refresh and Try again on the Wallet (Owen 2026-11-05): the balance counts up from $0 again, in about 0.6 s on an
+   ease-out, and lands on the renderer's own string. The same figure re-rendered does nothing, as before. */
+test('countUp: DSCount.replay counts the same figure up from $0 again in 0.6 s, ease-out', () => {
+  const p = page();
+  p.render('$30.49');
+  for (let i = 0; i < 200; i++) p.frame(0);
+  assert.strictEqual(p.shown(), '$30.49', 'the first roll is done');
+  p.render('$30.49');
+  assert.strictEqual(p.after(16), '$30.49', 'the same figure again does not move');
+  p.replay();
+  const start = Number(p.shown().replace(/[$,]/g, ''));
+  assert.ok(start < 1, 'starts from $0: ' + p.shown());
+  const half = Number(p.after(300).replace(/[$,]/g, ''));
+  assert.ok(half > 30.49 * 0.8 && half < 30.49, 'ease-out: well past halfway at half time, ' + half);
+  assert.notStrictEqual(p.after(250), '$30.49', 'still rolling at 550 ms');
+  assert.strictEqual(p.after(60), '$30.49', 'landed by 610 ms, on the renderer\'s own string');
+  p.replay(1000);
+  p.after(700);
+  assert.notStrictEqual(p.shown(), '$30.49', 'a given length is used');
+  assert.strictEqual(p.after(320), '$30.49');
+});
+
+test('countUp: the Wallet\'s Refresh and Try again shimmer the balances, then replay them (display only)', () => {
+  const w = read('public/js/v2/wallet.js');
+  const r = w.slice(w.indexOf('async function refreshNow()'), w.indexOf('function cashForm('));
+  assert.ok(/const BAL_IDS = \['w-bal', 'hdr-balance'\];/.test(w), 'both balances');
+  assert.ok(/shim\(true\);[\s\S]*await window\.duelWalletRefresh\(\)[\s\S]*shim\(false\);[\s\S]*DSCount\.replay\(el\(id\)\)/.test(r),
+    'the shimmer while the read is out, the count once it is back');
+  assert.ok(!/classList\.add\('spin'\)/.test(w), 'no spinning refresh icon');
+  assert.ok(!/textContent\s*=|innerHTML\s*=/.test(r), 'refresh writes no figure of its own');
+  const html = read('public/v2.html');
+  assert.ok(!/\.wref\.spin/.test(html), 'the spin rules went with it');
+  assert.ok(/<span class="v num ph-no-capture wait" id="hdr-balance" data-cu aria-label="Balance">…<\/span><span class="cur" aria-hidden="true">USD<\/span>/.test(html),
+    'the header figure starts as a shimmer, with USD beside it, outside the counted figure');
+  assert.ok(!/ds-spin/.test(w.slice(w.indexOf("if (!w().ready) {"), w.indexOf("if (!connected()) {"))), 'Starting your wallet is a shimmer, not a ring');
 });

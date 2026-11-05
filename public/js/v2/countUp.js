@@ -26,6 +26,8 @@
    DSCount.open(root)   root has just been shown: every figure inside it counts
                         from $0 again, and so does any that arrives inside it later.
    DSCount.ms(from, to) how long a roll between those two values takes.
+   DSCount.replay(el, ms) this one figure counts up from $0 again, quickly: ms long (600 by default) on a cubic
+                        ease-out. The Wallet's Refresh and Try again (Owen 2026-11-05: "count up quickly from 0").
 
    Text with no "$" before the first digit (Free, a dash, an SOL amount) is left
    alone, and $0 shows at once. Nothing moves while a game is up (the game shares
@@ -39,6 +41,9 @@
   const ease = k => (k >= 1 ? 1 : 1 - Math.pow(2, -10 * k));
   // Bigger amounts take a little longer: x0.85 for cents, capped at x1.15 (about 1.4 s).
   const ms = (from, to) => BASE * Math.min(1.15, 0.85 + 0.075 * Math.log10(1 + Math.abs(to - from)));
+  // A replay (DSCount.replay) is short, so it eases out on a cubic: the expo above would be done in its first third.
+  const QUICK = 600;
+  const quickEase = k => (k >= 1 ? 1 : 1 - Math.pow(1 - k, 3));
 
   const S = '__cu';                       // per-element state: what we wrote, the final text, any roll
   const scopes = new WeakMap();           // screen root -> Map(key -> { v, pre, suf, anim })
@@ -66,7 +71,7 @@
       : v.toFixed(p.dec);
     return p.pre + s + p.suf;
   }
-  const st = el => el[S] || (el[S] = { shown: null, fin: null, anim: null, own: null, saved: null });
+  const st = el => el[S] || (el[S] = { shown: null, fin: null, anim: null, own: null, saved: null, quick: 0 });
 
   function write(el, txt) {
     st(el).shown = txt;
@@ -89,7 +94,7 @@
   /* Progress is held to 0..1. A frame is handed its START time, which can be a
      few ms before the performance.now() a roll began at, and the expo ease is
      below 0 for negative progress: a roll up from $0 drew "$-1" for a frame. */
-  const valueAt = (a, now) => a.from + (a.to - a.from) * ease(Math.min(1, Math.max(0, (now - a.t0) / a.d)));
+  const valueAt = (a, now) => a.from + (a.to - a.from) * (a.ease || ease)(Math.min(1, Math.max(0, (now - a.t0) / a.d)));
 
   // Width is held at the widest the figure will be, so nothing beside it moves.
   function hold(el) {
@@ -161,9 +166,11 @@
     seen.forEach(({ el, fin, vis }) => {
       const s = st(el), mem = slot(el), p = parse(fin);
       s.fin = fin;
+      const quick = s.quick; s.quick = 0;
       let e = mem.get();
       if (!p) { stop(el); write(el, fin); if (e) e.anim = null; mem.set(null); return; }
       if (!e || e.pre !== p.pre || e.suf !== p.suf) { e = { v: 0, pre: p.pre, suf: p.suf, anim: null }; }
+      if (quick) { if (e.anim) { const o = e.anim.el; stop(o); if (o !== el && o.isConnected) write(o, st(o).fin); } e.v = 0; }
       mem.set(e);
       const from = e.anim ? valueAt(e.anim, now) : e.v;
       const heading = e.anim && e.anim.to === p.v ? e.anim : null;
@@ -177,13 +184,13 @@
       let a = heading;
       if (a && a.el !== el && a.el.isConnected) {
         // Two figures under one key (two lobbies at the same stake): roll this one in step.
-        a = { el, p, fin, from: a.from, to: a.to, t0: a.t0, d: a.d, entry: e };
+        a = { el, p, fin, from: a.from, to: a.to, t0: a.t0, d: a.d, ease: a.ease, entry: e };
       } else if (a) {                        // already rolling there: carry on in the redrawn element
         if (a.el !== el) { const o = a.el; st(o).anim = null; release(o); }
         a.el = el; a.p = p; a.fin = fin;
       } else {
         if (e.anim) stop(e.anim.el);
-        a = { el, p, fin, from, to: p.v, t0: now, d: ms(from, p.v), entry: e };
+        a = { el, p, fin, from, to: p.v, t0: now, d: quick || ms(from, p.v), ease: quick ? quickEase : null, entry: e };
         e.anim = a;
       }
       if (s.anim && s.anim !== a) { running.delete(s.anim); if (s.anim.entry.anim === s.anim) s.anim.entry.anim = null; }
@@ -223,10 +230,16 @@
     });
   }
 
+  function replay(el, d) {
+    if (!el || el.nodeType !== 1 || !el.hasAttribute('data-cu')) return;
+    st(el).quick = d > 0 ? d : QUICK;
+    queue(el);
+  }
+
   const mo = typeof MutationObserver === 'function'
     ? new MutationObserver(ingest) : null;
   if (mo) mo.observe(document.documentElement, { childList: true, subtree: true });
 
   // parse and format are here for test/countUp.test.js; the page never needs them.
-  window.DSCount = { open: open, ms: ms, parse: parse, format: fmt };
+  window.DSCount = { open: open, ms: ms, replay: replay, parse: parse, format: fmt };
 })();
