@@ -100,7 +100,8 @@ test('wins strip: made-up wins only behind SAMPLE_WINS, tagged Sample unless the
   const { t } = strip({ ok: true, wins: [] }, fill);
   assert.deepStrictEqual(t.buildWins().map((x) => x.who), ['Kestrel', 'yuzu'], 'the made-up row, never a game not open');
   const cfg = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'v2', 'config.js'), 'utf8');
-  assert.ok(/SAMPLE_TAG: true,/.test(cfg), 'the Sample tag is on in the shipped config');
+  assert.ok(/SAMPLE_TAG: false,/.test(cfg), 'the Sample tag is off in the shipped config (Owen 2026-11-05)');
+  assert.ok(/SAMPLE_BOARD: true,/.test(cfg) && /SAMPLE_WINS: true,/.test(cfg), 'the made-up board and wins stay on');
   const pv = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'v2', 'socialPreview.js'), 'utf8');
   assert.ok(/const LIVE_LOOK = CFG\.SAMPLE_TAG === false \|\| \(LOCAL && /.test(pv), 'only the config or a localhost preview drops the tag');
   assert.ok(html.includes("if(l&&f&&!f.liveLook)l.innerHTML='<span>Wins</span><span class=\"ds-chip lb-sample\">'+f.tag+'</span>';"),

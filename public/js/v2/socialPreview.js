@@ -282,7 +282,7 @@
   }
 
   /* The Sample tag (config.js SAMPLE_TAG) is on unless the config turns it off, or this is a localhost dev server
-     opened with ?filler=live (Owen's preview of the untagged look). Nothing on a real host can drop it. */
+     opened with ?filler=live. Off on main since 2026-11-05 (Owen: no Sample label on the filled boards). */
   const LOCAL = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
   const LIVE_LOOK = CFG.SAMPLE_TAG === false || (LOCAL && /(^|[?&])filler=live(&|$)/.test(location.search));
 

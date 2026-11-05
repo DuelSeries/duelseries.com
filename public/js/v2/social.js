@@ -261,7 +261,7 @@
       '<span class="ds-row-ic">' + (img ? '<img src="' + img + '" alt="" decoding="async" draggable="false">' : PERSON) + '</span>' +
       '<span class="ds-row-main"><b><span>' + esc(name) + '</span>' +
         (isMine(name) ? '<span class="ds-chip lb-you">You</span>' : '') +
-        (sample ? '<span class="ds-chip lb-sample">' + pv.tag + '</span>' : '') + '</b>' +
+        (sample && !pv.liveLook ? '<span class="ds-chip lb-sample">' + pv.tag + '</span>' : '') + '</b>' +
       '<span>' + esc(sub) + '</span></span>' +
       (amt == null ? '<span class="ds-row-end lb-chev">' + CHEV + '</span>' : '<span class="ds-row-end ds-money num">' + money(amt) + '</span>') +
       '</button>';
@@ -361,7 +361,7 @@
     const nm = document.createElement('span'); nm.textContent = p.name; h.appendChild(nm);
     const mineToo = isMine(p.name);
     if (mineToo) h.insertAdjacentHTML('beforeend', '<span class="ds-chip lb-you">You</span>');
-    if (p.preview) h.insertAdjacentHTML('beforeend', '<span class="ds-chip lb-sample">' + PV().tag + '</span>');
+    if (p.preview && PV() && !PV().liveLook) h.insertAdjacentHTML('beforeend', '<span class="ds-chip lb-sample">' + PV().tag + '</span>');   // no chip while config.js SAMPLE_TAG is off
     el('p-mine').hidden = !mineToo;
 
     const games = Array.isArray(p.games) ? p.games : [];
