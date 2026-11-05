@@ -235,7 +235,7 @@ class HeadSoccerRoom extends KnockoutRoom {
       id: this.id,
       state: this.state,
       phaseMs: Math.max(0, this.phaseEndsAt - t),
-      vsBot: !!this.bot,
+      vsBot: !!(this.bot && this.bot.paidBot),   // only an owner's paid bot is named a bot (Owen 2026-11-04)
       players: [...this.players.entries()].map(([id, p]) => ({
         id: this.publicId(id), name: p.name, side: p.side, skin: p.skin || null,
       })),

@@ -63,7 +63,7 @@ test('the reported bug: two people inside one countdown meet each other, not a b
   }
 });
 
-test('two at once are matched at once; one alone plays a bot at 0:00, and the screen is told', () => {
+test('two at once are matched at once; one alone plays a bot at 0:00, not named a bot (owner rule 5)', () => {
   for (const k of lobbies()) {
     k.enq(k.lob, sock('A'), 'WA', 0, 0, k.T0);
     k.enq(k.lob, sock('B'), 'WB', 0, 0, k.T0);
@@ -76,7 +76,7 @@ test('two at once are matched at once; one alone plays a bot at 0:00, and the sc
     const room = k.lob.roomOf('C');
     assert.ok(room && room.bot, k.name + ': a bot after the minute');
     const view = k.name === 'knockout' ? room.publicState() : room.viewFor('C');
-    assert.equal(view.vsBot, true, k.name + ': said, not hidden');
+    assert.equal(view.vsBot, false, k.name + ': a free stand-in is not named a bot (owner rule 5, 2026-11-04: a free table stand-in is never named a bot, only an owner paid bot is)');
   }
 });
 

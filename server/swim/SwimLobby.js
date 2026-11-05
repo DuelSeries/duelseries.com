@@ -100,7 +100,8 @@ class SwimLobby {
 
   /* ── the queue (KnockoutLobby.enqueue, the same contract) ───────────────── */
   /* look: { car } as sent; kept only through SwimLooks.clean (a listed car, else the supercar). */
-  enqueue(socket, name, wallet, stake, worth, now, paid, skin, look) {
+  /* opts.botOk: shown an owner's paid bot before paying (KnockoutLobby.enqueue, duelQueue.mayPair). */
+  enqueue(socket, name, wallet, stake, worth, now, paid, skin, look, opts) {
     /* Already in a race: one seat per socket (Fable review 2026-10-27). Not taken, so a paid caller
        refunds it through the stake row (enterPaid), and the race in progress is left alone. */
     if (this.roomOf(socket.id)) return false;
@@ -117,6 +118,7 @@ class SwimLobby {
       paid: Number(paid) > 0 ? Number(paid) : undefined,
       skin: typeof skin === 'string' && skin ? skin : null,
       look: SwimLooks.clean(look),
+      botOk: !!(opts && opts.botOk === true) && Number(stake) > 0 && Number(worth) > 0,
     });
     this.pump(typeof now === 'number' ? now : undefined);
     const mine = this.queue.find(e => e.socket.id === socket.id);
@@ -139,6 +141,23 @@ class SwimLobby {
   }
   holds(socketId) { return this.queue.some(e => e.socket.id === socketId) || !!this.roomOf(socketId); }
   waitingByRung() { return duelQueue.waitingByRung(this.queue); }
+  botsWaitingByRung() { return duelQueue.botsWaitingByRung(this.queue); }
+  /* An owner's paid bot in the queue and out of it (KnockoutLobby.enqueueBot / removeBot, the same contract). */
+  enqueueBot(entry, now) {
+    if (this.stopping || !entry || !entry.paidBot || !(entry.stake > 0) || !(entry.worth > 0)) return false;
+    if (!entry.socket || !String(entry.socket.id).startsWith('bot_') || this.holds(entry.socket.id)) return false;
+    entry.since = typeof now === 'number' ? now : Date.now();
+    this.queue.push(entry);
+    this.pump(entry.since);
+    return true;
+  }
+  removeBot(botId, why) {
+    const e = this.queue.find(q => q.paidBot && q.socket.id === botId);
+    if (!e) return false;
+    this.dequeue(botId);
+    this.refund(e, why || 'removed');
+    return true;
+  }
   shutdownSettle(why) { return duelQueue.shutdownRows(this, 'swim', why); }
 
   startMatch(entries, withBot, now) {
@@ -148,7 +167,8 @@ class SwimLobby {
       console.error('[SW] a race could not start: ' + (err && err.stack ? err.stack : err));
       for (const e of entries) {
         if (!e || !e.socket) continue;
-        const rid = this.bySocket.get(e.socket.id);
+        // An owner's paid bot is never in bySocket: its table is the one that seats it (KnockoutLobby.startMatch).
+        const rid = this.bySocket.get(e.socket.id) || (e.paidBot ? this.roomSeating(e.socket.id) : undefined);
         const r = rid ? this.rooms.get(rid) : null;
         if (r && r.state !== 'waiting') continue;
         if (r) { r.settled = true; this.rooms.delete(rid); }
@@ -158,6 +178,11 @@ class SwimLobby {
       }
       return null;
     }
+  }
+
+  roomSeating(id) {
+    for (const [rid, room] of this.rooms) if (room && room.players && room.players.has(id)) return rid;
+    return undefined;
   }
 
   dequeue(socketId) {
@@ -185,6 +210,10 @@ class SwimLobby {
     this.pump(t);
     let free = -1;   // free races running, counted once a tick and only when a bot is due (freeRoomCap)
     for (const e of [...this.queue]) {
+      if (e.paidBot) {
+        if (t >= e.paidBot.until) { this.dequeue(e.socket.id); this.refund(e, 'nobody joined'); }
+        continue;
+      }
       if (e.stake > 0) {
         if (t - e.since < PAID_GIVE_UP_MS) continue;
         this.dequeue(e.socket.id);
@@ -328,8 +357,14 @@ class SwimLobby {
     room.stake = entries.length ? (entries[0].stake || 0) : 0;
     room.onSettled = this.onSettled || null;
     for (const e of entries) {
+      if (e.paidBot) continue;   // an owner's paid bot sits down after the person it meets
       room.addPlayer(e.socket, e.name, e.wallet, e.worth, e.paid, e.skin, e.look);
       this.bySocket.set(e.socket.id, room.id);
+    }
+    for (const e of entries) {
+      if (!e.paidBot) continue;
+      if (!room.addBot(e.name, { socket: e.socket, worth: e.worth, paid: e.paid })) throw new Error('the paid bot seat was refused');
+      if (typeof this.onBotSeated === 'function') { try { this.onBotSeated(e, room); } catch (_) { /* display only */ } }
     }
     /* A paid room can never be given a bot, whatever the caller asked for. */
     if (withBot && room.stake > 0) withBot = false;
@@ -356,6 +391,12 @@ class SwimLobby {
   refund(entry, why) {
     if (!entry || entry.refunded) return;
     entry.refunded = true;
+    // An owner's paid bot: its stake back to the Bot bank, once (KnockoutLobby.refund).
+    if (entry.paidBot) {
+      try { if (this.paidBots && typeof this.paidBots.back === 'function') this.paidBots.back(entry.socket.id, why || ''); }
+      catch (e) { console.error('[SW] bot stake back failed:', e.message); }
+      return;
+    }
     duelQueue.noteRefund(this, entry);
     try { entry.socket.emit('sw:unqueued', { refunded: entry.worth > 0, why: why || '' }); } catch (_) {}
     if (entry.worth > 0 && typeof this.onRefund === 'function') {

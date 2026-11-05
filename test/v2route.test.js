@@ -1459,7 +1459,8 @@ test('one layout for every game: rungs, Play, Customize, and no small print', ()
   assert.match(html, /\.go\.paid\{background:linear-gradient/, 'gold on a paid rung');
   assert.match(html, /paid=Number\(STEPS\[si\]\)>0&&!shut;\s*if\(go\)go\.classList\.toggle\('paid',paid\);/, 'set by the chosen rung');
   // And it says the stake: "Play $0.50" (Owen, 2026-10-15, kept over the mockup's words on 2026-11-02).
-  assert.match(html, /lbl\.textContent=shut\?'Coming soon':paid\?'Play '\+cash\(Number\(STEPS\[si\]\)\):'Play';/, 'Play $0.50 on a paid rung');
+  // ... and "Play $0.50 vs bot" while an owner's paid bot waits on that rung (server/duelBots.js, owner rule 1).
+  assert.match(html, /lbl\.textContent=shut\?'Coming soon':paid\?'Play '\+cash\(Number\(STEPS\[si\]\)\)\+\(bot\?' vs bot':''\):'Play';/, 'Play $0.50 on a paid rung');
   // No balance line under Play (Owen, 2026-11-02).
   assert.doesNotMatch(html, /id="dbal"|Paid from your/, 'no balance line under Play');
   // $0.50 and $1, never $1.00.

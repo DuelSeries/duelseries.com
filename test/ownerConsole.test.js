@@ -492,7 +492,12 @@ test('index.js: the restart check, maintenance, Start alone, bots:set and announ
   const start = SRC.slice(SRC.indexOf("case 'br:start'"), SRC.indexOf("case 'br:stop'"));
   // Battle royale owns the start rules (ownerStartBr, br-flow session): the console only asks it.
   assert.match(start, /const r = ownerStartBr\(br, !!args\.force\);/);
-  assert.match(SRC, /case 'bots:set': \{\n\s+const room = typeof args\.room === 'string' \? ALL_ROOMS\(\)\.find\(r => r\.lobbyType === args\.room\) : null;\n\s+const r = ownerConsole\.setBots\(room, args\);/);
+  const botsSet = SRC.slice(SRC.indexOf("case 'bots:set': {"), SRC.indexOf('const r = ownerConsole.setBots(room, args);') + 60);
+  // an owner's paid duel bot rung ('duelbots:<game>:<rung>', server/duelBots.js) is handled first and returns ...
+  assert.match(botsSet, /\/\^duelbots:\(knockout\|swim\|headsoccer\|pool8\|airhockey\|rooftop\|crossy\):\(0\\\.5\|1\)\$\/\.exec\(args\.room\)/);
+  assert.match(botsSet, /const r = duelBots\.setCount\(db_\[1\], Number\(db_\[2\]\), raw\);/);
+  // ... and every other room goes to setBots exactly as before
+  assert.match(botsSet, /\n\s+const room = typeof args\.room === 'string' \? ALL_ROOMS\(\)\.find\(r => r\.lobbyType === args\.room\) : null;\n\s+const r = ownerConsole\.setBots\(room, args\);/);
   const ann = SRC.slice(SRC.indexOf("case 'announce'"), SRC.indexOf('default:', SRC.indexOf("case 'announce'")));
   assert.match(ann, /ownerConsole\.cleanAnnounce\(args\.text\)/);
   assert.match(ann, /if \(text === _announcedText && Date\.now\(\) - _announcedAt < ANNOUNCE_SAME_MS\) return refuse\(/);

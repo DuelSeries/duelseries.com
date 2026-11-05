@@ -186,6 +186,8 @@ function boot(file, storage, { framed = true } = {}) {
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'shared', 'duelWait.js'), 'utf8'), ctx, { filename: 'duelWait.js' });
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'public', 'js', 'shared', 'dsEnd.js'), 'utf8'), ctx, { filename: 'dsEnd.js' });
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'public', 'js', 'shared', 'dsWatchBar.js'), 'utf8'), ctx, { filename: 'dsWatchBar.js' });
+  // "Bot opponent waiting" carried from the lobby (the duel pages that take paid bots load it ahead of their script)
+  vm.runInContext(fs.readFileSync(path.join(ROOT, 'public', 'js', 'duelBotOk.js'), 'utf8'), ctx, { filename: 'duelBotOk.js' });
   vm.runInContext(fs.readFileSync(path.join(ROOT, 'public', 'js', file), 'utf8'), ctx, { filename: file });
   return {
     win, store, emitted, posted, timers, frames, replaced, $: byId, body, chat,
@@ -987,12 +989,13 @@ for (const [file, q, queued, unqueue, unqueued] of [
   ['knockout.js', 'ko:queue', 'ko:queued', 'ko:unqueue', 'ko:unqueued'],
   ['battleship.js', 'bs:queue', 'bs:queued', 'bs:unqueue', 'bs:unqueued'],
 ]) {
-  test(file + ': the free wait counts down a minute and says a bot comes at 0:00', () => {
+  test(file + ': the free wait counts down a minute and does not name the free stand-in a bot (owner rule 5)', () => {
     const page = boot(file, { playerName: 'Owen' });
     page.deliver('connect');
     assert.strictEqual(page.sent(q).length, 1);
     assert.match(page.$('waitMain').textContent, /^Looking for a player… (0:10|0:09)$/); // the duel wait is 10 s since 2026-10-28 (Owen)
-    assert.match(page.$('waitSub').textContent, /you'll play a bot/);
+    // A free table's stand-in is not named a bot (owner rule 5, 2026-11-04): only that nothing is staked.
+    assert.strictEqual(page.$('waitSub').textContent, 'Free table. Nothing staked.');
     assert.strictEqual(page.$('waitCancel').textContent, 'Back to the lobby');
     const key = 'ab'.repeat(16);
     page.deliver(queued, { waitMs: 20000, waitingMs: 5000, resumeKey: key, stake: 0 });
@@ -1025,18 +1028,70 @@ for (const [file, q, queued, unqueue, unqueued] of [
   });
 }
 
-test('the start of a match against the bot says "Playing a bot" on both pages', () => {
+/* OWNER RULE 1 (2026-11-04): a paid seat meets an owner's paid bot only when the lobby showed "Bot opponent waiting"
+   on that rung before it paid. The lobby leaves a one-time note (public/js/duelBotOk.js); the page reads it once, sends
+   botOk with its paid queue, and its card says it may meet that bot. No note, a stale one, another game's or another
+   rung's: no botOk on the wire and "Real players only, never a bot". */
+test('knockout.js: a paid seat shown "Bot opponent waiting" says so on the card and sends botOk once; any other sends none', () => {
+  const note = (o) => JSON.stringify(Object.assign({ game: 'knockout', stake: 1, at: Date.now() }, o || {}));
+  const shown = boot('knockout.js', { playerName: 'Owen', stake: '1', entryToken: 'tok-1', duelBotOk: note() });
+  shown.deliver('connect');
+  const q = shown.sent('ko:queue');
+  assert.strictEqual(q.length, 1);
+  assert.strictEqual(q[0][1].botOk, true, 'botOk sent');
+  assert.strictEqual(shown.store.has('duelBotOk'), false, 'the note is read once and forgotten');
+  assert.strictEqual(shown.$('waitSub').textContent, '$1.00 table. You may play the bot opponent the lobby showed you. Cancel any time for a full refund.');
+  shown.deliver('ko:queued', { waitMs: 20000, waitingMs: 0, resumeKey: 'ef'.repeat(16), stake: 1 });
+  shown.deliver('connect');                                   // a reconnect asks for its seat back, and keeps its answer
+  assert.strictEqual(shown.sent('ko:queue')[1][1].resume, 'ef'.repeat(16));
+  assert.strictEqual(shown.sent('ko:queue')[1][1].botOk, true);
+  assert.match(shown.$('waitSub').textContent, /You may play the bot opponent/);
+  for (const [why, o] of [['stale', { at: Date.now() - 4 * 60000 }], ['another game', { game: 'pool8' }], ['another rung', { stake: 0.5 }]]) {
+    const page = boot('knockout.js', { playerName: 'Owen', stake: '1', entryToken: 'tok-1', duelBotOk: note(o) });
+    page.deliver('connect');
+    assert.strictEqual(JSON.parse(JSON.stringify(page.sent('ko:queue')[0][1])).botOk, undefined, why + ': no botOk on the wire');
+    assert.match(page.$('waitSub').textContent, /Real players only, never a bot/, why);
+  }
+  const free = boot('knockout.js', { playerName: 'Owen', duelBotOk: note({ stake: 0 }) });
+  free.deliver('connect');
+  assert.strictEqual(JSON.parse(JSON.stringify(free.sent('ko:queue')[0][1])).botOk, undefined, 'a free seat never sends it');
+});
+
+/* OWNER RULES 1 AND 5 (2026-11-04): an owner's PAID bot, which can win the player's stake, is always named on the match
+   screen ("Playing a bot", "(bot)"); a FREE table's stand-in, with nothing on it, is not named a bot at all. */
+test('a match against an owner\'s paid bot says "Playing a bot" and "(bot)"; a free stand-in says neither, on both pages', () => {
+  const me = { id: 'page-socket-1', join() {}, emit() {} };
+  // paid: the owner's bot was waiting, and this seat was shown it (botOk)
+  const paid = boot('knockout.js', { playerName: 'Owen', stake: '1', entryToken: 'tok-1' });
+  paid.deliver('connect');
+  paid.$('botNote').hidden = true;
+  const plob = new KnockoutLobby({ to: () => ({ emit() {} }) });
+  const backs = [];
+  plob.paidBots = { back: (id) => backs.push(id) };
+  const botEntry = { socket: { id: 'bot_pd1_abc', join() {}, leave() {}, emit() {} }, name: 'Rex', wallet: null,
+    stake: 1, worth: 1, paid: 1, skin: null, paidBot: { until: 1e9 + 60000, game: 'knockout' } };
+  assert.strictEqual(plob.enqueueBot(botEntry, 1e9), true);
+  plob.enqueue(me, 'Owen', 'W-OWEN', 1, 1, 1e9 + 1000, 1, null, { botOk: true });
+  const pst = plob.roomOf('page-socket-1').publicState();
+  assert.strictEqual(pst.vsBot, true, 'a paid bot is named');
+  paid.deliver('ko:start', JSON.parse(JSON.stringify(pst)));
+  assert.strictEqual(paid.$('botNote').hidden, false);
+  assert.match(paid.$('themName').textContent, / \(bot\)$/);
+  assert.deepStrictEqual(backs, [], 'nothing handed back: it is playing');
+
+  // free: a stand-in after the minute, not named
   const ko = boot('knockout.js', { playerName: 'Owen' });
   ko.deliver('connect');
   const lob = new KnockoutLobby({ to: () => ({ emit() {} }) });
-  const me = { id: 'page-socket-1', join() {}, emit() {} };
   lob.enqueue(me, 'Owen', null, 0, 0, 1e9);
   lob.tick(1e9 + 60000);
   const st = lob.roomOf('page-socket-1').publicState();
-  assert.strictEqual(st.vsBot, true);
+  assert.ok(lob.roomOf('page-socket-1').bot, 'a free stand-in is seated');
+  assert.strictEqual(st.vsBot, false);
+  ko.$('botNote').hidden = true;                              // as knockout.html has it
   ko.deliver('ko:start', JSON.parse(JSON.stringify(st)));
-  assert.strictEqual(ko.$('botNote').hidden, false);
-  assert.match(ko.$('themName').textContent, / \(bot\)$/);
+  assert.strictEqual(ko.$('botNote').hidden, true, 'no "Playing a bot" note');
+  assert.doesNotMatch(ko.$('themName').textContent, /\(bot\)/);
 
   const bs = boot('battleship.js', { playerName: 'Owen' });
   bs.deliver('connect');
@@ -1044,8 +1099,9 @@ test('the start of a match against the bot says "Playing a bot" on both pages', 
   blob.enqueue(me, 'Owen', null, 0, 0);
   blob.tick(Date.now() + 61000);
   const view = blob.roomOf('page-socket-1').viewFor('page-socket-1');
-  assert.strictEqual(view.vsBot, true);
+  assert.strictEqual(view.vsBot, false);
+  bs.$('botNote').hidden = true;                              // as battleship.html has it
   bs.deliver('bs:state', JSON.parse(JSON.stringify(view)));
-  assert.strictEqual(bs.$('botNote').hidden, false);
-  assert.match(bs.$('themName').textContent, / \(bot\)$/);
+  assert.strictEqual(bs.$('botNote').hidden, true);
+  assert.doesNotMatch(bs.$('themName').textContent, /\(bot\)/);
 });

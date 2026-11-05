@@ -47,7 +47,7 @@
   var s = Number(sessionStorage.getItem('stake')) || 0;
   if (!(s > 0) || sessionStorage.getItem('dsWatch') !== null) return;
   document.getElementById('waitMain').textContent = 'Looking for a player… 0:00';
-  document.getElementById('waitSub').textContent = '$' + s.toFixed(2) + ' table. Real players only, never a bot. Cancel any time for a full refund.';
+  document.getElementById('waitSub').textContent = '$' + s.toFixed(2) + ' table. Cancel any time for a full refund.';
   document.getElementById('waitCancel').textContent = 'Cancel and refund';
 } catch (_) {} })();</script>
 
@@ -77,6 +77,7 @@
 <script src="/shared/duelWait.js"></script>
 <!-- The ping and FPS box every game shares (bottom right). -->
 <script src="/js/shared/dsPerfHud.js"></script>
+<script src="/js/duelBotOk.js"></script>
 <script src="/js/rooftop.js"></script>
 </body>
 </html>

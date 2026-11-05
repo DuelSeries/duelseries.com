@@ -287,7 +287,7 @@ test('a game screen opened before /api/live answered un-strikes its paid rungs w
 test('a paid Play whose rung the fresh board shut on the way back says so, instead of doing nothing', () => {
   const html = read('public/v2.html').replace(/\r\n/g, '\n');
   const fn = html.slice(html.indexOf('function startFromDetail(){'), html.indexOf('function spectateFromDetail(){'));
-  assert.match(fn, /if\(Number\(STEPS\[si\]\)===st\)\{V2Play\.launch\(id,\{stake:st\}\);return\}/);
+  assert.match(fn, /if\(Number\(STEPS\[si\]\)===st\)\{V2Play\.launch\(id,sawBot\?\{stake:st,sawBot:true\}:\{stake:st\}\);return\}/);
   assert.match(fn, /if\(STEPS_OFF\.has\(st\)&&window\.V2Play&&V2Play\.toast\)V2Play\.toast\('Paid '\+cur\.name\+' tables are not open right now\./);
   assert.match(read('public/js/v2/swipe.js'), /\.veil\.on, \.dsd'\)/, 'no swipe to another game under a DSDialog card');
 });

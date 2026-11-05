@@ -113,6 +113,13 @@ input.say:focus{outline:none;border-color:var(--tx);box-shadow:0 0 0 3px rgba(24
 .soonsw .tg{height:32px}
 .soonsw .tg button{padding:0 10px;font-size:12px}
 .s1 .cell{display:flex;align-items:center;gap:12px;min-height:38px}
+/* Each column's label sits right over its own bot buttons (Owen 2026-11-04): the stepper is the first thing in its
+   cell, in a slot as wide as the label box above it. */
+.s1 th .lbl{display:inline-block;width:100px;text-align:center}
+.s1 .cell .slot{width:100px;flex:none;display:inline-flex;align-items:center}
+.s1 .cell .slot.na{font-size:13px;color:var(--tx3);white-space:nowrap}
+.s1 .cell .bw{flex:none}
+.s1 .cell .play{font-size:13px;color:var(--gold);white-space:nowrap}
 .s1 .cell .p{width:76px;color:var(--tx2);font-size:13px;flex:none;white-space:nowrap}
 .s1 .cell .p b{color:var(--tx);font-size:15px;font-weight:700}
 .s1 .cell .m{margin-left:auto;font-weight:650;min-width:52px;text-align:right}
@@ -212,7 +219,22 @@ dialog::backdrop{background:rgba(0,0,0,.78);-webkit-backdrop-filter:blur(6px);ba
 .lvtabs button.on::after{content:'';position:absolute;left:12px;right:12px;bottom:0;height:3px;border-radius:3px 3px 0 0;background:var(--tx)}
 .lvtabs button:hover:not(.on){color:var(--tx)}
 .lvbadge{background:var(--ok);color:var(--ink);border-radius:999px;min-width:22px;height:22px;padding:0 6px;font-size:12px;font-weight:800;display:inline-grid;place-items:center}
-main:not([data-tab="live"]) #live,main:not([data-tab="today"]) #today,main[data-tab="live"] #panel,main[data-tab="today"] #panel{display:none}
+main:not([data-tab="live"]) #live,main:not([data-tab="today"]) #today,main:not([data-tab="spend"]) #spend,
+main[data-tab="live"] #panel,main[data-tab="today"] #panel,main[data-tab="spend"] #panel{display:none}
+/* Spent today (ownerLive.js): what Owen's money did today, per game */
+.spsum{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:16px}
+.spsum>div{padding:14px 18px;background:var(--s1);border-radius:14px;box-shadow:var(--edge)}
+.spsum b{display:block;font-size:22px;font-weight:800;font-stretch:118%;line-height:1.15;white-space:nowrap}
+.spsum span{display:block;margin-top:2px;font-size:12.5px;font-weight:600;color:var(--tx2)}
+.sprow{display:grid;grid-template-columns:minmax(0,1.4fr) repeat(4,minmax(0,1fr));gap:12px;padding:10px 0;align-items:center;font-size:14px}
+.sprow+.sprow{box-shadow:inset 0 1px 0 var(--ln)}
+.sprow.h{font-size:12.5px;font-weight:600;color:var(--tx2)}
+.sprow .n{text-align:right;font-variant-numeric:tabular-nums}
+.sprow .up{color:var(--bad)}
+.sprow .dn{color:var(--ok)}
+.spbox{padding:8px 24px 12px;margin-bottom:16px;background:var(--s1);border-radius:18px;box-shadow:var(--edge)}
+.spbox h3{margin:14px 0 4px;font-size:16px;font-weight:750}
+@media (max-width:760px){.spsum{grid-template-columns:repeat(2,minmax(0,1fr))}.sprow{grid-template-columns:minmax(0,1.2fr) repeat(3,minmax(0,1fr))}.sprow .x{display:none}}
 .lv{max-width:1100px;margin:0 auto;padding:0 32px 48px}
 .lvtop{display:flex;align-items:flex-end;gap:18px;padding:24px 0 16px;flex-wrap:wrap}
 .lvbig{font-size:26px;font-weight:800;font-stretch:118%;letter-spacing:-.012em;line-height:1.1}
@@ -508,6 +530,7 @@ function norm(raw) {
   s.earnings = raw.earnings && typeof raw.earnings === 'object' ? raw.earnings : null;
   s.botBank = raw.botBank && typeof raw.botBank === 'object' ? raw.botBank : null;
   s.escrow = raw.escrow && typeof raw.escrow === 'object' ? raw.escrow : null;
+  s.duelBots = raw.duelBots && typeof raw.duelBots === 'object' ? raw.duelBots : null;
   s.got = Date.now();
   return s;
 }
@@ -525,7 +548,7 @@ function shapeOf(s) {
   const games = s.games.map((g) => [g.id, g.duel ? 'd' : '', !g.paid ? '-' : g.paid.enabled ? 'p' : 'x',
     COLS.map((c) => { const r = rungAt(g, c); return !r ? '_' : r.room ? 'r' : 'n'; }).join('')].join(':'));
   const br = s.battleRoyale ? (s.battleRoyale.room ? 'br' : 'brn') : '';
-  return [layout(), games.join(','), br, s.smooth ? 'sm' : ''].join('|');
+  return [layout(), games.join(','), br, s.smooth ? 'sm' : '', s.duelBots ? 'db' : ''].join('|');
 }
 
 function render(raw) {
@@ -1010,6 +1033,17 @@ function partStrip(ups) {
     pick: (on) => act('earnings', on ? 'earnings:on' : 'earnings:off'),
   });
 }
+/* The kill switch for the owner's paid duel bots (server/duelBots.js): off at every boot. On lets the + on a duel's
+   $0.50 or $1 put a bot there, staking from the Bot bank for a minute; Off sends every waiting bot home. */
+function partDuelBots(ups) {
+  return toggle(ups, {
+    key: 'duelbots', yes: 'On', no: 'Off', label: 'Paid duel bots',
+    get: (s) => ({ on: s.duelBots ? !!s.duelBots.enabled : null,
+      title: 'A paid duel bot stakes real money from the Bot bank and can win a player\'s stake. Players see "Bot opponent waiting" before they pay. Off again at every restart.' }),
+    pick: (on) => act('duelbots', on ? 'duelbots:on' : 'duelbots:off', {}, on ? { confirm:
+      'Turn on paid duel bots?\n\nEach bot you add stakes $0.50 or $1 from the Bot bank and waits a minute. A player sees "Bot opponent waiting" before paying. If the bot wins, the pot less the 10% cut goes back to the Bot bank.' } : null),
+  });
+}
 function partSmooth(ups) {
   return toggle(ups, {
     key: 'smooth', yes: 'On', no: 'Off', label: 'Smooth turning',
@@ -1169,12 +1203,14 @@ function buildPC(ups, next) {
   if (S.battleRoyale) rows.push(pcBr(ups));
 
   const table = h('table', null,
-    h('thead', null, h('tr', null, h('th', { scope: 'col' }, 'Game'), COLS.map((c) => h('th', { scope: 'col' }, COL_NAME[c])), h('th', { scope: 'col' }, 'Paid rooms'))),
+    h('thead', null, h('tr', null, h('th', { scope: 'col' }, 'Game'),
+      COLS.map((c) => h('th', { scope: 'col' }, h('span', { class: 'lbl' }, COL_NAME[c]))), h('th', { scope: 'col' }, 'Paid rooms'))),
     h('tbody', null, rows));
 
   const site = h('div', null, h('h3', null, 'Site'),
     h('div', { class: 'line' }, h('span', { class: 'l' }, 'Cashed-out strip in the lobby'), partStrip(ups)),
     S.smooth ? h('div', { class: 'line' }, h('span', { class: 'l' }, 'Smooth turning'), partSmooth(ups)) : null,
+    S.duelBots ? h('div', { class: 'line' }, h('span', { class: 'l' }, 'Paid duel bots'), partDuelBots(ups)) : null,
     ...partBotBank(ups, 'line'),
     partSay(ups, next, 'line'));
   const low = h('div', { class: 'low' }, site,
@@ -1189,22 +1225,25 @@ function pcCell(ups, gid, c) {
   if (!r0) return h('td');
   const pb = h('b');
   const pw = h('span');
-  const kids = [h('span', { class: 'p' }, pb, pw)];
-  let m = null;
-  if (g0.duel) {
-    kids.push(c === 0 ? h('span', { class: 'dim' }, 'bot joins after 15 s') : h('span', { class: 'na' }, 'people only'));
-    if (c !== 0) kids.push(m = h('span', { class: 'm' }));
-  } else if (!r0.room) {
-    kids.push(h('span', { class: 'na' }, 'not running'));
-  } else {
+  const kids = [];
+  let m = null, play = null;
+  /* The bot buttons first, in the slot under this column's label; then the people and the money. */
+  if (r0.room) {
     const [st, auto] = rungStepper(ups, gid, c);
-    kids.push(st, h('span', { class: 'dim' }, 'bots'), auto);
-    if (c !== 0) kids.push(m = h('span', { class: 'm' }));
+    kids.push(h('span', { class: 'slot' }, st), h('span', { class: 'dim bw' }, r0.duelBot ? 'waiting' : 'bots'), auto);
+    if (r0.duelBot) kids.push(play = h('span', { class: 'play' }));
+  } else if (g0.duel) {
+    kids.push(h('span', { class: 'slot na' }, c === 0 ? 'bot after 15 s' : 'people only'));
+  } else {
+    kids.push(h('span', { class: 'slot na' }, 'not running'));
   }
+  kids.push(h('span', { class: 'p' }, pb, pw));
+  if (c !== 0 && (r0.room || g0.duel)) kids.push(m = h('span', { class: 'm' }));
   ups.push((s) => {
     const r = rungAt(game(s, gid), c) || {};
     pb.textContent = String(num(r.people));
     pw.textContent = ' ' + people(r.people);
+    if (play) play.textContent = num(r.botPlaying) > 0 ? num(r.botPlaying) + ' playing' : '';
     if (m) {
       const v = num(r.money);
       // A duel's paid cell shows money only while there is some, as in the picker.
@@ -1256,6 +1295,7 @@ function buildPhone(ups, next) {
     h('div', { class: 'line' }, h('span', { class: 'l' }, 'New games'), partNewGames(ups)),
     h('div', { class: 'line' }, h('span', { class: 'l' }, 'Cashed-out strip'), partStrip(ups)),
     S.smooth ? h('div', { class: 'line' }, h('span', { class: 'l' }, 'Smooth turning'), partSmooth(ups)) : null,
+    S.duelBots ? h('div', { class: 'line' }, h('span', { class: 'l' }, 'Paid duel bots'), partDuelBots(ups)) : null,
     ...partBotBank(ups, 'line'),
     partSay(ups, next, 'line'));
   const up = h('div', { class: 'dim', style: 'font-size:13px;padding-top:8px' });
@@ -1275,9 +1315,9 @@ function phRow(ups, gid, c) {
   const sep = h('span');
   const ms = h('span', { class: 'gold' });
   let right;
-  if (g0.duel) right = h('span', { class: 'na' }, c === 0 ? 'bot joins after 15 s' : 'people only');
-  else if (!r0.room) right = h('span', { class: 'na' }, 'not running');
-  else { const [st, auto] = rungStepper(ups, gid, c); right = h('span', { class: 'sw' }, auto, st); }
+  if (r0.room) { const [st, auto] = rungStepper(ups, gid, c); right = h('span', { class: 'sw' }, auto, st); }
+  else if (g0.duel) right = h('span', { class: 'na' }, c === 0 ? 'bot joins after 15 s' : 'people only');
+  else right = h('span', { class: 'na' }, 'not running');
   ups.push((s) => {
     const r = rungAt(game(s, gid), c) || {};
     const v = num(r.money);

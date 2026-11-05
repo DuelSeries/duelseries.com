@@ -77,7 +77,7 @@ test('the bot turns up when the minute the screen counts down is up, and not bef
   lob.tick(T0 + 10000);
   const room = lob.roomOf('A');
   assert.ok(room && room.bot, 'a bot at 0:00');
-  assert.strictEqual(room.publicState().vsBot, true, 'and the screen is told it is a bot');
+  assert.strictEqual(room.publicState().vsBot, false, 'not named a bot (owner rule 5, 2026-11-04: a free table stand-in is never named a bot, only an owner paid bot is)');
   assert.strictEqual(BOT_AFTER_MIN_MS, 10000);   // shared/duelWait.js: the duel wait is 10 s since 2026-10-28 (Owen)
   assert.strictEqual(BOT_AFTER_MS, 10000);
 });

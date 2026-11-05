@@ -178,7 +178,9 @@ class KnockoutLobby {
      was doing it in the middle of the pre-deploy run. */
   /* paid: what landed on-chain for this seat (the entry token's paid), which bounds a refund.
      skin: the bought skin this seat wears, already proved against the skin pass by the caller; null is the free look. */
-  enqueue(socket, name, wallet, stake, worth, now, paid, skin) {
+  /* opts.botOk: this person's page showed them an owner's paid bot at this rung before they paid ("Bot opponent
+     waiting", the lobby), so they may be paired with one (duelQueue.mayPair). Paid seats only; never money. */
+  enqueue(socket, name, wallet, stake, worth, now, paid, skin, opts) {
     /* ALREADY AT A TABLE STILL BEING PLAYED: one seat per socket, SwimLobby's rule (night review 2026-10-29). Every
        re-queue used to get a table of its own after the bot wait and moved bySocket to it, so the old table kept
        running with the same socket seated where nothing could count it (the free seat count reads roomOf, the
@@ -204,6 +206,7 @@ class KnockoutLobby {
       worth: Number(worth) > 0 ? Number(worth) : 0,
       paid: Number(paid) > 0 ? Number(paid) : undefined,
       skin: typeof skin === 'string' && skin ? skin : null,
+      botOk: !!(opts && opts.botOk === true) && Number(stake) > 0 && Number(worth) > 0,
     });
     this.pump(typeof now === 'number' ? now : undefined);
     /* Still waiting after that? Somebody may be in a bot match that has only
@@ -240,6 +243,30 @@ class KnockoutLobby {
 
   /* Who is waiting at each rung, people only (duelQueue.waitingByRung). */
   waitingByRung() { return duelQueue.waitingByRung(this.queue); }
+  /* The owner's paid bots waiting at each rung (duelQueue.botsWaitingByRung). */
+  botsWaitingByRung() { return duelQueue.botsWaitingByRung(this.queue); }
+
+  /* AN OWNER'S PAID BOT TAKES A PLACE IN THE QUEUE (server/duelBots.js, the only caller). `entry` is built there:
+     a stub socket (id bot_...), the rung, its worth (the stake the Bot bank already paid in), paidBot { until }.
+     It meets only a person who was shown it before paying (duelQueue.mayPair), leaves at paidBot.until if nobody
+     came (tick, refund: its stake back to the bank, once), and is never pulled out of a match. -> true when queued. */
+  enqueueBot(entry, now) {
+    if (this.stopping || !entry || !entry.paidBot || !(entry.stake > 0) || !(entry.worth > 0)) return false;
+    if (!entry.socket || !String(entry.socket.id).startsWith('bot_') || this.holds(entry.socket.id)) return false;
+    entry.since = typeof now === 'number' ? now : Date.now();
+    this.queue.push(entry);
+    this.pump(entry.since);
+    return true;
+  }
+
+  /* An owner's paid bot still waiting goes (Control lowered it, or the kill switch): its stake back to the bank. */
+  removeBot(botId, why) {
+    const e = this.queue.find(q => q.paidBot && q.socket.id === botId);
+    if (!e) return false;
+    this.dequeue(botId);
+    this.refund(e, why || 'removed');
+    return true;
+  }
 
   /* A restart's owed refunds for every paid seat this process holds (duelQueue.shutdownRows). */
   shutdownSettle(why) { return duelQueue.shutdownRows(this, this.game, why); }
@@ -258,7 +285,10 @@ class KnockoutLobby {
         if (!e || !e.socket) continue;
         /* A match that did start holds the seat. One registered but never started (start threw) is
            taken down and marked settled, so it can neither pay nor strand the stakes it was given. */
-        const rid = this.bySocket.get(e.socket.id);
+        /* An owner's paid bot is never in bySocket (makeMatch): its table is the one that seats it. Without this a
+           throw after the table started gave the bot's stake back to the Bot bank while the table played on, and
+           the table then settled as a person-only one (Fable review 2026-11-05). */
+        const rid = this.bySocket.get(e.socket.id) || (e.paidBot ? this.roomSeating(e.socket.id) : undefined);
         const r = rid ? this.rooms.get(rid) : null;
         if (r && r.state !== 'waiting') continue;
         if (r) { r.settled = true; this.rooms.delete(rid); }
@@ -268,6 +298,12 @@ class KnockoutLobby {
       }
       return null;
     }
+  }
+
+  /* The id of the table that seats this socket id, by its players (an owner's paid bot, which bySocket never holds). */
+  roomSeating(id) {
+    for (const [rid, room] of this.rooms) if (room && room.players && room.players.has(id)) return rid;
+    return undefined;
   }
 
   dequeue(socketId) {
@@ -308,6 +344,11 @@ class KnockoutLobby {
     this.pump(t);
     let free = -1;   // free tables running, counted once a tick and only when a bot is due (freeRoomCap)
     for (const e of [...this.queue]) {
+      /* An owner's paid bot waits its minute for a person who was shown it, then leaves: its stake back to the bank. */
+      if (e.paidBot) {
+        if (t >= e.paidBot.until) { this.dequeue(e.socket.id); this.refund(e, 'nobody joined'); }
+        continue;
+      }
       /* A paid seat waits for a person, and then gives up and gets its money
          back. A free one gets a bot, because there is nothing to lose. */
       if (e.stake > 0) {
@@ -494,7 +535,16 @@ class KnockoutLobby {
     const room = new this.Room(this.io);
     room.stake = entries.length ? (entries[0].stake || 0) : 0;
     room.onSettled = this.onSettled || null;
-    for (const e of entries) {
+    /* An owner's paid bot sits down LAST, in the seat a free table's bot always had, after the person it meets. */
+    const ordered = entries.filter(e => !(e && e.paidBot)).concat(entries.filter(e => e && e.paidBot));
+    for (const e of ordered) {
+      if (e.paidBot) {
+        if (!room.addPlayer(e.socket, e.name, null, e.worth, e.paid, null)) throw new Error('the paid bot seat was refused');
+        // paid: the screen says "Playing a bot" (Owen 2026-11-04: a bot that can win your money is always shown)
+        room.bot = { id: e.socket.id, aimedTurn: 0, paidBot: true };
+        if (typeof this.onBotSeated === 'function') { try { this.onBotSeated(e, room); } catch (_) { /* display only */ } }
+        continue;
+      }
       room.addPlayer(e.socket, e.name, e.wallet, e.worth, e.paid, e.skin);
       this.bySocket.set(e.socket.id, room.id);
       e.socket._koRoom = room.id;
@@ -614,6 +664,14 @@ class KnockoutLobby {
   refund(entry, why) {
     if (!entry || entry.refunded) return;
     entry.refunded = true;
+    /* An owner's paid bot is owed nothing through onRefund (it has no wallet): its stake goes back to the Bot bank,
+       once (server/duelBots.js; the bank's own record if this lobby has no manager: its in-flight seed, given back
+       at the next boot). */
+    if (entry.paidBot) {
+      try { if (this.paidBots && typeof this.paidBots.back === 'function') this.paidBots.back(entry.socket.id, why || ''); }
+      catch (e) { console.error(this.tag + ' bot stake back failed:', e.message); }
+      return;
+    }
     duelQueue.noteRefund(this, entry);   // so a late reconnect is told where the money went
     try { entry.socket.emit(this.ev + ':unqueued', { refunded: entry.worth > 0, why: why || '' }); }
     catch (_) {}

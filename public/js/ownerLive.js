@@ -9,11 +9,15 @@
    Today: per lobby, the most real people at once and how many different real people came, with an hourly chart, in
    Toronto time.
 
+   Spent today (Owen 2026-11-04): what the owner's money did on the Toronto day, from the server's own records
+   (server/ownerSpend.js and index.js spendDay): the Bot bank's stakes and what came back per game (paid duel bots'
+   wins and losses netted), its transfer fees, the owner wallet's own paid play, and battle royale house prizes.
+
    Nothing here can act on a game: Join only opens the lobby with ?ownerjoin=..., where a paid rung waits for Owen's
    own Play press (public/js/v2/ownerJoin.js). Every name is put on the page as text, never as markup. */
 (function (root) {
   const doc = root.document;
-  const TABS = [['control', 'Control'], ['live', 'Live'], ['today', 'Today']];
+  const TABS = [['control', 'Control'], ['live', 'Live'], ['today', 'Today'], ['spend', 'Spent today']];
   const TOAST_MS = 25000;
   const TOASTS_MAX = 4;
   const store = {
@@ -117,6 +121,8 @@
   let S = null;          // the last 'owner:live'
   let day = null;        // the last 'owner:live:today'
   let dayWhich = 'today';
+  let spend = null;      // the last 'owner:spend'
+  let spendWhich = 'today';
   let tab = store.get('tab', 'control');
   let conn = 'connecting';
   let built = false;
@@ -137,9 +143,10 @@
       }));
     ui.live = h('section', { class: 'lv', id: 'live', 'aria-label': 'Live players' });
     ui.today = h('section', { class: 'lv', id: 'today', 'aria-label': 'Today' });
+    ui.spend = h('section', { class: 'lv', id: 'spend', 'aria-label': 'Spent today' });
     ui.toasts = h('div', { class: 'lvtoasts', 'aria-live': 'polite' });
     main.insertBefore(ui.tabs, panel);
-    main.append(ui.live, ui.today);
+    main.append(ui.live, ui.today, ui.spend);
     doc.body.append(ui.toasts);
 
     // Live
@@ -174,14 +181,29 @@
     ui.tdList = h('div', { class: 'lvdays' });
     ui.today.append(ui.tdHead, ui.tdChart, ui.tdList);
 
+    // Spent today
+    ui.spHead = h('div', { class: 'lvhd' });
+    ui.spBig = h('div', { class: 'lvbig' });
+    ui.spSub = h('div', { class: 'lvsub' });
+    ui.spSwitch = h('div', { class: 'tg' }, ['today', 'yesterday'].map((w) =>
+      h('button', { type: 'button', 'data-day': w, on: { click: () => { spendWhich = w; askSpend(); drawSpendSwitch(); } } },
+        w === 'today' ? 'Today' : 'Yesterday')));
+    ui.spHead.append(h('div', { class: 'lvtop' }, h('div', null, ui.spBig, ui.spSub), h('div', { class: 'lvctl' }, ui.spSwitch)));
+    ui.spSum = h('div', { class: 'spsum' });
+    ui.spGames = h('div', { class: 'spbox' });
+    ui.spOther = h('div', { class: 'spbox' });
+    ui.spend.append(ui.spHead, ui.spSum, ui.spGames, ui.spOther);
+
     doc.addEventListener('pointerdown', unlockAudio, { capture: true });
     doc.addEventListener('keydown', unlockAudio, { capture: true });
     doc.addEventListener('visibilitychange', () => {
       if (!doc.hidden && socket && socket.connected) { socket.emit('owner:live:get', {}); if (tab === 'today') askDay(); }
     });
     setInterval(() => { if (tab === 'today' && !doc.hidden) askDay(); }, 30000);
+    setInterval(() => { if (tab === 'spend' && !doc.hidden) askSpend(); }, 30000);
     drawControls();
     drawDaySwitch();
+    drawSpendSwitch();
     setTab(TABS.some(([id]) => id === tab) ? tab : 'control');
   }
 
@@ -196,6 +218,7 @@
       b.setAttribute('aria-current', on ? 'page' : 'false');
     }
     if (id === 'today') askDay();
+    if (id === 'spend') askSpend();
     if (id === 'live' && socket && socket.connected) socket.emit('owner:live:get', {});
   }
 
@@ -338,6 +361,56 @@
   function askDay() {
     if (socket && socket.connected) socket.emit('owner:live:today', { day: dayWhich });
   }
+  function askSpend() {
+    if (socket && socket.connected) socket.emit('owner:spend', { day: spendWhich });
+  }
+  function drawSpendSwitch() {
+    for (const b of ui.spSwitch.querySelectorAll('button')) b.classList.toggle('on', b.getAttribute('data-day') === spendWhich);
+  }
+  const GAME = { knockout: 'Knockout', swim: 'Swim', headsoccer: 'Head Soccer', pool8: '8 Ball Pool', airhockey: 'Air Hockey',
+    rooftop: 'Rooftop Snipers', crossy: 'Road Hop', slither: 'slither.io', agar: 'agar.io', paper: 'Paper.io', chomp: 'Pac-Man',
+    battleship: 'Battleship', other: 'Other' };
+  const usd = (v) => (v < 0 ? '-$' : '$') + Math.abs(n(v)).toFixed(2);
+  // A cost reads as a cost: what Owen spent is plain, money that came in is green and says so.
+  const netText = (v) => (n(v) < -0.004 ? '+' + usd(-n(v)) + ' in' : usd(v));
+  const netCls = (v) => 'n ' + (n(v) < -0.004 ? 'dn' : n(v) > 0.004 ? 'up' : '');
+  function drawSpend() {
+    if (!built || !spend) return;
+    if (spend.error) { ui.spBig.textContent = 'Spent today is not available right now.'; ui.spSub.textContent = ''; return; }
+    const isToday = spendWhich === 'today';
+    const total = n(spend.total);
+    ui.spBig.textContent = (total < -0.004 ? usd(-total) + ' came in ' : usd(total) + ' spent ') + (isToday ? 'today' : 'yesterday');
+    ui.spSub.textContent = 'Toronto day ' + String(spend.day || '') + '. From the server\'s own records: the Bot bank, your wallet\'s own play and the battle royale prizes.';
+    const own = spend.own && !spend.own.error ? spend.own : null;
+    const fee = spend.fees || {};
+    const prizes = spend.prizes || null;
+    const box = (v, label, cls) => h('div', null, h('b', { class: cls || null, text: v }), h('span', { text: label }));
+    ui.spSum.replaceChildren(
+      box(netText(spend.net), 'bots, net (stakes less what came back)', n(spend.net) < -0.004 ? 'gold' : null),
+      box(fee.usd != null ? usd(fee.usd) : n(fee.sol).toFixed(5) + ' SOL', plural(n(fee.transfers), 'Bot bank transfer', 'Bot bank transfers') + ', network fees'),
+      box(own ? netText(own.net) : 'not available', 'your own wallet\'s paid play, net'),
+      box(prizes ? usd(prizes.paid) : 'not available', plural(prizes ? n(prizes.n) : 0, 'battle royale prize', 'battle royale prizes') + ' paid'));
+    const games = Array.isArray(spend.games) ? spend.games : [];
+    ui.spGames.replaceChildren(h('h3', { text: 'Bot bank by game' }),
+      h('div', { class: 'sprow h' }, h('span', { text: 'Game' }), h('span', { class: 'n', text: 'Staked' }),
+        h('span', { class: 'n', text: 'Came back' }), h('span', { class: 'n x', text: 'Duel bot W / L / D' }), h('span', { class: 'n', text: 'Net' })),
+      ...(games.length ? games.map((g) => h('div', { class: 'sprow' },
+        h('span', null, h('b', { text: GAME[g.game] || String(g.game) })),
+        h('span', { class: 'n', text: usd(g.staked) }), h('span', { class: 'n', text: usd(g.back) }),
+        h('span', { class: 'n x dim', text: n(g.wins) + n(g.losses) + n(g.draws) > 0 ? n(g.wins) + ' / ' + n(g.losses) + ' / ' + n(g.draws) : '' }),
+        h('span', { class: netCls(g.net), text: netText(g.net) })))
+        : [h('p', { class: 'dim lvnote', text: 'The Bot bank did not move any money on this day.' })]));
+    const ownRows = own && Array.isArray(own.stakes) ? own.stakes : [];
+    ui.spOther.replaceChildren(h('h3', { text: 'Your own wallet' }),
+      ...(own ? [
+        h('div', { class: 'sprow h' }, h('span', { text: 'Game' }), h('span', { class: 'n', text: 'Staked' }), h('span', { class: 'n x', text: 'Entries' }),
+          h('span', { class: 'n x' }), h('span', { class: 'n' })),
+        ...ownRows.map((x) => h('div', { class: 'sprow' }, h('span', { text: GAME[x.game] || String(x.game) }),
+          h('span', { class: 'n', text: usd(x.amount) }), h('span', { class: 'n x dim', text: String(n(x.n)) }), h('span', { class: 'n x' }), h('span', { class: 'n' }))),
+        h('div', { class: 'sprow' }, h('span', { text: 'Won back (all games)' }), h('span', { class: 'n', text: usd(own.won) }),
+          h('span', { class: 'n x' }), h('span', { class: 'n x' }), h('span', { class: netCls(own.net), text: netText(own.net) })),
+      ] : [h('p', { class: 'dim lvnote', text: 'Your wallet\'s own play is not available right now.' })]));
+  }
   function drawDaySwitch() {
     for (const b of ui.tdSwitch.querySelectorAll('button')) b.classList.toggle('on', b.getAttribute('data-day') === dayWhich);
   }
@@ -383,6 +456,7 @@
     s.on('owner:live', (st) => { if (st && typeof st === 'object' && Array.isArray(st.lobbies)) { S = st; drawLive(); } });
     s.on('owner:live:join', (j) => { try { toast(j); } catch (_) { /* never takes the socket down */ } });
     s.on('owner:live:today', (d) => { if (d && typeof d === 'object') { day = d; drawDay(); } });
+    s.on('owner:spend', (d) => { if (d && typeof d === 'object') { spend = d; drawSpend(); } });
     s.on('connect', () => { conn = 'connecting'; drawConn(); });
     s.on('disconnect', () => { conn = 'offline'; drawConn(); });
     drawConn();
@@ -391,7 +465,7 @@
   function state(st) {
     conn = String(st || '');
     drawConn();
-    if (conn === 'listening') setTimeout(() => { if (tab === 'today') askDay(); }, 300);
+    if (conn === 'listening') setTimeout(() => { if (tab === 'today') askDay(); if (tab === 'spend') askSpend(); }, 300);
   }
   function stop() {
     if (!built) return;
