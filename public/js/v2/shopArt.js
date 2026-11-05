@@ -30,8 +30,8 @@
                     round-capped barrel in one body colour.
 
    In Customize (bare) every piece moves in its own game's way, off a clock
-   in seconds: agar's cell breathes and coasts, Paper.io's head runs a loop
-   and claims it, the Knockout piece is flicked into the other, the ship
+   in seconds: agar's cell breathes and coasts, Paper.io's head laps its
+   home, the Knockout piece is flicked into the other, the ship
    rides a swell, the Awesome Tanks hull turns under a hunting turret, and
    the Bowmasters tank aims and fires.
 
@@ -181,72 +181,53 @@
   }
 
   /* ── Paper.io ─────────────────────────────────────────────────────────── */
-  /* The game as one perfect loop (Owen 2026-10-28): land along the top, the head running a square wave under it.
-     It leaves its land, runs a box out and back in, the box becomes land, it crosses a strip of its own land and
-     goes again, while the view pans with it at a steady speed. One loop pans exactly one box along, so the last
-     frame is the first. In the game's world units: the trail trackWidth 8 wide with round caps in main at 0.6, the
-     head 8 across with its 80 percent centre, every top lifted baseHeight 2 over its side in `back`. */
-  var PP_LOOP = 3.0;
+  /* The player going round a circle, endlessly (Owen 2026-11-05), built like agar's split above: every motion is
+     a function of the loop's phase, one lap a loop, so the last frame runs into the first with nothing to jump.
+     Its round home in the middle (the round land paper.io starts you on, the skin's pattern on its top), and the
+     head lapping it at a steady speed with its trail following round in a fixed arc. Drawn the game's way
+     (paperRender.js) in its world units: every top lifted baseHeight 2 over its side in `back`, the trail
+     trackWidth 8 wide with round caps in main at 0.6, the head 8 across with its 80 percent centre, turned the way
+     it is going (drawSkinLayer turns each layer by the direction). A look with several colours glides to its next
+     one once a loop, as agar's does. */
+  var PP_LOOP = 3.2;
   function paintPaper(cv, k, t, big, bare) {
     var ctx = cv.getContext('2d'), w = cv.width, h = cv.height;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     if (bare) ctx.clearRect(0, 0, w, h);
     else { ctx.fillStyle = '#e7fff4'; ctx.fillRect(0, 0, w, h); }   // paper-arena.css body
-    var p = ((t / PP_LOOP) % 1 + 1) % 1;
+    var p = ((t / PP_LOOP) % 1 + 1) % 1, A = p * 6.2832;
     var main = loopCol(k, t / PP_LOOP), back = hsvScale(main, 0.75), nick = hsvScale(main, 0.5);
-    var u = bare ? Math.min(w / 30, h / 22) : Math.min(w, h) / 30;
-    // The box's depth below the land, the head's depth inside it, the box's length and the land between boxes.
-    var TW = 8, HB = 6, DIN = 5, L = 10, G = 14, PITCH = L + G, LEG = HB + DIN, S = 2 * LEG + L + G;
-    var yb = h / 2 - u, cam = (p - 0.16) * PITCH;   // the land's edge in pixels; the world x at the centre
-    function X(x) { return w / 2 + (x - cam) * u; }
-    function Y(y) { return yb + y * u; }
-    // The head along the wave at a steady speed: down out of the land, along, up into it, along inside it.
-    var s = p * S, hx, hy;
-    if (s < LEG) { hx = 0; hy = s - DIN; }
-    else if (s < LEG + L) { hx = s - LEG; hy = HB; }
-    else if (s < 2 * LEG + L) { hx = L; hy = HB - (s - LEG - L); }
-    else { hx = L + s - 2 * LEG - L; hy = -DIN; }
-    // The box closes when the head is back over the edge; it fills in as the trail fades.
-    var sCap = 2 * LEG + L - DIN, fa = s < sCap ? 0 : Math.min(1, (s - sCap) / (S * 0.05));
-    var k0 = Math.floor((cam - w / 2 / u) / PITCH) - 1;
-    function lands(lift, cur) {
-      ctx.beginPath();
-      if (!cur) {
-        ctx.rect(0, 0, w, Y(-lift));
-        for (var b = k0; b < 0; b++) ctx.rect(X(b * PITCH - TW / 2), Y(-lift), (L + TW) * u, (HB + TW / 2) * u);
-      } else ctx.rect(X(-TW / 2), Y(-lift), (L + TW) * u, (HB + TW / 2) * u);
-    }
-    function art(cur) {
-      if (!k.art) return;
-      ctx.save(); lands(2, cur); ctx.clip();
-      // Tiles fixed to the world, one box pitch square, so the pattern pans with the land.
-      for (var tx = k0; tx <= 1; tx++) for (var ty = -2; ty <= 0; ty++)
-        SK.paperArt(ctx, k, X(tx * PITCH - TW / 2), Y(ty * PITCH + HB), PITCH * u, k.art === 'stars' ? '#ffffff' : back);
+    // The lap's radius, the home's, the trail's width and how much of a lap it covers, the head, the lift.
+    var LAP = 12, HOME = 5.5, TW = 8, ARC = 0.68, HS = 8, LIFT = 2;
+    // A turning head reaches half its diagonal out; the whole piece fits its box with a unit of air each side.
+    var reach = LAP + HS * 0.7072, u = Math.min(h / (2 * reach + LIFT + 2), w / (2 * reach + 2));
+    var cx = w / 2, cy = h / 2 + LIFT * u / 2;
+    // The home: its side, then its top lifted over it, then the skin's pattern on the top (tiles fixed to the world).
+    ctx.fillStyle = back; ctx.beginPath(); ctx.arc(cx, cy, HOME * u, 0, 6.2832); ctx.fill();
+    ctx.fillStyle = main; ctx.beginPath(); ctx.arc(cx, cy - LIFT * u, HOME * u, 0, 6.2832); ctx.fill();
+    if (k.art) {
+      var tile = HOME * u;
+      ctx.save(); ctx.beginPath(); ctx.arc(cx, cy - LIFT * u, HOME * u, 0, 6.2832); ctx.clip();
+      for (var tx = -1; tx < 1; tx++) for (var ty = -1; ty < 1; ty++)
+        SK.paperArt(ctx, k, cx + tx * tile, cy - LIFT * u + ty * tile, tile, k.art === 'stars' ? '#ffffff' : back);
       ctx.restore();
     }
-    ctx.fillStyle = back; lands(0, false); ctx.fill();
-    ctx.fillStyle = main; lands(2, false); ctx.fill();
-    art(false);
-    if (fa) {
-      ctx.globalAlpha = fa;
-      ctx.fillStyle = back; lands(0, true); ctx.fill();
-      ctx.fillStyle = main; lands(2, true); ctx.fill();
-      art(true);
-      ctx.globalAlpha = 1;
+    /* The trail: the arc the head has just run, on the ground under it, clockwise round to the head. On the arena
+       floor it is main at 0.6; on the dark chooser (bare) the same 0.6 would sink into the black, so it is drawn
+       solid in the colour it shows on the floor (main 0.6 over paperSkins.js arenaColor). */
+    ctx.globalAlpha = bare ? 1 : 0.6; ctx.strokeStyle = bare ? mix('#e7fff4', main, 0.6) : main;
+    ctx.lineWidth = TW * u; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.arc(cx, cy, LAP * u, A - ARC * 6.2832, A, false); ctx.stroke();
+    ctx.globalAlpha = 1;
+    /* The head: the nick square on the ground, then the back square lifted over it with its main centre, each
+       turned to face along the lap (clockwise, so the way it goes is A plus a quarter turn). */
+    var hs = HS * u, px = cx + Math.cos(A) * LAP * u, py = cy + Math.sin(A) * LAP * u, dir = A + 1.5708;
+    function sq(x, y, s, col) {
+      ctx.save(); ctx.translate(x, y); ctx.rotate(dir); ctx.fillStyle = col; ctx.fillRect(-s / 2, -s / 2, s, s); ctx.restore();
     }
-    // The trail, from where the head left the land.
-    if (s > DIN && fa < 1) {
-      ctx.globalAlpha = 0.6 * (1 - fa); ctx.strokeStyle = main; ctx.lineWidth = TW * u; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-      ctx.beginPath(); ctx.moveTo(X(0), Y(0));
-      if (s > LEG) ctx.lineTo(X(0), Y(HB));
-      if (s > LEG + L) ctx.lineTo(X(L), Y(HB));
-      ctx.lineTo(X(hx), Y(Math.max(0, hy))); ctx.stroke(); ctx.globalAlpha = 1;
-    }
-    /* The head: the nick square, then the back square with its main centre, lifted baseHeight, 8 units across. */
-    var hs = 8 * u, px = X(hx), py = Y(hy);
-    ctx.fillStyle = nick; ctx.fillRect(px - hs / 2, py - hs / 2 + 2 * u, hs, hs);
-    ctx.fillStyle = back; ctx.fillRect(px - hs / 2, py - hs / 2, hs, hs);
-    ctx.fillStyle = main; ctx.fillRect(px - hs * 0.4, py - hs * 0.4, hs * 0.8, hs * 0.8);
+    sq(px, py, hs, nick);
+    sq(px, py - LIFT * u, hs, back);
+    sq(px, py - LIFT * u, hs * 0.8, main);
   }
 
   /* ── Knockout ─────────────────────────────────────────────────────────── */

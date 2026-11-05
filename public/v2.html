@@ -206,6 +206,9 @@ header{position:sticky;top:0;z-index:50;background:rgba(0,0,0,.88);
   .sb-soon:hover{color:var(--tx2);background:none}
   .sb-pill{margin-left:auto;display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:var(--r1);
     background:var(--s3);color:var(--tx2);font-size:12px;font-weight:650}
+  /* Shop, Coming soon (CUSTOMIZE_ON false): dimmed, its name struck through, nothing on hover or press */
+  .sb-off,.sb-off:hover{cursor:not-allowed;color:var(--tx3);background:none}
+  .sb-off>span:not(.sb-pill){text-decoration:line-through}
 
   /* Live games: a title with the online count on its right, then a row per game */
   .sb-lhd{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:2px var(--ds-sp2);
@@ -327,6 +330,10 @@ header{position:sticky;top:0;z-index:50;background:rgba(0,0,0,.88);
 .set-chev{display:block;width:8px;height:8px;margin-right:6px;border:solid var(--ds-tx3);border-width:2px 2px 0 0;transform:rotate(45deg);
   transition:border-color var(--ds-dur-1)}
 .set-link:hover .set-chev,.ds-opt:hover .set-chev{border-color:var(--ds-bone)}
+/* Shop, Coming soon (CUSTOMIZE_ON false): a row with nothing to press, its name struck through. */
+.set-soon{cursor:not-allowed}
+.set-soon .ds-row-ic{opacity:.5}
+.set-soon .ds-row-main b{color:var(--ds-tx3);text-decoration:line-through}
 /* the preferences: one panel, three groups, rows like a phone's own settings */
 #settings-screen .set-prefs{padding-top:var(--ds-sp4);padding-bottom:var(--ds-sp3)}
 .set-grp+.set-grp{margin-top:var(--ds-sp4);padding-top:var(--ds-sp4);box-shadow:0 -1px 0 var(--ds-line)}
@@ -1971,11 +1978,13 @@ body.no-foot footer{display:none}
 #detail .back svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:2.2;stroke-linecap:round}
 .gcol{position:relative;z-index:1;min-width:0;display:flex;flex-direction:column;gap:var(--ds-sp3);padding-top:4px;text-align:left}
 .dtags{display:flex;gap:var(--ds-sp2);flex-wrap:wrap;padding-right:52px;min-height:24px}
+/* No "1 v 1" or "Big room" chip beside the name any more (Owen 2026-11-05): the row holds only the player count,
+   and with nobody in the game it goes, so the name sits at the top beside the X instead of under an empty band. */
+.dtags:not(:has(>:not([hidden]))){display:none}
 #detail .dpc{position:static;background:var(--ds-green-t);color:var(--live)}
 #detail .dpc svg{fill:currentColor}
-.dkind{display:inline-flex;align-items:center;height:24px;padding:0 var(--ds-sp2);border-radius:var(--r1);
-  background:var(--s3);color:var(--tx2);font-size:12px;font-weight:650;white-space:nowrap}
-#dname{font-size:var(--ds-fs-5);font-weight:800;font-stretch:var(--ds-wide);letter-spacing:-.01em;line-height:1.1}
+#dname{font-size:var(--ds-fs-5);font-weight:800;font-stretch:var(--ds-wide);letter-spacing:-.01em;line-height:1.1;
+  padding-right:52px}
 .dblurb{font-size:var(--ds-fs-3);color:var(--tx2);line-height:1.5;max-width:62ch}
 .dblurb:empty{display:none}
 /* One button per buy-in, all of them visible, on every game (BACKLOG 2.2): the amount, and a few words under it.
@@ -2006,6 +2015,15 @@ body.no-foot footer{display:none}
 #detail.nolook .lookrow canvas,#detail.nolook .lookrow .lka{display:none}
 #detail.nolook .lookrow .lkimg{display:block}
 #detail.nolook .lookrow .lkt b{color:var(--tx2)}
+/* Customize off (CUSTOMIZE_ON false, Owen 2026-11-05): the bar is Shop with a Coming soon tag, struck through and
+   shut like a rung that cannot be sat at. Its preview still plays, dimmed; no chevron, no hover, no press. */
+.lookrow .lksoon{flex:none}
+.lookrow .lksoon[hidden]{display:none}
+#detail .lookrow.shopsoon,#detail .lookrow.shopsoon:hover{cursor:not-allowed;background:rgba(23,20,15,.6)}
+#detail .lookrow.shopsoon canvas{opacity:.7}
+#detail .lookrow.shopsoon .lkimg{opacity:.35}
+#detail .lookrow.shopsoon .lkt b{color:var(--tx3);text-decoration:line-through}
+#detail .lookrow.shopsoon .lka{display:none}
 
 /* ── a game you can look at but not play ─────────────────────────────────
    The same column as every other game (BACKLOG 2.2): what stays locked is
@@ -2531,7 +2549,7 @@ footer{margin-top:var(--ds-sp7);padding:var(--ds-sp5) 0 var(--ds-sp6);box-shadow
     border-radius:var(--rf);background:rgba(244,241,234,.55)}
   .dimg{aspect-ratio:auto;height:172px;border-radius:var(--r3) var(--r3) 0 0;object-position:50% 30%;box-shadow:none}
   .gcol{padding:var(--ds-sp4)}
-  .dtags{padding-right:0}
+  .dtags,#dname{padding-right:0}
   .stk{min-height:60px}
   .gorow .spec{min-height:44px}
   .howbtn{margin-top:10px;padding:7px 13px;font-size:12.5px}
@@ -3592,9 +3610,9 @@ function openSwimHow(){
   <img class="dimg" id="dimg" alt="" decoding="async" draggable="false">
   <div class="wrap backrow"><a class="back" href="#" onclick="goBack();return false" aria-label="Back" title="Back"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></a></div>
   <div class="gcol">
-    <!-- What kind of game it is and who is in it (paintCounts fills the count from the board, hidden until it has
-         one), then its name and its own line from GAMES. -->
-    <div class="dtags"><span class="gpc dpc" id="dpc" data-pc="" hidden><span class="ldot" aria-hidden="true"></span><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="4.6" r="3.1"/><path d="M2.2 15.4c0-3.6 2.6-6 5.8-6s5.8 2.4 5.8 6z"/></svg><b></b></span><span class="dkind" id="dkind"></span></div>
+    <!-- Who is in it (paintCounts fills the count from the board, hidden until it has one; the 1 v 1 or Big room
+         chip that sat beside it went on 2026-11-05), then its name and its own line from GAMES. -->
+    <div class="dtags"><span class="gpc dpc" id="dpc" data-pc="" hidden><span class="ldot" aria-hidden="true"></span><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="4.6" r="3.1"/><path d="M2.2 15.4c0-3.6 2.6-6 5.8-6s5.8 2.4 5.8 6z"/></svg><b></b></span></div>
     <h1 id="dname"></h1>
     <p class="dblurb" id="dblurb"></p>
     <!-- ONE LAYOUT FOR EVERY GAME (BACKLOG 2.2, Owen 2026-10-15): the three
@@ -3643,6 +3661,8 @@ function openSwimHow(){
       <canvas id="skmini" data-look="mini" width="560" height="150"></canvas>
       <img class="lkimg" id="lkimg" alt="">
       <span class="lkt"><b>Customize</b></span>
+      <!-- Shown only while Customize is off (CUSTOMIZE_ON): the bar then says Shop, struck through and shut. -->
+      <span class="lksoon ds-chip ds-chip-soon" hidden>Coming soon</span>
       <svg class="lka" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
            stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M9 6l6 6-6 6"/></svg>
@@ -4895,6 +4915,12 @@ const skin=()=>LOOKS.find(s=>s.id===skinId)||null;
    duel.ag.skin, which /ag sends in its handshake (public/js/ag/agMain.js) and
    the server checks against the same list (server/ag/agRoom.js skinOf).
    Every other game keeps dealing its own look, as it does today. */
+/* THE ONE SWITCH for Customize (Owen 2026-11-05: it duplicates what is already there and he will rethink it).
+   false: every place that offered Customize (the bar under Play, the PC sidebar row, the Settings row) says Shop
+   with a Coming soon tag, struck through and shut, and nothing opens the chooser or its game picker. A look already
+   picked is still worn: the games read it from storage as before. true brings every piece of the old Customize back
+   exactly as it was. */
+const CUSTOMIZE_ON=false;
 const hasLook=g=>!!(g&&(g.look||(window.V2Shop&&V2Shop.game(g.id))||(g.id==='crossy'&&CR_LOOKS.length)||(g.id==='pool8'&&P8_LOOKS.length)||(g.id==='rooftop'&&RT_LOOKS.length)||(g.id==='swim'&&SW_LOOKS.length)||(g.id==='headsoccer'&&HS_LOOKS.length)));
 const AGS=window.DS_AG_SKINS;
 const AG_LOOKS=(AGS?AGS.SKINS:[]).map(s=>({id:'ag:'+s.id,game:'agar',ag:s,name:s.name,col:AGS.hex(s)}));
@@ -5090,7 +5116,7 @@ let lookIx=0;
 function drawSkins(){
   const look=hasLook(cur);
   const row=document.getElementById('lookrow'), img=document.getElementById('lkimg');
-  if(row){row.disabled=!look;row.classList.toggle('snk',!!(cur&&cur.look))}
+  if(row){row.disabled=!look||!CUSTOMIZE_ON;row.classList.toggle('snk',!!(cur&&cur.look))}
   if(img&&!look&&cur){
     if(cur.noart)img.removeAttribute('src');
     else if(img.getAttribute('src')!==artSrc(cur.id))img.src=artSrc(cur.id);
@@ -5099,7 +5125,18 @@ function drawSkins(){
      line under it that named the skin ("Purple", "Random colour") is gone.
      The preview already shows what you are wearing. */
 }
+/* Customize off (CUSTOMIZE_ON): the bar under Play is Shop, Coming soon, shut for good, in every game. */
+if(!CUSTOMIZE_ON){
+  const row=document.getElementById('lookrow');
+  if(row){
+    row.classList.add('shopsoon');row.disabled=true;row.setAttribute('aria-label','Shop, coming soon');
+    const b=row.querySelector('.lkt b'), tag=row.querySelector('.lksoon');
+    if(b)b.textContent='Shop';
+    if(tag)tag.hidden=false;
+  }
+}
 function openLook(){
+  if(!CUSTOMIZE_ON)return;
   if(!hasLook(cur))return;
   if(window.DSTrack)DSTrack.event('customize_opened',{game:cur.id});
   LK=lookList(cur);
@@ -6063,12 +6100,10 @@ function open_(id){
   still.style.backgroundImage=cur.noart?'none':"url('"+artSrc(cur.id)+"')";
   SCENES.delete(dart);
   document.getElementById('dname').textContent=cur.name;
-  /* The sheet's own pieces (site redo, layout 1): the card art, what kind of game it is, who is in it (paintCounts
-     fills it from the board, below), and the game's own line from GAMES. */
+  /* The sheet's own pieces (site redo, layout 1): the card art, who is in it (paintCounts fills it from the board,
+     below), and the game's own line from GAMES. */
   const dimg=document.getElementById('dimg');
   if(dimg){dimg.hidden=!!cur.noart;if(!cur.noart)dimg.src=artSrc(cur.id)}
-  const dkind=document.getElementById('dkind');
-  if(dkind)dkind.textContent=cur.soon?'Coming soon':cur.duel?'1 v 1':'Big room';
   const dpc=document.getElementById('dpc');
   if(dpc){dpc.dataset.pc=cur.soon?'':cur.id;dpc.hidden=true}
   const dblurb=document.getElementById('dblurb');
@@ -6377,7 +6412,8 @@ function drawNav(){
     +['play','events','social','wallet'].map(id=>navBtn(pin(id))).join('')
     +`<div class="sbx sb-gap" role="presentation"></div>`
     +navBtn(pin('profile'))
-    +`<button class="sb-it sbx" type="button" onclick="setLooks()">${SBI(SB_P.look)}<span>Customize</span></button>`
+    +(CUSTOMIZE_ON?`<button class="sb-it sbx" type="button" onclick="setLooks()">${SBI(SB_P.look)}<span>Customize</span></button>`
+      :`<button class="sb-it sbx sb-soon sb-off" type="button" disabled aria-label="Shop, coming soon">${SBI(SB_P.shop)}<span>Shop</span><span class="sb-pill">Coming soon</span></button>`)
     +`<div class="sbx sb-gap" role="presentation"></div>`
     +['clips','updates'].map(id=>navBtn(pin(id))).join('')
     +`<div class="sbx sb-gap" role="presentation"></div>`
@@ -6604,6 +6640,8 @@ function fillScreen(tab){
 const SET_IC={
   wallet:'<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="3" y="6" width="18" height="14" rx="3"/><path d="M16 13h2M3 10h18"/></svg>',
   look:'<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18c1 0 1.6-.7 1.6-1.6 0-.4-.2-.8-.4-1.1-.3-.3-.5-.7-.5-1.1 0-.9.7-1.6 1.6-1.6H16a5 5 0 0 0 5-5C21 6.3 17 3 12 3z"/><circle cx="7.5" cy="11.5" r="1"/><circle cx="9.5" cy="7.5" r="1"/><circle cx="14.5" cy="7.5" r="1"/></svg>',
+  /* the sidebar's Shop bag (SB_P.shop), for the Shop, Coming soon row while Customize is off */
+  shop:'<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4zM3 6h18M16 10a4 4 0 0 1-8 0"/></svg>',
   copy:'<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></svg>',
 };
 const setEsc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]);
@@ -6731,7 +6769,9 @@ async function setMic(b){
 function drawAcct(){
   const w=window.duelWallet||{};
   const box=document.getElementById('set-acct'); if(!box)return;
-  const look=`<button type="button" class="ds-row set-link" onclick="setLooks()"><span class="ds-row-ic">${SET_IC.look}</span><span class="ds-row-main"><b>Customize</b></span><span class="ds-row-end set-chev" aria-hidden="true"></span></button>`;
+  const look=CUSTOMIZE_ON?`<button type="button" class="ds-row set-link" onclick="setLooks()"><span class="ds-row-ic">${SET_IC.look}</span><span class="ds-row-main"><b>Customize</b></span><span class="ds-row-end set-chev" aria-hidden="true"></span></button>`
+    /* Customize off (CUSTOMIZE_ON): Shop, Coming soon, struck through. A plain row, not a button: nothing to press. */
+    :`<div class="ds-row set-soon" aria-disabled="true"><span class="ds-row-ic">${SET_IC.shop}</span><span class="ds-row-main"><b>Shop</b></span><span class="ds-row-end"><span class="ds-chip ds-chip-soon">Coming soon</span></span></div>`;
   if(!(w.authenticated&&w.address)){
     box.innerHTML=`<div class="set-out"><h3 class="set-out-h">You are signed out</h3>
       <button type="button" class="ds-btn ds-btn-primary ds-btn-lg ds-btn-block acctbtn" onclick="window.duelWalletLogin&&window.duelWalletLogin('settings')">Sign in</button></div>
@@ -6763,6 +6803,7 @@ document.addEventListener('focusout',e=>{if(e.target&&e.target.id==='play-name'&
 /* Customize from Settings: looks belong to a game, so this asks which one, then opens that game's own Customize
    (the reel, its previews and Unlock exactly as from the game's screen). Back from it lands on that game. */
 function setLooks(){
+  if(!CUSTOMIZE_ON)return;
   const list=document.getElementById('lkpick-list'); if(!list)return;
   const games=GAMES.filter(g=>!g.soon&&hasLook(g));
   list.innerHTML=games.map(g=>`<button type="button" class="ds-opt" data-look="${g.id}"><span class="ds-opt-ic"><img src="${artSrc(g.id)}" alt="" draggable="false"></span><span><b>${setEsc(g.name)}</b><small>${g.id==='swim'?'Your car':'Your skin'}</small></span><span class="set-chev" aria-hidden="true"></span></button>`).join('');
