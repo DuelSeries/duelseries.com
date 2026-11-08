@@ -324,6 +324,30 @@ test('W5: the switch is saved; Off sends the bots home and empties the file', ()
   assert.equal(b.bots.heldMicro(), 0);
 });
 
+test('W5: with the save turned off (index.js KEEP_DUEL_BOTS_ACROSS_RESTARTS = false, no file) every boot is Off with no bot', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'duelwait-nofile-'));
+  const bankFile = path.join(dir, 'bot-bank.json');
+  fs.writeFileSync(bankFile, JSON.stringify({ balance: M(20), capMicro: M(200), day: '', spent: 0, inflight: 0, topups: [], log: [] }));
+  const make = () => {
+    const bank = createBotBank({ file: bankFile, log: quiet, tickMs: 0 });
+    const ko = new KnockoutLobby(io);
+    return { bank, ko, bots: createDuelBots({ bank, lobbies: { knockout: ko }, log: quiet, file: null }) };
+  };
+  const a = make();
+  a.bots.setEnabled(true);
+  a.bots.spawn('knockout', 1);
+  assert.equal(a.bots.switchSaved(), false, 'Control is told it is not saved');
+  assert.equal(a.bots.view().saved, false);
+  a.ko.shutdownSettle('shutdown');
+  assert.equal(a.bank.balanceMicro(), M(20), 'the stake went home at the shutdown');
+  const b = make();
+  b.bots.tick();
+  assert.equal(b.bots.enabled(), false, 'Off at boot');
+  assert.equal(b.bots.heldMicro(), 0, 'no bot came back');
+  assert.equal(b.bank.balanceMicro(), M(20));
+  assert.deepEqual(fs.readdirSync(dir).filter((f) => f.startsWith('duel-bots')), [], 'nothing written');
+});
+
 test('W6: escrow money is conserved at every step, the daily limit counts waiting bots, and the person is paid as against a person', () => {
   const s = server({ cap: 1.5 });
   s.bots.setEnabled(true);

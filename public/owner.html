@@ -1097,7 +1097,8 @@ function partDuelBots(ups) {
   return toggle(ups, {
     key: 'duelbots', yes: 'On', no: 'Off', label: 'Paid duel bots',
     get: (s) => ({ on: s.duelBots ? !!s.duelBots.enabled : null,
-      title: 'A paid duel bot stakes real money from the Bot bank and can win a player\'s stake. Players see "Bot opponent waiting" before they pay. Stays as you set it across restarts.' }),
+      title: 'A paid duel bot stakes real money from the Bot bank and can win a player\'s stake. Players see "Bot opponent waiting" before they pay. '
+        + (s.duelBots && s.duelBots.saved ? 'Stays as you set it across restarts, and waiting bots come back after one.' : 'Off again at every restart.') }),
     pick: (on) => act('duelbots', on ? 'duelbots:on' : 'duelbots:off', {}, on ? { confirm:
       'Turn on paid duel bots?\n\nEach bot you add stakes $0.50 or $1 from the Bot bank and waits up to 2 hours for a player. A player sees "Bot opponent waiting" before paying. If nobody plays it, its stake goes back to the Bot bank. If the bot wins, the pot less the 10% cut goes back to the Bot bank.' } : null),
   });

@@ -3515,6 +3515,10 @@ trackDuelLobby(crossy.lobby, 'crossy');
    was left of their wait (each stake back to the bank at the shutdown, a fresh one taken at boot). Maintenance closes
    the door like a paid door does. Battleship is not here: its bot would need the other side's ships, which no person
    can see. DUEL_BOT_WAIT_MS shortens the wait for a local check only; production ignores it. */
+/* THE ONE SETTING for that save (Owen's call, asked 2026-11-08; it reverses the 11-04 rule "Off at every boot"):
+   true  = the switch and the waiting bots are kept across restarts and deploys (duel-bots.json);
+   false = nothing is saved: every boot starts with paid duel bots Off and no bot waiting, as before 2026-11-08. */
+const KEEP_DUEL_BOTS_ACROSS_RESTARTS = true;
 const DUEL_BOT_WAIT_MS = process.env.NODE_ENV !== 'production' && /^\d{4,8}$/.test(String(process.env.DUEL_BOT_WAIT_MS || ''))
   ? Number(process.env.DUEL_BOT_WAIT_MS) : undefined;
 const duelBots = require('./duelBots').createDuelBots({
@@ -3523,7 +3527,7 @@ const duelBots = require('./duelBots').createDuelBots({
     airhockey: airHockeyLobby, rooftop: rooftopLobby, crossy: crossy.lobby },
   doorOpen: (game) => duelPaidDoors()[game] === true && !ops.get().maintenance,
   onChange: () => { try { broadcastLobbyState(); } catch (_) { /* display only */ } },
-  file: path.join(path.dirname(agJournal.file), 'duel-bots.json'),
+  file: KEEP_DUEL_BOTS_ACROSS_RESTARTS ? path.join(path.dirname(agJournal.file), 'duel-bots.json') : null,
   tickMs: require('./duelBots').TICK_MS,
   waitMs: DUEL_BOT_WAIT_MS,
 });
