@@ -247,7 +247,7 @@ class SwimEvent {
     const taken = new Set([...this.entrants.values()].map(e => String(e.name).toLowerCase()));
     const name = pickName(Math.random(), { maxLen: 16, taken: (n) => taken.has(n) });
     const id = 'bot:' + (++this.botCount);
-    const e = { id, socket: null, name, wallet: null, look: SwimLooks.clean({ car: SwimLooks.CARS[Math.floor(Math.random() * SwimLooks.CARS.length)].id }),
+    const e = { id, socket: null, name, wallet: null, look: SwimLooks.clean({ car: SwimLooks.FREE[Math.floor(Math.random() * SwimLooks.FREE.length)].id }),
       lane: this.placeNew(), bot: true, lt: false, at: this.now() };
     this.entrants.set(id, e);
     this.lobbyDirty = true;

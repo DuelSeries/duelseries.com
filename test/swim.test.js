@@ -1167,44 +1167,45 @@ test('both seats running out of grace together is a draw that refunds both, not 
    seat and the watchers ──────────────────────────────────────────────────────────────────────────────────── */
 const SwimLooks = require('../shared/swimLooks');
 
-test('looks: anything not a listed car is the supercar; a colour or other field is dropped, nothing echoed', () => {
-  assert.deepStrictEqual(SwimLooks.clean({ car: 'muscle' }), { car: 'muscle' });
-  assert.deepStrictEqual(SwimLooks.clean({ car: 'hatch', colour: 'teal' }), { car: 'hatch' }, 'an older page\'s colour is ignored');
-  for (const junk of [null, undefined, 7, 'muscle', [], { car: 'limo' }, { car: '__proto__' }, { car: 'constructor' },
-    { car: { toString: () => 'muscle' } }, { car: 'Muscle' }, { car: ' hatch' }, { colour: 'gold' }]) {
-    assert.deepStrictEqual(SwimLooks.clean(junk), { car: 'supercar' }, JSON.stringify(junk));
+test('looks: anything not a listed car is the default car; a colour or other field is dropped, nothing echoed', () => {
+  assert.deepStrictEqual(SwimLooks.clean({ car: 'mustang' }), { car: 'mustang' });
+  assert.deepStrictEqual(SwimLooks.clean({ car: 'muscle' }), { car: 'mustang' }, 'a car from before 2026-11-08 reads as its free stand-in');
+  assert.deepStrictEqual(SwimLooks.clean({ car: 'm3', colour: 'teal' }), { car: 'm3' }, 'an older page\'s colour is ignored');
+  for (const junk of [null, undefined, 7, 'm3', [], { car: 'limo' }, { car: '__proto__' }, { car: 'constructor' },
+    { car: { toString: () => 'm3' } }, { car: 'M3' }, { car: ' m3' }, { colour: 'gold' }]) {
+    assert.deepStrictEqual(SwimLooks.clean(junk), { car: 'civic' }, JSON.stringify(junk));
   }
-  const sent = { car: 'hatch', colour: 'crimson', extra: '<script>' };
+  const sent = { car: 'm3', colour: 'crimson', extra: '<script>' };
   const kept = SwimLooks.clean(sent);
   assert.notStrictEqual(kept, sent);
   assert.deepStrictEqual(Object.keys(kept), ['car'], 'only the car id, never other fields');
-  assert.deepStrictEqual(SwimLooks.CARS.map(c => c.id), ['supercar', 'muscle', 'hatch']);
+  assert.deepStrictEqual(SwimLooks.CARS.map(c => c.id), ['civic', 'mustang', 'm3', 'supra', 'gtr', 'hellcat', 'c8', 'gt3', 'huracan', 'f8']);
   const { room } = bareRoom();
   room.addPlayer(sock('x'), 'X', null, 0, 0, null, { car: 'tank', colour: 'rainbow' });
-  assert.deepStrictEqual(room.bySide(0).look, { car: 'supercar' });
+  assert.deepStrictEqual(room.bySide(0).look, { car: 'civic' });
 });
 
 test('looks: each seat\'s car rides in sw:start players and the watcher state, by seat', () => {
   const { room, io } = bareRoom();
-  room.addPlayer(sock('a'), 'Ann', null, 0, 0, null, { car: 'muscle', colour: 'crimson' });
+  room.addPlayer(sock('a'), 'Ann', null, 0, 0, null, { car: 'mustang', colour: 'crimson' });
   room.addPlayer(sock('b'), 'Bob', null, 0, 0, null, { car: 'nope' });
   room.start(1000);
   const start = io.sent.find(m => m.ev === 'sw:start').p;
   const bySide = (ps) => ps.slice().sort((x, y) => x.side - y.side).map(q => q.car);
-  assert.deepStrictEqual(bySide(start.players), ['muscle', 'supercar']);
+  assert.deepStrictEqual(bySide(start.players), ['mustang', 'civic']);
   assert.ok(start.players.every(q => !('colour' in q)), 'the paint comes from the car, never sent');
   const w = room.watchSnapshot(Date.now());
-  assert.deepStrictEqual(bySide(w.players), ['muscle', 'supercar']);
+  assert.deepStrictEqual(bySide(w.players), ['mustang', 'civic']);
   assert.ok(w.players.every(p => !('id' in p)), 'watchers get seats, never ids');
   // Through the lobby too: a queued car reaches the room's seats.
   const { lobby } = lobbyWith();
   const p1 = sock(), p2 = sock();
-  lobby.enqueue(p1, 'P1', null, 0, 0, 1, undefined, null, { car: 'hatch' });
+  lobby.enqueue(p1, 'P1', null, 0, 0, 1, undefined, null, { car: 'm3' });
   lobby.enqueue(p2, 'P2', null, 0, 0, 2, undefined, null, { car: 'evil', colour: 'teal' });
   const r = lobby.rooms.get(lobby.bySocket.get(p1.id));
   assert.ok(r, 'the two were seated');
-  assert.deepStrictEqual(r.players.get(p1.id).look, { car: 'hatch' });
-  assert.deepStrictEqual(r.players.get(p2.id).look, { car: 'supercar' });
+  assert.deepStrictEqual(r.players.get(p1.id).look, { car: 'm3' });
+  assert.deepStrictEqual(r.players.get(p2.id).look, { car: 'civic' });
 });
 
 test('looks never touch the race: three different cars step bit for bit like default looks', () => {

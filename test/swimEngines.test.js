@@ -1,7 +1,7 @@
 // Swim's cars and engines (Owen 2026-10-28): one Customize choice of three cars, each with its own fixed paint
 // and synthesized engine, free, the engine heard only by you.
 //   · the list (shared/swimLooks.js) is exactly the three cars, each naming one of the three engines
-//     swimEngines.js builds; anything else is the supercar (red, V12)
+//     swimEngines.js builds; anything else is the default car
 //   · the lobby's chooser lists the three cars and stores the id /swim reads
 //   · /swim loads the list and the engines before its sound module
 //   · cosmetic: no server file and no money path reads an engine
@@ -14,38 +14,45 @@ const ROOT = path.join(__dirname, '..');
 const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
 const swimLooks = require('../shared/swimLooks');
 
-test('three cars, each with its own paint and engine; the supercar (red, V12) is the default', () => {
-  assert.deepStrictEqual(swimLooks.CARS.map((c) => [c.id, c.name, c.paint, c.engine]), [
-    ['supercar', 'Supercar', 'Red', 'v12'], ['muscle', 'Muscle car', 'Blue', 'v8'], ['hatch', 'Hot hatch', 'Yellow', 'turbo4']]);
-  assert.deepStrictEqual(swimLooks.ENGINES.map((e) => e.id), ['v8', 'v12', 'turbo4']);
-  assert.deepStrictEqual(swimLooks.ENGINES.map((e) => e.name), ['Deep V8 muscle', 'V12 scream', 'Turbo four']);
+/* Owen 2026-11-08: ten real cars, each with its own model, colour and engine; three free, the other seven only in the
+   Shop; no maker named on screen (nicknames). */
+test('ten cars, each with its own paint and engine, three free; the first free car is the default', () => {
+  assert.deepStrictEqual(swimLooks.CARS.map((c) => [c.id, c.engine, c.free]), [
+    ['civic', 'turbo4', true], ['mustang', 'v8', true], ['m3', 'inline6', true],
+    ['supra', 'i6jz', false], ['gtr', 'v6tt', false], ['hellcat', 'v8sc', false], ['c8', 'v8c8', false],
+    ['gt3', 'flat6', false], ['huracan', 'v10', false], ['f8', 'v8ft', false]]);
+  assert.strictEqual(new Set(swimLooks.CARS.map((c) => c.engine)).size, 10, 'every car its own engine');
+  assert.strictEqual(new Set(swimLooks.CARS.map((c) => c.hex)).size, 10, 'and its own paint');
+  assert.strictEqual(new Set(swimLooks.CARS.map((c) => c.name)).size, 10, 'and its own nickname');
+  assert.deepStrictEqual(swimLooks.FREE.map((c) => c.id), ['civic', 'mustang', 'm3'], 'the free three come first (a duel bot picks among CARS[0..2])');
+  assert.deepStrictEqual(swimLooks.ENGINES.map((e) => e.id).sort(), swimLooks.CARS.map((c) => c.engine).sort());
   assert.strictEqual(swimLooks.KEY, 'duel.swim.car');
-  assert.strictEqual(swimLooks.DEFAULT_CAR, 'supercar');
-  assert.strictEqual(swimLooks.DEFAULT, 'v12');
+  assert.strictEqual(swimLooks.DEFAULT_CAR, 'civic');
+  assert.strictEqual(swimLooks.DEFAULT, 'turbo4');
   for (const c of swimLooks.CARS) assert.ok(/^#[0-9a-f]{6}$/.test(c.hex) && swimLooks.byId(c.engine), c.id);
   assert.ok(Object.isFrozen(swimLooks.CARS) && swimLooks.CARS.every(Object.isFrozen), 'nobody can add to the list at run time');
 });
 
-test('a stored car is kept only when listed; anything else is the supercar, its paint and its V12', () => {
+test('a stored car is kept only when listed; anything else is the default car, its paint and its engine', () => {
   for (const c of swimLooks.CARS) {
     assert.strictEqual(swimLooks.carOf(c.id), c.id);
     assert.strictEqual(swimLooks.engineOf(c.id), c.engine);
     assert.strictEqual(swimLooks.paintOf(c.id), c.hex);
   }
-  for (const junk of [null, undefined, '', 'limo', 'v8', 'Supercar', ' muscle', 'constructor', '__proto__', 12, {}]) {
-    assert.strictEqual(swimLooks.carOf(junk), 'supercar', JSON.stringify(String(junk)));
-    assert.strictEqual(swimLooks.engineOf(junk), 'v12');
+  for (const junk of [null, undefined, '', 'limo', 'v8', 'Civic', ' m3', 'constructor', '__proto__', 12, {}]) {
+    assert.strictEqual(swimLooks.carOf(junk), 'civic', JSON.stringify(String(junk)));
+    assert.strictEqual(swimLooks.engineOf(junk), 'turbo4');
   }
 });
 
-test('swimEngines.js builds exactly those three, and nothing the picker page alone needed', () => {
+test('swimEngines.js builds exactly those ten, and nothing the picker page alone needed', () => {
   const src = read('public/js/swim/swimEngines.js');
   const sandbox = {};
   new Function('window', src)(sandbox);
-  assert.deepStrictEqual(sandbox.SwimEngines.ids, swimLooks.ENGINES.map((e) => e.id));
+  assert.deepStrictEqual(sandbox.SwimEngines.ids.slice().sort(), swimLooks.ENGINES.map((e) => e.id).sort());
   assert.strictEqual(typeof sandbox.SwimEngines.make, 'function');
   assert.strictEqual(typeof sandbox.SwimEngines.prepare, 'function');
-  for (const gone of ['rotary', 'flat6', 'electric', 'buildEv', 'topSpeed', 'desc:']) assert.ok(!src.includes(gone), gone + ' is gone');
+  for (const gone of ['electric', 'buildEv', 'topSpeed', 'desc:']) assert.ok(!src.includes(gone), gone + ' is gone');
   assert.ok(/our own synthesis/i.test(src.slice(0, 600)), 'the header says it is ours');
 });
 
@@ -84,18 +91,20 @@ function lookListFor(id) {
   return { list: lookList({ id, look: 0 }), SAVED, store };
 }
 
-test('Customize is one choice of exactly three cars, opens on the supercar, and Save stores the id /swim reads', () => {
+test('the Shop lists the three free cars then the seven Shop cars, opens on the default, and Save stores the id /swim reads', () => {
   const { list, SAVED, store } = lookListFor('swim');
-  assert.deepStrictEqual(list.map((s) => s.id), ['sw:supercar', 'sw:muscle', 'sw:hatch']);
-  assert.deepStrictEqual(list.map((s) => s.name), ['Supercar', 'Muscle car', 'Hot hatch']);
-  assert.ok(list.every((s) => !s.locked && !s.price), 'all free, nothing locked or priced');
-  assert.strictEqual(SAVED.swim.worn().id, 'sw:supercar', 'nothing stored wears the supercar');
+  assert.deepStrictEqual(list.map((s) => s.id), ['sw:civic', 'sw:mustang', 'sw:m3', 'shop:supra', 'shop:hellcat', 'shop:gtr',
+    'shop:c8', 'shop:gt3', 'shop:f8', 'shop:huracan']);
+  assert.deepStrictEqual(list.slice(0, 3).map((s) => s.name), swimLooks.FREE.map((c) => c.name));
+  assert.ok(list.slice(0, 3).every((s) => !s.locked && !s.price), 'the three free, nothing locked or priced');
+  assert.ok(list.slice(3).every((s) => s.locked && s.price > 0), 'the seven locked, each with its price');
+  assert.strictEqual(SAVED.swim.worn().id, 'sw:civic', 'nothing stored wears the default');
   SAVED.swim.put(list[1]);
-  assert.strictEqual(store.get('duel.swim.car'), 'muscle');
-  assert.strictEqual(SAVED.swim.worn().id, 'sw:muscle');
+  assert.strictEqual(store.get('duel.swim.car'), 'mustang');
+  assert.strictEqual(SAVED.swim.worn().id, 'sw:mustang');
   SAVED.swim.put(null);
   assert.ok(!store.has('duel.swim.car'));
-  assert.strictEqual(SAVED.swim.worn().id, 'sw:supercar');
+  assert.strictEqual(SAVED.swim.worn().id, 'sw:civic');
   const html = read('public/v2.html');
   assert.ok(html.includes("||(g.id==='swim'&&SW_LOOKS.length)"), 'Swim\'s Customize bar opens');
   assert.ok(!html.includes('ap-rows') && !html.includes('data-row='), 'no colour or engine rows: one choice');

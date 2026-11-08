@@ -1,12 +1,13 @@
 /* ─── Swim: the engines ───────────────────────────────────────────────────────
   Our own synthesis, written for Swim: every sound here is built in code from
   oscillators, periodic waves, noise buffers, filters and waveshapers. No
-  recordings, nothing borrowed. The three engines Owen picked (2026-10-28) from
-  the picker in Claude Code Test/swim-sounds: v8, v12 and turbo4. Which one a
-  player hears is chosen in Customize (shared/swimLooks.js).
+  recordings, nothing borrowed. One engine for each of Swim's ten cars (Owen
+  2026-11-08, shared/swimLooks.js): turbo4, v8, inline6, i6jz, v6tt, v8sc, v8c8,
+  flat6, v10 and v8ft. The first three came from the picker in Claude Code
+  Test/swim-sounds.
 
     window.SwimEngines = {
-      ids: ['v8', 'v12', 'turbo4'],
+      ids: ['v8', 'turbo4', 'flat6', 'inline6', 'v10', 'i6jz', 'v6tt', 'v8sc', 'v8c8', 'v8ft'],
       prepare(ctx, id)        work out the engine's waves ahead of time (heavy, once per context)
       make(ctx, id, dest) -> engine
     }
@@ -75,27 +76,6 @@
       trim: 0.358
     },
     {
-      id: 'v12',
-      cyl: 12, revs: 2, idle: 1000, redline: 9500, gears: 7, first: 0.26,
-      banks: [
-        { slots: [0, 2, 4, 6, 8, 10], amp: 1.0, amps: [1, 0.9, 1.06, 0.94, 1.03, 0.9], skew: [0, 0.03, -0.02, 0.02, -0.03, 0.01], pipe: 4.6, fb: 0.33 },
-        { slots: [1, 3, 5, 7, 9, 11], amp: 0.85, amps: [0.95, 1.05, 0.92, 1.04, 0.97, 1.02], skew: [0.01, -0.02, 0.03, 0, -0.01, 0.02], pipe: 5.3, fb: 0.3 }
-      ],
-      pulse: { w: 0.5, a: 1.2, b: 2.0, reb: 0.15, rw: 0.5 },
-      pipeLP: 5000, wet: 0.6,
-      drive: 1.0, k: 1.8, bias: 0.05,
-      lp: [900, 2000, 3.0], lpQ: 0.8,
-      eq: [['lowshelf', 160, 0.7, 2], ['peaking', 1800, 0.8, 3], ['highshelf', 6000, 0.7, -4]],
-      lope: [0.05, 0.5], half: 0.08, jitter: 6, rough: 0.12,
-      gas: [0.45, 3000, 0.7],
-      intake: [0.5, 400, 1.4, 1.0],
-      wail: { mult: 12, bp: 24, q: 2.5, level: 0.4 },
-      pops: { rate: 5, decay: 0.5, win: 1.0, big: 0.2, level: 0.8 },
-      shift: { cut: 0.4, dur: 0.07, clunk: 0.25, pop: 0.35, style: 'blip' },
-      turbo: null,
-      trim: 0.5
-    },
-    {
       id: 'turbo4',
       cyl: 4, revs: 2, idle: 900, redline: 7200, gears: 6, first: 0.29,
       banks: [
@@ -114,12 +94,195 @@
       shift: { cut: 0.25, dur: 0.1, clunk: 0.3, pop: 0.15, style: 'pssh' },
       turbo: { lo: 2400, hi: 6400, level: 0.05, bov: 0.55 },
       trim: 0.288
+    },
+    {
+      id: 'flat6',
+      cyl: 6, revs: 2, idle: 950, redline: 9000, gears: 7, first: 0.27,
+      // Two banks of three, each firing evenly; the bank-to-bank difference gives the howl.
+      banks: [
+        { slots: [0, 2, 4], amp: 1.0, amps: [1, 0.96, 1.02], pipe: 6.8, fb: 0.4 },
+        { slots: [1, 3, 5], amp: 0.84, amps: [1, 1.03, 0.95], pipe: 7.9, fb: 0.38 }
+      ],
+      pulse: { w: 0.62, a: 1.1, b: 2.0, reb: 0.25, rw: 0.6 },
+      pipeLP: 3600, wet: 0.7,
+      drive: 1.3, k: 2.3, bias: 0.06,
+      lp: [650, 1600, 3.5], lpQ: 1.0,
+      eq: [['peaking', 700, 1.0, 3], ['peaking', 2300, 1.1, 3.5], ['highshelf', 6000, 0.7, -3]],
+      lope: [0.08, 0.5], half: 0.12, jitter: 8, rough: 0.15,
+      gas: [0.6, 2200, 0.8],
+      intake: [0.5, 350, 1.2, 1.0],
+      wail: { mult: 3, bp: 12, q: 2.2, level: 0.35 },
+      pops: { rate: 7, decay: 0.6, win: 1.3, big: 0.25, level: 0.75 },
+      shift: { cut: 0.35, dur: 0.08, clunk: 0.2, pop: 0.3, style: 'blip' },
+      turbo: null,
+      trim: 0.375
+    },
+    {
+      id: 'inline6',
+      // A straight six: one bank, perfectly even, silky; a light twin-turbo whistle on top.
+      cyl: 6, revs: 2, idle: 800, redline: 7400, gears: 7, first: 0.28,
+      banks: [
+        { slots: [0, 1, 2, 3, 4, 5], amp: 1.0, amps: [1, 0.97, 1.02, 0.98, 1.01, 0.96], skew: [0, 0.01, -0.01, 0.005, 0, -0.005], pipe: 5.8, fb: 0.4 }
+      ],
+      pulse: { w: 0.58, a: 1.0, b: 2.2, reb: 0.2, rw: 0.55 },
+      pipeLP: 3800, wet: 0.65,
+      drive: 1.15, k: 2.0, bias: 0.05,
+      lp: [600, 1500, 3.2], lpQ: 0.9,
+      eq: [['lowshelf', 150, 0.7, 2], ['peaking', 900, 1.0, 2.5], ['highshelf', 5500, 0.7, -3]],
+      lope: [0.04, 0.5], half: 0.05, jitter: 6, rough: 0.1,
+      gas: [0.5, 2400, 0.75],
+      intake: [0.55, 320, 1.2, 1.0],
+      wail: { mult: 6, bp: 14, q: 2.0, level: 0.18 },
+      pops: { rate: 6, decay: 0.55, win: 1.1, big: 0.2, level: 0.7 },
+      shift: { cut: 0.3, dur: 0.09, clunk: 0.25, pop: 0.2, style: 'pssh' },
+      turbo: { lo: 2000, hi: 5600, level: 0.035, bov: 0.4 },
+      trim: 0.36
+    },
+    {
+      id: 'v10',
+      // Two banks of five, even fire: a hard, rising shriek to 8,700 rpm.
+      cyl: 10, revs: 2, idle: 1000, redline: 8700, gears: 7, first: 0.26,
+      banks: [
+        { slots: [0, 2, 4, 6, 8], amp: 1.0, amps: [1, 0.94, 1.04, 0.92, 1.02], skew: [0, 0.02, -0.02, 0.01, 0], pipe: 5.0, fb: 0.34 },
+        { slots: [1, 3, 5, 7, 9], amp: 0.88, amps: [0.96, 1.03, 0.94, 1.05, 0.98], skew: [0.01, 0, 0.02, -0.01, 0.01], pipe: 5.8, fb: 0.31 }
+      ],
+      pulse: { w: 0.55, a: 1.1, b: 2.1, reb: 0.18, rw: 0.5 },
+      pipeLP: 4600, wet: 0.6,
+      drive: 1.15, k: 2.0, bias: 0.06,
+      lp: [800, 1900, 3.2], lpQ: 0.85,
+      eq: [['lowshelf', 150, 0.7, 2], ['peaking', 1500, 0.9, 3.5], ['highshelf', 6000, 0.7, -3]],
+      lope: [0.06, 0.5], half: 0.1, jitter: 7, rough: 0.14,
+      gas: [0.55, 2700, 0.7],
+      intake: [0.5, 380, 1.3, 1.0],
+      wail: { mult: 10, bp: 20, q: 2.4, level: 0.42 },
+      pops: { rate: 6, decay: 0.5, win: 1.0, big: 0.22, level: 0.8 },
+      shift: { cut: 0.38, dur: 0.06, clunk: 0.22, pop: 0.35, style: 'blip' },
+      turbo: null,
+      trim: 0.42
+    },
+    /* The cars Owen picked on 2026-11-08 (ten real cars): the 2JZ six, the twin-turbo V6, the supercharged V8, the
+       mid-engine V8 and the flat-plane twin-turbo V8, built the same way as the rest. */
+    {
+      id: 'i6jz',
+      // A big straight six on one huge turbo (the 2JZ sound): smooth and deep low down, then a long rising
+      // whistle and a heavy whoosh of boost, a loud flutter on every lift.
+      cyl: 6, revs: 2, idle: 850, redline: 7200, gears: 6, first: 0.29,
+      banks: [
+        { slots: [0, 1, 2, 3, 4, 5], amp: 1.0, amps: [1, 0.95, 1.03, 0.97, 1.02, 0.94], skew: [0, 0.015, -0.01, 0.01, -0.005, 0.005], pipe: 6.9, fb: 0.44 }
+      ],
+      pulse: { w: 0.62, a: 1.05, b: 2.1, reb: 0.24, rw: 0.6 },
+      pipeLP: 3000, wet: 0.7,
+      drive: 1.35, k: 2.2, bias: 0.07,
+      lp: [520, 1350, 3.0], lpQ: 0.95,
+      eq: [['lowshelf', 140, 0.7, 3], ['peaking', 750, 1.0, 2.5], ['highshelf', 5200, 0.7, -3]],
+      lope: [0.06, 0.5], half: 0.06, jitter: 8, rough: 0.13,
+      gas: [0.6, 2100, 0.8],
+      intake: [0.6, 280, 1.1, 0.9],
+      wail: { mult: 6, bp: 12, q: 2.0, level: 0.14 },
+      pops: { rate: 9, decay: 0.65, win: 1.4, big: 0.3, level: 0.85 },
+      shift: { cut: 0.28, dur: 0.1, clunk: 0.3, pop: 0.2, style: 'pssh' },
+      turbo: { lo: 1700, hi: 5000, level: 0.075, bov: 0.75 },
+      trim: 0.34
+    },
+    {
+      id: 'v6tt',
+      // A twin-turbo V6, two banks of three: drier and raspier than a six in a row, a brisk whistle and a sharp
+      // blow-off between gears.
+      cyl: 6, revs: 2, idle: 900, redline: 7100, gears: 6, first: 0.28,
+      banks: [
+        { slots: [0, 2, 4], amp: 1.0, amps: [1, 0.93, 1.05], skew: [0, 0.02, -0.015], pipe: 5.6, fb: 0.4 },
+        { slots: [1, 3, 5], amp: 0.9, amps: [0.97, 1.04, 0.93], skew: [0.01, -0.01, 0.02], pipe: 6.4, fb: 0.38 }
+      ],
+      pulse: { w: 0.56, a: 0.95, b: 2.3, reb: 0.3, rw: 0.62 },
+      pipeLP: 3400, wet: 0.66,
+      drive: 1.5, k: 2.5, bias: 0.08,
+      lp: [600, 1500, 3.4], lpQ: 1.0,
+      eq: [['peaking', 320, 1.0, 2.5], ['peaking', 1600, 1.1, 3], ['highshelf', 5500, 0.7, -3]],
+      lope: [0.08, 0.5], half: 0.08, jitter: 9, rough: 0.17,
+      gas: [0.7, 2300, 0.8],
+      intake: [0.6, 330, 1.2, 0.9],
+      wail: { mult: 6, bp: 14, q: 2.2, level: 0.15 },
+      pops: { rate: 7, decay: 0.55, win: 1.2, big: 0.25, level: 0.75 },
+      shift: { cut: 0.26, dur: 0.08, clunk: 0.25, pop: 0.2, style: 'pssh' },
+      turbo: { lo: 2600, hi: 6400, level: 0.05, bov: 0.6 },
+      trim: 0.33
+    },
+    {
+      id: 'v8sc',
+      // A supercharged cross-plane V8: the muscle burble underneath, and over it the blower's whine, a pitch
+      // that climbs with the revs (geared to the crank, so no lag and no whistle-up like a turbo).
+      cyl: 8, revs: 2, idle: 800, redline: 6300, gears: 8, first: 0.27,
+      banks: [
+        { slots: [0, 3, 5, 6], amp: 1.0, amps: [1, 0.92, 1.05, 0.9], skew: [0, 0.03, -0.02, 0.04], pipe: 9.2, fb: 0.44 },
+        { slots: [1, 2, 4, 7], amp: 0.82, amps: [0.95, 1, 0.9, 1.05], skew: [0.02, -0.03, 0.01, 0], pipe: 10.8, fb: 0.4 }
+      ],
+      pulse: { w: 0.95, a: 1.35, b: 2.3, reb: 0.22, rw: 0.6 },
+      even: 0.65,
+      pipeLP: 1500, wet: 0.75,
+      drive: 1.35, k: 2.3, bias: 0.13,
+      lp: [360, 880, 3.0], lpQ: 0.9,
+      eq: [['lowshelf', 120, 0.7, 6], ['peaking', 90, 1.1, 3], ['peaking', 2400, 0.9, -2]],
+      lope: [0.45, 0.5], half: 0.24, jitter: 16, rough: 0.24,
+      gas: [0.7, 1300, 0.8],
+      intake: [0.45, 170, 0.9, 0.9],
+      wail: { mult: 26, bp: 26, q: 7, level: 0.32 },
+      pops: { rate: 14, decay: 0.75, win: 1.8, big: 0.35, level: 0.95 },
+      shift: { cut: 0.3, dur: 0.12, clunk: 0.5, pop: 0.25, style: 'burble' },
+      turbo: null,
+      trim: 0.33
+    },
+    {
+      id: 'v8c8',
+      // A big pushrod V8 behind the seats: cross-plane, but tighter and higher-revving than the muscle car's,
+      // more intake bark, a quick crackle on the lift.
+      cyl: 8, revs: 2, idle: 900, redline: 6600, gears: 8, first: 0.27,
+      banks: [
+        { slots: [0, 3, 5, 6], amp: 1.0, amps: [1, 0.95, 1.03, 0.93], skew: [0, 0.02, -0.015, 0.025], pipe: 7.6, fb: 0.4 },
+        { slots: [1, 2, 4, 7], amp: 0.86, amps: [0.97, 1, 0.94, 1.03], skew: [0.015, -0.02, 0.01, 0], pipe: 8.8, fb: 0.37 }
+      ],
+      pulse: { w: 0.85, a: 1.2, b: 2.3, reb: 0.2, rw: 0.58 },
+      even: 0.8,
+      pipeLP: 2100, wet: 0.72,
+      drive: 1.25, k: 2.15, bias: 0.1,
+      lp: [440, 1100, 3.2], lpQ: 0.9,
+      eq: [['lowshelf', 140, 0.7, 4], ['peaking', 380, 1.0, 2.5], ['peaking', 2600, 0.9, -1]],
+      lope: [0.3, 0.5], half: 0.16, jitter: 13, rough: 0.19,
+      gas: [0.65, 1600, 0.8],
+      intake: [0.6, 220, 1.0, 0.9],
+      wail: { mult: 4, bp: 10, q: 2.0, level: 0.12 },
+      pops: { rate: 11, decay: 0.65, win: 1.5, big: 0.3, level: 0.9 },
+      shift: { cut: 0.32, dur: 0.07, clunk: 0.3, pop: 0.3, style: 'blip' },
+      turbo: null,
+      trim: 0.35
+    },
+    {
+      id: 'v8ft',
+      // A flat-plane twin-turbo V8: each bank fires evenly, so no burble, a hard rising howl to 8,000 rpm,
+      // a soft turbo whistle under it and a crisp blip on each shift.
+      cyl: 8, revs: 2, idle: 1000, redline: 8000, gears: 7, first: 0.26,
+      banks: [
+        { slots: [0, 2, 4, 6], amp: 1.0, amps: [1, 0.95, 1.04, 0.96], skew: [0, 0.015, -0.01, 0.01], pipe: 5.2, fb: 0.35 },
+        { slots: [1, 3, 5, 7], amp: 0.9, amps: [0.97, 1.03, 0.95, 1.02], skew: [0.01, -0.01, 0.015, 0], pipe: 5.9, fb: 0.33 }
+      ],
+      pulse: { w: 0.52, a: 1.1, b: 2.1, reb: 0.18, rw: 0.5 },
+      pipeLP: 4400, wet: 0.62,
+      drive: 1.15, k: 2.0, bias: 0.06,
+      lp: [780, 1850, 3.2], lpQ: 0.85,
+      eq: [['lowshelf', 150, 0.7, 2], ['peaking', 1350, 0.9, 3.5], ['highshelf', 6000, 0.7, -3]],
+      lope: [0.05, 0.5], half: 0.08, jitter: 7, rough: 0.13,
+      gas: [0.55, 2600, 0.7],
+      intake: [0.5, 360, 1.3, 1.0],
+      wail: { mult: 8, bp: 16, q: 2.4, level: 0.34 },
+      pops: { rate: 6, decay: 0.5, win: 1.0, big: 0.22, level: 0.8 },
+      shift: { cut: 0.38, dur: 0.06, clunk: 0.22, pop: 0.35, style: 'blip' },
+      turbo: { lo: 2400, hi: 6000, level: 0.035, bov: 0.35 },
+      trim: 0.4
     }
   ];
 
   var BY_ID = {};
   for (var di = 0; di < DEFS.length; di++) BY_ID[DEFS[di].id] = DEFS[di];
-  var DEFAULT_ID = 'v12';
+  var DEFAULT_ID = 'turbo4';
   function defOf(id) { return BY_ID[id] || BY_ID[DEFAULT_ID]; }
 
   // ---------------------------------------------------------------------------

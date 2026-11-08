@@ -1,0 +1,29 @@
+Swim: 3D car models
+
+Every car and every traffic vehicle in Swim is built from a model shared on Sketchfab under the
+Creative Commons Attribution 4.0 licence (https://creativecommons.org/licenses/by/4.0/). Thank you to the artists.
+
+Changes made for the game, to every model: maker badges, logos, lettering, number plates and most of the
+interior removed; simplified to a lighter mesh (and a lighter phone version); turned, centred and rescaled;
+materials replaced with the game's own (paint colour chosen in game). The models are provided as is, with no
+warranties, as the licence says.
+
+Racing cars (public/vendor/models/swim/cars):
+  civic    (FL5 Hatch): model by shindedhirendra780, https://sketchfab.com/shindedhirendra780, https://sketchfab.com/models/770a5c9b025449f59769d8cd27d915bb, CC BY 4.0
+  mustang  (Pony GT): model by Jesterz86, https://sketchfab.com/Jesterz86, https://sketchfab.com/models/dd4365565b6b4e0ea6c06a1ca4113e3e, CC BY 4.0
+  m3       (G80 Sedan): model by SLBofficial, https://sketchfab.com/SLBofficial, https://sketchfab.com/models/0550ac4d2a3846b3bb75370eb8ef84c1, CC BY 4.0
+  supra    (A80 Coupe): model by supercarmodels, https://sketchfab.com/supercarmodels, https://sketchfab.com/models/74db03c309124369b785dca48c937b71, CC BY 4.0
+  gtr      (R35 Coupe): model by Ciasny, https://sketchfab.com/Ciasny, https://sketchfab.com/models/51c912a8310c4e00a82ad7673d84228a, CC BY 4.0
+  hellcat  (Blower): model by Lambo_SC04, https://sketchfab.com/Lambo_SC04, https://sketchfab.com/models/38a1fd572beb433fa2d26d8c1070c8fa, CC BY 4.0
+  c8       (C8): model by Haris3D, https://sketchfab.com/Haris3D, https://sketchfab.com/models/790c40ccff6843eab0b7b4bd18421ff8, CC BY 4.0
+  gt3      (992 Track): model by sohyalebret, https://sketchfab.com/sohyalebret, https://sketchfab.com/models/39df8be273464c6980171f5758bfde97, CC BY 4.0
+  huracan  (Toro V10): model by supercarmodels, https://sketchfab.com/supercarmodels, https://sketchfab.com/models/4620514b837b45cbaafef0dc637ae2d8, CC BY 4.0
+  f8       (Rosso V8): model by NaodM, https://sketchfab.com/NaodM, https://sketchfab.com/models/723855e578c8459b84dbb2be0b38b719, CC BY 4.0
+
+Traffic (public/vendor/models/swim/traffic):
+  sedan   : model by armoredwave, https://sketchfab.com/armoredwave, https://sketchfab.com/models/36f95efb0585464cae43a25a3b3392e8, CC BY 4.0
+  hatch   : model by ardmation, https://sketchfab.com/ardmation, https://sketchfab.com/models/740500f10bc94e7a91c2290e445fcb39, CC BY 4.0
+  suv     : model by blarg1, https://sketchfab.com/blarg1, https://sketchfab.com/models/ba986f9f9c44426ca7d5e91831b2c98d, CC BY 4.0
+  van     : model by ddiaz-design, https://sketchfab.com/ddiaz-design, https://sketchfab.com/models/6a0be94fec824513bffe48df57d0b17a, CC BY 4.0
+  truck   : model by CristianRus, https://sketchfab.com/CristianRus, https://sketchfab.com/models/b0e8788b6b774fe3a18eda1895a2b8fe, CC BY 4.0
+  bus     : model by own.guest, https://sketchfab.com/own.guest, https://sketchfab.com/models/14fe03d792914d51b6c6250b393c44fd, CC BY 4.0

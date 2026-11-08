@@ -85,6 +85,18 @@
       { id: 'crimson', name: 'Crimson', rim: '#ff3a5a', core: '#3a0010', panel: '#a01830' },
       { id: 'gold',    name: 'Gold',    rim: '#ffd23a', core: '#4a3200', panel: '#c08a10' },
     ],
+    /* Swim: the seven Shop cars, real cars by their nicknames (no maker is named). Each is a whole car (its model
+       public/vendor/models/swim, its paint and engine shared/swimLooks.js); the race drives one only when the skin
+       pass proves it (server/index.js swimCarOf). Cheapest first. */
+    swim: [
+      { id: 'supra',   name: 'A80 Coupe' },
+      { id: 'hellcat', name: 'Blower' },
+      { id: 'gtr',     name: 'R35 Coupe' },
+      { id: 'c8',      name: 'C8' },
+      { id: 'gt3',     name: '992 Track' },
+      { id: 'f8',      name: 'Rosso V8' },
+      { id: 'huracan', name: 'Toro V10' },
+    ],
     tanks: [
       { id: 'jade',    name: 'Jade',     col: '#4fb886' },
       { id: 'sky',     name: 'Sky',      col: '#7fd4f5' },

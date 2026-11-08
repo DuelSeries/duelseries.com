@@ -16,7 +16,7 @@ function page() {
   const box = { console, Math, JSON };
   box.window = box; box.globalThis = box;
   vm.createContext(box);
-  for (const f of ['shared/shopPrices.js', 'shared/shopSkins.js', 'public/js/shooterArt.js', 'public/js/battleshipArt.js', 'public/js/v2/shopArt.js'])
+  for (const f of ['shared/shopPrices.js', 'shared/shopSkins.js', 'shared/swimLooks.js', 'public/js/shooterArt.js', 'public/js/battleshipArt.js', 'public/js/v2/shopArt.js'])
     vm.runInContext(fs.readFileSync(path.join(ROOT, f), 'utf8'), box, { filename: f });
   return box;
 }
@@ -50,17 +50,20 @@ function lobbyGames() {
 
 test('every game in the lobby that has been built has its own skins in the Shop', () => {
   const S = page().V2Shop;
-  const built = lobbyGames();
+  // Swim's name is its one constant (SwimSim.NAME), which the list's pattern skips: its Shop cars since 2026-11-08.
+  const built = lobbyGames().concat('swim');
   assert.ok(built.length >= 7, 'found the lobby games: ' + built.join(', '));
   for (const id of built) assert.ok(S.game(id), id + ' has a Shop section');
   assert.strictEqual(S.games.map(g => g.id).sort().join(), built.slice().sort().join(), 'and nothing else does');
 });
 
-test('8 skins per game, each with its own id and name', () => {
+test('8 skins per game (Swim: 7 Shop cars), each with its own id and name', () => {
   for (const g of page().V2Shop.games) {
-    assert.strictEqual(g.skins.length, 8, g.id + ' has 8 skins (Owen, 2026-10-15)');
-    assert.strictEqual(new Set(g.skins.map(k => k.id)).size, 8, g.id + ' ids are distinct');
-    assert.strictEqual(new Set(g.skins.map(k => k.name)).size, 8, g.id + ' names are distinct');
+    // Owen 2026-10-15: 8 a game. Swim 2026-11-08: ten cars, three free, the other seven only in the Shop.
+    const n = g.id === 'swim' ? 7 : 8;
+    assert.strictEqual(g.skins.length, n, g.id + ' has ' + n + ' skins');
+    assert.strictEqual(new Set(g.skins.map(k => k.id)).size, n, g.id + ' ids are distinct');
+    assert.strictEqual(new Set(g.skins.map(k => k.name)).size, n, g.id + ' names are distinct');
   }
 });
 

@@ -20,6 +20,7 @@ const HSHeads = require('../shared/hsHeads');      // Head Soccer's free heads, 
 const rtLooks = require('../shared/rtLooks');             // Rooftop's free looks, the ids its rt:queue may ask for
 const { BattleshipLobby } = require('./BattleshipLobby'); // the two-grid duel
 const { SwimLobby } = require('./swim/SwimLobby');       // the traffic race (Swim, shared/swimSim.js)
+const SwimLooks = require('../shared/swimLooks');         // Swim's ten cars: which one a join may drive (allowed)
 const SWIM_NAME = require('../shared/swimSim').NAME;     // its player-facing name, kept in one place
 const SWIM_VERSION = require('../shared/swimSim').VERSION; // the step's version a page must run to be seated
 const chatGuard = require('./chatGuard').shared;           // every game's chat line goes through it
@@ -1487,6 +1488,13 @@ const skinShop = createSkinShop({
   onPaid: ({ wallet, item, game, usdc }) => analytics.captureEarning({ source: 'cosmetic', amountUsdc: usdc, game, lobbyType: item, wallet }),
 });
 const skinPasses = sharedSkinPass();
+/* Swim's car for a join (sw:queue, se:join): one of the three free cars as asked, a Shop car (shared/swimLooks.js) only
+   when the lobby's skin pass proves the wallet owns swim:<car> (the same check every game makes before wearing a paid
+   skin), else the default free car. Strings only, decided once here at the socket; the lobby and the room only carry it. */
+function swimCarOf(car, skinPass) {
+  const id = typeof car === 'string' ? car.slice(0, 24) : null;
+  return SwimLooks.allowed(id, skinPasses.wornFrom('swim', { shop: id, skinPass: typeof skinPass === 'string' ? skinPass : null }));
+}
 setInterval(() => { skinShop.sweep().catch(() => {}); }, 60 * 1000).unref();
 const skinIntentLimiter = rateLimit({ windowMs: 60 * 1000, max: 12, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Slow down.' } });
 const skinBuyLimiter = rateLimit({ windowMs: 60 * 1000, max: 6, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Slow down.' } });
@@ -7637,7 +7645,7 @@ io.on('connection', (socket) => {
   /* ── the Swim Race event (server/swim/SwimEvent.js) ─────────────────────────
      Free, so no entry token: a name, a car look and the step's version. The server runs every car and decides
      every knockout and the winner; a page only ever sets its own car's wheel and pedal (SwimEvent.input). */
-  on('se:join', ({ name, wallet, car, v } = {}) => {
+  on('se:join', ({ name, wallet, car, skinPass, v } = {}) => {
     if (!socketRL(socket, 'sejoin', 1500)) return;
     if (v !== SWIM_VERSION) { socket.emit('se:refused', { why: 'the game was updated, reload the page' }); return; }
     if (ops.get().maintenance) { socket.emit('se:refused', { why: 'the game is updating, back in a minute' }); return; }
@@ -7654,7 +7662,7 @@ io.on('connection', (socket) => {
       }
     }
     const w = typeof wallet === 'string' && wallet.length >= 32 && wallet.length <= 64 ? wallet : null;
-    const look = { car: typeof car === 'string' ? car.slice(0, 24) : null };
+    const look = { car: swimCarOf(car, skinPass) };   // a Shop car only when the pass proves it (swimCarOf)
     /* A capacity-test seat (clientAddr.isLoadTestAddr, as the battle royale's) races but never wins or places. */
     const lt = isLoadTestAddr(socketClientIp(socket));
     const r = swimEvent.join(socket, sanitizeName(name), w, look, lt);
@@ -7688,7 +7696,7 @@ io.on('connection', (socket) => {
     socket.emit('se:state', swimEvent.publicState(true));
   });
 
-  on('sw:queue', ({ name, wallet, stake, entryToken, resume, v, car, botOk } = {}) => {
+  on('sw:queue', ({ name, wallet, stake, entryToken, resume, v, car, skinPass, botOk } = {}) => {
     if (!socketRL(socket, 'swq', 1000)) return;
     if (ops.get().maintenance) { socket.emit('maintenance', ops.get()); return; }
     /* A page from before a deploy runs an older step: turned away before anything is spent (an unused token refunds itself). */
@@ -7731,7 +7739,7 @@ io.on('connection', (socket) => {
       try {
         took = swimLobby.enqueue(socket, sanitizeName(name),
           worth > 0 ? payTo : (strOr(wallet, null) || socket._walletAddress || null), rung, worth, undefined, paid, null,
-          { car }, { botOk: botOk === true });   // shown "Bot opponent waiting" before paying (server/duelBots.js)   // the car, a look only, cleaned by SwimLooks.clean in the lobby and the room (a colour is ignored)
+          { car: swimCarOf(car, skinPass) }, { botOk: botOk === true });   // shown "Bot opponent waiting" before paying (server/duelBots.js)   // the car, a look only: a Shop car only with a pass that proves it (swimCarOf), cleaned again by SwimLooks.clean in the lobby and the room
       } catch (e) {
         console.error('[SW] queue threw:', e && e.stack ? e.stack : e);
         took = swimLobby.holds(socket.id);

@@ -13,8 +13,24 @@ const canvas = document.getElementById('c');
 const opts = { adaptive: q.get('adaptive') !== '0' };
 if (q.has('maxdpr')) opts.maxPixelRatio = +q.get('maxdpr');
 if (q.has('aa')) opts.antialias = q.get('aa') === '1';
+if (q.has('gfx')) opts.quality = q.get('gfx');
+if (q.has('look')) { try { opts.look = JSON.parse(q.get('look')); } catch (_) { /* ignore */ } }
+const STOP = num('stopAt', -1);
+/* cars=supercar,muscle: each seat's car in its own paint (shared/swimLooks.js), as a real race sends them */
+const CARS_Q = q.get('cars');
+/* cam=x,y,z[,fov]: a fixed camera from the followed car (pictures of one car), e.g. -4.2,1.5,-5.4,34 */
+const CAM_Q = q.get('cam');           // freeze the clock here (a picture of one exact moment)
 const scene = createScene(canvas, opts);
+/* The realistic look loads its car, sky and passes after the first frame: the clock waits for it (so a picture
+   with it and one without are the same moment) and the measurement starts 1.5 s after it is in. */
+let readyAt = -1;
+scene.ready.then(() => { readyAt = performance.now(); });
 addEventListener('resize', () => scene.resize());
+if (CAM_Q) { const c = CAM_Q.split(',').map(Number); scene.setCamera({ x: c[0], y: c[1], z: c[2], fov: c[3] || 34, ly: 0.5 }); }
+if (CARS_Q && window.DS_SWIM_LOOKS) {
+  const L = window.DS_SWIM_LOOKS;
+  scene.setLooks(CARS_Q.split(',').map((id) => ({ car: L.carOf(id), paint: L.paintOf(id) })));
+}
 const gl = scene.renderer.getContext();
 const dbg = gl.getExtension('WEBGL_debug_renderer_info');
 const GPU = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : 'n/a';
@@ -94,7 +110,7 @@ function doCrash() { if (crashed) return; crashed = true; me.alive = false; scen
 
 /* ── measurement: rAF intervals (with sync=1 each includes the GPU finishing) ── */
 const RING = 4096, deltas = new Float32Array(RING), cpu = new Float32Array(RING);
-let nd = 0, frames = 0, measureFrom = -1, t0 = performance.now(), lastNow = t0;
+let nd = 0, frames = 0, simFrames = 0, measureFrom = -1, t0 = performance.now(), lastNow = t0;
 const px = new Uint8Array(4);
 const view = { follow: { z: 0, x: 0, v: 0, vx: 0, alive: true, brake: false }, other: { z: 0, x: 0, v: 0, vx: 0, alive: true, brake: false } };
 window.__swimPerf = { done: false };
@@ -104,17 +120,18 @@ function stats() {
   const inf = scene.info();
   return { fps: +(1000 / mean).toFixed(1), frameMs: { mean: +mean.toFixed(2), p50: pick(a, 0.5), p95: pick(a, 0.95), p99: pick(a, 0.99), max: pick(a, 1) },
     jsMs: { p50: pick(b, 0.5), p95: pick(b, 0.95) }, calls: inf.calls, triangles: inf.triangles, dpr: inf.dpr, programs: inf.programs,
-    canvas: canvas.width + 'x' + canvas.height, gpu: GPU, frames: n, traffic: traffic.size };
+    canvas: canvas.width + 'x' + canvas.height, gpu: GPU, frames: n, traffic: traffic.size, quality: inf.quality, hifi: inf.hifi, post: inf.post };
 }
 
 function loop(now) {
+  if (STOP >= 0 && readyAt > 0 && raceT >= STOP - 1e-6) { lastNow = now; requestAnimationFrame(loop); return; }   // frozen: __snap draws the one frame
   const dtReal = (now - lastNow) / 1000; lastNow = now;
-  const dt = FIXED ? 1 / 60 : Math.min(0.1, dtReal);
+  const dt = readyAt < 0 || (STOP >= 0 && raceT >= STOP - 1e-6) ? 0 : FIXED ? 1 / 60 : Math.min(0.1, dtReal);
   const c0 = performance.now();
   raceT += dt; tick += dt * 60;
   drive(me, raceT, tick, dt); drive(op, raceT, tick, dt);
   if (me.alive) op.z = me.z + 11 + 9 * Math.sin(raceT * 0.23);   // keep the other car nearby, mostly just ahead
-  if (frames % 20 === 0) { fill(tick, Math.max(me.z, op.z), raceT); traffic.prune(Math.min(me.z, op.z) - 60, Math.floor(tick)); }
+  if (dt > 0 && simFrames++ % 20 === 0) { fill(tick, Math.max(me.z, op.z), raceT); traffic.prune(Math.min(me.z, op.z) - 60, Math.floor(tick)); }
   if (DEMO && raceT - num('t', 20) > nextNear) { nextNear += 2.5; scene.nearMiss(); }
   if (CRASH_AT >= 0 && !crashed && raceT - num('t', 20) > CRASH_AT) doCrash();
   const a = followSide === 0 ? me : op, b = followSide === 0 ? op : me;
@@ -128,7 +145,7 @@ function loop(now) {
   const c1 = performance.now();
   frames++;
   const el = (now - t0) / 1000;
-  if (measureFrom < 0 && el > 1.5) measureFrom = now;
+  if (measureFrom < 0 && el > 1.5 && readyAt > 0 && now - readyAt > 1500) measureFrom = now;
   if (measureFrom >= 0 && !window.__swimPerf.done) {
     deltas[nd % RING] = dtReal * 1000; cpu[nd % RING] = c1 - c0; nd++;
     if (SECS > 0 && now - measureFrom > SECS * 1000) Object.assign(window.__swimPerf, stats(), { done: true });
@@ -165,5 +182,5 @@ window.__snap = (w, levels) => new Promise((res) => requestAnimationFrame(() => 
     res(c.toDataURL('image/png'));
   });
 }));
-window.__dev = { me, op, scene, get raceT() { return raceT; } };
+window.__dev = { me, op, scene, get raceT() { return raceT; }, get ready() { return readyAt > 0; } };
 requestAnimationFrame(loop);

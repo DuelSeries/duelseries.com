@@ -123,8 +123,8 @@ html, body {
 @keyframes swflash { 0% { opacity: 1; } 100% { opacity: 0; } }
 
 /* ── phone pedals ────────────────────────────────────────────────────────── */
-/* Owen 2026-11-04: Gas bottom right, Brake bottom left, the same size, a big thumb each. The left thumb steers:
-   drag anywhere on the left, the Brake included (held, it brakes and steers at once). */
+/* Owen 2026-11-08: both pedals back on the right, as before 2026-11-04: the tall Gas in the corner, the smaller Brake
+   just left of it. The left thumb steers: drag anywhere on the left. */
 #pads { position: fixed; inset: 0; z-index: 8; pointer-events: none; }
 #pads[hidden] { display: none; }
 #steerZone { position: absolute; left: 0; top: 70px; bottom: 0; width: 56%; pointer-events: auto; }
@@ -135,18 +135,16 @@ html, body {
 #steerKnob.on { display: block; }
 #pads button {
   position: absolute; bottom: calc(30px + env(safe-area-inset-bottom)); pointer-events: auto;   /* 30: over the ping readout */
-  width: 104px; height: 104px; font-family: var(--f); font-size: 16px; font-weight: 700; color: var(--tx); cursor: pointer;
-  border-radius: 22px; border: 0; background: rgba(0, 0, 0, 0.6); box-shadow: inset 0 0 0 1px #5a4630;
+  font-family: var(--f); font-weight: 700; color: var(--tx); cursor: pointer;
+  border-radius: 18px; border: 0; background: rgba(0, 0, 0, 0.6); box-shadow: inset 0 0 0 1px #5a4630;
   -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); touch-action: none;
 }
-#gas { right: calc(16px + env(safe-area-inset-right)); }
-#brake { left: calc(16px + env(safe-area-inset-left)); }
-/* A phone held sideways: a little smaller, the road is short. */
-@media (max-height: 500px) { #pads button { width: 96px; height: 96px; } }
+#gas { right: calc(18px + env(safe-area-inset-right)); width: 92px; height: 120px; font-size: 16px; }
+#brake { right: calc(122px + env(safe-area-inset-right)); width: 78px; height: 78px; font-size: 14px; }
 #pads button.on { background: rgba(244, 241, 234, 0.24); box-shadow: inset 0 0 0 2px #f4f1ea; }
 #brake.on { background: rgba(239, 116, 97, 0.3); box-shadow: inset 0 0 0 2px #ef7461; }
-/* On a phone held sideways (or a tablet) the speed sits left of the Gas, clear of both thumbs and the car. */
-body.touch #dash { left: auto; right: calc(136px + env(safe-area-inset-right)); bottom: calc(30px + env(safe-area-inset-bottom)); transform: none; }
+/* On a phone held sideways (or a tablet) the speed sits left of both pedals, clear of both thumbs. */
+body.touch #dash { left: auto; right: calc(222px + env(safe-area-inset-right)); bottom: calc(30px + env(safe-area-inset-bottom)); transform: none; }
 body.touch #close { bottom: calc(150px + env(safe-area-inset-bottom)); }
 @media (max-width: 600px) {
   #top { gap: 8px; padding-left: 12px; padding-right: 12px; }
@@ -188,6 +186,12 @@ body.pre #board, body.pre #feed, body.pre #top, body.pre #warn { display: none !
   background: rgba(6, 5, 4, 0.72); backdrop-filter: blur(6px);
 }
 #wait[hidden], #nogl[hidden] { display: none; }
+/* the supercar model's CC-BY credit (swimHiFi.js), small at the foot of the waiting screen */
+.carCredit {
+  position: absolute; left: 0; right: 0; bottom: max(10px, env(safe-area-inset-bottom)); text-align: center;
+  font-size: 11px; color: var(--tx3); opacity: 0.7; text-decoration: none;
+}
+.carCredit:hover { opacity: 1; text-decoration: underline; }
 .waitSpin[hidden] { display: none; }
 .waitCard {
   width: 100%; max-width: 380px; text-align: center;

@@ -97,6 +97,17 @@
       crimson:   4,
       gold:      5,
     },
+    // Swim: the seven Shop cars (Owen 2026-11-08: ten real cars, three free; shared/swimLooks.js). Proposed on the
+    // other games' spread, Owen to adjust.
+    swim: {
+      supra:     1,
+      hellcat:   2,
+      gtr:       2,
+      c8:        3,
+      gt3:       3,
+      f8:        4,
+      huracan:   5,
+    },
     // Bowmasters
     tanks: {
       jade:      1,

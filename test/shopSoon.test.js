@@ -28,17 +28,19 @@ test('the game sheet has no 1 v 1 or Big room chip, for any game', () => {
   assert.ok(html.includes("['duels','1 v 1','1 v 1']"), 'the Games filter still sorts by kind');
 });
 
-test('one switch turns Customize off, and it is off', () => {
+/* Owen 2026-11-08: "why is the shop crossed out? ... Make it so I can change my skin there." The one switch is back on,
+   and every place that offered Customize now says Shop and opens the chooser (free looks, then the paid skins to buy
+   and wear). The off branch stays behind the switch. */
+test('one switch turns the Shop on, and it is on', () => {
   const defs = html.match(/const CUSTOMIZE_ON=(true|false);/g) || [];
-  assert.deepStrictEqual(defs, ['const CUSTOMIZE_ON=false;'], 'declared once, off');
-  // Nothing opens the chooser or the game picker while it is off, whoever asks.
+  assert.deepStrictEqual(defs, ['const CUSTOMIZE_ON=true;'], 'declared once, on');
+  // Behind the switch: nothing would open the chooser or the game picker were it off.
   assert.match(fnBody(html, 'function openLook(){'), /^function openLook\(\)\{\n  if\(!CUSTOMIZE_ON\)return;/);
   assert.match(fnBody(html, 'function setLooks(){'), /^function setLooks\(\)\{\n  if\(!CUSTOMIZE_ON\)return;/);
 });
 
-test('the bar under Play says Shop, Coming soon, struck through and shut', () => {
-  // The old bar is untouched in the markup; the switch relabels and shuts it at boot.
-  assert.ok(html.includes('<span class="lkt"><b>Customize</b></span>'), 'the old label is still there for the switch');
+test('the bar under Play says Shop and opens; off, it would say Shop, Coming soon, struck through and shut', () => {
+  assert.ok(html.includes('<span class="lkt"><b>Shop</b></span>'), 'the bar is the Shop');
   assert.ok(html.includes('<span class="lksoon ds-chip ds-chip-soon" hidden>Coming soon</span>'), 'the tag, hidden until needed');
   const boot = html.slice(html.indexOf('if(!CUSTOMIZE_ON){\n  const row=document.getElementById(\'lookrow\');'), html.indexOf('function openLook(){'));
   assert.ok(boot.length > 0, 'the boot step is there');
@@ -54,17 +56,17 @@ test('the bar under Play says Shop, Coming soon, struck through and shut', () =>
     assert.ok(html.includes(rule), 'css: ' + rule);
 });
 
-test('the sidebar and Settings say Shop, Coming soon, and keep the old Customize row behind the switch', () => {
+test('the sidebar and Settings say Shop and open it; the shut Coming soon rows stay behind the switch', () => {
   const nav = fnBody(html, 'function drawNav(){');
-  assert.ok(nav.includes('(CUSTOMIZE_ON?`<button class="sb-it sbx" type="button" onclick="setLooks()">${SBI(SB_P.look)}<span>Customize</span></button>`'),
-    'the old sidebar row, when the switch is on');
+  assert.ok(nav.includes('(CUSTOMIZE_ON?`<button class="sb-it sbx" type="button" onclick="setLooks()">${SBI(SB_P.shop)}<span>Shop</span></button>`'),
+    'the Shop row, with the switch on');
   assert.ok(nav.includes('`<button class="sb-it sbx sb-soon sb-off" type="button" disabled aria-label="Shop, coming soon">${SBI(SB_P.shop)}<span>Shop</span><span class="sb-pill">Coming soon</span></button>`'),
     'a shut Shop row with its tag, when off');
   assert.match(html, /\.sb-off,\.sb-off:hover\{cursor:not-allowed;color:var\(--tx3\);background:none\}/, 'no hover');
   assert.match(html, /\.sb-off>span:not\(\.sb-pill\)\{text-decoration:line-through\}/, 'struck through');
 
   const acct = fnBody(html, 'function drawAcct(){');
-  assert.ok(acct.includes('const look=CUSTOMIZE_ON?`<button type="button" class="ds-row set-link" onclick="setLooks()">'), 'the old Settings row, when on');
+  assert.ok(acct.includes('const look=CUSTOMIZE_ON?`<button type="button" class="ds-row set-link" onclick="setLooks()"><span class="ds-row-ic">${SET_IC.shop}</span><span class="ds-row-main"><b>Shop</b></span>'), 'the Settings row, Shop, when on');
   const off = acct.slice(acct.indexOf(':`<div class="ds-row set-soon"'));
   assert.ok(off.startsWith(':`<div class="ds-row set-soon" aria-disabled="true">'), 'a plain row when off, nothing to press');
   assert.ok(!/onclick|<button/.test(off.slice(0, off.indexOf('</div>`;'))), 'with no handler in it');

@@ -1,0 +1,739 @@
+{
+ "civic": {
+  "src": "civic.glb",
+  "front": "-x",
+  "len": 4.3,
+  "drop": [
+   "logo",
+   "badge",
+   "emblem",
+   "^Object_(14|46|48|54|55|57|61|62|64)$"
+  ],
+  "roles": {
+   "paint": "^Material.001$",
+   "glass": "^Material.002$",
+   "accent": "^black_rubber$",
+   "tail": "^Material.003$",
+   "chrome": "^Material.004$|^exhaust_color$",
+   "tyre": "^tyre_",
+   "rim": "^Material$"
+  },
+  "hi": {
+   "ratio": 0.4,
+   "paintRatio": 0.35,
+   "error": 0.0008,
+   "tex": 1024,
+   "detailRatio": 0.25,
+   "detailError": 0.02
+  },
+  "lo": {
+   "ratio": 0.15,
+   "paintRatio": 0.1,
+   "error": 0.003,
+   "tex": 512,
+   "detailRatio": 0.1,
+   "detailError": 0.05
+  },
+  "credit": "\"Honda Civic Type-R\" by shindedhirendra780, CC-BY 4.0, https://sketchfab.com/3d-models/honda-civic-type-r-770a5c9b025449f59769d8cd27d915bb",
+  "islands": [
+   {
+    "mat": ".",
+    "max": 0.15,
+    "lat": 0.1,
+    "end": 1.85,
+    "y": [
+     0.35,
+     1.1
+    ]
+   }
+  ]
+ },
+ "mustang": {
+  "src": "mustang.glb",
+  "front": "-z",
+  "len": 4.3,
+  "drop": [
+   "seeklogo",
+   "^Text",
+   "^Circle\\.001",
+   "^Plane\\.004",
+   "logo",
+   "badge",
+   "emblem"
+  ],
+  "roles": {
+   "paint": "^CarPaint2$",
+   "glass": "^WindowGlass$",
+   "tail": "^Material\\.003$",
+   "chrome": "^Chrome$|^Silver$",
+   "rim": "^Weels$",
+   "accent": "^Black_Matt$|^Black$"
+  },
+  "detail": [
+   "other",
+   "rim",
+   "tyre"
+  ],
+  "hi": {
+   "ratio": 0.4,
+   "paintRatio": 0.35,
+   "error": 0.0008,
+   "tex": 1024,
+   "detailRatio": 0.25,
+   "detailError": 0.02
+  },
+  "lo": {
+   "ratio": 0.15,
+   "paintRatio": 0.1,
+   "error": 0.003,
+   "tex": 512,
+   "detailRatio": 0.1,
+   "detailError": 0.05
+  },
+  "credit": "\"Mustang_GT 2018\" by Jesterz86, CC-BY 4.0, https://sketchfab.com/3d-models/mustang-gt-2018-dd4365565b6b4e0ea6c06a1ca4113e3e"
+ },
+ "gtr": {
+  "src": "gtr.glb",
+  "front": "-x",
+  "len": 4.3,
+  "drop": [
+   "logo",
+   "Nissan",
+   "Plate",
+   "License",
+   "badge",
+   "emblem"
+  ],
+  "roles": {
+   "paint": "^CarPaint$",
+   "glass": "^Glass$",
+   "tail": "^Red_Light$",
+   "chrome": "^Mirror$",
+   "rim": "^Metal$",
+   "accent": "^Plastic$|^Reflective_Plastic$|^Carbon_Fiber$"
+  },
+  "hi": {
+   "ratio": 0.4,
+   "paintRatio": 0.35,
+   "error": 0.0008,
+   "tex": 1024,
+   "detailRatio": 0.25,
+   "detailError": 0.02
+  },
+  "lo": {
+   "ratio": 0.15,
+   "paintRatio": 0.1,
+   "error": 0.003,
+   "tex": 512,
+   "detailRatio": 0.1,
+   "detailError": 0.05
+  },
+  "credit": "\"Nissan GTR R35\" by Ciasny, CC-BY 4.0, https://sketchfab.com/3d-models/nissan-gtr-r35-51c912a8310c4e00a82ad7673d84228a",
+  "sloppy": [
+   "other"
+  ]
+ },
+ "hellcat": {
+  "src": "hellcat.glb",
+  "front": "+z",
+  "len": 4.3,
+  "drop": [
+   "logo",
+   "badge",
+   "emblem",
+   "plate"
+  ],
+  "roles": {
+   "paint": "^Carosserie$|^Material\\.009$|^Material\\.012$",
+   "glass": "^Glace$",
+   "tail": "^Material\\.006$",
+   "chrome": "^Chrom$|^Miror$",
+   "rim": "^RIMS_BLACK$|^visse",
+   "tyre": "^Tire$",
+   "accent": "^Material\\.002$|^Black|^Carbon$"
+  },
+  "hi": {
+   "ratio": 0.4,
+   "paintRatio": 0.35,
+   "error": 0.0008,
+   "tex": 1024,
+   "detailRatio": 0.25,
+   "detailError": 0.02
+  },
+  "lo": {
+   "ratio": 0.15,
+   "paintRatio": 0.1,
+   "error": 0.003,
+   "tex": 512,
+   "detailRatio": 0.1,
+   "detailError": 0.05
+  },
+  "credit": "\"( FREE ) Dodge Challenger SRT\" by Lambo_SC04, CC-BY 4.0, https://sketchfab.com/3d-models/free-dodge-challenger-srt-38a1fd572beb433fa2d26d8c1070c8fa"
+ },
+ "c8": {
+  "src": "c8.glb",
+  "front": "-z",
+  "len": 4.3,
+  "drop": [
+   "^Badges$",
+   "logo",
+   "badge",
+   "emblem",
+   "plate"
+  ],
+  "roles": {
+   "paint": "^Body_Color$",
+   "glass": "^Other_Glasses|[Ww]indshield",
+   "tail": "^Taillights$",
+   "chrome": "^Chrome$",
+   "rim": "^material$|^Brake_Disc$",
+   "tyre": "^Tire_",
+   "accent": "^Black$|^Plastic$|^Painted_Black$|^Carbon_Fiber$"
+  },
+  "hi": {
+   "ratio": 0.4,
+   "paintRatio": 0.35,
+   "error": 0.0008,
+   "tex": 1024,
+   "detailRatio": 0.25,
+   "detailError": 0.02
+  },
+  "lo": {
+   "ratio": 0.15,
+   "paintRatio": 0.1,
+   "error": 0.003,
+   "tex": 512,
+   "detailRatio": 0.1,
+   "detailError": 0.05
+  },
+  "credit": "\"2019 Chevrolet Corvette C8 Stingray\" by Haris3D, CC-BY 4.0, https://sketchfab.com/3d-models/2019-chevrolet-corvette-c8-stingray-790c40ccff6843eab0b7b4bd18421ff8",
+  "islands": [
+   {
+    "mat": ".",
+    "max": 0.15,
+    "lat": 0.1,
+    "end": 1.85,
+    "y": [
+     0.35,
+     1.1
+    ]
+   }
+  ]
+ },
+ "f8": {
+  "src": "f8-488.glb",
+  "front": "+z",
+  "len": 4.3,
+  "drop": [
+   "^material_0$",
+   "^logo$",
+   "badge",
+   "emblem"
+  ],
+  "roles": {
+   "paint": "^paint$",
+   "glass": "^glass",
+   "tail": "^red_glass$",
+   "chrome": "^mirror$",
+   "rim": "^metal$",
+   "accent": "^black$"
+  },
+  "detail": [
+   "other",
+   "rim",
+   "tyre",
+   "accent"
+  ],
+  "sloppy": [
+   "other",
+   "accent",
+   "rim"
+  ],
+  "hi": {
+   "ratio": 0.4,
+   "paintRatio": 0.12,
+   "error": 0.0008,
+   "tex": 1024,
+   "detailRatio": 0.15,
+   "detailError": 0.02
+  },
+  "lo": {
+   "ratio": 0.15,
+   "paintRatio": 0.04,
+   "error": 0.003,
+   "tex": 512,
+   "detailRatio": 0.05,
+   "detailError": 0.05
+  },
+  "credit": "\"ferrari 488\" by NaodM, CC-BY 4.0, https://sketchfab.com/3d-models/ferrari-488-723855e578c8459b84dbb2be0b38b719",
+  "islands": [
+   {
+    "mat": "^metal$",
+    "max": 0.1,
+    "lat": 0.06,
+    "end": 1.95,
+    "y": [
+     0.6,
+     0.9
+    ]
+   }
+  ]
+ },
+ "m3": {
+  "src": "m3.glb",
+  "front": "+z",
+  "len": 4.3,
+  "drop": [
+   "logo",
+   "badge",
+   "emblem",
+   "plate",
+   "^Material.010$"
+  ],
+  "roles": {
+   "paint": "^Material\\.001$",
+   "glass": "^Material\\.0(26|18)$",
+   "tail": "^Material\\.0(22|24)$",
+   "chrome": "^Material\\.003$",
+   "accent": "^Material\\.012$|^Material\\.006$"
+  },
+  "sloppy": [
+   "other"
+  ],
+  "hi": {
+   "ratio": 0.25,
+   "paintRatio": 0.25,
+   "error": 0.002,
+   "tex": 1024,
+   "detailRatio": 0.1,
+   "detailError": 0.02
+  },
+  "lo": {
+   "ratio": 0.07,
+   "paintRatio": 0.07,
+   "error": 0.006,
+   "tex": 512,
+   "detailRatio": 0.03,
+   "detailError": 0.05
+  },
+  "credit": "\"BMW M3 Competition G80\" by SLBofficial, CC-BY 4.0, https://sketchfab.com/3d-models/bmw-m3-competition-g80-0550ac4d2a3846b3bb75370eb8ef84c1",
+  "islands": [
+   {
+    "mat": "^Material.0(11|15|16|19)$",
+    "max": 0.15,
+    "lat": 0.2,
+    "end": 1.6
+   },
+   {
+    "mat": "^Material.003$",
+    "max": 0.05,
+    "lat": 0.25,
+    "end": 1.9
+   },
+   {
+    "mat": "^Material.0(06|20)$",
+    "max": 0.1,
+    "lat": 0.06,
+    "end": 2,
+    "y": [
+     0.75,
+     0.95
+    ]
+   },
+   {
+    "mat": "^Material.0(06|15|20)$",
+    "max": 0.1,
+    "lat": 0.06,
+    "end": 2,
+    "y": [
+     0.55,
+     0.75
+    ]
+   }
+  ]
+ },
+ "huracan": {
+  "src": "huracan.glb",
+  "front": "-x",
+  "len": 4.3,
+  "drop": [
+   "BackLogo",
+   "BadgeMat",
+   "Plate",
+   "HeadrestLogo",
+   "logo",
+   "badge",
+   "emblem"
+  ],
+  "roles": {
+   "paint": "^CarPaint03$",
+   "glass": "^GlassGoogle",
+   "chrome": "^SilverMetalShdr$",
+   "rim": "^Wheel$|^BrakeShdr$",
+   "accent": "^BlackShader$"
+  },
+  "sloppy": [
+   "other"
+  ],
+  "hi": {
+   "ratio": 0.4,
+   "paintRatio": 0.3,
+   "error": 0.0008,
+   "tex": 1024,
+   "detailRatio": 0.2,
+   "detailError": 0.02
+  },
+  "lo": {
+   "ratio": 0.15,
+   "paintRatio": 0.08,
+   "error": 0.003,
+   "tex": 512,
+   "detailRatio": 0.08,
+   "detailError": 0.05
+  },
+  "credit": "\"2020 Lamborghini Huracán EVO Fluo Capsule\" by supercarmodels, CC-BY 4.0, https://sketchfab.com/3d-models/2020-lamborghini-huracan-evo-fluo-capsule-4620514b837b45cbaafef0dc637ae2d8"
+ },
+ "gt3": {
+  "src": "gt3c.glb",
+  "front": "+z",
+  "len": 4.3,
+  "drop": [
+   "logo",
+   "badge",
+   "emblem",
+   "plate",
+   "licen",
+   "^interior",
+   "^gold",
+   "^red_0[14]_",
+   "^black_matt_01(49|78|80)_",
+   "^white_0(3[0-2]|3[4-9]|4[0-2])_"
+  ],
+  "roles": {
+   "paint": "^body$",
+   "glass": "^glass$|^d_glass$",
+   "tail": "^r_lights$|^r_glass$|^d_red$|^material$",
+   "chrome": "^chrome",
+   "rim": "^silver_d$|^brakes",
+   "tyre": "^tire",
+   "accent": "^black_(matt|shiny)$|^black$|^grid$",
+   "head": "^lights_glass$|^lights$"
+  },
+  "sloppy": [
+   "other",
+   "accent",
+   "rim",
+   "tyre",
+   "chrome"
+  ],
+  "hi": {
+   "ratio": 0.1,
+   "paintRatio": 0.12,
+   "error": 0.002,
+   "tex": 1024,
+   "detailRatio": 0.04,
+   "detailError": 0.03,
+   "paintError": 0.003
+  },
+  "lo": {
+   "ratio": 0.03,
+   "paintRatio": 0.04,
+   "error": 0.006,
+   "tex": 512,
+   "detailRatio": 0.012,
+   "detailError": 0.06,
+   "paintError": 0.008
+  },
+  "credit": "\"Porsche 911 GT3 2022\" by sohyalebret, CC-BY 4.0, https://sketchfab.com/3d-models/porsche-911-gt3-2022-39df8be273464c6980171f5758bfde97"
+ },
+ "supra": {
+  "src": "supra4.glb",
+  "front": "-z",
+  "len": 4.3,
+  "drop": [
+   "^Licence",
+   "logo",
+   "badge",
+   "emblem",
+   "plate"
+  ],
+  "roles": {
+   "paint": "^Paint$",
+   "glass": "^Windows$",
+   "tail": "^Red_Lights$",
+   "head": "^White_Lights$",
+   "chrome": "^Chrome$",
+   "rim": "^Rims$|^Disk$|^Caliper$",
+   "tyre": "^Tire$",
+   "accent": "^Black$"
+  },
+  "sloppy": [
+   "other"
+  ],
+  "hi": {
+   "ratio": 0.6,
+   "paintRatio": 0.8,
+   "error": 0.0008,
+   "tex": 1024,
+   "detailRatio": 0.3,
+   "detailError": 0.02
+  },
+  "lo": {
+   "ratio": 0.3,
+   "paintRatio": 0.35,
+   "error": 0.003,
+   "tex": 512,
+   "detailRatio": 0.12,
+   "detailError": 0.05
+  },
+  "credit": "\"1998 Toyota Supra GT\" by supercarmodels, CC-BY 4.0, https://sketchfab.com/3d-models/74db03c309124369b785dca48c937b71"
+ },
+ "sedan": {
+  "traffic": true,
+  "sloppy": [
+   "other",
+   "accent",
+   "rim",
+   "tyre",
+   "chrome"
+  ],
+  "hi": {
+   "ratio": 0.1,
+   "paintRatio": 0.2,
+   "error": 0.004,
+   "detailRatio": 0.05,
+   "detailError": 0.02,
+   "maxPaint": 2600,
+   "maxRole": 700,
+   "sloppyAbove": 40
+  },
+  "src": "t-sedan.glb",
+  "front": "+z",
+  "len": 4.5,
+  "drop": [
+   "^(leather|M_dashboard|M_Steering|fabric_high|seat_fabric|car_plastic_grainy_gray|belts|carpet|speaker|screen)",
+   "^Material.0(16|19|20|26)$",
+   "logo",
+   "badge",
+   "emblem",
+   "plate",
+   "interior|furniture|dashboard|steering"
+  ],
+  "roles": {
+   "paint": "^main_paint.001$",
+   "glass": "^Material.004$|^klosz$",
+   "tail": "^Material.005$",
+   "chrome": "^miror$|^Material.003$",
+   "tyre": "^tyre|^Material.011$",
+   "accent": "^plastic1$|^dark_plastic|^invisible_dark$|^Material.01?3$|^Material.008$",
+   "rim": "^main_paint$"
+  },
+  "credit": "\"2014 Toyota Corolla E180 EU (with interior)\" by Armored Wave, CC-BY 4.0, https://sketchfab.com/3d-models/2014-toyota-corolla-e180-eu-with-interior-36f95efb0585464cae43a25a3b3392e8"
+ },
+ "van": {
+  "traffic": true,
+  "sloppy": [
+   "other",
+   "accent",
+   "rim",
+   "tyre",
+   "chrome",
+   "paint",
+   "head",
+   "glass",
+   "tail"
+  ],
+  "hi": {
+   "ratio": 0.1,
+   "paintRatio": 0.2,
+   "error": 0.004,
+   "detailRatio": 0.05,
+   "detailError": 0.02,
+   "maxPaint": 1800,
+   "maxRole": 400,
+   "sloppyAbove": 40,
+   "sloppyError": 0.06
+  },
+  "src": "t-pickup.glb",
+  "front": "+z",
+  "len": 5.3,
+  "drop": [
+   "^B4W_(leather|fabric|selfillum|woodshiny|carbonrough)",
+   "^B4W_plasticdiffuse__(brown|lightgrey)$",
+   "logo",
+   "badge",
+   "emblem",
+   "plate"
+  ],
+  "roles": {
+   "paint": "^B4W_carpaint$",
+   "glass": "^B4W_glass",
+   "tail": "^RED_GLAS$",
+   "head": "^B4W_lightcold$",
+   "chrome": "^B4W_chrome$|^B4W_aluminiumshiny$",
+   "tyre": "^B4W_rubber$|^B4W_tyres",
+   "rim": "^B4W_aluminiumbrushed$|^B4W_brushedmetal",
+   "accent": "^B4W_plasticdiffuse$|^B4W_plasticshiny$|^B4W_blackpaint$"
+  },
+  "credit": "\"2020 Chevrolet Silverado 1500 RST\" by Ddiaz Design, CC-BY 4.0, https://sketchfab.com/3d-models/2020-chevrolet-silverado-1500-rst-6a0be94fec824513bffe48df57d0b17a"
+ },
+ "truck": {
+  "traffic": true,
+  "sloppy": [
+   "other",
+   "accent",
+   "rim",
+   "tyre",
+   "chrome"
+  ],
+  "hi": {
+   "ratio": 0.2,
+   "error": 0.004,
+   "detailRatio": 0.2,
+   "detailError": 0.01,
+   "maxRole": 5000,
+   "sloppyAbove": 40
+  },
+  "src": "t-boxtruck.glb",
+  "front": "+z",
+  "len": 9.6,
+  "width": 2.45,
+  "height": 3.3,
+  "noPaint": true,
+  "vertexTex": true,
+  "roles": {
+   "glass": "^glassmt$"
+  },
+  "credit": "\"Box-truck\" by Cristian Rus, CC-BY 4.0, https://sketchfab.com/3d-models/box-truck-b0e8788b6b774fe3a18eda1895a2b8fe"
+ },
+ "bus": {
+  "traffic": true,
+  "src": "t-citybus.glb",
+  "front": "+x",
+  "len": 12,
+  "width": 2.6,
+  "height": 3.2,
+  "noPaint": true,
+  "vertexTex": true,
+  "drop": [
+   "^seat$",
+   "^wood$",
+   "logo",
+   "badge",
+   "emblem",
+   "plate"
+  ],
+  "roles": {
+   "glass": "^glass$",
+   "tyre": "^rezina$",
+   "chrome": "^chrome$|^material_7$"
+  },
+  "sloppy": [
+   "other",
+   "accent",
+   "rim",
+   "tyre",
+   "chrome"
+  ],
+  "hi": {
+   "ratio": 0.3,
+   "error": 0.004,
+   "detailRatio": 0.2,
+   "detailError": 0.02,
+   "maxRole": 6000,
+   "sloppyAbove": 40
+  },
+  "credit": "\"Generic Town Bus\" by own.guest, CC-BY 4.0, https://sketchfab.com/3d-models/14fe03d792914d51b6c6250b393c44fd"
+ },
+ "hatch": {
+  "traffic": true,
+  "src": "t-golf2.glb",
+  "front": "-z",
+  "len": 3.9,
+  "vertexTex": true,
+  "drop": [
+   "^seats$",
+   "^interior$",
+   "logo",
+   "badge",
+   "emblem",
+   "plate"
+  ],
+  "roles": {
+   "paint": "^paint$",
+   "glass": "^window$",
+   "head": "^lights$",
+   "tyre": "^tire$",
+   "chrome": "^metal$|^mirror$",
+   "accent": "^plastic$|^hoodcap$"
+  },
+  "sloppy": [
+   "other",
+   "accent",
+   "rim",
+   "tyre",
+   "chrome"
+  ],
+  "hi": {
+   "ratio": 0.3,
+   "paintRatio": 0.6,
+   "error": 0.004,
+   "detailRatio": 0.2,
+   "detailError": 0.02,
+   "maxPaint": 2600,
+   "maxRole": 800,
+   "sloppyAbove": 40
+  },
+  "credit": "\"Volkswagen Golf II\" by ardmation, CC-BY 4.0, https://sketchfab.com/3d-models/740500f10bc94e7a91c2290e445fcb39"
+ },
+ "suv": {
+  "traffic": true,
+  "src": "t-suv.glb",
+  "front": "+z",
+  "len": 4.8,
+  "width": 2.25,
+  "drop": [
+   "^Interior",
+   "^SteeringWheel",
+   "^LicensePlate$",
+   "^Logo$",
+   "^Carpet$",
+   "logo",
+   "badge",
+   "emblem"
+  ],
+  "roles": {
+   "paint": "^Base_(Bumper|FrontDoor|Hood|RearDoor|RearFender|Roof|Trunk)$",
+   "glass": "^Glass",
+   "head": "^Headlight",
+   "tail": "^Backlight",
+   "chrome": "^Steel(_(Bumper|FrontDoor|RearDoor|Roof|Trunk))?$|^Mirror$",
+   "rim": "^material$|^Brake$|^Steel_Wheel$",
+   "tyre": "^Rubber$",
+   "accent": "^Trim|^Base_Nocolor|^Radiator$"
+  },
+  "sloppy": [
+   "other",
+   "accent",
+   "rim",
+   "tyre",
+   "chrome",
+   "paint",
+   "glass",
+   "head",
+   "tail"
+  ],
+  "hi": {
+   "ratio": 0.05,
+   "paintRatio": 0.05,
+   "error": 0.004,
+   "detailRatio": 0.02,
+   "detailError": 0.02,
+   "maxPaint": 2600,
+   "maxRole": 600,
+   "sloppyAbove": 40,
+   "sloppyError": 0.06
+  },
+  "credit": "\"2020 Ford Explorer XLT\" by blarg, CC-BY 4.0, https://sketchfab.com/3d-models/ba986f9f9c44426ca7d5e91831b2c98d"
+ }
+}

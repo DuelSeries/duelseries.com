@@ -73,9 +73,10 @@ test('every game shows the bar, built or not (BACKLOG 2.2: one layout for every 
   assert.ok(meta.includes('btn.disabled=!!(s.locked&&!s.sale)'), 'Unlock is shut only where nothing is sold');
 });
 
-test('the bar is called Customize and the lobby loads the frozen skin file read-only', () => {
+test('the bar is called Shop and the lobby loads the frozen skin file read-only', () => {
   const html = v2();
-  assert.ok(html.includes('<span class="lkt"><b>Customize</b>'), 'Owen named it Customize (2026-10-10)');
+  // Owen named it Customize (2026-10-10), then Shop (2026-11-08: "make it so I can change my skin there").
+  assert.ok(html.includes('<span class="lkt"><b>Shop</b>'), 'the bar under Play is the Shop');
   const sprites = html.indexOf('<script src="/js/sl/slSprites.js"></script>');
   const look = html.indexOf('<script src="/js/v2/look.js"></script>');
   assert.ok(sprites > 0 && look > sprites, 'slSprites before look.js');

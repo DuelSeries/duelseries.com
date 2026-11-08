@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Swim car (dev)</title>
+<!-- Dev only: one of Swim's ten cars on its own, on a clear background, lit by the same sky as the race
+     (swimHiFi.js loadCar). scripts/swimCarShots.js drives it to make the Shop's pictures
+     (public/img/swim-cars/<id>.webp) and the reference comparisons.
+     Query: car=<id> (shared/swimLooks.js), view=side|front|rear|three|front0|rear0 (straight on, for badges), lite=1 (the phone model), bg=#rrggbb,
+     debug=roles (every part in its role's colour), traffic=<type> (a traffic model instead: sedan, hatch, suv, van, truck,
+     bus; its body in paint=#rrggbb, the camera backed off to its length). -->
+<style>html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; } canvas { display: block; width: 100vw; height: 100vh; }</style>
+<script type="importmap">{ "imports": { "three": "/vendor/three/three.module.min.js" } }</script>
+<script src="/shared/swimLooks.js"></script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script type="module">
+import * as THREE from 'three';
+import { loadCar, loadTraffic, ADDONS_URL, ASSETS } from '/js/swim/swimHiFi.js';
+const q = new URLSearchParams(location.search), L = window.DS_SWIM_LOOKS;
+const id = L.carOf(q.get('car')), view = q.get('view') || 'side';
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: !q.get('bg'), preserveDrawingBuffer: true });
+renderer.setPixelRatio(1); renderer.setSize(innerWidth, innerHeight, false);
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.0;
+const scene = new THREE.Scene();
+if (q.get('bg')) scene.background = new THREE.Color(q.get('bg'));
+/* the sky the race reflects: a dusk gradient with a low warm sun and a dark ground, into a PMREM */
+const env = new THREE.Scene();
+env.add(new THREE.Mesh(new THREE.SphereGeometry(50, 32, 16), new THREE.ShaderMaterial({ side: THREE.BackSide, depthWrite: false,
+  vertexShader: 'varying vec3 d; void main(){ d = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+  fragmentShader: 'varying vec3 d; void main(){ vec3 n = normalize(d); float h = n.y;' +
+    'vec3 c = mix(vec3(0.95, 0.55, 0.35), vec3(0.75, 0.32, 0.45), smoothstep(0.0, 0.15, h)); c = mix(c, vec3(0.22, 0.12, 0.38), smoothstep(0.12, 0.6, h));' +
+    'c = mix(c, vec3(0.06, 0.05, 0.07), smoothstep(0.0, -0.08, h)); float s = max(dot(n, normalize(vec3(-0.33, 0.1, -1.0))), 0.0);' +
+    'c += vec3(1.0, 0.85, 0.6) * (pow(s, 200.0) * 20.0 + pow(s, 12.0) * 0.4); c += vec3(1.0) * smoothstep(0.985, 0.995, max(dot(n, normalize(vec3(0.6, 0.7, 0.4))), 0.0)) * 1.6;' +
+    'gl_FragColor = vec4(c, 1.0); }' })));
+const pm = new THREE.PMREMGenerator(renderer);
+scene.environment = pm.fromScene(env, 0, 0.1, 100).texture;
+scene.add(new THREE.HemisphereLight(0xffe2cc, 0x3a3040, 0.6));
+const sun = new THREE.DirectionalLight(0xffd2a8, 2.2); sun.position.set(2, 4, 3); scene.add(sun);
+const camera = new THREE.PerspectiveCamera(22, innerWidth / innerHeight, 0.1, 100);
+const V = { side: [10.5, 0.75, -0.25], front: [3.4, 1.3, -9.2], rear: [2.6, 1.6, 9.4], three: [7.4, 1.9, -7.2], front0: [0, 0.9, -6.2], rear0: [0, 1.0, 6.2] }[view] || [10.5, 0.75, -0.25];
+camera.position.set(V[0], V[1], V[2]); camera.lookAt(0, view === 'side' ? 0.62 : 0.6, view === 'side' ? -0.25 : 0);
+window.__car = { done: false };
+(async () => {
+  const A = await import(ADDONS_URL);
+  if (q.get('traffic')) {
+    const g = await loadTraffic(A, ASSETS.traffic(q.get('traffic')));
+    const grp = new THREE.Group();
+    grp.add(new THREE.Mesh(g.det, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.1 })));
+    grp.add(new THREE.Mesh(g.paint, new THREE.MeshStandardMaterial({ vertexColors: true, color: new THREE.Color(q.get('paint') || '#3a6ea5'), roughness: 0.3, metalness: 0.3 })));
+    const box = new THREE.Box3().setFromObject(grp), k = Math.max(1, (box.max.z - box.min.z) / 4.3, (box.max.y - box.min.y) / 1.5);
+    camera.position.multiplyScalar(k); camera.lookAt(0, (box.max.y - box.min.y) * 0.45, 0);
+    scene.add(grp); renderer.render(scene, camera);
+    window.__car = { done: true, id: q.get('traffic'), size: box.getSize(new THREE.Vector3()).toArray().map((v) => +v.toFixed(2)) };
+    return;
+  }
+  const kit = await loadCar(A, ASSETS.car(id, q.get('lite') === '1'), { envIntensity: 1, glowGain: 1 });
+  const car = kit.make(parseInt(L.paintOf(id).slice(1), 16));
+  /* debug=roles: each part in its role's colour, to check a model's material mapping (scripts/swimCarBuild.mjs) */
+  if (q.get('debug') === 'roles') {
+    const RC = { paint: 0xff2020, accent: 0x2040ff, glass: 0x20e0ff, tail: 0xff20ff, head: 0xffff20, chrome: 0xffffff, tyre: 0x111111, rim: 0x888888, plate: 0xff8800, other: 0x20c040 };
+    car.solid.traverse((o) => { if (o.isMesh) o.material = new THREE.MeshBasicMaterial({ color: RC[o.userData.role] || 0x20c040 }); });
+  }
+  scene.add(car.solid);
+  renderer.render(scene, camera);
+  window.__car = { done: true, id };
+})().catch((e) => { window.__car = { done: true, error: String(e) }; });
+</script>
+</body>
+</html>

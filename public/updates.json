@@ -2,6 +2,27 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-11-08-swim-real-cars",
+      "date": "2026-11-08",
+      "tag": "new",
+      "title": "Swim: real cars and real traffic",
+      "body": "Swim has a whole new look. You now race ten real cars you know from the street, under the sunset, through everyday traffic: sedans, hatchbacks, SUVs, pickups, box trucks and buses.\n\nThree of the cars are free to drive. The other seven are in the Shop, and every car has its own engine sound.\n\nOn a phone, the Brake is back next to the Gas on the right, so your left thumb is free to steer.",
+      "image": {
+        "src": "/updates/swim-real-cars.webp",
+        "alt": "A white hatchback racing down the highway at sunset through cars, an SUV and a bus"
+      },
+      "gallery": [
+        {
+          "src": "/updates/swim-ten-cars.webp",
+          "alt": "The ten Swim cars side by side"
+        },
+        {
+          "src": "/updates/swim-phone-pedals.webp",
+          "alt": "Swim on a phone with the Brake and Gas together at the bottom right"
+        }
+      ]
+    },
+    {
       "id": "2026-11-08-paid-slither-clean-screen",
       "date": "2026-11-08",
       "tag": "fix",

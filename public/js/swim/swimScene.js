@@ -22,6 +22,7 @@
    paint and one for the fixed-colour details (glass, tyres, lights), sharing
    one matrix buffer, and every effect is instanced. */
 import * as THREE from 'three';
+import { pickTier, pbrMaterial, pbrOfHex, loadCar, loadTraffic, makeComposer, ADDONS_URL, ASSETS } from './swimHiFi.js';
 
 const DEG = Math.PI / 180;
 const BLOCK = 48;                // the static pattern repeats every 48 m
@@ -82,7 +83,7 @@ function mulberry(seed) {
    flat shading for free. Convex parts are wound outward automatically. */
 const _c = new THREE.Color();
 class Mesher {
-  constructor() { this.p = []; this.c = []; this.g = []; }
+  constructor() { this.p = []; this.c = []; this.g = []; this.r = []; }
   tri(a, b, c, hex, glow, o) {
     const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
     const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
@@ -93,7 +94,8 @@ class Mesher {
       if (nx * mx + ny * my + nz * mz < 0) { const t = b; b = c; c = t; }
     }
     _c.set(hex);
-    for (const q of [a, b, c]) { this.p.push(q[0], q[1], q[2]); this.c.push(_c.r, _c.g, _c.b); this.g.push(glow); }
+    const pr = pbrOfHex(hex, glow);      // roughness, metalness: read only by the realistic look (swimHiFi.js)
+    for (const q of [a, b, c]) { this.p.push(q[0], q[1], q[2]); this.c.push(_c.r, _c.g, _c.b); this.g.push(glow); this.r.push(pr[0], pr[1]); }
   }
   quad(a, b, c, d, hex, glow, o) { this.tri(a, b, c, hex, glow, o); this.tri(a, c, d, hex, glow, o); }
   /* A six-sided block from a bottom rectangle to a top one: boxes, tapers, wedges. */
@@ -126,8 +128,9 @@ class Mesher {
   /* Any three.js geometry, transformed; its own winding is kept. */
   geo(g, m, hex, glow = 0, shade) {
     const src = g.index ? g.toNonIndexed() : g;
-    const p = src.attributes.position, v = new THREE.Vector3();
+    const p = src.attributes.position, v = new THREE.Vector3(), pr = pbrOfHex(hex, glow);
     for (let i = 0; i < p.count; i++) {
+      this.r.push(pr[0], pr[1]);
       v.fromBufferAttribute(p, i).applyMatrix4(m);
       this.p.push(v.x, v.y, v.z);
       _c.set(hex);
@@ -140,6 +143,7 @@ class Mesher {
     g.setAttribute('position', new THREE.Float32BufferAttribute(this.p, 3));
     g.setAttribute('color', new THREE.Float32BufferAttribute(this.c, 3));
     g.setAttribute('glow', new THREE.Float32BufferAttribute(this.g, 1));
+    g.setAttribute('pbr', new THREE.Float32BufferAttribute(this.r, 2));
     g.computeVertexNormals();
     g.computeBoundingSphere();
     return g;
@@ -474,12 +478,29 @@ export function createScene(canvasEl, opts = {}) {
   const maxDpr = opts.maxPixelRatio || 1.5;
   const minDpr = phone ? 1 : 0.75;
   const adaptive = opts.adaptive !== false;
+  /* The realistic look (swimHiFi.js): 'high' on desktops, 'lite' on phones, 'off' the look Swim always had. */
+  const TIER = pickTier(opts, phone), HI = TIER !== 'off', HIGH = TIER === 'high';
+  const GLOW = HIGH ? 2.2 : 1;                // lamps shine past white for the bloom (high only: lite has no bloom)
+  /* The realistic look's dials in one place (opts.look overrides any, for the dev page's ?look=). */
+  const LOOK = Object.assign({ exposure: 0.95, hemi: 0.6, sun: 2.6, env: 1.0, skyGain: 1.2, sunGain: 6, clouds: 0.65,
+    roadRough: 0.7, roadEnv: 0.3, sandEnv: 0.35, bloom: 0.45, bloomRadius: 0.4, bloomThreshold: 2.2, blur: 0.035, paintMetal: 0.2, paintRough: 0.38,
+    msaa: 0, shadow: 1024, trafficCoat: 1 }, opts.look || {});
+  /* 4x MSAA on a plain screen; 2x from 125% scaling up, where the pixels are small anyway and 4x cost the
+     most of anything here (Intel Arc, 1920x1200: 82 fps with 4x, 127 without, 2026-11-08). */
+  if (!LOOK.msaa) LOOK.msaa = (typeof window !== 'undefined' && window.devicePixelRatio > 1.25) ? 2 : 4;
+  const ENV_I = LOOK.env;
 
   const renderer = new THREE.WebGLRenderer({
+    // high draws into its own 4x MSAA target (swimHiFi.js makeComposer), so the canvas needs none of its own
     canvas: canvasEl, antialias: opts.antialias != null ? !!opts.antialias : !phone && !(typeof window !== 'undefined' && window.DSQuality && window.DSQuality.low()),
     powerPreference: 'high-performance', alpha: false, stencil: false,
   });
   renderer.info.autoReset = false;
+  if (HI) { renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = LOOK.exposure; }
+  let fx = null;                             // high: the post pipeline (bloom, speed blur, finish), once loaded
+  let camFix = null;                         // setCamera(): a fixed view of the followed car (dev pictures only)
+  const SHADOW = HIGH && LOOK.shadow > 0;
+  if (SHADOW) { renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFShadowMap; }
   const aniso = Math.min(phone ? 4 : 8, renderer.capabilities.getMaxAnisotropy());
 
   const scene = new THREE.Scene();
@@ -489,10 +510,25 @@ export function createScene(canvasEl, opts = {}) {
   const camera = new THREE.PerspectiveCamera(62, 1, 0.5, 1300);
   scene.add(camera);
 
-  scene.add(new THREE.HemisphereLight(C.hemiSky, C.hemiGround, 1.9));
-  const sunLight = new THREE.DirectionalLight(C.sunLight, 1.9);
-  sunLight.position.set(-0.45, 0.62, 0.66);   // from behind and above: the backs we look at are lit
+  const hemi = new THREE.HemisphereLight(C.hemiSky, C.hemiGround, HI ? LOOK.hemi : 1.9);
+  scene.add(hemi);
+  const sunLight = new THREE.DirectionalLight(C.sunLight, HI ? LOOK.sun : 1.9);
+  const SUN_FROM = new THREE.Vector3(-0.45, 0.62, 0.66);   // from behind and above: the backs we look at are lit
+  sunLight.position.copy(SUN_FROM);
   scene.add(sunLight);
+  if (SHADOW) {
+    /* A real shadow for the cars round the followed one: a small box of sun that rides with it (frame()). */
+    sunLight.castShadow = true;
+    const sc = sunLight.shadow.camera;
+    sc.left = -9; sc.right = 9; sc.top = 9; sc.bottom = -9; sc.near = 1; sc.far = 60;
+    sunLight.shadow.mapSize.set(LOOK.shadow, LOOK.shadow);
+    sunLight.shadow.bias = -0.0004; sunLight.shadow.normalBias = 0.03; sunLight.shadow.radius = 3;
+    scene.add(sunLight.target);
+  }
+  /* The materials the road is drawn with: the old unlit and Lambert ones, or PBR ones lit by the sky. */
+  const OLD_KEYS = ['color', 'emissive', 'transparent', 'opacity'];
+  const lit = HI ? (p, o) => pbrMaterial(p, Object.assign({ glowGain: GLOW }, o))
+    : (p) => litMaterial(Object.fromEntries(Object.entries(p).filter(([k]) => OLD_KEYS.includes(k))));
 
   const disposables = [];
   const keep = (x) => { disposables.push(x); return x; };
@@ -500,22 +536,41 @@ export function createScene(canvasEl, opts = {}) {
   /* sky: a gradient dome with a low sun ahead, drawn last at the far plane
      so only the pixels nothing else covered pay for it */
   const sunDir = new THREE.Vector3(-0.33, 0.06, -1).normalize();
+  /* The realistic look adds high streaks of cloud lit pink on the sun's side, and a sun bright enough to bloom. */
   const skyMat = keep(new THREE.ShaderMaterial({
     uniforms: {
       cTop: { value: new THREE.Color(C.zenith) }, cUp: { value: new THREE.Color(C.upper) },
       cLow: { value: new THREE.Color(C.low) }, cHor: { value: fogCol.clone() },
-      cSun: { value: new THREE.Color(C.sun) }, sunDir: { value: sunDir },
+      cSun: { value: new THREE.Color(C.sun) }, sunDir: { value: sunDir }, sunGain: { value: HIGH ? LOOK.sunGain : 1.2 }, skyGain: { value: HI ? LOOK.skyGain : 1 }, clouds: { value: LOOK.clouds },
     },
+    defines: HI ? { CLOUDS: 1 } : {},
     vertexShader: 'varying vec3 vDir;\nvoid main(){ vDir = position; vec4 p = projectionMatrix * modelViewMatrix * vec4(position, 1.0); gl_Position = vec4(p.xy, p.w * 0.99999, p.w); }',
     fragmentShader: [
-      'uniform vec3 cTop, cUp, cLow, cHor, cSun; uniform vec3 sunDir; varying vec3 vDir;',
+      'uniform vec3 cTop, cUp, cLow, cHor, cSun; uniform vec3 sunDir; uniform float sunGain, skyGain, clouds; varying vec3 vDir;',
+      '#ifdef CLOUDS',
+      'float h2(vec2 p){ p = fract(p * vec2(0.1031, 0.1030)); p += dot(p, p.yx + 33.33); return fract((p.x + p.y) * p.x); }',
+      'float vn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);',
+      '  return mix(mix(h2(i), h2(i + vec2(1.0, 0.0)), f.x), mix(h2(i + vec2(0.0, 1.0)), h2(i + vec2(1.0, 1.0)), f.x), f.y); }',
+      'float fbm(vec2 p){ float a = 0.5, s = 0.0; for (int i = 0; i < 5; i++) { s += a * vn(p); p = p * 2.03 + vec2(1.7, 9.2); a *= 0.5; } return s; }',
+      '#endif',
       'void main(){',
       '  vec3 d = normalize(vDir); float h = max(d.y, 0.0);',
       '  vec3 col = mix(cHor, cLow, smoothstep(0.0, 0.10, h));',
       '  col = mix(col, cUp, smoothstep(0.08, 0.34, h));',
       '  col = mix(col, cTop, smoothstep(0.30, 0.95, h));',
+      '  col *= skyGain;',
       '  float s = max(dot(d, sunDir), 0.0);',
-      '  col += cSun * (smoothstep(0.99935, 0.99965, s) * 1.2 + pow(s, 90.0) * 0.45 + pow(s, 10.0) * 0.14);',
+      '#ifdef CLOUDS',
+      '  if (d.y > 0.004) {',
+      '    vec2 cp = d.xz / (d.y + 0.05);',
+      '    float n = fbm(cp * vec2(0.9, 2.6) + vec2(4.0, 1.0));',
+      '    float cov = smoothstep(0.5, 0.74, n) * smoothstep(0.004, 0.05, d.y) * (1.0 - smoothstep(0.3, 0.75, d.y));',
+      '    vec3 shade = mix(cUp * 0.75, cLow * 1.15, smoothstep(0.55, 0.85, n));',
+      '    vec3 rim = cSun * (0.35 + 2.2 * pow(s, 8.0));',
+      '    col = mix(col, shade * skyGain + rim * smoothstep(0.6, 0.9, n) * 0.6, cov * clouds);',
+      '  }',
+      '#endif',
+      '  col += cSun * (smoothstep(0.99935, 0.99965, s) * sunGain + pow(s, 90.0) * 0.45 + pow(s, 10.0) * 0.14);',
       '  gl_FragColor = vec4(col, 1.0);',
       '  #include <tonemapping_fragment>',
       '  #include <colorspace_fragment>',
@@ -602,18 +657,20 @@ export function createScene(canvasEl, opts = {}) {
       g.setAttribute('uv', new THREE.Float32BufferAttribute(u, 2));
       return g;
     };
-    const flat = (geo, mat, into) => { const m = new THREE.Mesh(geo, mat); m.frustumCulled = false; into.add(m); return m; };
+    const flat = (geo, mat, into) => { const m = new THREE.Mesh(geo, mat); m.frustumCulled = false; m.receiveShadow = SHADOW; into.add(m); return m; };
+    /* The road: unlit before; in the realistic look a rough asphalt lit by the sky, so it glares towards the low sun. */
+    const roadMat = (map) => HI ? new THREE.MeshStandardMaterial({ map, roughness: LOOK.roadRough, metalness: 0, envMapIntensity: LOOK.roadEnv }) : new THREE.MeshBasicMaterial({ map });
     if (!DYN) {
-      flat(rg, keep(new THREE.MeshBasicMaterial({ map: roadTex })), ground);
+      flat(rg, keep(roadMat(roadTex)), ground);
     } else {
       /* The duel's left edge (x -10 to -5.4) and right edge (its 5.4 to 10, in rightSide), and between them one
          lane tile (lane centre to lane centre, the dash in the middle) repeated, then each carriageway's line. */
-      const edgeMat = keep(new THREE.MeshBasicMaterial({ map: roadTex }));
+      const edgeMat = keep(roadMat(roadTex));
       flat(keep(stripGeo(-10, S.laneX(0), 0, (S.laneX(0) + 10) / 20)), edgeMat, ground);
       flat(keep(stripGeo(5.4, 10, (5.4 + 10) / 20, 1)), edgeMat, rightSide);
       laneTex = keep(laneTileTexture(roadTex.image, aniso));
-      middle = flat(new THREE.BufferGeometry(), keep(new THREE.MeshBasicMaterial({ map: laneTex })), ground);
-      lines = flat(new THREE.BufferGeometry(), keep(new THREE.MeshBasicMaterial({ color: 0xd9d2c4 })), ground);
+      middle = flat(new THREE.BufferGeometry(), keep(roadMat(laneTex)), ground);
+      lines = flat(new THREE.BufferGeometry(), keep(HI ? new THREE.MeshStandardMaterial({ color: 0xd9d2c4, roughness: 0.6 }) : new THREE.MeshBasicMaterial({ color: 0xd9d2c4 })), ground);
       middle.userData.build = () => {
         const n = LANES_N, lx0 = S.laneX(0), lx1 = S.laneX(n - 1);
         middle.geometry.dispose();
@@ -634,7 +691,8 @@ export function createScene(canvasEl, opts = {}) {
       middle.userData.build();
     }
     // sand either side, 24 m tiles (the right side's in rightSide on the event's road)
-    const sandMat = keep(new THREE.MeshBasicMaterial({ map: keep(sandTexture(aniso)) }));
+    const sandMat = keep(HI ? new THREE.MeshStandardMaterial({ map: keep(sandTexture(aniso)), roughness: 1, metalness: 0, envMapIntensity: LOOK.sandEnv })
+      : new THREE.MeshBasicMaterial({ map: keep(sandTexture(aniso)) }));
     const sandGeo = (pairs) => {
       const sg = new THREE.BufferGeometry(), sp = [], su = [];
       for (const [x0, x1] of pairs) {
@@ -652,9 +710,9 @@ export function createScene(canvasEl, opts = {}) {
   /* One material per way it is drawn: the same material on a plain mesh, on instanced meshes with their own
      colours and on instanced meshes without them makes three.js rebuild its program choice at every switch, many
      times a frame (phone speed pass 2026-10-31). The three are the same material, so the picture is the same. */
-  const propMat = keep(litMaterial({}));          // the scattered scenery (instanced, own colours)
-  const propMatPlain = keep(litMaterial({}));     // barriers and light poles (one plain mesh)
-  const propMatDet = keep(litMaterial({}));       // the traffic's details (instanced, no colours of their own)
+  const propMat = keep(lit({}));          // the scattered scenery (instanced, own colours)
+  const propMatPlain = keep(lit({}));     // barriers and light poles (one plain mesh)
+  const propMatDet = keep(lit({}));       // the traffic's details (instanced, no colours of their own)
   {
     // barriers (posts every 4 m, reflectors every 12 m) and light poles (every 24 m, alternate sides)
     /* On the event's road the right side is its own mesh in rightSide (moved over with the edge); the duel's is one. */
@@ -814,7 +872,7 @@ export function createScene(canvasEl, opts = {}) {
 
   /* traffic: per type, paint (tinted per car) + details, sharing one matrix buffer */
   const paintLin = PAINTS.map((h) => new THREE.Color(h));
-  const trafficPaintMat = keep(litMaterial({}));
+  const trafficPaintMat = keep(lit({ roughness: 0.3, metalness: 0.35, clearcoat: 1, clearcoatRoughness: 0.08 }, { physical: HIGH && LOOK.trafficCoat > 0, perVertex: false }));
   const tmesh = S.TYPES.map((T) => {
     const g = buildTrafficModel(T);
     const paint = new THREE.InstancedMesh(keep(g.paint), trafficPaintMat, T_CAP);
@@ -841,6 +899,8 @@ export function createScene(canvasEl, opts = {}) {
   scene.add(shadows);
 
   /* the two players' cars: solid when followed, a ghost (they pass through each other) when not */
+  /* The procedural cars Swim had first: the 'off' look's three, and the stand-in a seat shows while its real car's
+     model loads (swimHiFi.js). */
   const MODELS = { supercar: buildSupercar(), muscle: buildMuscle(), hatch: buildHatch() };
   for (const k in MODELS) { keep(MODELS[k].paint); keep(MODELS[k].det); }
   const pg = MODELS.supercar;
@@ -860,8 +920,8 @@ export function createScene(canvasEl, opts = {}) {
     g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
     return keep(g);
   })();
-  const detSolid = keep(litMaterial({}));
-  const detGhost = keep(litMaterial({ transparent: true, opacity: 0.45 }));
+  const detSolid = keep(lit({}));
+  const detGhost = keep(lit({ transparent: true, opacity: 0.45 }));
 
   /* Indicators and brake lamps (Owen 2026-10-28): unlit boxes over the car's
      own lamps, each with a soft halo facing back at the camera, built once
@@ -918,12 +978,56 @@ export function createScene(canvasEl, opts = {}) {
     return [Math.max(0, lc - span), Math.min(n - 1, lc + span)];
   }
   /* A car's model and paint ({ car, paint: '#rrggbb' }); looks only. */
+  /* The realistic look's cars (swimHiFi.js, Owen 2026-11-08: ten real cars): each is its own licensed model, fetched
+     the first time a seat shows it (both seats' cars before the race, as their looks arrive), drawn with its own
+     glass, chrome, rims and lamps in the seat's paint, and as a merged translucent shell when it is the ghost. Until
+     its model lands a seat shows the stand-in shape. Same footprint and hitbox: looks only. */
+  const LOOKS_L = typeof window !== 'undefined' ? window.DS_SWIM_LOOKS : null;
+  const idOf = (l) => (LOOKS_L ? LOOKS_L.carOf(l && l.car) : 'civic');
+  const KITS = new Map();      // car id -> its kit (loaded), a Promise (loading) or null (failed)
+  let ADD = null;              // the add-ons, once loaded (ready below)
+  function kitFor(id) {
+    const k = KITS.get(id);
+    if (k && !(k instanceof Promise)) return k;
+    if (k === undefined && ADD && HI) {
+      KITS.set(id, loadCar(ADD, ASSETS.car(id, !HIGH), { envIntensity: ENV_I, glowGain: GLOW, shadows: SHADOW, paintMetal: LOOK.paintMetal, paintRough: LOOK.paintRough })
+        .then((kit) => {
+          if (disposed) { kit.dispose(); return; }
+          KITS.set(id, kit);
+          for (const c of cars) if (idOf(c.look) === id) hifiLook(c, c.look, sidePaint[c.side]);
+          precompile();
+        })
+        .catch((e) => { console.warn('[swim] car not loaded:', id, e); KITS.set(id, null); }));
+    }
+    return null;
+  }
+  function hifiLook(car, l, hex) {
+    const id = idOf(l), kit = HI ? kitFor(id) : null;
+    for (const k in car.hfs) car.hfs[k].solid.visible = car.hfs[k].ghost.visible = false;
+    car.useHf = !!kit;
+    if (!kit) { car.hf = null; car.paint.visible = car.det.visible = true; return; }
+    let hf = car.hfs[id];
+    if (!hf) { hf = car.hfs[id] = kit.make(hex); hf.solid.visible = hf.ghost.visible = false; car.group.add(hf.solid, hf.ghost); }
+    hf.setPaint(hex);
+    car.hf = hf;
+    car.paint.visible = car.det.visible = false;
+    /* this model's own halos, indicator glows and flames, placed on its tail lights */
+    car.brake.children[0].geometry = kit.lamps.brake.lamp; car.brake.children[1].geometry = kit.lamps.brake.halo;
+    for (let q = 0; q < 2; q++) { car.ind[q].children[0].geometry = kit.lamps.ind[q].lamp; car.ind[q].children[1].geometry = kit.lamps.ind[q].halo; }
+    car.flame.geometry = kit.lamps.flame;
+  }
   function lookCar(car, l) {
-    const m = (l && MODELS[l.car]) || MODELS.supercar;
+    const m = (l && LOOKS_L && MODELS[LOOKS_L.carOf(l.car)]) || (l && MODELS[l.car]) || MODELS.supercar;
     car.paint.geometry = m.paint; car.det.geometry = m.det;
+    /* its own brake lamps, indicators and flames (a lofted car), else the first three's */
+    const lm = m.lamps;
+    car.brake.children[0].geometry = lm ? lm.brake.lamp : brakeGeo.lamp; car.brake.children[1].geometry = lm ? lm.brake.halo : brakeGeo.halo;
+    for (let k = 0; k < 2; k++) { car.ind[k].children[0].geometry = lm ? lm.ind[k].lamp : indGeo[k].lamp; car.ind[k].children[1].geometry = lm ? lm.ind[k].halo : indGeo[k].halo; }
+    car.flame.geometry = lm ? lm.flame : flameGeo;
     const hex = l && typeof l.paint === 'string' && /^#[0-9a-f]{6}$/i.test(l.paint) ? parseInt(l.paint.slice(1), 16) : SIDE_PAINT[car.side & 1];
     sidePaint[car.side] = hex;
-    car.solid.color.setHex(hex); car.solid.emissive.setHex(hex).multiplyScalar(0.12);
+    car.solid.color.setHex(hex); car.solid.emissive.setHex(hex).multiplyScalar(HI ? 0.04 : 0.12);
+    hifiLook(car, l, hex);
     car.ghost.color.setHex(hex); car.ghost.emissive.setHex(hex).multiplyScalar(0.2);
     car.look = l || null;
   }   // flashes a second; how long it keeps going after the wheel is let go
@@ -931,8 +1035,9 @@ export function createScene(canvasEl, opts = {}) {
   /* The duel's two seats, or on the event's road the followed car (0) and GHOSTS others. */
   const cars = Array.from({ length: Math.max(2, 1 + GHOSTS) }, (_, i) => i).map((side) => {
     const base = SIDE_PAINT[side & 1];
-    const solid = keep(litMaterial({ color: base, emissive: new THREE.Color(base).multiplyScalar(0.12) }));
-    const ghost = keep(litMaterial({ color: base, emissive: new THREE.Color(base).multiplyScalar(0.2), transparent: true, opacity: 0.45 }));
+    const solid = keep(lit(HI ? { color: base, emissive: new THREE.Color(base).multiplyScalar(0.04), roughness: 0.32, metalness: 0.45, clearcoat: 1, clearcoatRoughness: 0.04 }
+      : { color: base, emissive: new THREE.Color(base).multiplyScalar(0.12) }, { physical: true, perVertex: false }));
+    const ghost = keep(lit({ color: base, emissive: new THREE.Color(base).multiplyScalar(0.2), transparent: true, opacity: 0.45 }, { perVertex: false }));
     const group = new THREE.Group();
     group.rotation.order = 'YXZ';
     const paint = new THREE.Mesh(pg.paint, solid), det = new THREE.Mesh(pg.det, detSolid);
@@ -948,7 +1053,7 @@ export function createScene(canvasEl, opts = {}) {
     group.add(flame);
     group.visible = false;
     scene.add(group);
-    return { side, group, paint, det, solid, ghost, ind, brake, flame, flameMat, roll: 0, pitch: 0, acc: 0, lastV: -1, lastVx: 0,
+    return { side, group, paint, det, solid, ghost, ind, brake, flame, flameMat, hf: null, hfs: {}, useHf: false, look: null, roll: 0, pitch: 0, acc: 0, lastV: -1, lastVx: 0,
              blinkSide: 0, blinkT: 0, blinkHold: 0, flameT: 0, flameLeft: 0, flameNext: 0 };
   });
 
@@ -1053,6 +1158,7 @@ export function createScene(canvasEl, opts = {}) {
     dpr = Math.max(Math.min(minDpr, dev), Math.min(dev, maxDpr) - dprDrop);
     renderer.setPixelRatio(dpr);
     renderer.setSize(cssW, cssH, false);
+    if (fx) { fx.composer.setPixelRatio(dpr); fx.composer.setSize(cssW, cssH); }
     camera.aspect = cssW / cssH;
     camera.updateProjectionMatrix();
   }
@@ -1066,6 +1172,8 @@ export function createScene(canvasEl, opts = {}) {
     car.paint.material = ghost ? car.ghost : car.solid;
     car.det.material = ghost ? detGhost : detSolid;
     car.paint.renderOrder = car.det.renderOrder = ghost ? 2 : 0;
+    car.paint.castShadow = car.det.castShadow = SHADOW && !ghost;
+    if (car.useHf) { car.hf.solid.visible = !ghost; car.hf.ghost.visible = ghost; }
     const v = st.v || 0, vx = st.vx || 0;
     if (car.lastV < 0 || snap) { car.lastV = v; car.lastVx = vx; }
     const a = clamp((v - car.lastV) / Math.max(dt, 1e-3), -25, 25);
@@ -1115,6 +1223,7 @@ export function createScene(canvasEl, opts = {}) {
     car.ind[0].visible = lit && car.blinkSide < 0;
     car.ind[1].visible = lit && car.blinkSide > 0;
     car.brake.visible = alive && !!st.brake;
+    if (car.useHf) car.hf.lamps(car.brake.visible && !ghost);
     /* Backfire: each bang a short flame at the pipes; a remote car's run is spaced out here. */
     if (car.flameLeft > 0) {
       car.flameNext -= dt;
@@ -1442,9 +1551,20 @@ export function createScene(canvasEl, opts = {}) {
     camera.lookAt(K.lookX + jx * 0.5, 0.65 - 0.25 * port, K.camOffZ - la);
     camera.rotateZ(-K.camRoll * 0.022);
     snap = false;
+    /* A fixed camera on the followed car (the dev page's showroom, for pictures of each car): no streaks, no blur. */
+    if (camFix) {
+      camera.fov = camFix.fov || 36; camera.updateProjectionMatrix();
+      camera.position.set(fol.x + camFix.x, camFix.y, camFix.z);
+      camera.lookAt(fol.x + (camFix.lx || 0), camFix.ly != null ? camFix.ly : 0.55, camFix.lz || 0);
+      streaks.visible = false;
+    }
 
     sky.position.copy(camera.position);
     backdrop.position.set(camera.position.x, 0, camera.position.z);
+    if (SHADOW) {                                     // the shadow box rides with the followed car (always at z 0)
+      sunLight.target.position.set(fol.x, 0, -2);
+      sunLight.position.set(fol.x + SUN_FROM.x * 30, SUN_FROM.y * 30, -2 + SUN_FROM.z * 30);
+    }
 
     /* a frame that stays slow drops the pixel ratio a step (never mid-burst) */
     if (adaptive) {
@@ -1456,7 +1576,15 @@ export function createScene(canvasEl, opts = {}) {
     }
 
     renderer.info.reset();
-    renderer.render(scene, camera);
+    if (fx) {
+      /* the speed blur: nothing below ~140 km/h, framing the view flat out, a jolt on a close pass */
+      const u = fx.u;
+      u.speed.value = camFix ? 0 : LOOK.blur * smooth(140, 345, v * 3.6) + LOOK.blur * 0.8 * nm;
+      u.burst.value = nm;
+      u.aspect.value = camera.aspect;
+      u.seed.value = (K.time * 7.31) % 61;
+      fx.composer.render(dt);
+    } else renderer.render(scene, camera);
   }
 
   function clearCrash() {
@@ -1478,7 +1606,65 @@ export function createScene(canvasEl, opts = {}) {
   }
   for (const im of [parts, streaks, shadows, tLamps, tHalos, ...tmesh.flatMap((t) => [t.paint, t.det])]) im.visible = false;
 
+  /* ── the realistic look's reflections and heavy parts (swimHiFi.js) ─────────────────────────────────────
+     Reflections: the road's own sky, sun and clouds, its mesas and city on the horizon and the asphalt and sand
+     below, drawn once into a PMREM at start. Sharper than a 1k photo, the same colours as the sky on screen, and
+     no download (2026-11-08: compared against two Poly Haven HDRIs, it read best). Then, after the first frame:
+     the add-ons, the car and on high the post pipeline. Any failure leaves the road as it is. */
+  let skyEnvRT = null, disposed = false;
+  if (HI) {
+    const pm = new THREE.PMREMGenerator(renderer), envScene = new THREE.Scene();
+    envScene.add(new THREE.Mesh(sky.geometry, skyMat));
+    const hz = new THREE.Mesh(backdrop.geometry, backdrop.material);
+    hz.scale.setScalar(0.12); hz.position.y = -0.3; envScene.add(hz);
+    /* the ground: dark asphalt under the car fading to sand towards the horizon */
+    const fg = new THREE.CircleGeometry(90, 32, 0, Math.PI * 2).rotateX(-Math.PI / 2), fp = fg.attributes.position, fc = [];
+    const near = new THREE.Color(0x24222a), far = new THREE.Color(0x7a4c3c), tc = new THREE.Color();
+    for (let i = 0; i < fp.count; i++) { const r = Math.hypot(fp.getX(i), fp.getZ(i)) / 90; tc.copy(near).lerp(far, smooth(0.08, 0.6, r)); fc.push(tc.r, tc.g, tc.b); }
+    fg.setAttribute('color', new THREE.Float32BufferAttribute(fc, 3));
+    const floor = new THREE.Mesh(fg, new THREE.MeshBasicMaterial({ vertexColors: true }));
+    floor.position.y = -1.0; envScene.add(floor);
+    skyEnvRT = pm.fromScene(envScene, 0, 0.1, 400);
+    pm.dispose(); fg.dispose(); floor.material.dispose();
+    scene.environment = skyEnvRT.texture;
+  }
+  const ready = !HI ? Promise.resolve(TIER) : (async () => {
+    await new Promise((r) => (typeof requestAnimationFrame === 'function' ? requestAnimationFrame(() => r()) : r()));
+    const A = await import(ADDONS_URL);
+    if (disposed) return TIER;
+    ADD = A;
+    if (HIGH) { fx = makeComposer(A, renderer, scene, camera, { bloomStrength: LOOK.bloom, bloomRadius: LOOK.bloomRadius, bloomThreshold: LOOK.bloomThreshold, samples: LOOK.msaa }); resize(); }
+    /* the cars on screen now, and the traffic: each type's real model in place of its stand-in, same instancing */
+    for (const c of cars) hifiLook(c, c.look, sidePaint[c.side]);
+    const loads = [...KITS.values()].filter((p) => p instanceof Promise);
+    loads.push(...S.TYPES.map((T, t) => loadTraffic(A, ASSETS.traffic(T.id)).then((g) => {
+      if (!g || disposed) return;
+      const tm = tmesh[t];
+      keep(g.paint); keep(g.det);
+      tm.paint.geometry = g.paint; tm.det.geometry = g.det;
+    }).catch((e) => console.warn('[swim] traffic model not loaded:', T.id, e))));
+    await Promise.allSettled(loads);
+    if (disposed) return TIER;
+    precompile();
+    return TIER;
+  })().catch((e) => { console.warn('[swim] realistic look not loaded:', e); return 'off'; });
+  /* compile the programs the new models need now (solid and ghost), as at start, into the target they are drawn to */
+  function precompile() {
+    const prevVis = cars.map((c) => [c.group.visible, c.hf && c.hf.solid.visible, c.hf && c.hf.ghost.visible]);
+    const tVis = tmesh.map((t) => t.paint.visible);
+    for (const c of cars) { c.group.visible = true; if (c.hf) c.hf.solid.visible = c.hf.ghost.visible = true; }
+    for (const t of tmesh) t.paint.visible = t.det.visible = true;
+    if (fx) renderer.setRenderTarget(fx.composer.renderTarget1);
+    renderer.compile(scene, camera);
+    renderer.setRenderTarget(null);
+    cars.forEach((c, i) => { c.group.visible = prevVis[i][0]; if (c.hf) { c.hf.solid.visible = !!prevVis[i][1]; c.hf.ghost.visible = !!prevVis[i][2]; } });
+    tmesh.forEach((t, i) => { t.paint.visible = t.det.visible = tVis[i]; });
+  }
+
   return {
+    /* resolves (with the tier) once the realistic look's car, sky and passes are in, at once for 'off' */
+    ready,
+    quality: TIER,
     resize,
     frame,
     nearMiss(side) { nmPending = side === 1 || side === -1 ? side : 0; },
@@ -1488,6 +1674,8 @@ export function createScene(canvasEl, opts = {}) {
     setLooks(list) {
       for (const car of cars) lookCar(car, list && list[car.side]);
     },
+    /* Dev pictures: { x, y, z, lx, ly, lz, fov } from the followed car, or null for the chase camera. */
+    setCamera(o) { camFix = o && typeof o === 'object' ? o : null; },
     /* The event's followed car only (the ghosts take their own looks from f.others). */
     followLook(l) { if (cars[0].look !== l) lookCar(cars[0], l); },
     /* The event's road, n lanes wide from now on (the middle lanes, the carriageway lines, the right side). */
@@ -1516,13 +1704,19 @@ export function createScene(canvasEl, opts = {}) {
     info() {
       const r = renderer.info;
       return { looks: cars.map(c => ({ car: Object.keys(MODELS).find(k => MODELS[k].paint === c.paint.geometry), paint: '#' + c.solid.color.getHexString() })),
-               calls: r.render.calls, triangles: r.render.triangles, dpr, programs: r.programs ? r.programs.length : 0, geometries: r.memory.geometries, textures: r.memory.textures };
+               calls: r.render.calls, triangles: r.render.triangles, dpr, programs: r.programs ? r.programs.length : 0, geometries: r.memory.geometries, textures: r.memory.textures,
+               quality: TIER, hifi: [...KITS.values()].some((k) => k && !(k instanceof Promise)), post: !!fx };
     },
     dispose() {
       for (const d of disposables) if (d && d.dispose) d.dispose();
       for (const t of tmesh) { t.paint.dispose(); t.det.dispose(); }
       if (middle) { middle.geometry.dispose(); lines.geometry.dispose(); }
       for (const im of [shadows, streaks, parts, rocks, buttes, trees, gantries, tLamps, tHalos]) im.dispose();
+      disposed = true;
+      for (const c of cars) for (const k in c.hfs) c.hfs[k].dispose();
+      for (const k of KITS.values()) if (k && !(k instanceof Promise)) k.dispose();
+      if (fx) { fx.composer.renderTarget1.dispose(); fx.composer.renderTarget2.dispose(); fx.bloom.dispose(); fx.composer.dispose && fx.composer.dispose(); }
+      if (skyEnvRT) skyEnvRT.dispose();
       renderer.dispose();
     },
     renderer, scene, camera,

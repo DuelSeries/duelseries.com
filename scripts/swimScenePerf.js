@@ -15,8 +15,11 @@
    roughly a mid phone's main thread. Adaptive resolution is off so the numbers
    are the scene at its cap.
 
-   Usage: node scripts/swimScenePerf.js [--secs 8] [--t 600] [--shots <dir>]
-   (--shots writes two small PNGs instead: desktop mid near miss, phone mid crash)
+   Usage: node scripts/swimScenePerf.js [--secs 8] [--t 600] [--gfx compare|off|auto] [--shots <dir>]
+   (--shots writes small PNGs instead: desktop mid near miss, phone mid crash; with --gfx compare each
+   one twice, the old look and the realistic one, at the same moment)
+   --gfx: the look (public/js/swim/swimHiFi.js). auto (default) lets the page pick (high on the desktops,
+   lite on the phones), off is the look Swim had before, compare runs every config both ways.
    Needs Playwright (playwright or playwright-core) and Google Chrome; set
    PLAYWRIGHT_CORE to a playwright-core folder if it is not installed here. */
 
@@ -36,9 +39,12 @@ function loadPlaywright() {
 }
 
 const arg = (k, d) => { const i = process.argv.indexOf('--' + k); return i > 0 ? process.argv[i + 1] : d; };
-const SECS = +arg('secs', 8), T = +arg('t', 600), SHOTS = arg('shots', null);
+const SECS = +arg('secs', 8), T = +arg('t', 600), SHOTS = arg('shots', null), GFX = arg('gfx', 'auto');
+const LOOK_QS = arg('look', null) ? '&look=' + encodeURIComponent(arg('look', '')) : '';
+const LOOKS = GFX === 'compare' ? ['off', 'auto'] : [GFX];
+const gfxQs = (look, cfg) => (look === 'auto' ? `gfx=${cfg.ctx.isMobile ? 'lite' : 'high'}` : `gfx=${look}`);
 
-const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.webp': 'image/webp' };
+const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.webp': 'image/webp', '.glb': 'model/gltf-binary' };
 function serve() {
   const srv = http.createServer((req, res) => {
     const u = decodeURIComponent(req.url.split('?')[0]);
@@ -52,7 +58,7 @@ function serve() {
   return new Promise((r) => srv.listen(0, '127.0.0.1', () => r(srv)));
 }
 
-const FLAGS = ['--ignore-gpu-blocklist', '--enable-gpu-rasterization', '--disable-frame-rate-limit', '--disable-gpu-vsync']
+const FLAGS = ['--mute-audio', '--ignore-gpu-blocklist', '--enable-gpu-rasterization', '--disable-frame-rate-limit', '--disable-gpu-vsync']
   .concat(process.platform === 'win32' ? ['--use-angle=d3d11'] : []);
 const CONFIGS = [
   { name: 'desktop 1280x800', ctx: { viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1 } },
@@ -73,7 +79,7 @@ async function run(chromium, port, cfg, qs, shot) {
     await page.goto(`http://127.0.0.1:${port}/dev-swim-scene.html?${qs}`);
     let res = null;
     if (shot) {
-      await page.waitForFunction(`window.__dev && window.__dev.raceT > ${shot.at}`, null, { timeout: 60000 });
+      await page.waitForFunction(`window.__dev && window.__dev.ready && window.__dev.raceT >= ${shot.at} - 1e-6`, null, { timeout: 60000 });
       const url = await page.evaluate(([w, l]) => window.__snap(w, l), [shot.width, shot.levels || 0]);
       fs.mkdirSync(path.dirname(shot.file), { recursive: true });
       fs.writeFileSync(shot.file, Buffer.from(url.split(',')[1], 'base64'));
@@ -93,19 +99,28 @@ async function run(chromium, port, cfg, qs, shot) {
   const port = srv.address().port;
   try {
     if (SHOTS) {
-      // small dithered PNGs (16 shades a channel) so each stays well under 150 KB
-      const a = await run(chromium, port, CONFIGS[0], `t=${T}&fixed=1&hud=0&adaptive=0&seed=3&demo=1`, { at: T + 5.1, width: 480, levels: 16, file: path.join(SHOTS, 'swim-scene-desktop.png') });
-      console.log('shot', JSON.stringify(a));
-      const b = await run(chromium, port, CONFIGS[2], `t=${T}&fixed=1&hud=0&adaptive=0&seed=5&crashAt=4`, { at: T + 4.35, width: 260, levels: 16, file: path.join(SHOTS, 'swim-scene-phone-crash.png') });
-      console.log('shot', JSON.stringify(b));
+      // small dithered PNGs (16 shades a channel) so each stays well under 150 KB; full colour with --gfx compare
+      const W = +arg('width', LOOKS.length > 1 ? 960 : 480), LV = LOOKS.length > 1 ? 0 : 16;
+      for (const look of LOOKS) {
+        const tag = LOOKS.length > 1 ? '-' + (look === 'off' ? 'before' : 'after') : '';
+        const ONLY = arg('only', '');
+        if (ONLY !== 'phone') {
+        const a = await run(chromium, port, CONFIGS[0], `t=${T}&fixed=1&hud=0&adaptive=0&seed=3&demo=1&cars=${arg("cars", "supercar,muscle")}&stopAt=${T + 5.1}&${gfxQs(look, CONFIGS[0])}${LOOK_QS}`, { at: T + 5.1, width: W, levels: LV, file: path.join(SHOTS, `swim-scene-desktop${tag}.png`) });
+        console.log('shot', JSON.stringify(a));
+        }
+        if (ONLY === 'desktop') continue;
+        const b = await run(chromium, port, CONFIGS[2], `t=${T}&fixed=1&hud=0&adaptive=0&seed=5&crashAt=4&cars=${arg("cars", "supercar,muscle")}&stopAt=${T + 4.35}&${gfxQs(look, CONFIGS[2])}${LOOK_QS}`, { at: T + 4.35, width: Math.round(W * 0.55), levels: LV, file: path.join(SHOTS, `swim-scene-phone-crash${tag}.png`) });
+        console.log('shot', JSON.stringify(b));
+      }
       return;
     }
-    const qs = `secs=${SECS}&sync=1&t=${T}&demo=1&hud=0&adaptive=0`;
     console.log(`Swim scene perf: ${SECS}s per config, race time ${T}s (dense traffic), uncapped + readPixels sync`);
-    for (const cfg of CONFIGS) {
+    const ONLY = arg('only', '');
+    for (const cfg of CONFIGS.filter((c) => !ONLY || c.name.startsWith(ONLY) || (ONLY === 'desktops' && !c.ctx.isMobile))) for (const look of LOOKS) {
+      const qs = `secs=${SECS}&sync=1&t=${T}&demo=1&hud=0&adaptive=0&${gfxQs(look, cfg)}${LOOK_QS}`;
       const r = await run(chromium, port, cfg, qs);
       if (/swiftshader|llvmpipe|software/i.test(r.gpu || '')) console.log('  WARNING: software GL, numbers are not the GPU');
-      console.log(`${cfg.name.padEnd(20)} fps ${String(r.fps).padStart(6)}  frame p50 ${r.frameMs.p50} ms  p95 ${r.frameMs.p95} ms  max ${r.frameMs.max} ms  js p50 ${r.jsMs.p50} ms  calls ${r.calls}  tris ${r.triangles}  dpr ${r.dpr}  canvas ${r.canvas}  traffic ${r.traffic}${r.errors ? '  ERRORS ' + r.errors.join(' | ') : ''}`);
+      console.log(`${(cfg.name + ' ' + r.quality).padEnd(25)} fps ${String(r.fps).padStart(6)}  frame p50 ${r.frameMs.p50} ms  p95 ${r.frameMs.p95} ms  max ${r.frameMs.max} ms  js p50 ${r.jsMs.p50} ms  calls ${r.calls}  tris ${r.triangles}  dpr ${r.dpr}  canvas ${r.canvas}  traffic ${r.traffic}${r.errors ? '  ERRORS ' + r.errors.join(' | ') : ''}`);
       console.log(`${''.padEnd(20)} gpu ${r.gpu}`);
     }
   } finally { srv.close(); }

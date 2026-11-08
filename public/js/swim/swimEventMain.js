@@ -116,8 +116,8 @@ addEventListener('blur', () => keys.clear());
 const touch = { steer: 0, id: null, x0: 0, dead: 0, gas: false, brake: false };
 (function pads() {
   const zone = $('steerZone'), knob = $('steerKnob');
-  /* Owen 2026-11-04: Gas bottom right, Brake bottom left, the same size. The left thumb steers: a drag anywhere on
-     the left, or on the Brake while it is held (8 px of thumb roll on the Brake do not steer). */
+  /* Owen 2026-11-08: both pedals on the right again (swim.css), so the Brake no longer steers: the left thumb steers,
+     a drag anywhere on the left. */
   const grab = (el, e, dead) => {
     touch.id = e.pointerId; touch.x0 = e.clientX; touch.dead = dead; touch.steer = 0;
     knob.style.left = e.clientX + 'px'; knob.style.top = (e.clientY - zone.getBoundingClientRect().top) + 'px';
@@ -131,16 +131,13 @@ const touch = { steer: 0, id: null, x0: 0, dead: 0, gas: false, brake: false };
   };
   const end = (e) => { if (e.pointerId !== touch.id) return; touch.id = null; touch.steer = 0; knob.classList.remove('on'); };
   zone.addEventListener('pointerdown', (e) => grab(zone, e, 0));
-  for (const el of [zone, $('brake')]) {
-    el.addEventListener('pointermove', move); el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end);
-  }
-  const hold = (btn, key, steers) => {
+  zone.addEventListener('pointermove', move); zone.addEventListener('pointerup', end); zone.addEventListener('pointercancel', end);
+  const hold = (btn, key) => {
     const on = (v) => (e) => { touch[key] = v; btn.classList.toggle('on', v); if (e && e.cancelable) e.preventDefault(); };
-    btn.addEventListener('pointerdown', (e) => { on(true)(e); if (steers) grab(btn, e, 8); });
-    btn.addEventListener('pointerup', on(false)); btn.addEventListener('pointercancel', on(false));
-    if (!steers) btn.addEventListener('pointerleave', on(false));   // the Brake keeps its thumb while it steers
+    btn.addEventListener('pointerdown', on(true));
+    btn.addEventListener('pointerup', on(false)); btn.addEventListener('pointercancel', on(false)); btn.addEventListener('pointerleave', on(false));
   };
-  hold($('gas'), 'gas', false); hold($('brake'), 'brake', true);
+  hold($('gas'), 'gas'); hold($('brake'), 'brake');
 })();
 function controls() {
   /* A headless check's driver (scripts/swimEventPerf.js) can steer this page's own car; it is only ever this page's
@@ -716,7 +713,9 @@ $('seBack').addEventListener('click', () => toLobby());
 function join() {
   refusedNote = '';
   const look = myLook();
-  socket.emit('se:join', { name: myName, wallet: myWallet, car: look.car, v: S.VERSION });
+  let skinPass;
+  try { skinPass = localStorage.getItem('duel.skinpass') || undefined; } catch (_) { skinPass = undefined; }
+  socket.emit('se:join', { name: myName, wallet: myWallet, car: look.car, skinPass, v: S.VERSION });   // a Shop car needs the pass (server/index.js swimCarOf)
 }
 
 /* ── the server ────────────────────────────────────────────────────────── */
