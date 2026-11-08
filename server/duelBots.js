@@ -24,8 +24,9 @@
    A hard kill (no settle at all) leaves the stake in the bank's in-flight count, which the bank gives back to itself
    at the next boot (botBank.js), the same as a slither bounty bot's seed.
 
-   SAVED ACROSS RESTARTS (Owen 2026-11-08; until then the switch was Off at every boot and a deploy, several a day,
-   sent every bot home for good). `file` keeps the switch and every bot still starting or waiting: its game, rung,
+   SAVED ACROSS RESTARTS, ONLY WITH A FILE (index.js KEEP_DUEL_BOTS_ACROSS_RESTARTS; Owen 2026-11-08 chose "Off at
+   every restart", so production passes no file: the switch boots Off and a restart ends every waiting bot, its stake
+   back in the bank). With a file, it keeps the switch and every bot still starting or waiting: its game, rung,
    name and the end of its wait. A restart gives each waiting bot's stake back to the bank first (duelQueue.
    shutdownRows, or the bank's in-flight count after a hard kill), and the next boot brings each one back as a NEW
    seat with what was left of its wait, taking a fresh stake from the bank. So every stake is still taken once and

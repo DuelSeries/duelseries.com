@@ -3510,15 +3510,17 @@ trackDuelLobby(crossy.lobby, 'crossy');
 /* THE OWNER'S PAID DUEL BOTS (server/duelBots.js, Owen 2026-11-04, reworked 2026-11-08): Control puts a bot on a
    duel's $0.50 or $1 table, its stake from the Bot bank; it waits up to two hours for a person the lobby showed it to
    ("Bot opponent waiting"), then leaves and its stake goes home. While the bank moves the stake into escrow the bot is
-   "starting" and starts by itself when the money lands (onReady below, and the manager's own tick). The switch
-   (Control's "Paid duel bots") and the waiting bots are saved in duel-bots.json, so a deploy brings them back with what
-   was left of their wait (each stake back to the bank at the shutdown, a fresh one taken at boot). Maintenance closes
-   the door like a paid door does. Battleship is not here: its bot would need the other side's ships, which no person
-   can see. DUEL_BOT_WAIT_MS shortens the wait for a local check only; production ignores it. */
-/* THE ONE SETTING for that save (Owen's call, asked 2026-11-08; it reverses the 11-04 rule "Off at every boot"):
-   true  = the switch and the waiting bots are kept across restarts and deploys (duel-bots.json);
-   false = nothing is saved: every boot starts with paid duel bots Off and no bot waiting, as before 2026-11-08. */
-const KEEP_DUEL_BOTS_ACROSS_RESTARTS = true;
+   "starting" and starts by itself when the money lands (onReady below, and the manager's own tick). A restart ends
+   every waiting bot with its stake back in the Bot bank (duelQueue.shutdownRows; the bank's in-flight count after a
+   hard kill) and the switch (Control's "Paid duel bots") boots Off, unless the setting below keeps them. Maintenance
+   closes the door like a paid door does. Battleship is not here: its bot would need the other side's ships, which no
+   person can see. DUEL_BOT_WAIT_MS shortens the wait for a local check only; production ignores it. */
+/* THE ONE SETTING for keeping paid duel bots across restarts (Owen 2026-11-08: "Off at every restart", the 11-04 rule):
+   false = nothing is saved: every boot starts with paid duel bots Off and no bot waiting (each waiting bot's stake
+           went back to the Bot bank at the shutdown, or at boot after a hard kill);
+   true  = the switch and the waiting bots are kept in duel-bots.json and come back after a restart with what was left
+           of their wait, taking a fresh stake (built and tested, test/duelBotsWait.test.js W4/W5; not chosen). */
+const KEEP_DUEL_BOTS_ACROSS_RESTARTS = false;
 const DUEL_BOT_WAIT_MS = process.env.NODE_ENV !== 'production' && /^\d{4,8}$/.test(String(process.env.DUEL_BOT_WAIT_MS || ''))
   ? Number(process.env.DUEL_BOT_WAIT_MS) : undefined;
 const duelBots = require('./duelBots').createDuelBots({

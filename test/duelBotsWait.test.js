@@ -346,6 +346,19 @@ test('W5: with the save turned off (index.js KEEP_DUEL_BOTS_ACROSS_RESTARTS = fa
   assert.equal(b.bots.heldMicro(), 0, 'no bot came back');
   assert.equal(b.bank.balanceMicro(), M(20));
   assert.deepEqual(fs.readdirSync(dir).filter((f) => f.startsWith('duel-bots')), [], 'nothing written');
+  // a hard kill with two bots waiting (no shutdown at all): the bank gives both stakes back at boot, Off, no bot
+  b.bots.setEnabled(true);
+  b.bots.spawn('knockout', 1);
+  b.bots.spawn('knockout', 0.5);
+  assert.equal(b.bank.balanceMicro(), M(18.5));
+  const c = make();
+  c.bots.tick();
+  assert.equal(c.bank.balanceMicro(), M(20), 'both stakes back in the Bot bank');
+  assert.equal(JSON.parse(fs.readFileSync(bankFile, 'utf8')).inflight, 0);
+  assert.equal(c.bots.enabled(), false, 'Off at boot');
+  assert.equal(c.bots.heldMicro(), 0, 'no bot came back');
+  const d = make();
+  assert.equal(d.bank.balanceMicro(), M(20), 'and only once');
 });
 
 test('W4: in a shutdown\'s last seconds, Off is still saved and a starting bot is kept for the next boot', async () => {
