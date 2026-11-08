@@ -172,9 +172,9 @@ test('socket events: the layer names only sl:x and its own four emits, never the
 // to that instead: no other post, never a signature, a widget launch, a resume key, the escrow or Privy.
 const PAID_FILE = 'slxPaid.js';
 
-// The battle royale's page (server/slBr) signs one thing through the lobby's bridge and nothing else: the player's
-// own identity for the prize (play:identify). The owner's in-game Start match (br:start) is gone (Owen 2026-11-05: the
-// owner sees the page every player sees); Control's Start now sends it to /api/owner/do.
+// The battle royale's page (server/slBr) signs one thing through the lobby's bridge itself: the player's own identity
+// for the prize (play:identify). The owner's Start now (Owen 2026-11-08) is Control's br:start, handed to the shared
+// public/js/shared/dsOwnerStart.js (which the server checks at /api/owner/do on every press), never signed here.
 const BR_FILE = 'slxBr.js';
 test('the battle royale layer posts only duel:signaction, signs only play:identify, and holds no money', () => {
   const br = CODE.find(([f]) => f === BR_FILE);
@@ -183,7 +183,9 @@ test('the battle royale layer posts only duel:signaction, signs only play:identi
   assert.deepStrictEqual(posts, ['{ type: \'duel:signaction\''], BR_FILE + ' posts duel:signaction only');
   const signs = [...br[1].matchAll(/\bsign\('([^']+)'/g)].map((m) => m[1]).sort();
   assert.deepStrictEqual([...new Set(signs)], ['play:identify']);
-  assert.ok(!/br:start|\/api\/owner\//.test(br[1]), BR_FILE + ': no owner control');
+  assert.strictEqual([...br[1].matchAll(/br:start/g)].length, 1, BR_FILE + ': br:start once');
+  assert.ok(/DSOwnerStart\.start\('br:start', \{\}\)/.test(br[1]), BR_FILE + ': only handed to dsOwnerStart');
+  assert.ok(!/\/api\/owner\/|\/api\/br\/owner/.test(br[1]), BR_FILE + ': never calls an owner route itself');
   assert.ok(!/entryToken|entrySol|\bstake\b|resumeKey|duel:restake|duel:play|escrow|privy/i.test(br[1]), BR_FILE + ': money word');
 });
 

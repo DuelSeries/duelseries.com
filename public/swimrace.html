@@ -55,6 +55,8 @@
     <ul class="seNames" id="seNames"></ul>
     <span class="seNote" id="seNote"></span>
     <button type="button" class="seGo" id="seJoin" hidden>Join the race</button>
+    <!-- The owner's Start now (Control's, shown to the owner only; the server checks every press). -->
+    <button type="button" class="seOwn" id="seStart" hidden>Start now</button>
     <button type="button" id="seBack">Back to the lobby</button>
   </div>
   <!-- CC-BY 4.0 credit for the supercar model (public/js/swim/swimHiFi.js), shown while waiting. -->
@@ -66,6 +68,7 @@
 <div id="lobbyBar" hidden role="status">
   <b>Waiting for players</b>
   <span id="lbCount">1 joined</span><span id="lbClock">0:00</span><i id="lbTest" hidden>Test</i>
+  <button type="button" class="seOwn" id="lbStart" hidden>Start now</button>
   <button type="button" id="lbLeave">Leave</button>
 </div>
 
@@ -92,6 +95,7 @@
 <script src="/shared/swimLooks.js"></script>
 <script src="/js/dsSfx.js"></script><script src="/js/dsSfxGame.js"></script><script src="/js/swim/swimEngines.js"></script><script src="/js/swim/swimSound.js"></script>
 <script src="/js/shared/dsWatchBar.js"></script>
+<script src="/js/shared/dsOwnerStart.js"></script>
 <script type="module" src="js/swim/swimEventMain.js"></script>
 </body>
 </html>

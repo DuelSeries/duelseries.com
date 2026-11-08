@@ -888,7 +888,10 @@ test('slxHud: spectating the leader lists it once: the watched row is the own ro
 
 test('slxBr: every event line in one block at the top centre, in the slot slxHud keeps clear', () => {
   const store = { slBr: 'play' };
-  const P = makePage({ win: { setInterval: () => 0, sessionStorage: { getItem: (k) => store[k] || null, removeItem: (k) => { delete store[k]; } } } });
+  // a player who is not the owner: dsOwnerStart is asked and never says yes
+  const watched = [];
+  const DSOwnerStart = { watch: (cb) => { watched.push(cb); return {}; }, start: () => { throw new Error('never pressed'); } };
+  const P = makePage({ win: { DSOwnerStart, setInterval: () => 0, sessionStorage: { getItem: (k) => store[k] || null, removeItem: (k) => { delete store[k]; } } } });
   const slots = [];
   P.slx.hud = { phone: () => false, topSlot: (w) => { slots.push(w); return 110; } };
   P.doc.querySelector = () => null; // no phone CASH OUT button on this page
@@ -896,11 +899,13 @@ test('slxBr: every event line in one block at the top centre, in the slot slxHud
   const [hud] = P.find('slx-br-hud');
   assert.ok(hud, 'the block');
   assert.strictEqual(P.find('slx-br-big').length, 0, 'nothing in the middle of the screen');
-  const [head, sub] = hud.children;
-  assert.deepStrictEqual(hud.children.map((c) => c.className), ['slx-br-head', 'slx-br-sub'], 'no owner-only Start match');
+  const [head, sub, start] = hud.children;
+  assert.deepStrictEqual(hud.children.map((c) => c.className), ['slx-br-head', 'slx-br-sub', 'slx-br-start slx-br-ui']);
   const br = (m) => { P.slx.fire('x:br', Object.assign({ t: 'br', z: null }, m)); P.raf(1); };
   br({ state: 'waiting', phase: 'waiting', alive: 48, nextStartMs: 3723500 });
   assert.deepStrictEqual([head.textContent, sub.textContent], ['Battle Royale', '48 players · next match in 1h 2m 3s']);
+  assert.strictEqual(watched.length, 1, 'asked once who is the owner');
+  assert.strictEqual(start.style.display, 'none', 'not the owner: no Start now');
   assert.strictEqual(hud.style.top, '110px', 'the slot');
   assert.ok(!/slx-br-now/.test(hud.className));
   // it comes in with the game (their menu fades out, the game in), never over their menu while the wallet signs
@@ -950,6 +955,57 @@ test('slxBr: every event line in one block at the top centre, in the slot slxHud
   br({ state: 'running', phase: 'holding', alive: 5, elapsedMs: 90000 });
   assert.strictEqual(sub.textContent, '5 left · last snake alive wins');
   assert.ok(slots.length > 0 && slots.every((w) => typeof w === 'number'), 'asks for the slot with its width');
+  br({ state: 'waiting', phase: 'waiting', alive: 30, nextStartMs: 60000 });
+  assert.strictEqual(start.style.display, 'none', 'never, in any phase, for anyone but the owner');
+});
+
+// The owner's Start now (Owen 2026-11-08): Control's br:start, shown only to the owner while the arena waits, pressed
+// through dsOwnerStart (which sends it to /api/owner/do, where the server checks the owner on every press).
+test('slxBr: the owner alone gets Start now while the arena waits; the press sends br:start and says the answer', async () => {
+  for (const how of ['device', 'seat']) {
+    const store = { slBr: how === 'seat' ? 'play' : 'watch' };
+    const watched = [];
+    const pressed = [];
+    let answer = { ok: true, status: 200, text: 'Started with 1 player(s) and 7 bot(s)' };
+    const DSOwnerStart = { watch: (cb) => { watched.push(cb); return {}; },
+      start: (action, args) => { pressed.push([action, args]); return Promise.resolve(answer); } };
+    const P = makePage({ win: { DSOwnerStart, setInterval: () => 0, sessionStorage: { getItem: (k) => store[k] || null, removeItem: (k) => { delete store[k]; } } } });
+    P.slx.hud = { phone: () => false, topSlot: () => 110 };
+    P.doc.querySelector = () => null;
+    P.load('slxBr.js');
+    const [hud] = P.find('slx-br-hud');
+    const [, sub, start] = hud.children;
+    const br = (m) => { P.slx.fire('x:br', Object.assign({ t: 'br', z: null }, m)); P.raf(1); };
+    br({ state: 'waiting', phase: 'waiting', alive: 8, nextStartMs: 600000 });
+    assert.strictEqual(start.style.display, 'none', how + ': hidden until the owner is known');
+    if (how === 'device') watched[0](true);                                       // signed into Control / owner wallet
+    else br({ state: 'waiting', phase: 'waiting', alive: 8, nextStartMs: 600000, owner: true }); // the seat's own x:br
+    P.raf(1);
+    assert.strictEqual(start.style.display, 'block', how + ': the owner sees Start now');
+    assert.strictEqual(start.textContent, 'Start now');
+    P.dispatch(start, 'click', {});
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(pressed)), [['br:start', {}]], how + ': the action Control sends');
+    assert.strictEqual(start.disabled, true, 'one press at a time');
+    for (let i = 0; i < 4; i++) await new Promise((r) => setImmediate(r));
+    P.raf(1);
+    assert.strictEqual(sub.textContent, 'Started with 1 player(s) and 7 bot(s)', 'the answer from the server, in the block');
+    assert.strictEqual(start.disabled, false);
+    // a refusal says why (the server's reason)
+    answer = { ok: false, status: 409, text: 'A match is already running.' };
+    P.dispatch(start, 'click', {});
+    for (let i = 0; i < 4; i++) await new Promise((r) => setImmediate(r));
+    P.raf(1);
+    assert.strictEqual(sub.textContent, 'A match is already running.');
+    // gone once the match counts down or runs, back when the arena waits again
+    br({ state: 'countdown', phase: 'countdown', alive: 8, countdownMs: 9000 });
+    assert.strictEqual(start.style.display, 'none', how + ': not while a match is on');
+    br({ state: 'running', phase: 'warning', alive: 8, startedCount: 8, elapsedMs: 5000, zoneMs: 9000 });
+    assert.strictEqual(start.style.display, 'none');
+    br({ state: 'waiting', phase: 'waiting', alive: 8, nextStartMs: 600000 });
+    assert.strictEqual(start.style.display, 'block');
+    assert.strictEqual(watched.length, 1, 'asked once');
+    assert.strictEqual(P.slx.errors, 0);
+  }
 });
 
 // The battle royale's card answers (slxBr cardLines) drawn by slxCard on the shared card: a decided match.

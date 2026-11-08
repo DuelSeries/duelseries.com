@@ -44,6 +44,8 @@ const SLX_CSS = 'slx.css';
 const SHARED_UI = Object.freeze(['dsEnd.js', 'dsChat.js', 'dsPerfHud.js']);
 const EMPTY_UI = 'dsEmptyArena.js';
 const WATCH_UI = 'dsWatchBar.js';
+// the owner's Start now in the battle royale's top block (slxBr.js; Owen 2026-11-08): it draws nothing for anyone else
+const OWNER_UI = 'dsOwnerStart.js';
 const CLIP_FILES = Object.freeze(['mp4mux.js', 'clipRec.js']);
 
 // -> { laws, dev }. Throws when the dev table is asked for where it could be the live server, or does not load.
@@ -89,6 +91,7 @@ function slxTail(publicDir) {
   // previous, the name, next; dsWatchBar draws the empty table). slxWatch and slxBr read both when they need them.
   if (ordered.length && fs.existsSync(path.join(dir, 'js', 'shared', EMPTY_UI))) tail += '<script src="/js/shared/' + EMPTY_UI + '"></script>\n';
   if (ordered.length && fs.existsSync(path.join(dir, 'js', 'shared', WATCH_UI))) tail += '<script src="/js/shared/' + WATCH_UI + '"></script>\n';
+  if (ordered.length && fs.existsSync(path.join(dir, 'js', 'shared', OWNER_UI))) tail += '<script src="/js/shared/' + OWNER_UI + '"></script>\n';
   // The clip recorder (P saves the last 30 s, PC only), after the layer so it can hook slx's cash-out event.
   if (ordered.length && CLIP_FILES.every((f) => fs.existsSync(path.join(dir, 'js', 'clip', f)))) {
     tail += '<script src="/js/clip/mp4mux.js"></script>\n<script src="/js/clip/clipRec.js" data-game="slither"></script>\n';

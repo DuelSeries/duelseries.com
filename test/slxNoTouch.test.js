@@ -36,9 +36,10 @@ const SCRIPTS = V.SRC.concat(LAYER_SRC);
 
 test('the layer of the composed page: dsEnd, then slxNet, slxPaid, slxBr, slxWatch, slxMain and slxDirect, every file on disk', () => {
   assert.deepStrictEqual(TAIL.filter((f) => !LAYER.includes(f)), ['public/js/shared/dsEnd.js', 'public/js/shared/dsChat.js',
-    'public/js/shared/dsPerfHud.js', 'public/js/shared/dsEmptyArena.js', 'public/js/shared/dsWatchBar.js']);
-  assert.deepStrictEqual(TAIL.slice(-2), ['public/js/shared/dsEmptyArena.js', 'public/js/shared/dsWatchBar.js'],
-    'after the layer');
+    'public/js/shared/dsPerfHud.js', 'public/js/shared/dsEmptyArena.js', 'public/js/shared/dsWatchBar.js',
+    'public/js/shared/dsOwnerStart.js']);
+  assert.deepStrictEqual(TAIL.slice(-3), ['public/js/shared/dsEmptyArena.js', 'public/js/shared/dsWatchBar.js',
+    'public/js/shared/dsOwnerStart.js'], 'after the layer');
   assert.strictEqual(TAIL[0], 'public/js/shared/dsEnd.js', 'before the layer');
   assert.deepStrictEqual(LAYER.slice(0, 6), ['public/js/slx/slxNet.js', 'public/js/slx/slxPaid.js',
     'public/js/slx/slxBr.js', 'public/js/slx/slxWatch.js', 'public/js/slx/slxMain.js', 'public/js/slx/slxDirect.js']);
@@ -75,7 +76,7 @@ for (const ua of ['desktop', 'mobile']) {
       if (Array.isArray(before[k])) before[k].forEach((v, i) => assert.strictEqual(after[k][i], v, k + '[' + i + ']'));
       // the shared end screens', empty table's and Spectate bar's globals (libraries: none makes an element, listener
       // or timer until it is called)
-      else if (k === 'winKeys') assert.strictEqual(after[k], before[k] + ',DSEnd,DSChat,DSPerfHud,DSEmptyArena,DSWatchBar', k);
+      else if (k === 'winKeys') assert.strictEqual(after[k], before[k] + ',DSEnd,DSChat,DSPerfHud,DSEmptyArena,DSWatchBar,DSOwnerStart', k);
       // the shared chat (4608813) routes its keys from load: keydown, keyup, keypress and blur on window
       else if (k === 'winListeners') assert.strictEqual(after[k], before[k] + 4, k);
       else assert.strictEqual(after[k], before[k], k);

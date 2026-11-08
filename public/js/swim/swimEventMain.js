@@ -21,8 +21,8 @@
    "Waiting for players to join" with how many are in and the time to the
    start. Nothing moves until the countdown, but the gas revs the engine (Owen:
    rev it up while you wait): the revs climb and fall, the body rocks, the pipes
-   pop. The same for everyone: the owner's test race bar is gone (Owen
-   2026-11-05, the owner sees the page every player sees).
+   pop. The owner alone also gets a small Start now (Owen 2026-11-08), see
+   "the owner's Start now" below.
 
    SOUND (Owen 2026-10-30). Your own engine, or the watched car's when you are
    out or watching, and the cars around it heard where they are: the nearest few
@@ -710,6 +710,30 @@ setInterval(paintLobby, 1000);
 $('seJoin').addEventListener('click', () => join());
 $('lbLeave').addEventListener('click', () => { socket.emit('se:leave'); joined = false; myLane = null; paintLobby(); });
 $('seBack').addEventListener('click', () => toLobby());
+
+/* ── the owner's Start now ─────────────────────────────────────────────────
+   Owen 2026-11-08: "a little Start now button" in the event's waiting screen,
+   just for him, so he need not go to Control. It is the Swim Race's se:start
+   (15 s, the bots still to come trickle in meanwhile) sent to /api/owner/do,
+   and public/js/shared/dsOwnerStart.js both says who is the owner (this device
+   signed into Control, or the lobby's wallet) and sends it; the server checks
+   the owner again on every press. Anyone else: both buttons stay hidden. */
+const OWNER = { yes: false, busy: false };
+function paintOwner() {
+  for (const id of ['lbStart', 'seStart']) { const b = $(id); b.hidden = !OWNER.yes; b.disabled = OWNER.busy; }
+  $('lobbyBar').classList.toggle('own', OWNER.yes);   // on a phone the line drops its words to fit (swimrace.css)
+}
+function ownerStart() {
+  if (OWNER.busy || !OWNER.yes || !window.DSOwnerStart) return;
+  OWNER.busy = true; paintOwner();
+  window.DSOwnerStart.start('se:start', {})
+    .then(r => note((r && r.text) || 'Refused', 4000))
+    .then(() => { OWNER.busy = false; paintOwner(); pullLive(); });
+}
+$('lbStart').addEventListener('click', ownerStart);
+$('seStart').addEventListener('click', ownerStart);
+paintOwner();                                    // hidden from the start, whatever the markup says
+if (window.DSOwnerStart) window.DSOwnerStart.watch((yes) => { OWNER.yes = yes; paintOwner(); });
 function join() {
   refusedNote = '';
   const look = myLook();

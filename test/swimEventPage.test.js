@@ -82,6 +82,8 @@ function boot(session, opts) {
     .replace(/^import \{ createScene \} from '\.\/swimScene\.js';$/m, 'const createScene = () => __scene;');
   win.__scene = scene;
   vm.createContext(win);
+  // the owner's Start now helper, loaded before the page as swimrace.html does
+  if (opts.owner) vm.runInContext(fs.readFileSync(path.join(ROOT, 'public/js/shared/dsOwnerStart.js'), 'utf8'), win, { filename: 'dsOwnerStart.js' });
   vm.runInContext(src, win, { filename: 'swimEventMain.js' });
   const runTimers = () => { while (timers.length) timers.shift().fn(); };
   const fire = (ev, m) => { if (ev === 'connect') socket.connected = true; if (ev === 'disconnect') socket.connected = false; handlers[ev](m); };
@@ -139,30 +141,73 @@ test('Swim Race page: put out while the connection was down, the reconnect shows
   assert.ok(p.win.document.body.classList.contains('watching'), 'and the page watches the rest of the race');
 });
 
-/* The owner sees the page every player sees (Owen 2026-11-05): the test race bar is gone, so the page never asks
-   whether a wallet or this device is the owner's, and draws nothing extra for the owner's wallet signed in. Control
-   (/api/owner/do se:open, se:start, se:stop) is unchanged on the server. */
-test('Swim Race page: no owner bar, and no owner check, even with the owner wallet signed in', async () => {
-  const OWNER = 'Own3r111111111111111111111111111111111111111';
+/* The owner's Start now (Owen 2026-11-08): Control's se:start, in the joined line and on the card, shown only when
+   public/js/shared/dsOwnerStart.js says this device is signed into Control or the lobby's wallet is the owner's. The
+   server checks the owner again on every press (/api/owner/do); these pin what each player's page draws and sends. */
+const OWNER_W = 'Own3r111111111111111111111111111111111111111';
+function ownerFetch(o) {
   const asked = [];
-  const fetch = (url, o) => {
-    asked.push(url);
-    return Promise.resolve({ ok: true, json: () => Promise.resolve(url === '/api/br/owner' ? { isOwner: true } : { signedIn: true }) });
+  const fetch = (url, opt) => {
+    asked.push({ url, opt: opt || {} });
+    let body = {};
+    if (url === '/api/owner/session') body = { signedIn: !!o.session };
+    else if (url === '/api/br/owner') body = { isOwner: JSON.parse(opt.body).wallet === OWNER_W };
+    else if (url === '/api/owner/do') return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ ok: true, note: 'Swim Race starting in 15 seconds' }) });
+    return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) });
   };
-  const listeners = {};
-  const parent = { duelWallet: { ready: true, authenticated: true, address: OWNER },
-    addEventListener(t, fn) { listeners[t] = fn; }, removeEventListener() {} };
-  const flush = async () => { for (let i = 0; i < 4; i++) await new Promise(r => setImmediate(r)); };
-  const p = boot({}, { parent, fetch });
-  await flush();
-  if (listeners['duelwallet:change']) listeners['duelwallet:change']();
-  await flush();
-  assert.ok(!asked.includes('/api/br/owner') && !asked.includes('/api/owner/session'), 'never asks who the owner is: ' + asked.join(', '));
-  const src = fs.readFileSync(path.join(ROOT, 'public/js/swim/swimEventMain.js'), 'utf8');
-  assert.ok(!/ownerBar|ownerDo|\/api\/owner\/|\/api\/br\/owner|'se:open'|'se:stop'/.test(src), 'the page holds no owner control');
+  return { asked, fetch };
+}
+const flush = async () => { for (let i = 0; i < 6; i++) await new Promise(r => setImmediate(r)); };
+
+test('Swim Race page: a player who is not the owner never sees Start now and never sends an owner action', async () => {
+  for (const parent of [null, { duelWallet: { ready: true, authenticated: true, address: 'P1ayer11111111111111111111111111111111111111' },
+    addEventListener() {}, removeEventListener() {}, postMessage() { throw new Error('nothing to sign'); } }]) {
+    const f = ownerFetch({ session: false });
+    const p = boot({ seJoin: '1', playerName: 'Ann' }, { fetch: f.fetch, parent: parent || undefined, owner: true });
+    p.fire('connect');
+    p.fire('se:joined', { state: 'waiting', lane: 0, n: 1, cars: [[0, 'Ann', 'supercar']] });
+    await flush();
+    assert.strictEqual(p.els('lbStart').hidden, true, 'not in the joined line');
+    assert.strictEqual(p.els('seStart').hidden, true, 'not on the card');
+    p.els('lbStart').fire('click');
+    await flush();
+    assert.ok(!f.asked.some(a => a.url === '/api/owner/do'), 'a hidden button sends nothing');
+  }
   const html = fs.readFileSync(path.join(ROOT, 'public/swimrace.html'), 'utf8');
-  assert.ok(!/ownerBar|ownOpen|ownStart|ownStop/.test(html), 'and its page has no owner bar');
-  assert.ok(p.els, 'the page booted');
+  assert.match(html, /<button type="button" class="seOwn" id="lbStart" hidden>Start now<\/button>/, 'hidden until the owner is known');
+  assert.match(html, /<button type="button" class="seOwn" id="seStart" hidden>Start now<\/button>/);
+  const src = fs.readFileSync(path.join(ROOT, 'public/js/swim/swimEventMain.js'), 'utf8');
+  assert.ok(!/['"`]\/api\/owner\/|['"`]\/api\/br\/owner|'se:open'|'se:stop'/.test(src), 'the page calls no owner route itself and has only Start now');
+  assert.match(src, /window\.DSOwnerStart\.start\('se:start', \{\}\)/, 'Start now goes through dsOwnerStart');
+});
+
+test('Swim Race page: the owner sees Start now, and a press sends Control\'s se:start and says the answer', async () => {
+  // a device signed into Control: the cookie alone, nothing to sign
+  const f = ownerFetch({ session: true });
+  const p = boot({ seJoin: '1', playerName: 'Owen' }, { fetch: f.fetch, owner: true });
+  p.fire('connect');
+  p.fire('se:joined', { state: 'waiting', lane: 0, n: 1, cars: [[0, 'Owen', 'supercar']] });
+  await flush();
+  assert.strictEqual(p.els('lbStart').hidden, false, 'in the joined line beside Leave');
+  assert.strictEqual(p.els('seStart').hidden, false, 'and on the card');
+  p.els('lbStart').fire('click');
+  assert.strictEqual(p.els('lbStart').disabled, true, 'one press at a time');
+  await flush();
+  const sent = f.asked.filter(a => a.url === '/api/owner/do');
+  assert.strictEqual(sent.length, 1);
+  assert.deepStrictEqual(JSON.parse(sent[0].opt.body), { action: 'se:start', args: {} });
+  assert.strictEqual(sent[0].opt.credentials, 'same-origin', 'the owner session cookie goes with it');
+  assert.strictEqual(sent[0].opt.headers['X-DS-Owner'], '1', 'the header a cookie write needs');
+  assert.strictEqual(p.els('botNote').textContent, 'Swim Race starting in 15 seconds');
+  assert.strictEqual(p.els('lbStart').disabled, false);
+
+  // the lobby's owner wallet (no Control cookie on this device): shown once the server says it is the owner's
+  const g = ownerFetch({ session: false });
+  const parent = { duelWallet: { ready: true, authenticated: true, address: OWNER_W }, addEventListener() {}, removeEventListener() {} };
+  const q = boot({}, { fetch: g.fetch, parent, owner: true });
+  await flush();
+  assert.ok(g.asked.some(a => a.url === '/api/br/owner'), 'asks about the lobby wallet');
+  assert.strictEqual(q.els('seStart').hidden, false, 'the owner wallet sees it too');
 });
 
 /* Owen 2026-11-04: pressing gas in the countdown made the bots jump. The other cars were carried forward from their

@@ -1363,8 +1363,9 @@ function brApply(s) {
       : 'Waiting for players (' + (s.players || 0) + '/' + (s.minPlayers || 2) + ')';
   }
 
-  /* The owner-only Start the match button that sat here is gone (Owen 2026-11-05: the owner sees the room every
-     player sees). Control's Start now (owner.html, /api/owner/do br:start) starts a match early. */
+  /* The owner's Start now while the arena waits (Owen 2026-11-08), see brOwnerPaint. */
+  _brWaiting = s.state === 'waiting';
+  brOwnerPaint();
 
   /* The button follows the match, not the room. While the room is filling this
      is an ordinary game and cashing out is allowed; once the circle starts
@@ -1373,6 +1374,34 @@ function brApply(s) {
   const co = document.getElementById('cashout-btn-mobile');
   if (co) co.style.display = (s.state === 'running') ? 'none' : '';
 }
+/* ── the owner's Start now ─────────────────────────────────────────────────
+   Owen 2026-11-08: "a little Start now button" in the event, just for him, so
+   he need not go to Control. It is Control's Start now (br:start to
+   /api/owner/do); public/js/shared/dsOwnerStart.js says who is the owner (this
+   device signed into Control, or the lobby's wallet) and sends it, and the
+   server checks the owner again on every press. Anyone else: it stays hidden. */
+let _brOwner = false, _brWaiting = false, _brStartBusy = false;
+function brOwnerPaint() {
+  const btn = document.getElementById('br-start');
+  if (!btn) return;
+  btn.hidden = !(_brOwner && _brWaiting && window.DSOwnerStart);
+  btn.disabled = _brStartBusy;
+}
+if (isBattleRoyale && window.DSOwnerStart) {
+  window.DSOwnerStart.watch((yes) => { _brOwner = yes; brOwnerPaint(); });
+  const btn = document.getElementById('br-start');
+  if (btn) btn.addEventListener('click', () => {
+    if (_brStartBusy) return;
+    _brStartBusy = true;
+    btn.textContent = 'Starting…';
+    brOwnerPaint();
+    window.DSOwnerStart.start('br:start', {}).then((r) => {
+      const sub = document.getElementById('br-sub');
+      if (sub) sub.textContent = (r && r.text) || 'Refused';   // the next state tick writes over it
+    }).then(() => { _brStartBusy = false; btn.textContent = 'Start now'; brOwnerPaint(); });
+  });
+}
+
 if (isBattleRoyale) {
   socket.on('br:state', brApply);
 
