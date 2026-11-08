@@ -4,7 +4,8 @@ Every car and every traffic vehicle in Swim is built from a model shared on Sket
 Creative Commons Attribution 4.0 licence (https://creativecommons.org/licenses/by/4.0/). Thank you to the artists.
 
 Changes made for the game, to every model: maker badges, logos, lettering, number plates and most of the
-interior removed; simplified to a lighter mesh (and a lighter phone version); turned, centred and rescaled;
+interior removed; simplified to a lighter mesh (and a lighter phone version; each traffic vehicle also a lighter
+far-away version, <type>-far.glb); turned, centred and rescaled;
 materials replaced with the game's own (paint colour chosen in game). The models are provided as is, with no
 warranties, as the licence says.
 

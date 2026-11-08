@@ -33,10 +33,13 @@ const BLOCK = 48;                // the static pattern repeats every 48 m
 const AHEAD = 465;               // nothing is drawn past this (the fog has it all by 460)
 const BEHIND = 16;               // nor further back than this (the camera is 6.5 m back)
 const FOG_NEAR = 160, FOG_FAR = 460;
-const TRAFFIC_CAP = 72;          // per vehicle type on screen at once
+const TRAFFIC_CAP = 72;          // per vehicle type on screen at once (near and far each)
+/* Past this a 4.5 m car is drawn from its far copy (scripts/swimTrafficFar.mjs: about a fifth of the triangles, never off by
+   more than 1.5% of its size, a pixel or less from here on); a longer vehicle (its error is a share of its size) further
+   out in step, a bus at 187 m. */
+const FAR_M = 70;
 const SHADOW_CAP = 200;
 const SCATTER_CAP = 200;
-const STREAKS = 64, BURSTS = 24;
 const PARTS = 64;
 
 /* ── colours (sRGB hex; THREE.Color converts them to linear) ─────────── */
@@ -54,7 +57,6 @@ const C = {
 /* Ten believable paints, none of them the players' gold or cyan. */
 const PAINTS = [0xe9e7e2, 0xb9bec5, 0x5a5f66, 0x1e2126, 0xa3212a, 0x23406e, 0x5b84b1, 0x2f5a43, 0xcbb68e, 0x6b2430];
 const SIDE_PAINT = [0xe8b84a, 0x4fc3d9];
-const SIDE_STREAK = [0xffd27e, 0x9ef0ff];
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
@@ -483,21 +485,22 @@ export function createScene(canvasEl, opts = {}) {
   const GLOW = HIGH ? 2.2 : 1;                // lamps shine past white for the bloom (high only: lite has no bloom)
   /* The realistic look's dials in one place (opts.look overrides any, for the dev page's ?look=). */
   const LOOK = Object.assign({ exposure: 0.95, hemi: 0.6, sun: 2.6, env: 1.0, skyGain: 1.2, sunGain: 6, clouds: 0.65,
-    roadRough: 0.7, roadEnv: 0.3, sandEnv: 0.35, bloom: 0.45, bloomRadius: 0.4, bloomThreshold: 2.2, blur: 0.035, paintMetal: 0.2, paintRough: 0.38,
-    msaa: 0, shadow: 1024, trafficCoat: 1 }, opts.look || {});
+    roadRough: 0.7, roadEnv: 0.3, sandEnv: 0.35, bloom: 0.45, bloomRadius: 0.4, bloomThreshold: 2.2, paintMetal: 0.2, paintRough: 0.38,
+    msaa: 0, shadow: 1024, trafficCoat: 1, far: FAR_M }, opts.look || {});
   /* 4x MSAA on a plain screen; 2x from 125% scaling up, where the pixels are small anyway and 4x cost the
      most of anything here (Intel Arc, 1920x1200: 82 fps with 4x, 127 without, 2026-11-08). */
   if (!LOOK.msaa) LOOK.msaa = (typeof window !== 'undefined' && window.devicePixelRatio > 1.25) ? 2 : 4;
   const ENV_I = LOOK.env;
 
   const renderer = new THREE.WebGLRenderer({
-    // high draws into its own 4x MSAA target (swimHiFi.js makeComposer), so the canvas needs none of its own
-    canvas: canvasEl, antialias: opts.antialias != null ? !!opts.antialias : !phone && !(typeof window !== 'undefined' && window.DSQuality && window.DSQuality.low()),
+    /* high draws into its own 4x MSAA target (swimHiFi.js makeComposer), so the canvas needs none of its own: an MSAA
+       canvas under the finish pass only cost a second resolve and four times the writes every frame */
+    canvas: canvasEl, antialias: opts.antialias != null ? !!opts.antialias : !HIGH && !phone && !(typeof window !== 'undefined' && window.DSQuality && window.DSQuality.low()),
     powerPreference: 'high-performance', alpha: false, stencil: false,
   });
   renderer.info.autoReset = false;
   if (HI) { renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = LOOK.exposure; }
-  let fx = null;                             // high: the post pipeline (bloom, speed blur, finish), once loaded
+  let fx = null;                             // high: the post pipeline (bloom, finish), once loaded
   let camFix = null;                         // setCamera(): a fixed view of the followed car (dev pictures only)
   const SHADOW = HIGH && LOOK.shadow > 0;
   if (SHADOW) { renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFShadowMap; }
@@ -870,13 +873,15 @@ export function createScene(canvasEl, opts = {}) {
     }
   }
 
-  /* traffic: per type, paint (tinted per car) + details, sharing one matrix buffer */
+  /* traffic: per type, paint (tinted per car) + details, sharing one matrix buffer; in the realistic look a second
+     pair for the cars past FAR_M, drawn from the type's far copy once it has loaded */
   const paintLin = PAINTS.map((h) => new THREE.Color(h));
   const trafficPaintMat = keep(lit({ roughness: 0.3, metalness: 0.35, clearcoat: 1, clearcoatRoughness: 0.08 }, { physical: HIGH && LOOK.trafficCoat > 0, perVertex: false }));
-  const tmesh = S.TYPES.map((T) => {
-    const g = buildTrafficModel(T);
-    const paint = new THREE.InstancedMesh(keep(g.paint), trafficPaintMat, T_CAP);
-    const det = new THREE.InstancedMesh(keep(g.det), propMatDet, T_CAP);
+  const farAt = new Float64Array(S.TYPES.length);
+  for (let t = 0; t < farAt.length; t++) farAt[t] = HI ? LOOK.far * Math.max(1, S.TYPES[t].L / 4.5) : Infinity;
+  function trafficPair(g) {
+    const paint = new THREE.InstancedMesh(g.paint, trafficPaintMat, T_CAP);
+    const det = new THREE.InstancedMesh(g.det, propMatDet, T_CAP);
     paint.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     det.instanceMatrix = paint.instanceMatrix;
     paint.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(T_CAP * 3), 3);
@@ -885,8 +890,18 @@ export function createScene(canvasEl, opts = {}) {
     const mat = paint.instanceMatrix.array;
     for (let i = 0; i < T_CAP; i++) { mat[i * 16] = 1; mat[i * 16 + 5] = 1; mat[i * 16 + 10] = 1; mat[i * 16 + 15] = 1; }
     return { paint, det, mat, col: paint.instanceColor.array };
+  }
+  const tmesh = S.TYPES.map((T) => {
+    const g = buildTrafficModel(T);
+    keep(g.paint); keep(g.det);
+    const near = trafficPair(g);
+    near.far = HI ? trafficPair(g) : null;
+    return near;
   });
-  const tcount = new Int32Array(S.TYPES.length);
+  const tPairs = tmesh.flatMap((t) => (t.far ? [t, t.far] : [t]));
+  const tcount = new Int32Array(tPairs.length);   // cars written this frame, per pair (type t's near pair, then its far one)
+  const pairOf = new Int32Array(S.TYPES.length * 2);
+  for (let t = 0, k = 0; t < tmesh.length; t++) { pairOf[t * 2] = k++; pairOf[t * 2 + 1] = tmesh[t].far ? k++ : pairOf[t * 2]; }
 
   /* blob shadows: one instanced quad for every car on the road */
   const shadowTex = keep(blobTexture([[0, 'rgba(0,0,0,0.62)'], [0.5, 'rgba(0,0,0,0.5)'], [0.8, 'rgba(0,0,0,0.18)'], [1, 'rgba(0,0,0,0)']]));
@@ -1101,36 +1116,9 @@ export function createScene(canvasEl, opts = {}) {
     TL.h++;
   }
 
-  /* speed lines: thin streaks round the edge of the view, riding with the camera */
-  const streakGeo = (() => {
-    const g = new THREE.BoxGeometry(0.02, 0.02, 1).toNonIndexed(), p = g.attributes.position, c = [];
-    for (let i = 0; i < p.count; i++) { const k = p.getZ(i) > 0 ? 1 : 0; c.push(k, k, k); }
-    g.setAttribute('color', new THREE.Float32BufferAttribute(c, 3));
-    g.deleteAttribute('normal'); g.deleteAttribute('uv');
-    return g;
-  })();
-  const streaks = new THREE.InstancedMesh(keep(streakGeo), keep(new THREE.MeshBasicMaterial({
-    vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, toneMapped: false,
-  })), STREAKS + BURSTS);
-  streaks.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-  streaks.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array((STREAKS + BURSTS) * 3), 3);
-  streaks.instanceColor.setUsage(THREE.DynamicDrawUsage);
-  streaks.frustumCulled = false; streaks.renderOrder = 3; streaks.count = 0; streaks.visible = false;
-  camera.add(streaks);
-  const stm = streaks.instanceMatrix.array, stc = streaks.instanceColor.array;
-  for (let i = 0; i < STREAKS + BURSTS; i++) { stm[i * 16] = 1; stm[i * 16 + 5] = 1; stm[i * 16 + 15] = 1; }
-  const sx = new Float32Array(STREAKS + BURSTS), sy = new Float32Array(STREAKS + BURSTS), sz = new Float32Array(STREAKS + BURSTS), sr = new Float32Array(STREAKS + BURSTS);
+  /* No speed lines (Owen 2026-11-08: "get rid of the white things that fly at your face"). */
   const R = { seed: 12345 };
   const rand = () => { R.seed = (Math.imul(R.seed, 1664525) + 1013904223) >>> 0; return R.seed / 4294967296; };
-  function placeStreak(i, z) {
-    // round the edges of the view only: wide to the sides, low over the road, clear of the car
-    const s = rand() < 0.5 ? -1 : 1;
-    sx[i] = s * (2.3 + rand() * 2.4);
-    sy[i] = -1.1 + rand() * 2.0;
-    sz[i] = z; sr[i] = rand();
-  }
-  for (let i = 0; i < STREAKS; i++) placeStreak(i, -2 - rand() * 32);
-  const streakBase = new THREE.Color(0xfff0dc), burstCol = new THREE.Color();
 
   /* crash bits: sparks and debris, one instanced mesh */
   const parts = new THREE.InstancedMesh(keep(new THREE.BoxGeometry(1, 1, 1)), keep(new THREE.MeshBasicMaterial({ fog: false, toneMapped: false })), PARTS);
@@ -1360,41 +1348,6 @@ export function createScene(canvasEl, opts = {}) {
     return side;
   }
 
-  function stepStreaks(dt, v, side) {
-    const sF = smooth(30, 72, v) * 0.42;
-    const burst = K.nmT > 0 ? Math.pow(K.nmT / NM_LEN, 1.4) : 0;
-    let n = 0;
-    if (sF > 0.01) {
-      const len = clamp(v * 0.032, 0.5, 2.4);
-      for (let i = 0; i < STREAKS; i++) {
-        sz[i] += v * 0.85 * (0.75 + 0.5 * sr[i]) * dt;
-        if (sz[i] > 0.5) placeStreak(i, sz[i] - 34);
-        const z = sz[i], k = sF * (0.3 + 0.7 * sr[i]) * smooth(-34, -22, z) * (1 - smooth(-4, 0.5, z));
-        const o = n * 16;
-        stm[o] = stm[o + 5] = 1; stm[o + 10] = len * (0.7 + 0.6 * sr[i]); stm[o + 12] = sx[i]; stm[o + 13] = sy[i]; stm[o + 14] = z;
-        stc[n * 3] = streakBase.r * k; stc[n * 3 + 1] = streakBase.g * k; stc[n * 3 + 2] = streakBase.b * k;
-        n++;
-      }
-    }
-    if (burst > 0) {
-      burstCol.set(SIDE_STREAK[side]);
-      for (let j = 0; j < BURSTS; j++) {
-        const i = STREAKS + j;
-        sz[i] += (v * 1.1 + 20) * (0.8 + 0.5 * sr[i]) * dt;
-        if (sz[i] > -1.5) sz[i] -= 15;
-        const k = burst * 1.0 * (0.45 + 0.55 * sr[i]) * smooth(-16.5, -12, sz[i]) * (1 - smooth(-3.5, -1.5, sz[i]));
-        const o = n * 16;
-        stm[o] = stm[o + 5] = 2; stm[o + 10] = 1.0 + 1.2 * sr[i]; stm[o + 12] = sx[i]; stm[o + 13] = sy[i]; stm[o + 14] = sz[i];
-        stc[n * 3] = burstCol.r * k; stc[n * 3 + 1] = burstCol.g * k; stc[n * 3 + 2] = burstCol.b * k;
-        n++;
-      }
-    }
-    streaks.count = n; streaks.visible = n > 0;
-    if (n) {
-      upload(streaks.instanceMatrix, n * 16); upload(streaks.instanceColor, n * 3);
-    }
-  }
-
   function frame(f) {
     if (!f || !f.follow) return;
     let dt = +f.dt;
@@ -1431,10 +1384,10 @@ export function createScene(canvasEl, opts = {}) {
           const r = list[i], dz = S.zAt(r, tick) - z0;
           if (dz < -BEHIND) continue;
           if (dz > AHEAD + 7) break;
-          const t = r[2], n = tcount[t];
+          const t = r[2], k = pairOf[t * 2 + (dz > farAt[t] ? 1 : 0)], n = tcount[k];
           if (n >= T_CAP) continue;
-          tcount[t] = n + 1;
-          const tm = tmesh[t], o = n * 16, lx = S.xAt(r, tick);
+          tcount[k] = n + 1;
+          const tm = tPairs[k], o = n * 16, lx = S.xAt(r, tick);
           /* A car changing lane turns into its line while it moves: the slope of the 3s^2 - 2s^3 ease. */
           let c = 1, sn = 0;
           if (r.length >= 8) {
@@ -1470,8 +1423,8 @@ export function createScene(canvasEl, opts = {}) {
     tHalos.count = TL.h; tHalos.visible = TL.h > 0;
     if (TL.n) { upload(tLamps.instanceMatrix, TL.n * 16); upload(tLamps.instanceColor, TL.n * 3); }
     if (TL.h) { upload(tHalos.instanceMatrix, TL.h * 16); upload(tHalos.instanceColor, TL.h * 3); }
-    for (let t = 0; t < tmesh.length; t++) {
-      const tm = tmesh[t], n = tcount[t];
+    for (let k = 0; k < tPairs.length; k++) {
+      const tm = tPairs[k], n = tcount[k];
       tm.paint.count = tm.det.count = n;
       tm.paint.visible = tm.det.visible = n > 0;
       if (n) {
@@ -1512,14 +1465,9 @@ export function createScene(canvasEl, opts = {}) {
     if (nmPending !== null) {
       nmSide = nmPending || nearSideFrom(fol, traffic, tick) || (rand() < 0.5 ? -1 : 1);
       nmPending = null; K.nmT = NM_LEN;
-      for (let j = 0; j < BURSTS; j++) {
-        const i = STREAKS + j;
-        sx[i] = nmSide * (1.4 + rand() * 1.3); sy[i] = -1.1 + rand() * 1.6; sz[i] = -2 - rand() * 14; sr[i] = rand();
-      }
     }
     if (K.nmT > 0) K.nmT = Math.max(0, K.nmT - dt);
     const v = fol.alive === false ? 0 : (fol.v || 0);
-    stepStreaks(dt, v, side);
     stepParts(dt, z0);
 
     /* the camera: behind and above, lagging on x, wider and shakier with speed */
@@ -1560,12 +1508,11 @@ export function createScene(canvasEl, opts = {}) {
     camera.lookAt(K.lookX + jx * 0.5, 0.65 - 0.25 * port, K.camOffZ - la);
     camera.rotateZ(-K.camRoll * 0.022);
     snap = false;
-    /* A fixed camera on the followed car (the dev page's showroom, for pictures of each car): no streaks, no blur. */
+    /* A fixed camera on the followed car (the dev page's showroom, for pictures of each car). */
     if (camFix) {
       camera.fov = camFix.fov || 36; camera.updateProjectionMatrix();
       camera.position.set(fol.x + camFix.x, camFix.y, camFix.z);
       camera.lookAt(fol.x + (camFix.lx || 0), camFix.ly != null ? camFix.ly : 0.55, camFix.lz || 0);
-      streaks.visible = false;
     }
 
     sky.position.copy(camera.position);
@@ -1586,10 +1533,7 @@ export function createScene(canvasEl, opts = {}) {
 
     renderer.info.reset();
     if (fx) {
-      /* the speed blur: nothing below ~140 km/h, framing the view flat out, a jolt on a close pass */
       const u = fx.u;
-      u.speed.value = camFix ? 0 : LOOK.blur * smooth(140, 345, v * 3.6) + LOOK.blur * 0.8 * nm;
-      u.burst.value = nm;
       u.aspect.value = camera.aspect;
       u.seed.value = (K.time * 7.31) % 61;
       fx.composer.render(dt);
@@ -1604,7 +1548,7 @@ export function createScene(canvasEl, opts = {}) {
 
   resize();
   // compile every program now (solid and ghost), not on the first frames of the race
-  for (const im of [parts, streaks, shadows, rocks, buttes, trees, gantries, tLamps, tHalos, ...tmesh.flatMap((t) => [t.paint, t.det])]) im.visible = true;
+  for (const im of [parts, shadows, rocks, buttes, trees, gantries, tLamps, tHalos, ...tPairs.flatMap((t) => [t.paint, t.det])]) im.visible = true;
   for (const c of cars) { c.group.visible = true; c.ind[0].visible = c.ind[1].visible = c.brake.visible = true; }
   renderer.compile(scene, camera);
   for (const c of cars) { c.paint.material = c.ghost; c.det.material = detGhost; }
@@ -1613,7 +1557,7 @@ export function createScene(canvasEl, opts = {}) {
     c.paint.material = c.solid; c.det.material = detSolid; c.group.visible = false;
     c.ind[0].visible = c.ind[1].visible = c.brake.visible = false;
   }
-  for (const im of [parts, streaks, shadows, tLamps, tHalos, ...tmesh.flatMap((t) => [t.paint, t.det])]) im.visible = false;
+  for (const im of [parts, shadows, tLamps, tHalos, ...tPairs.flatMap((t) => [t.paint, t.det])]) im.visible = false;
 
   /* ── the realistic look's reflections and heavy parts (swimHiFi.js) ─────────────────────────────────────
      Reflections: the road's own sky, sun and clouds, its mesas and city on the horizon and the asphalt and sand
@@ -1642,16 +1586,29 @@ export function createScene(canvasEl, opts = {}) {
     const A = await import(ADDONS_URL);
     if (disposed) return TIER;
     ADD = A;
-    if (HIGH) { fx = makeComposer(A, renderer, scene, camera, { bloomStrength: LOOK.bloom, bloomRadius: LOOK.bloomRadius, bloomThreshold: LOOK.bloomThreshold, samples: LOOK.msaa }); resize(); }
+    if (HIGH) {
+      fx = makeComposer(A, renderer, scene, camera, { bloomStrength: LOOK.bloom, bloomRadius: LOOK.bloomRadius, bloomThreshold: LOOK.bloomThreshold, samples: LOOK.msaa });
+      /* The sky is drawn over every pixel nothing else covers, so the 4x MSAA target needs only its depth cleared, once:
+         it had its colour cleared twice a frame (the pass, then the background colour), 0.35 ms at 1280x800 on Intel Arc.
+         Phones keep their clears: a tiled GPU starts each tile from a clear for free. */
+      scene.background = null; renderer.autoClearColor = false;
+      resize();
+    }
     /* the cars on screen now, and the traffic: each type's real model in place of its stand-in, same instancing */
     for (const c of cars) hifiLook(c, c.look, sidePaint[c.side]);
     const loads = [...KITS.values()].filter((p) => p instanceof Promise);
+    /* each type's far copy, else its full model far away too */
+    const farIn = new Set();
+    const put = (pair, g) => { keep(g.paint); keep(g.det); pair.paint.geometry = g.paint; pair.det.geometry = g.det; };
     loads.push(...S.TYPES.map((T, t) => loadTraffic(A, ASSETS.traffic(T.id)).then((g) => {
       if (!g || disposed) return;
-      const tm = tmesh[t];
-      keep(g.paint); keep(g.det);
-      tm.paint.geometry = g.paint; tm.det.geometry = g.det;
+      put(tmesh[t], g);
+      if (!farIn.has(t)) { tmesh[t].far.paint.geometry = g.paint; tmesh[t].far.det.geometry = g.det; }
     }).catch((e) => console.warn('[swim] traffic model not loaded:', T.id, e))));
+    loads.push(...S.TYPES.map((T, t) => loadTraffic(A, ASSETS.traffic(T.id, true)).then((g) => {
+      if (!g || disposed) return;
+      put(tmesh[t].far, g); farIn.add(t);
+    }).catch((e) => console.warn('[swim] far traffic model not loaded:', T.id, e))));
     await Promise.allSettled(loads);
     if (disposed) return TIER;
     precompile();
@@ -1660,14 +1617,14 @@ export function createScene(canvasEl, opts = {}) {
   /* compile the programs the new models need now (solid and ghost), as at start, into the target they are drawn to */
   function precompile() {
     const prevVis = cars.map((c) => [c.group.visible, c.hf && c.hf.solid.visible, c.hf && c.hf.ghost.visible]);
-    const tVis = tmesh.map((t) => t.paint.visible);
+    const tVis = tPairs.map((t) => t.paint.visible);
     for (const c of cars) { c.group.visible = true; if (c.hf) c.hf.solid.visible = c.hf.ghost.visible = true; }
-    for (const t of tmesh) t.paint.visible = t.det.visible = true;
+    for (const t of tPairs) t.paint.visible = t.det.visible = true;
     if (fx) renderer.setRenderTarget(fx.composer.renderTarget1);
     renderer.compile(scene, camera);
     renderer.setRenderTarget(null);
     cars.forEach((c, i) => { c.group.visible = prevVis[i][0]; if (c.hf) { c.hf.solid.visible = !!prevVis[i][1]; c.hf.ghost.visible = !!prevVis[i][2]; } });
-    tmesh.forEach((t, i) => { t.paint.visible = t.det.visible = tVis[i]; });
+    tPairs.forEach((t, i) => { t.paint.visible = t.det.visible = tVis[i]; });
   }
 
   return {
@@ -1718,9 +1675,9 @@ export function createScene(canvasEl, opts = {}) {
     },
     dispose() {
       for (const d of disposables) if (d && d.dispose) d.dispose();
-      for (const t of tmesh) { t.paint.dispose(); t.det.dispose(); }
+      for (const t of tPairs) { t.paint.dispose(); t.det.dispose(); }
       if (middle) { middle.geometry.dispose(); lines.geometry.dispose(); }
-      for (const im of [shadows, streaks, parts, rocks, buttes, trees, gantries, tLamps, tHalos]) im.dispose();
+      for (const im of [shadows, parts, rocks, buttes, trees, gantries, tLamps, tHalos]) im.dispose();
       disposed = true;
       for (const c of cars) for (const k in c.hfs) c.hfs[k].dispose();
       for (const k of KITS.values()) if (k && !(k instanceof Promise)) k.dispose();

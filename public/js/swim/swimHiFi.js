@@ -3,7 +3,8 @@
 
      high   desktops: the glTF supercar with clearcoat paint, chrome and glass, PBR traffic and asphalt, all
             reflecting the road's own sky (swimScene.js draws it into a PMREM), a real sun shadow round the
-            followed car, bloom on every lamp and the sun, an edge-only speed blur, ACES.
+            followed car, bloom on every lamp and the sun, ACES. No speed lines and no speed blur (Owen 2026-11-08:
+            "get rid of the white things that fly at your face").
      lite   phones (and Settings > Graphics > Low): the same car at a lighter detail, the same reflections and
             ACES, no post passes and no shadow map (a phone pays for every full-screen pass).
      off    the look Swim always had (?gfx=off, or opts.quality 'off').
@@ -22,8 +23,9 @@ export const ADDONS_URL = '/vendor/three/addons/swim-addons.min.js';
 export const ASSETS = {
   /* one car: /vendor/models/swim/cars/<id>.glb (desktop) or <id>-lo.glb (phones) */
   car: (id, lite) => '/vendor/models/swim/cars/' + id + (lite ? '-lo' : '') + '.glb',
-  /* one traffic type (shared/swimSim.js TYPES id): /vendor/models/swim/traffic/<type>.glb */
-  traffic: (type) => '/vendor/models/swim/traffic/' + type + '.glb',
+  /* one traffic type (shared/swimSim.js TYPES id): /vendor/models/swim/traffic/<type>.glb, or <type>-far.glb (its
+     copy for cars far down the road, scripts/swimTrafficFar.mjs) */
+  traffic: (type, far) => '/vendor/models/swim/traffic/' + type + (far ? '-far' : '') + '.glb',
 };
 
 /* Which look this screen gets: an explicit opts.quality, then ?gfx= (so the live page can be compared), then
@@ -259,34 +261,24 @@ export async function loadTraffic(A, url) {
   return out;
 }
 
-/* ── the finish: bloom already added, then an edge-only speed blur, a vignette, ACES and sRGB ────────────────
-   One full-screen pass. The blur pulls each pixel towards the view's centre by up to `speed`, only towards the
-   edges (the road ahead and the car stay sharp: research said strong blur reads slower, so it frames, never
-   smears), plus a hair of colour split on a close-pass burst. */
+/* ── the finish: the bloom added, a vignette, ACES and sRGB ─────────────────────────────────────────────────
+   One full-screen pass. The bloom's last step (UnrealBloomPass adds its half-size result over the scene with one more
+   full-size pass, into the 4x MSAA target, which then had to be resolved again) is done here instead, in the same read:
+   the same sum, about 1.1 ms a frame less at 1280x800 and 1.9 ms at 1920x1200 (Intel Arc, 2026-11-08). */
 export const FinishShader = {
   name: 'SwimFinish',
   uniforms: {
-    tDiffuse: { value: null }, speed: { value: 0 }, burst: { value: 0 }, vignette: { value: 0.32 },
+    tDiffuse: { value: null }, tBloom: { value: null }, vignette: { value: 0.32 },
     center: { value: new THREE.Vector2(0.5, 0.56) }, aspect: { value: 1.6 }, seed: { value: 0 },
   },
   vertexShader: 'varying vec2 vUv;\nvoid main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
   fragmentShader: [
-    'uniform sampler2D tDiffuse; uniform float speed, burst, vignette, aspect, seed; uniform vec2 center; varying vec2 vUv;',
+    'uniform sampler2D tDiffuse, tBloom; uniform float vignette, aspect, seed; uniform vec2 center; varying vec2 vUv;',
     // ACESFilmicToneMapping and sRGBTransferOETF come from three's own prefix (renderer.toneMapping is ACES here)
     'float rnd(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233)) + seed) * 43758.5453); }',
     'void main(){',
     '  vec2 d = vUv - center; float r = length(d * vec2(aspect, 1.0));',
-    '  float k = speed * smoothstep(0.22, 0.85, r);',
-    '  vec3 c;',
-    '  if (k > 0.0005) {',
-    '    c = vec3(0.0); float j = rnd(vUv * 731.0);',
-    '    for (int i = 0; i < 8; i++) { float t = (float(i) + j) / 8.0; c += texture2D(tDiffuse, vUv - d * k * t).rgb; }',
-    '    c *= 0.125;',
-    '  } else c = texture2D(tDiffuse, vUv).rgb;',
-    '  if (burst > 0.001) {',
-    '    vec2 o = d * burst * 0.012 * smoothstep(0.2, 0.9, r);',
-    '    c.r = mix(c.r, texture2D(tDiffuse, vUv + o).r, 0.6); c.b = mix(c.b, texture2D(tDiffuse, vUv - o).b, 0.6);',
-    '  }',
+    '  vec3 c = texture2D(tDiffuse, vUv).rgb + texture2D(tBloom, vUv).rgb;',
     '  c *= 1.0 - vignette * smoothstep(0.35, 1.15, r);',
     '  c = ACESFilmicToneMapping(c);',
     '  vec4 o4 = sRGBTransferOETF(vec4(c, 1.0));',
@@ -296,15 +288,19 @@ export const FinishShader = {
   ].join('\n'),
 };
 
-/* The desktop pipeline: the scene into a 4x MSAA half-float target, bloom, the finish. */
+/* The desktop pipeline: the scene into a 4x MSAA half-float target, the bloom at half size and below, the finish. */
 export function makeComposer(A, renderer, scene, camera, { bloomStrength = 0.6, bloomRadius = 0.45, bloomThreshold = 1.0, samples = 4 } = {}) {
   const size = renderer.getDrawingBufferSize(new THREE.Vector2());
   const rt = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples });
   const composer = new A.EffectComposer(renderer, rt);
   composer.addPass(new A.RenderPass(scene, camera));
   const bloom = new A.UnrealBloomPass(new THREE.Vector2(size.x, size.y), bloomStrength, bloomRadius, bloomThreshold);
+  /* the bloom stops at its half-size result (its own last step, the full-size add, is the finish's first read) */
+  const quad = bloom._fsQuad, quadRender = quad.render.bind(quad);
+  quad.render = (r) => { if (quad.material !== bloom.blendMaterial) quadRender(r); };
   composer.addPass(bloom);
   const finish = new A.ShaderPass(FinishShader);
+  finish.uniforms.tBloom.value = bloom.renderTargetsHorizontal[0].texture;
   composer.addPass(finish);
   return { composer, bloom, finish, u: finish.uniforms };
 }

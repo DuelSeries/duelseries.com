@@ -125,6 +125,9 @@ function stats() {
 
 function loop(now) {
   if (STOP >= 0 && readyAt > 0 && raceT >= STOP - 1e-6) { lastNow = now; requestAnimationFrame(loop); return; }   // frozen: __snap draws the one frame
+  /* nothing is drawn until the look is in: every frame() moves the scene's own clock (camera shake, blinkers), so a
+     picture from two runs (an old and a new file) is the same moment only if neither drew while loading */
+  if (readyAt < 0) { lastNow = now; requestAnimationFrame(loop); return; }
   const dtReal = (now - lastNow) / 1000; lastNow = now;
   const dt = readyAt < 0 || (STOP >= 0 && raceT >= STOP - 1e-6) ? 0 : FIXED ? 1 / 60 : Math.min(0.1, dtReal);
   const c0 = performance.now();
