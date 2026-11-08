@@ -2,6 +2,23 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-11-08-swim-3d-shop-real-rival",
+      "date": "2026-11-08",
+      "tag": "new",
+      "title": "Swim: cars that spin in the Shop",
+      "body": "Every Swim car in the Shop now turns in 3D, tail lights on, so you can see it from every side before you pick it.\n\nYour opponent now shows up as their real car, in its own paint, instead of a see-through shape. It only turns see-through when the two of you overlap.\n\nPassing close to traffic no longer gives a speed boost. The race is about clean, fast driving.",
+      "image": {
+        "src": "/updates/swim-shop-3d.webp",
+        "alt": "A green Swim supercar from the Shop, seen in 3D from a raised three-quarter angle"
+      },
+      "gallery": [
+        {
+          "src": "/updates/swim-rival-real-car.webp",
+          "alt": "Two cars side by side at the start of a Swim race, both shown as real cars"
+        }
+      ]
+    },
+    {
       "id": "2026-11-08-swim-real-cars",
       "date": "2026-11-08",
       "tag": "new",
