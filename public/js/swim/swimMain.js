@@ -93,6 +93,9 @@ catch (e) {
   $('nogl').hidden = false;
   $('wait').hidden = true;
 }
+/* Your car on the road while you wait, in its own paint, loading now so it is ready before the countdown (Owen
+   2026-11-08: never the old shape, not even for a moment). */
+if (scene && scene.followLook) { const l = myLook(); scene.followLook({ car: l.car, paint: paintHex(l.car) }); }
 $('noglBack').addEventListener('click', () => toLobby());
 window.addEventListener('resize', () => { if (scene) scene.resize(); });
 

@@ -994,7 +994,7 @@ export function createScene(canvasEl, opts = {}) {
         .then((kit) => {
           if (disposed) { kit.dispose(); return; }
           KITS.set(id, kit);
-          for (const c of cars) if (idOf(c.look) === id) hifiLook(c, c.look, sidePaint[c.side]);
+          for (const c of cars) if (idOf(c.look) === id) hifiLook(c, c.look, c.look ? sidePaint[c.side] : parseInt(LOOKS_L ? LOOKS_L.paintOf(id).slice(1) : 'e8b84a', 16));
           precompile();
         })
         .catch((e) => { console.warn('[swim] car not loaded:', id, e); KITS.set(id, null); }));
@@ -1005,6 +1005,9 @@ export function createScene(canvasEl, opts = {}) {
     const id = idOf(l), kit = HI ? kitFor(id) : null;
     for (const k in car.hfs) car.hfs[k].solid.visible = car.hfs[k].ghost.visible = false;
     car.useHf = !!kit;
+    /* Owen 2026-11-08: never the old shape, not even for a moment. Until its model lands the seat is not drawn at all
+       (the old shape only stands in when the model failed to load, or with ?gfx=off). */
+    car.wait = HI && !kit && KITS.get(id) !== null;
     if (!kit) { car.hf = null; car.paint.visible = car.det.visible = true; return; }
     let hf = car.hfs[id];
     if (!hf) { hf = car.hfs[id] = kit.make(hex); hf.solid.visible = hf.ghost.visible = false; car.group.add(hf.solid, hf.ghost); }
@@ -1024,7 +1027,9 @@ export function createScene(canvasEl, opts = {}) {
     car.brake.children[0].geometry = lm ? lm.brake.lamp : brakeGeo.lamp; car.brake.children[1].geometry = lm ? lm.brake.halo : brakeGeo.halo;
     for (let k = 0; k < 2; k++) { car.ind[k].children[0].geometry = lm ? lm.ind[k].lamp : indGeo[k].lamp; car.ind[k].children[1].geometry = lm ? lm.ind[k].halo : indGeo[k].halo; }
     car.flame.geometry = lm ? lm.flame : flameGeo;
-    const hex = l && typeof l.paint === 'string' && /^#[0-9a-f]{6}$/i.test(l.paint) ? parseInt(l.paint.slice(1), 16) : SIDE_PAINT[car.side & 1];
+    /* a paint sent with the look, else the car's own (a FK8 white, a Huracan green...), else the seat's old colour */
+    const own = LOOKS_L && LOOKS_L.paintOf ? parseInt(LOOKS_L.paintOf(idOf(l)).slice(1), 16) : NaN;
+    const hex = l && typeof l.paint === 'string' && /^#[0-9a-f]{6}$/i.test(l.paint) ? parseInt(l.paint.slice(1), 16) : Number.isFinite(own) ? own : SIDE_PAINT[car.side & 1];
     sidePaint[car.side] = hex;
     car.solid.color.setHex(hex); car.solid.emissive.setHex(hex).multiplyScalar(HI ? 0.04 : 0.12);
     hifiLook(car, l, hex);
@@ -1053,7 +1058,7 @@ export function createScene(canvasEl, opts = {}) {
     group.add(flame);
     group.visible = false;
     scene.add(group);
-    return { side, group, paint, det, solid, ghost, ind, brake, flame, flameMat, hf: null, hfs: {}, useHf: false, look: null, roll: 0, pitch: 0, acc: 0, lastV: -1, lastVx: 0,
+    return { side, group, paint, det, solid, ghost, ind, brake, flame, flameMat, hf: null, hfs: {}, useHf: false, wait: HI, look: null, roll: 0, pitch: 0, acc: 0, lastV: -1, lastVx: 0,
              blinkSide: 0, blinkT: 0, blinkHold: 0, flameT: 0, flameLeft: 0, flameNext: 0 };
   });
 
@@ -1165,9 +1170,11 @@ export function createScene(canvasEl, opts = {}) {
 
   /* Pull a car's paint/details over to solid or ghost and set its pose. `wheel` is the driver's own
      steering when this screen has it (our car), else null: its indicators then go by sideways speed. */
+  /* Whether two cars overlap or nearly do (a car length and a half apart, side by side within a lane's width). */
+  const near = (a, b) => !!(a && b && Math.abs(a.z - b.z) < 7 && Math.abs(a.x - b.x) < 2.6);
   function poseCar(car, st, z0, ghost, steer, dt, wheel) {
     const g = car.group;
-    if (!st) { g.visible = false; return; }
+    if (!st || car.wait) { g.visible = false; return; }   // wait: its model is still on the way
     g.visible = true;
     car.paint.material = ghost ? car.ghost : car.solid;
     car.det.material = ghost ? detGhost : detSolid;
@@ -1187,7 +1194,7 @@ export function createScene(canvasEl, opts = {}) {
     /* Looks only (the step never sees them): revving on the start line squats the tail and rocks the body on
        its mounts; a shift dips the nose as the drive cuts, then squats and surges for about 0.3 s. */
     let dPitch = 0, dRoll = 0, dY = 0;
-    if (!ghost) {
+    if (steer != null) {   // our own car only (the other one is solid too now, but it is not ours to rev)
       const rv = K.rev;
       if (rv > 0.001) {
         dPitch += 0.024 * rv;
@@ -1198,7 +1205,7 @@ export function createScene(canvasEl, opts = {}) {
     }
     g.position.set(st.x, 0.006 * Math.sin(K.time * 23 + car.side) * sp + dY, -(st.z - z0));
     g.rotation.set(car.pitch + dPitch, -Math.atan2(vx, Math.max(v, 8)) * 0.85, car.roll + dRoll);
-    if (ghost && st.alive === false) { g.rotation.y = 0.6; g.rotation.z = 0; }   // the other car has crashed: show it skewed
+    if (steer == null && st.alive === false) { g.rotation.y = 0.6; g.rotation.z = 0; }   // the other car has crashed: show it skewed
     if (crashOn && car.side === crashSide && !ghost) {
       const t = K.crashT;
       g.position.y += t < 0.4 ? 0.22 * Math.sin(Math.PI * t / 0.4) : 0;
@@ -1486,13 +1493,15 @@ export function createScene(canvasEl, opts = {}) {
     const wheel = f.steer == null ? null : clamp(+f.steer || 0, -1, 1);
     poseCar(carF, fol, z0, false, wheel === null ? 0 : wheel, dt, wheel);
     ns = carShadow(carF, ns);
-    if (carO) { poseCar(carO, oth, z0, true, null, dt, null); ns = carShadow(carO, ns); }
+    /* The other car is drawn as itself, solid in its own paint (Owen 2026-11-08: it read as a white blob as a see-through
+       shell), and only turns into the see-through ghost while the two overlap or nearly do (they pass through each other). */
+    if (carO) { poseCar(carO, oth, z0, near(fol, oth), null, dt, null); ns = carShadow(carO, ns); }
     else {
       /* The event: each slot shows the car it is handed this frame (its own look), a ghost. */
       for (let i = 1; i < cars.length; i++) {
         const st = f.others[i - 1] || null, car = cars[i];
         if (st && st.look && st.look !== car.look) lookCar(car, st.look);
-        poseCar(car, st, z0, true, null, dt, null);
+        poseCar(car, st, z0, near(fol, st), null, dt, null);
         ns = carShadow(car, ns);
       }
     }

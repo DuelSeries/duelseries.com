@@ -39,7 +39,7 @@
   const NAME = 'Swim';
   /* Bumped whenever the step or the traffic rules change: a page left open across a deploy runs the old
      step and would disagree with the server on every tick, so the server turns it away (sw:queue). */
-  const VERSION = 6;
+  const VERSION = 7;   // 7: no close-pass boost (2026-11-08)
 
   const HZ = 60;
   const DT = 1 / HZ;
@@ -138,7 +138,8 @@
   }
   function vxAcc(v) { return vxMax(v) * VX_RISE; }
 
-  /* A CLOSE PASS PAYS (Owen 2026-10-28). A traffic car that goes by with less
+  /* REMOVED 2026-11-08 (VERSION 7, Owen): the close-pass boost below no longer happens; step() never calls closeAt.
+     The constants stay exported for old tools. What it was: A CLOSE PASS PAYS (Owen 2026-10-28). A traffic car that goes by with less
      than CLOSE_M of daylight between the two, measured side to side on the
      tick its front slips behind our rear, adds up to BOOST_MAX m/s at once:
      all of it for a pass with no daylight at all, nothing at CLOSE_M. Touching
@@ -253,16 +254,8 @@
     if (traffic) {
       const hit = traffic.hitAt(car.x, car.z, car.tick);
       if (hit >= 0) { car.alive = false; car.crashTick = car.tick; car.hit = hit; }
-      else if (cool === 0) {
-        const gap = traffic.closeAt(car.x, z0, car.z, n);
-        if (gap >= 0) {
-          let b = v + BOOST_MAX * (1 - gap / CLOSE_M);
-          if (b > hi + BOOST_MAX) b = hi + BOOST_MAX;
-          if (b > v) car.v = b;
-          car.close = gap;
-          cool = BOOST_COOL;
-        }
-      }
+      /* No close-pass boost any more (Owen 2026-11-08: "when you get close to a vehicle, get rid of that"): a near miss
+         is just a near miss. The car fields cool and close stay and its rows (always 0 and -1) so old and new rows read alike. */
     }
     car.cool = cool;
     return car;

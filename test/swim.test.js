@@ -112,95 +112,28 @@ function passBy(gap, opts) {
   return { car, seen, states, tr };
 }
 
-test('a close pass boosts once, on the tick the car goes behind, by how close it was', () => {
-  const near = passBy(0.05), mid = passBy(0.3), far = passBy(0.55);
-  for (const [r, g] of [[near, 0.05], [mid, 0.3], [far, 0.55]]) {
-    assert.strictEqual(r.car.alive, true);
-    assert.strictEqual(r.seen.length, 1, 'once per car passed');
-    const s = r.seen[0];
-    assert.ok(Math.abs(s.close - g) < 1e-9, 'the clearance is measured side to side (' + s.close + ')');
-    const want = Math.min(s.plain + S.BOOST_MAX * (1 - s.close / S.CLOSE_M), s.top + S.BOOST_MAX);
-    assert.strictEqual(s.v, want);
-    // The tick it fired is the one the sedan's front went behind our rear.
-    const before = r.states[s.n - 1] || S.newCar(0);
-    const rec = r.tr.all()[0], hl = S.TYPES[0].hl;
-    assert.ok(S.zAt(rec, s.n) + hl >= (s.n === 0 ? 0 : before.z) - S.CAR.HL);
-    assert.ok(S.zAt(rec, s.n + 1) + hl < r.states[s.n].z - S.CAR.HL);
+test('a close pass is just a near miss: no boost, no speed change, no cooldown (VERSION 7, Owen 2026-11-08)', () => {
+  /* passBy itself checks every tick against the same car stepped with no traffic: the speed never differs. */
+  for (const g of [0.02, 0.05, 0.3, 0.55, S.CLOSE_M + 0.05]) {
+    const r = passBy(g);
+    assert.strictEqual(r.car.alive, true, 'passed ' + g + ' m away');
+    assert.strictEqual(r.seen.length, 0, 'no close pass is reported (' + g + ' m)');
+    for (const st of r.states) { assert.strictEqual(st.cool, 0); assert.strictEqual(st.close, -1); }
   }
-  const boost = (r) => r.seen[0].v - r.seen[0].plain;
-  assert.ok(boost(near) > boost(mid) && boost(mid) > boost(far) && boost(far) > 0, 'closer pays more');
-  assert.ok(boost(near) > 0.9 * S.BOOST_MAX);
-});
-
-test('no boost for a wide pass, a car that overtakes us, or a touch (that is a crash)', () => {
-  const wide = passBy(S.CLOSE_M + 0.05);
-  assert.strictEqual(wide.seen.length, 0);
-  assert.strictEqual(wide.car.alive, true);
-  // Braking (down to a stop) in lane 1 while a lane 0 car comes past on our left, 0.2 m away: it passes us, not us it.
-  const passed = passBy(0.2, { lane: 0, side: 1, z: -30, code: S.packInput(0, -1) });
-  assert.ok(passed.car.z < S.zAt(passed.tr.all()[0], passed.car.tick) - 10, 'it went by');
-  assert.strictEqual(passed.seen.length, 0);
-  // Overlapping by 5 cm is a crash, never a pass.
+  // Flat out at the top speed, a pass with no daylight leaves the car at the top speed, never over it.
+  const top = passBy(0.02, { v: S.TOP, ticks: 400 });
+  for (const st of top.states) assert.ok(st.v <= S.TOP + 1e-9, 'never over the top: ' + st.v);
+  // Overlapping by 5 cm is still a crash.
   const touch = passBy(-0.05);
   assert.strictEqual(touch.car.alive, false);
   assert.strictEqual(touch.car.hit, 1);
-  assert.strictEqual(touch.seen.length, 0);
-  // And closeAt alone never calls an overlap a pass: the same crossing at -0.1 m and at +0.2 m.
+  // Traffic.closeAt still measures a crossing (the step no longer asks it): an overlap is never a pass.
   const tr = new S.Traffic();
   tr.add([1, 2, 0, 0, 0, 0]);
   const hl = S.TYPES[0].hl, x = (g) => S.laneX(2) - (S.CAR.HW + S.TYPES[0].hw + g);
-  const z0 = S.CAR.HL + hl - 0.01;                       // the sedan's front 1 cm ahead of our rear on tick 0
-  const z1 = z0 + 0.5 + S.LANE_V[2] * S.DT;               // and behind it on tick 1
+  const z0 = S.CAR.HL + hl - 0.01, z1 = z0 + 0.5 + S.LANE_V[2] * S.DT;
   assert.strictEqual(tr.closeAt(x(-0.1), z0, z1, 0), -1);
   assert.ok(Math.abs(tr.closeAt(x(0.2), z0, z1, 0) - 0.2) < 1e-9);
-  assert.strictEqual(tr.closeAt(x(0.2), z0 + 0.02, z1, 0), -1, 'already behind on tick 0: not this tick');
-});
-
-test('a boost eases back down to the top speed, gas or not, never cut off at once', () => {
-  for (const code of [S.packInput(0, 1), S.NEUTRAL]) {
-    const r = passBy(0.02, { code: S.packInput(0, 1), ticks: 400, v: S.TOP });   // flat out, so the boost goes over the top
-    const s = r.seen[0];
-    assert.ok(s.v > s.top + 5, 'the boost went over the top');
-    const car = r.states[s.n];
-    let last = car.v, ticks = 0;
-    while (car.v > S.topSpeed(car.tick) && ticks < 60 * 10) {
-      S.step(car, code, null);
-      assert.ok(car.v < last, 'falling every tick');
-      /* Off the gas up here the coast itself is harder than OVER_EASE, and it is never softened. */
-      const most = code === S.NEUTRAL ? Math.max(S.OVER_EASE, S.coastDecel(last)) : S.OVER_EASE;
-      assert.ok(last - car.v <= most * S.DT + 1e-9, 'by OVER_EASE a second (or the coast, if harder), not at once');
-      last = car.v; ticks++;
-    }
-    assert.ok(ticks >= 60 * (s.v - s.top) / Math.max(S.OVER_EASE, S.coastDecel(s.v)) - 1, 'it took its time (' + ticks + ' ticks)');
-    assert.ok(ticks <= Math.ceil(60 * (s.v - s.top) / S.OVER_EASE) + 1, 'and got there');
-    for (let i = 0; i < 120; i++) { S.step(car, code, null); assert.ok(car.v <= S.topSpeed(car.tick)); }
-  }
-});
-
-test('boosts cannot chain: none inside the cooldown, the next one after it', () => {
-  const sedan = S.TYPES[0], hl = sedan.hl;
-  const car = S.newCar(0);
-  car.x = S.laneX(2) - (S.CAR.HW + sedan.hw + 0.1);
-  const tr = new S.Traffic();
-  // Three sedans in lane 2: the second 8 m past the first (gone by well inside 1.2 s), the third 60 m on.
-  const recs = [[1, 2, 0, 30, 0, 0], [2, 2, 0, 38, 0, 0], [3, 2, 0, 98, 0, 0]];
-  for (const r of recs) tr.add(r.slice());
-  const code = S.packInput(0, 1), boosts = [], passed = {};
-  for (let i = 0; i < 900 && car.alive; i++) {
-    const n = car.tick, rear0 = car.z - S.CAR.HL, coolWas = car.cool;
-    const plain = S.step(S.copyCar(car), code, null);
-    S.step(car, code, tr);
-    for (const r of recs) {
-      if (S.zAt(r, n) + hl >= rear0 && S.zAt(r, n + 1) + hl < car.z - S.CAR.HL) passed[r[0]] = n;
-    }
-    if (car.close >= 0) { boosts.push(n); assert.strictEqual(car.cool, S.BOOST_COOL); assert.ok(coolWas <= 1); }
-    else { assert.strictEqual(car.v, plain.v); assert.strictEqual(car.cool, coolWas > 0 ? coolWas - 1 : 0); }
-  }
-  assert.strictEqual(car.alive, true);
-  assert.deepStrictEqual(Object.keys(passed).map(Number), [1, 2, 3], 'all three went by');
-  assert.deepStrictEqual(boosts, [passed[1], passed[3]], 'the first and the third boosted, the second did not');
-  assert.ok(passed[2] - passed[1] < S.BOOST_COOL, 'the second was passed inside the cooldown');
-  assert.ok(passed[3] - passed[1] >= S.BOOST_COOL);
 });
 
 test('the line between the two left lanes is no safe corridor: a rider on it meets a wide car within seconds', () => {
@@ -255,54 +188,53 @@ test('the wheel is sharper slow than fast', () => {
   assert.ok(laneTime(S.topSpeed(late), 1) > 0.8);
 });
 
-test('a server room and a screen replaying the same inputs agree to the bit through a boost', () => {
-  /* Ann nudges right off the middle of lane 1 so a sedan in lane 2 goes by close; found by trying
+test('a server room and a screen replaying the same inputs agree to the bit through a close pass (no boost)', () => {
+  /* Ann nudges right off the middle of lane 1 so a sedan in lane 2 goes by within 0.1 to 0.4 m; found by trying
      nudges on a lone car (the inputs are what a screen sends, nothing set by hand). */
   const sedan = [1, 2, 0, 40, 0, 0];
   const TICKS = 300;
   const plan = (k) => { const out = []; for (let t = 0; t < TICKS; t++) out.push(S.packInput(t < k ? 0.3 : 0, 1)); return out; };
+  const sideGap = (c, n) => Math.abs(c.x - S.laneX(2)) - S.CAR.HW - S.TYPES[0].hw;
   let codes = null;
   for (let k = 1; k < 120 && !codes; k++) {
     const c = S.newCar(0), tr = new S.Traffic();
     tr.add(sedan.slice());
     const p = plan(k);
-    let boosted = false;
-    for (let t = 0; t < TICKS && c.alive; t++) { S.step(c, p[t], tr); if (c.close >= 0 && c.close > 0.1 && c.close < 0.4) boosted = true; }
-    if (boosted && c.alive) codes = p;
+    let near = false;
+    for (let t = 0; t < TICKS && c.alive; t++) {
+      const n = c.tick, z0 = c.z;
+      S.step(c, p[t], tr);
+      const g = tr.closeAt(c.x, z0, c.z, n);
+      if (g > 0.1 && g < 0.4) near = true;
+    }
+    if (near && c.alive) codes = p;
   }
   assert.ok(codes, 'a nudge that passes close');
   const { room } = racing();
   room.traffic.add(sedan.slice());
-  /* Bob, behind the sedan in lane 2, pulls right out of its way on the gas (braking to a stop would leave
-     him the 200 m behind that loses: Ann is flat out within seconds). */
   const BOB = S.packInput(1, 1);
   let mid = null;
   for (let t = 1; t <= TICKS; t++) {
     room.input('a', { t: t - 1, k: [codes[t - 1]] });
     room.input('b', { t: t - 1, k: [BOB] });
     room.tick(at(room, t));
-    const a = room.bySide(0).car;
-    if (!mid && a.cool > 0 && a.cool <= S.BOOST_COOL - 10) mid = room.carRows().find(r => r[0] === 0).slice();   // 10 ticks into the boost
+    if (t === 150) mid = room.carRows().find(r => r[0] === 0).slice();
   }
   assert.strictEqual(room.state, 'racing');
   const server = room.bySide(0);
   assert.strictEqual(server.car.tick, TICKS);
-  assert.ok(mid, 'the server saw the boost');
-  // A screen on its own: the same record, the same inputs, every tick compared.
   const tr = new S.Traffic();
   tr.add(sedan.slice());
   const mine = S.newCar(0);
-  let closes = 0;
   for (let t = 0; t < TICKS; t++) {
     S.step(mine, codes[t], tr);
-    if (mine.close >= 0) closes++;
+    assert.strictEqual(mine.close, -1, 'no close pass is ever reported');
     assert.strictEqual(mine.z, server.zHist[mine.tick % 1024], 'z on tick ' + mine.tick);
   }
-  assert.strictEqual(closes, 1);
   for (const k of ['tick', 'z', 'x', 'v', 'vx', 'alive', 'wall', 'cool']) assert.strictEqual(mine[k], server.car[k], k);
-  // Rebuilt from the server's row in the middle of the boost (what a correction does), the replay lands on the same bits.
-  assert.strictEqual(mid.length, 9, 'the row carries the boost cooldown');
-  assert.ok(mid[8] > 0, 'mid-boost, the cooldown is running');
+  // Rebuilt from the server's row half way (what a correction does), the replay lands on the same bits.
+  assert.strictEqual(mid.length, 9, 'the row still carries the (now always 0) cooldown');
+  assert.strictEqual(mid[8], 0);
   const re = { tick: mid[1], z: mid[2], x: mid[3], v: mid[4], vx: mid[5], alive: !!mid[6], crashTick: -1, hit: -1, wall: mid[7], cool: mid[8] };
   for (let t = re.tick; t < TICKS; t++) S.step(re, codes[t], tr);
   for (const k of ['tick', 'z', 'x', 'v', 'vx', 'alive', 'wall', 'cool']) assert.strictEqual(re[k], server.car[k], 'after a correction: ' + k);
@@ -516,7 +448,7 @@ test('no pedal never gains speed: the car coasts down to a stop, the gas alone c
     S.step(c0, code, null); S.step(c1, code, null);
     assert.strictEqual(c0.v, c1.v); assert.strictEqual(c0.z, c1.z);
   }
-  // From any speed, early or late, boosted or not, no pedal only ever loses speed, and never below 0.
+  // From any speed, early or late (over the top too, as a boost once left it), no pedal only ever loses speed, and never below 0.
   for (let i = 0; i < 3000; i++) {
     const c = S.newCar(0);
     c.tick = Math.floor(r() * 60 * 900);
@@ -825,7 +757,7 @@ test('the bot drives a whole race on the real lobby clock', () => {
   assert.strictEqual(lobby.rooms.size, 0, 'the race ended and was swept');
 });
 
-test('the bot holds the gas itself, close passes with daylight, and lasts its first minute on the real traffic', () => {
+test('the bot holds the gas itself and lasts its first minute on the real traffic (no close-pass boost to chase)', () => {
   const { SwimBot } = require('../server/swim/swimBot');
   for (let seed = 1; seed <= 4; seed++) {
     const tr = new S.Traffic(), sp = new Spawner(seed), car = S.newCar(seed & 1), bot = new SwimBot(S.rng(seed));
@@ -847,7 +779,7 @@ test('the bot holds the gas itself, close passes with daylight, and lasts its fi
        2026-10-30) and nobody averages 350 km/h through the first minute's traffic. The bot did 94 to 101% of
        the cruise pace with the old climbing top speed and 96 to 107% now. */
     assert.ok(sv / st > 0.9, 'seed ' + seed + ': ' + (100 * sv / st).toFixed(0) + '% of the cruise pace on average');
-    assert.ok(passes >= 8 && closest > 0.1, 'seed ' + seed + ': ' + passes + ' close passes, closest ' + closest.toFixed(2) + ' m');
+    assert.strictEqual(passes, 0, 'seed ' + seed + ': no close pass is reported any more');
   }
 });
 
