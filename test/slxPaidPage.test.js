@@ -539,18 +539,20 @@ test('gold without the coin file: a plain gold disc only for sz >= 13.6, at the 
   const texts = calls.filter((c) => c[0] === 'fillText');
   assert.deepStrictEqual(texts.map((c) => c[1]), ['$0.53', '$1.25']);
   assert.strictEqual(texts[0][2], sx(S, 600));
-  // W1 Gold tag (Owen 2026-11-04): the text centred in a dark tag whose bottom edge sits 10 px above the head
-  const tagH = 14 * 1.58;
+  // W1 Gold tag (Owen 2026-11-04): the text centred in a dark tag whose bottom edge sits 10 px above the head. The own
+  // tag is the same as everyone's (Owen 2026-11-08): same size, same faint gold edge, no bone edge.
+  const tagH = 12.5 * 1.58;
   assert.ok(Math.abs(texts[0][3] - (sy(S, 450) - 14.5 * 1 * k - 10 - tagH + tagH * 0.53)) < 1e-9, 'in the tag above the own head');
+  const fonts = calls.filter((c) => c[0] === 'set font').map((c) => c[1]);
+  assert.ok(fonts.length >= 2 && fonts.every((f) => f === fonts[0]), 'the own tag in the same font and size as the other');
   assert.ok(calls.some((c) => c[0] === 'set fillStyle' && c[1] === '#f0a830'), 'the kit gold');
   assert.ok(calls.some((c) => c[0] === 'set fillStyle' && c[1] === 'rgba(8, 7, 5, 0.68)'), 'on the dark tag');
   assert.ok(!calls.some((c) => c[0] === 'set fillStyle' && c[1] === '#14F195'), 'no green');
-  assert.ok(calls.some((c) => c[0] === 'set strokeStyle' && c[1] === 'rgba(244, 241, 234, 0.75)'), 'the own tag has a bone edge');
-  // the top line: your snake, the worth, the room; the key hint at the bottom on a computer
-  const [hud] = P.find('slx-paid-hud');
-  assert.strictEqual(hud.textContent, 'Your snake$0.53$0.50 room');
-  assert.strictEqual(P.find('slx-paid-hud-v')[0].textContent, '$0.53');
-  assert.strictEqual(hud.style.display, 'flex');
+  assert.ok(!calls.some((c) => c[0] === 'set strokeStyle' && c[1] === 'rgba(244, 241, 234, 0.75)'), 'no bone edge on the own tag');
+  const edges = calls.filter((c) => c[0] === 'set strokeStyle' && c[1] === 'rgba(240, 168, 48, 0.26)').length;
+  assert.strictEqual(edges, 2, 'both tags, the own one too, with the same faint gold edge');
+  // no top line (Owen 2026-11-08: no "$0.50 room" box); the key hint at the bottom on a computer
+  assert.strictEqual(P.find('slx-paid-hud').length, 0, 'no top line');
   const [hint] = P.find('slx-paid-hint');
   assert.strictEqual(hint.textContent, 'QHold to cash out');
   assert.strictEqual(hint.style.display, 'flex');
@@ -573,21 +575,21 @@ test('worth: d > 0 on the own worth pops +$ over the head and plays the money ch
   P.raf(1);
   const texts = lastFrame(cashCanvas(P)).filter((c) => c[0] === 'fillText').map((c) => c[1]);
   assert.deepStrictEqual(texts, ['$0.51', '+$0.0005', '+$0.01'], 'the label, then the pops (cents floored, never rounded up)');
-  assert.strictEqual(P.find('slx-paid-hud')[0].textContent, 'Your snake$0.51$0.50 room');
+  assert.strictEqual(P.find('slx-paid-hud').length, 0, 'no top line');
+  assert.strictEqual(P.find('slx-paid-hint')[0].style.display, 'flex');
   P.raf(60);
   assert.deepStrictEqual(lastFrame(cashCanvas(P)).filter((c) => c[0] === 'fillText').map((c) => c[1]), ['$0.51'], 'pops gone after 900 ms');
-  // a phone: the same top line, no key hint (its CASH OUT button is the hint)
+  // a phone: no top line and no key hint (its CASH OUT button is the hint)
   const M = paidPage({ S: { is_mobile: true } });
   seat(M);
   M.raf(1);
-  assert.strictEqual(M.find('slx-paid-hud')[0].textContent, 'Your snake$0.50$0.50 room');
+  assert.strictEqual(M.find('slx-paid-hud').length, 0);
   assert.strictEqual(M.find('slx-paid-hint').length, 0);
-  // dead: the HUD goes
+  // dead: the hint goes
   P.sock().fire('sl:x', [{ t: 'lost', v: 510580 }]);
   P.sock().fire('sl:f', [{ type: 'dead' }]);
   P.raf(1);
-  assert.strictEqual(P.find('slx-paid-hud')[0].style.display, 'none');
-  assert.strictEqual(P.find('slx-paid-hint')[0].style.display, 'none', 'the hint goes with it');
+  assert.strictEqual(P.find('slx-paid-hint')[0].style.display, 'none', 'the hint goes');
 });
 
 test('cards: lost, closed, refused (with and without a refund), a drop with money in, a join cut off', () => {

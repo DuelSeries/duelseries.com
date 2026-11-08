@@ -33,9 +33,9 @@
 //    client keeps rad byte / 5 as the food's sz (slApply.js newFood), so cash is sz >= 13.6; in a paid room every
 //    death drop is cash and nothing else reaches it (test/slPaidBytes.test.js). Worths come in sl:x {t: 'w', id, v}
 //    (server/sl/slRoom.js _worthAll, _worthOnView), the own one with its delta d: a "+$0.01" pop rises over the own
-//    head on d > 0 (slxSound plays the old money chime on the same message). The top line shows "Your snake", the
-//    worth in gold and the room ($0.50 room) while the own snake is alive; a computer adds "Q Hold to cash out" at the
-//    bottom centre.
+//    head on d > 0 (slxSound plays the old money chime on the same message). The own tag is drawn exactly like every
+//    other snake's, and there is no top line (Owen 2026-11-08: no white edge on his own tag, no "$0.50 room" box at the
+//    top); a computer shows "Q Hold to cash out" at the bottom centre while the own snake is alive with a worth.
 // 4. The results card (slxCard's cardLines, beforeAgain and beforeLobby hooks): lost (the worth dropped as gold),
 //    cashed (gross, the house's 10%, what the player receives, then GET /api/sl/cashout/:cid every POLL_MS for
 //    POLL_FOR_MS: pending, sent or delayed), closed (refunded in full), refused by its why with the refund line, a
@@ -87,17 +87,16 @@
   var GOLD = '#FFD700';
   var GOLD_EDGE = '#8C5A00';
   // The worth over each paid head (Owen's pick "W1 Gold tag", 2026-11-04, over the old #14F195 green figure): the
-  // kit's gold on a small dark tag, yours with a bone edge. Sizes are a computer's px; a phone draws them at TAG_PHONE
-  // of that, in its own px (slx.hud.zoom(): their 0.7 page).
+  // kit's gold on a small dark tag, the same for every snake, yours included (Owen 2026-11-08: his own had a bigger
+  // tag with a bone edge; he wants it as he sees everyone else's). Sizes are a computer's px; a phone draws them at
+  // TAG_PHONE of that, in its own px (slx.hud.zoom(): their 0.7 page).
   var TAG_GOLD = '#f0a830';
   var TAG_FILL = 'rgba(8, 7, 5, 0.68)';
   var TAG_EDGE = 'rgba(240, 168, 48, 0.26)';
-  var TAG_EDGE_OWN = 'rgba(244, 241, 234, 0.75)';
   var TAG_FONT = '"Archivo", "Segoe UI", Arial, sans-serif';
-  var TAG_SIZE = 12.5;                           // CHOSEN (the W1 mockup): px, another snake's tag
-  var TAG_SIZE_OWN = 14;                         // CHOSEN: px, your own tag
+  var TAG_SIZE = 12.5;                           // CHOSEN (the W1 mockup): px, every snake's tag
   var TAG_PHONE = 0.86;                          // CHOSEN: a phone's tags against a computer's
-  var HUD_PHONE = 0.8;                           // CHOSEN: a phone's top line against a computer's
+  var HUD_PHONE = 0.8;                           // CHOSEN: a phone's key hint against a computer's
   var CASH_Z = '6';                              // between their game canvas (5) and their HUD (7), as slxHold's rings
   var PI2 = 2 * Math.PI;
   // Head radius in world units: their body is 29 x sc wide (slxHold HEAD_HALF).
@@ -174,8 +173,6 @@
     againSlow: 'Waiting for your wallet...',
     againSlowLine: 'Your wallet has not answered yet. If you approved the stake, wait here: the round starts once it lands.',
     againFailed: 'Stake failed',
-    hudLabel: 'Your snake',
-    hudRoom: function (stake) { return dollars(stake * 1e6) + ' room'; },
     hintKey: 'Q',
     hintKeys: 'Hold to cash out',
     lockKeys: 'Hold Q to cash out first',
@@ -671,36 +668,15 @@
   }
 
   // ---- 3. drawing
-  var hud = null;
-  var hudValue = null;
-  var hudTail = null;
-  var hudShown = false;
-  var hudText = '';
-  var hudW = 0;
-  var hudTop = -1;
-  var hudK = -1;
+  var hintShown = false;
+  var hintK = -1;
   var canvas = null;
   var ctx = null;
-  // The top line (W1): "Your snake", the worth big in gold, the room under it. A computer gets "Q Hold to cash out" at
-  // the bottom centre while the line shows; a phone has its CASH OUT button there instead.
+  // A computer gets "Q Hold to cash out" at the bottom centre while the own snake is alive with a worth; a phone has
+  // its CASH OUT button there instead. No top line (Owen 2026-11-08: the "Your snake / $x.xx / $0.50 room" box at the
+  // top centre is gone; the worth is on the own tag like everyone's).
   var hint = null;
   if (body) {
-    hud = doc.createElement('div');
-    hud.className = 'slx-paid-hud';
-    hud.setAttribute('aria-live', 'off');
-    var hudHead = doc.createElement('small');
-    hudHead.className = 'slx-paid-hud-l';
-    hudHead.textContent = TEXT.hudLabel;
-    hudValue = doc.createElement('strong');
-    hudValue.className = 'slx-paid-hud-v';
-    hudTail = doc.createElement('span');
-    hudTail.className = 'slx-paid-hud-r';
-    hudTail.textContent = TEXT.hudRoom(st.stake);
-    hud.appendChild(hudHead);
-    hud.appendChild(hudValue);
-    hud.appendChild(hudTail);
-    hud.style.display = 'none';
-    body.appendChild(hud);
     if (!S.is_mobile) {
       hint = doc.createElement('div');
       hint.className = 'slx-paid-hint';
@@ -1035,8 +1011,8 @@
     return w;
   }
 
-  // One gold tag: its bottom edge at y, centred on x.
-  function tag(text, x, y, size, own) {
+  // One gold tag: its bottom edge at y, centred on x. Every snake's alike, the own one too.
+  function tag(text, x, y, size) {
     ctx.font = '750 ' + size + 'px ' + TAG_FONT;
     var w = textWidth(text, size) + size * 1.1;
     var h = size * 1.58;
@@ -1055,8 +1031,8 @@
     ctx.closePath();
     ctx.fillStyle = TAG_FILL;
     ctx.fill();
-    ctx.lineWidth = own ? 1.5 : 1;
-    ctx.strokeStyle = own ? TAG_EDGE_OWN : TAG_EDGE;
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = TAG_EDGE;
     ctx.stroke();
     ctx.fillStyle = TAG_GOLD;
     ctx.fillText(text, x, y0 + h * 0.53);
@@ -1091,13 +1067,13 @@
       var y = screenY(o.yy + (o.fy || 0)) - HEAD_HALF * sc * k - LABEL_GAP;
       if (x < -80 || y < -40 || x > cw + 80 || y > ch + 60) continue;
       var own = o === me;
-      var size = Math.round((own ? TAG_SIZE_OWN : TAG_SIZE) * f * 10) / 10;
+      var size = Math.round(TAG_SIZE * f * 10) / 10;
       ctx.globalAlpha = 1;
-      var h = tag(dollars(st.worth[o.id]), x, y, size, own);
+      var h = tag(dollars(st.worth[o.id]), x, y, size);
       count++;
       if (own && pops.length) {
         var t = slx.now();
-        var ps = Math.round((TAG_SIZE_OWN - 1.5) * f * 10) / 10;
+        var ps = Math.round(TAG_SIZE * f * 10) / 10;
         for (var p = 0; p < pops.length; p++) {
           var u = (t - pops[p].t0) / POP_MS;
           if (!(u >= 0 && u < 1)) continue;
@@ -1127,36 +1103,19 @@
     drawn = n > 0;
   }
 
-  function hudFrame() {
+  // The key hint shows while the own snake is alive with a worth (a computer only; a phone has its CASH OUT button).
+  function hintFrame() {
     var me = S.slither;
-    var v = alive() && me && has.call(st.worth, me.id) ? st.worth[me.id] : null;
-    var want = v !== null;
-    if (want !== hudShown) {
-      hudShown = want;
-      hud.style.display = want ? 'flex' : 'none';
-      if (hint) hint.style.display = want ? 'flex' : 'none';
+    var want = alive() && !!me && has.call(st.worth, me.id);
+    if (want !== hintShown) {
+      hintShown = want;
+      hint.style.display = want ? 'flex' : 'none';
     }
     if (!want) return;
-    var text = dollars(v);
-    var hs = slx.hud;
     var k = phoneScale(HUD_PHONE);
-    if (k !== hudK) {
-      hudK = k;
-      if (typeof hud.style.setProperty === 'function') hud.style.setProperty('--slx-k', String(k));
-      if (hint && typeof hint.style.setProperty === 'function') hint.style.setProperty('--slx-k', String(k));
-      hudText = '';                              // the width changes with the size
-    }
-    if (text !== hudText) {
-      hudText = text;
-      hudValue.textContent = text;
-      var br = hs && typeof hud.getBoundingClientRect === 'function' ? hud.getBoundingClientRect() : null;
-      hudW = br && br.width > 0 ? br.width : hs ? hud.offsetWidth || 0 : 0;
-    }
-    // the top centre slot slxHud keeps clear of their leaderboard (under it on a phone held upright, Owen 2026-10-16)
-    var top = hs && typeof hs.topSlot === 'function' ? hs.topSlot(hudW) : -1;
-    if (top >= 0 && top !== hudTop) {
-      hudTop = top;
-      hud.style.top = top + 'px';
+    if (k !== hintK) {
+      hintK = k;
+      if (typeof hint.style.setProperty === 'function') hint.style.setProperty('--slx-k', String(k));
     }
   }
 
@@ -1164,7 +1123,7 @@
     root.requestAnimationFrame(frame);
     try {
       if (ctx) draw();
-      if (hud) hudFrame();
+      if (hint) hintFrame();
     } catch (e) {
       slx.errors = (slx.errors || 0) + 1;
     }
