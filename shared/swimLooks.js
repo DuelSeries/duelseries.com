@@ -1,8 +1,13 @@
 /* Swim's cars, chosen in the Shop (the lobby's chooser): TEN real, recognizable cars, each with its own model, paint
    and engine sound (Owen 2026-11-08: "actual models of cars... you look at the car and you know exactly what car it
    is"). Three are free, the other seven only in the Shop. The models are licensed downloads (public/js/swim/swimHiFi.js,
-   credits in public/vendor/models/swim/CREDITS.txt) with every maker's badge and logo taken off, and the game never
-   names a maker: each car goes by a short nickname (`name`). `real` is what it is, for this file and the credits only.
+   credits in public/vendor/models/swim/CREDITS.txt) with every maker's badge and logo taken off the models.
+
+   THE NAMES PLAYERS SEE (Owen 2026-11-08: "name the car the proper names, the actual name of the car, we can always
+   change it back later"): each car's `name` is its real name (`full`) while REAL_NAMES below is true, and its old
+   nickname (`nick`) when it is false. That one switch is the only change needed to swap back: the Shop
+   (shared/shopSkins.js, public/js/v2/shopArt.js) and the lobby read `name` from here. `real` is the exact model, for
+   this file and the credits.
 
      id        nickname        real car                      paint                engine
      civic     FK8 Hatch       Honda Civic Type R (FK8)      Championship white   turbo four             free (default)
@@ -48,17 +53,19 @@
   /* The ten cars. free: driven by anyone; the rest are Shop cars. The three free ones stay FIRST: a free table's duel
      bot drives CARS[seed % 3] (server/swim/SwimRoom.js). The paints are each car's best-known colour, picked so the
      ten tell apart at a glance on the dusk road, solid or as the other car's see-through ghost. */
+  var REAL_NAMES = true;   // false: every car goes back to its nickname, everywhere players see it
+  function car(c) { c.name = REAL_NAMES ? c.full : c.nick; return Object.freeze(c); }
   var CARS = [
-    Object.freeze({ id: 'civic', name: 'FK8 Hatch', real: 'Honda Civic Type R (FK8)', paint: 'White', hex: '#eeeeea', engine: 'turbo4', free: true }),
-    Object.freeze({ id: 'mustang', name: 'Pony GT', real: 'Ford Mustang GT (S550)', paint: 'Blue', hex: '#2a86d8', engine: 'v8', free: true }),
-    Object.freeze({ id: 'm3', name: 'G80 Sedan', real: 'BMW M3 Competition (G80)', paint: 'Green', hex: '#1c6a52', engine: 'inline6', free: true }),
-    Object.freeze({ id: 'supra', name: 'A80 Coupe', real: 'Toyota Supra (A80)', paint: 'Orange', hex: '#f2701c', engine: 'i6jz', free: false }),
-    Object.freeze({ id: 'gtr', name: 'R35 Coupe', real: 'Nissan GT-R (R35)', paint: 'Gunmetal', hex: '#5a5f67', engine: 'v6tt', free: false }),
-    Object.freeze({ id: 'hellcat', name: 'Blower', real: 'Dodge Challenger SRT Hellcat', paint: 'Purple', hex: '#5f2c99', engine: 'v8sc', free: false }),
-    Object.freeze({ id: 'c8', name: 'C8', real: 'Chevrolet Corvette C8', paint: 'Yellow', hex: '#f2c014', engine: 'v8c8', free: false }),
-    Object.freeze({ id: 'gt3', name: '992 Track', real: 'Porsche 911 GT3 (992)', paint: 'Silver', hex: '#bfc4cb', engine: 'flat6', free: false }),
-    Object.freeze({ id: 'huracan', name: 'Toro V10', real: 'Lamborghini Huracán', paint: 'Lime', hex: '#62bd2c', engine: 'v10', free: false }),
-    Object.freeze({ id: 'f8', name: 'Rosso V8', real: 'Ferrari 488 GTB', paint: 'Red', hex: '#d10f12', engine: 'v8ft', free: false }),
+    car({ id: 'civic', nick: 'FK8 Hatch', full: 'Honda Civic Type R', real: 'Honda Civic Type R (FK8)', paint: 'White', hex: '#eeeeea', engine: 'turbo4', free: true }),
+    car({ id: 'mustang', nick: 'Pony GT', full: 'Ford Mustang GT', real: 'Ford Mustang GT (S550)', paint: 'Blue', hex: '#2a86d8', engine: 'v8', free: true }),
+    car({ id: 'm3', nick: 'G80 Sedan', full: 'BMW M3 Competition', real: 'BMW M3 Competition (G80)', paint: 'Green', hex: '#1c6a52', engine: 'inline6', free: true }),
+    car({ id: 'supra', nick: 'A80 Coupe', full: 'Toyota Supra (A80)', real: 'Toyota Supra (A80)', paint: 'Orange', hex: '#f2701c', engine: 'i6jz', free: false }),
+    car({ id: 'gtr', nick: 'R35 Coupe', full: 'Nissan GT-R', real: 'Nissan GT-R (R35)', paint: 'Gunmetal', hex: '#5a5f67', engine: 'v6tt', free: false }),
+    car({ id: 'hellcat', nick: 'Blower', full: 'Dodge Challenger SRT Hellcat', real: 'Dodge Challenger SRT Hellcat', paint: 'Purple', hex: '#5f2c99', engine: 'v8sc', free: false }),
+    car({ id: 'c8', nick: 'C8', full: 'Chevrolet Corvette C8', real: 'Chevrolet Corvette C8', paint: 'Yellow', hex: '#f2c014', engine: 'v8c8', free: false }),
+    car({ id: 'gt3', nick: '992 Track', full: 'Porsche 911 GT3', real: 'Porsche 911 GT3 (992)', paint: 'Silver', hex: '#bfc4cb', engine: 'flat6', free: false }),
+    car({ id: 'huracan', nick: 'Toro V10', full: 'Lamborghini Huracán', real: 'Lamborghini Huracán', paint: 'Lime', hex: '#62bd2c', engine: 'v10', free: false }),
+    car({ id: 'f8', nick: 'Rosso V8', full: 'Ferrari 488 GTB', real: 'Ferrari 488 GTB', paint: 'Red', hex: '#d10f12', engine: 'v8ft', free: false }),
   ];
   Object.freeze(CARS);
   var FREE = Object.freeze(CARS.filter(function (c) { return c.free; }));
@@ -93,7 +100,7 @@
   function paintOf(id) { return CAR_BY[carOf(id)].hex; }
   function engineOf(id) { return CAR_BY[carOf(id)].engine; }
   var api = { ENGINES: ENGINES, CARS: CARS, FREE: FREE, SHOP: SHOP, DEFAULT_CAR: DEFAULT_CAR, DEFAULT: engineOf(DEFAULT_CAR),
-    KEY: 'duel.swim.car', byId: byId, carById: carById, carOf: carOf, isFree: isFree, allowed: allowed, clean: clean,
+    KEY: 'duel.swim.car', REAL_NAMES: REAL_NAMES, byId: byId, carById: carById, carOf: carOf, isFree: isFree, allowed: allowed, clean: clean,
     paintOf: paintOf, engineOf: engineOf };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (root) root.DS_SWIM_LOOKS = api;

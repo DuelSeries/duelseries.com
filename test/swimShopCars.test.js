@@ -64,6 +64,14 @@ test('every car has its own model, its own engine and its own paint; old ids rea
   assert.strictEqual(new Set(SwimLooks.CARS.map((c) => c.engine)).size, 10);
   assert.strictEqual(new Set(SwimLooks.CARS.map((c) => c.hex)).size, 10);
   for (const [old, now] of [['supercar', 'civic'], ['muscle', 'mustang'], ['hatch', 'civic']]) assert.strictEqual(SwimLooks.carOf(old), now, old);
-  assert.ok(SwimLooks.CARS.every((c) => !/honda|ford|bmw|toyota|nissan|dodge|chevrolet|porsche|lamborghini|ferrari|corvette|mustang|supra|civic|hurac|911|gt-r/i.test(c.name)),
-    'no maker or model name on screen: nicknames only');
+  /* Owen 2026-11-08: "name the car the proper names ... we can always change it back later". The real names show
+     while REAL_NAMES is on; the nicknames (no maker named) are kept beside them, one switch away. */
+  assert.strictEqual(SwimLooks.REAL_NAMES, true);
+  assert.deepStrictEqual(SwimLooks.CARS.map((c) => c.name), ['Honda Civic Type R', 'Ford Mustang GT', 'BMW M3 Competition',
+    'Toyota Supra (A80)', 'Nissan GT-R', 'Dodge Challenger SRT Hellcat', 'Chevrolet Corvette C8', 'Porsche 911 GT3',
+    'Lamborghini Huracán', 'Ferrari 488 GTB']);
+  assert.ok(SwimLooks.CARS.every((c) => c.name === c.full && c.nick && !/honda|ford|bmw|toyota|nissan|dodge|chevrolet|porsche|lamborghini|ferrari|corvette|mustang|supra|civic|hurac|911|gt-r/i.test(c.nick)),
+    'the nicknames, kept for the switch back, name no maker');
+  const SK = require('../shared/shopSkins.js');
+  assert.deepStrictEqual(SK.SKINS.swim.map((s) => s.name), SK.SKINS.swim.map((s) => SwimLooks.carById(s.id).name), 'the Shop reads its names from here');
 });

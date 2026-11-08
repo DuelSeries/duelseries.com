@@ -22,7 +22,9 @@ const L = require(path.join(SHARED, 'swimLooks.js'));
 const ONLY = arg('only', '') ? arg('only', '').split(',') : L.CARS.map((c) => c.id);
 const VIEWS = arg('views', null);
 const STRIP = process.argv.includes('--strip') || process.argv.includes('--strip-only'), STRIP_ONLY = process.argv.includes('--strip-only');
-const FRAMES = 24, FW = 256, FH = 144;   // the Shop's turntable: 24 turns of 15 degrees, each 256 by 144
+/* The Shop's turntable (Owen 2026-11-08: "it spins on frames"): 60 turns of 6 degrees, each 224 by 126, in a grid of
+   COLS across (one long strip would pass WebP's 16383 px limit); public/js/v2/shopArt.js SW3_* must match. */
+const FRAMES = 60, FW = 224, FH = 126, COLS = 10;
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.webp': 'image/webp', '.glb': 'model/gltf-binary' };
 
 (async () => {
@@ -52,7 +54,7 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/cs
     for (const id of ONLY) {
       if (STRIP) {
         /* The Shop's 3D car (Owen 2026-11-08): the car turning a full circle on the spot, seen from a raised three-quarter,
-           its tail lamps lit, one strip of FRAMES pictures (public/img/swim-cars/<id>-3d.webp). The Shop crossfades them. */
+           its tail lamps lit, FRAMES pictures in a grid (public/img/swim-cars/<id>-3d.webp). The Shop crossfades them. */
         const page = await browser.newPage({ viewport: { width: 640, height: 360 }, deviceScaleFactor: 1 });
         try {
           await page.goto(`http://127.0.0.1:${port}/dev-swim-car.html?car=${id}&view=shop&brake=1`);
@@ -61,11 +63,11 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/cs
           for (let i = 0; i < FRAMES; i++) {
             await page.evaluate((y) => window.__car.turn(y), -i * 2 * Math.PI / FRAMES);
             const png = await page.screenshot({ omitBackground: true, type: 'png', clip: { x: 64, y: 18, width: 512, height: 288 } });
-            frames.push({ input: await sharp(png).resize(FW, FH).png().toBuffer(), left: i * FW, top: 0 });
+            frames.push({ input: await sharp(png).resize(FW, FH).png().toBuffer(), left: (i % COLS) * FW, top: Math.floor(i / COLS) * FH });
           }
           const out = path.join(PUB, 'img/swim-cars', id + '-3d.webp');
-          await sharp({ create: { width: FW * FRAMES, height: FH, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } }).composite(frames)
-            .webp({ quality: 80, alphaQuality: 85 }).toFile(out);
+          await sharp({ create: { width: FW * COLS, height: FH * Math.ceil(FRAMES / COLS), channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } }).composite(frames)
+            .webp({ quality: 64, alphaQuality: 75, effort: 6 }).toFile(out);
           console.log('shop 3d strip', path.relative(ROOT, out), fs.statSync(out).size + ' B');
         } finally { await page.close(); }
         if (STRIP_ONLY) continue;

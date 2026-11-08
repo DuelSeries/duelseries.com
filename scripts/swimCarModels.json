@@ -679,7 +679,7 @@
  "hatch": {
   "traffic": true,
   "src": "t-golf2.glb",
-  "front": "-z",
+  "front": "+z",
   "len": 3.9,
   "vertexTex": true,
   "drop": [
@@ -814,6 +814,18 @@
      1.2
     ]
    }
-  ]
+  ],
+  "colors": {
+   "head": [
+    1.0,
+    0.93,
+    0.8
+   ],
+   "tail": [
+    0.8,
+    0.05,
+    0.03
+   ]
+  }
  }
 }

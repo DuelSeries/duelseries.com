@@ -84,7 +84,7 @@
     { id: 'tanks', name: 'Bowmasters', bg: '#14110d', def: { name: 'Default', col: '#f4f1ea' }, skins: SK.SKINS.tanks },
     /* Swim: its three free cars are listed by the lobby (shared/swimLooks.js), the first the default; its seven Shop
        cars are sold here like any skin (Owen 2026-11-08). */
-    { id: 'swim', name: 'Swim', bg: '#1c1942', def: { name: 'FK8 Hatch', car: 'civic' }, skins: SK.SKINS.swim },
+    { id: 'swim', name: 'Swim', bg: '#1c1942', def: { name: root.DS_SWIM_LOOKS ? root.DS_SWIM_LOOKS.carById('civic').name : 'Civic', car: 'civic' }, skins: SK.SKINS.swim },
   ];
   var BY = {};
   GAMES.forEach(function (g) { BY[g.id] = g; g.by = {}; g.skins.forEach(function (k) { g.by[k.id] = k; }); });
@@ -643,10 +643,10 @@
     return im;
   }
   /* The Shop's 3D car (Owen 2026-11-08, "make the shop look really cool"): the same model turning a full circle on the
-     spot, seen from a raised three-quarter with its tail lamps lit: SW3_N pictures in one strip
+     spot, seen from a raised three-quarter with its tail lamps lit: SW3_N pictures in a grid SW3_C across
      (public/img/swim-cars/<id>-3d.webp, scripts/swimCarShots.js --strip), one turn every SW3_T seconds of the Shop's
      clock, each picture faded into the next so the turn is smooth. Until the strip lands, the side picture. */
-  var SW3 = {}, SW3_N = 24, SW3_W = 256, SW3_H = 144, SW3_T = 9;
+  var SW3 = {}, SW3_N = 60, SW3_W = 224, SW3_H = 126, SW3_C = 10, SW3_T = 9;   // 6 degrees a picture, SW3_C across (scripts/swimCarShots.js)
   function swStrip(id) {
     var im = SW3[id];
     if (im) return im;
@@ -676,14 +676,14 @@
     ctx.clearRect(0, 0, w, h);
     if (!bare) { ctx.fillStyle = '#1c1942'; ctx.fillRect(0, 0, w, h); }
     var st = swStrip(car);
-    if (st && st.complete && st.naturalWidth >= SW3_W * SW3_N) {
+    if (st && st.complete && st.naturalWidth >= SW3_W * SW3_C && st.naturalHeight >= SW3_H * Math.ceil(SW3_N / SW3_C)) {
       var f = (((t || 0) / SW3_T) % 1 + 1) % 1 * SW3_N, i0 = Math.floor(f) % SW3_N, a = f - Math.floor(f), i1 = (i0 + 1) % SW3_N;
       var dh = h * (big ? 0.82 : 0.9), dw = dh * SW3_W / SW3_H;
       if (dw > w * 0.98) { dw = w * 0.98; dh = dw * SW3_H / SW3_W; }
       var dx = (w - dw) / 2, dy = (h - dh) / 2 - (badge ? h * 0.05 : 0);
       ctx.imageSmoothingQuality = 'high';
-      ctx.drawImage(st, i0 * SW3_W, 0, SW3_W, SW3_H, dx, dy, dw, dh);
-      if (a > 0.02) { ctx.globalAlpha = a; ctx.drawImage(st, i1 * SW3_W, 0, SW3_W, SW3_H, dx, dy, dw, dh); ctx.globalAlpha = 1; }
+      ctx.drawImage(st, (i0 % SW3_C) * SW3_W, Math.floor(i0 / SW3_C) * SW3_H, SW3_W, SW3_H, dx, dy, dw, dh);
+      if (a > 0.02) { ctx.globalAlpha = a; ctx.drawImage(st, (i1 % SW3_C) * SW3_W, Math.floor(i1 / SW3_C) * SW3_H, SW3_W, SW3_H, dx, dy, dw, dh); ctx.globalAlpha = 1; }
       if (badge) swBadge(ctx, w / 2, dy + dh * 0.86, Math.max(8, Math.min(16, h * 0.11)), badge, L ? L.paintOf(car) : '#fff');
       return;
     }
