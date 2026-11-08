@@ -61,7 +61,7 @@ test('swimEngines.js builds exactly those ten, and nothing the picker page alone
    loops (an idle and the engine held at a few rpm) and its own bangs. Every file is credited and the credits are
    linked from the waiting screen. Open licences only: CC0 or CC BY, and the GT-R's CC BY-SA (Owen: "Use the real
    GT-R"), which its own credit line says. */
-test('all ten engines play their own recording (idle, rpm loops, bangs), small files, all credited', () => {
+test('all ten engines play their own recording: a grain map of real pulls, an idle and bangs, all credited', () => {
   const sandbox = {};
   new Function('window', read('public/js/swim/swimEngines.js'))(sandbox);
   const E = sandbox.SwimEngines;
@@ -72,27 +72,42 @@ test('all ten engines play their own recording (idle, rpm loops, bangs), small f
   for (const id of recorded) {
     const S = E.sample(id);
     assert.strictEqual(S.url, '/audio/swim/' + id + '.mp3', id);
-    const file = path.join(ROOT, 'public', S.url);
-    assert.ok(fs.existsSync(file), id + ' file');
-    const bytes = fs.statSync(file).size;
+    assert.strictEqual(S.map, '/audio/swim/' + id + '.json', id);
+    const file = path.join(ROOT, 'public', S.url), mapFile = path.join(ROOT, 'public', S.map);
+    assert.ok(fs.existsSync(file) && fs.existsSync(mapFile), id + ' files');
+    const bytes = fs.statSync(file).size + fs.statSync(mapFile).size;
     total += bytes;
-    assert.ok(bytes < 100 * 1024, id + ' is small (' + bytes + ' B)');
-    const sec = bytes * 8 / 56000;
-    const kinds = S.loops.map((l) => l[0]);
-    assert.strictEqual(kinds.filter((k) => k === 'idle').length, 1, id + ' one idle');
-    assert.ok(kinds.filter((k) => k === 'on').length >= 2, id + ' at least two on-throttle loops');
-    assert.ok(S.minRate === undefined || (S.minRate >= 0.25 && S.minRate < 1), id + ' minRate');
-    for (const [k, rpm, at, len] of S.loops) {
-      assert.ok(['idle', 'on', 'off'].includes(k), id + ' ' + k);
-      assert.ok(rpm >= 400 && rpm <= 10000, id + ' rpm ' + rpm);
-      assert.ok(len >= 0.15 && at >= 0.1 && at + len <= sec + 0.05, id + ' loop inside its file ' + [at, len, sec]);
+    assert.ok(bytes < 330 * 1024, id + ' stays small (' + bytes + ' B)');
+    const sec = fs.statSync(file).size * 8 / 64000;
+    const map = JSON.parse(fs.readFileSync(mapFile, 'utf8'));
+    assert.strictEqual(map.sr, 32000, id + ' map rate');
+    const kinds = map.segs.map((g) => g.kind);
+    assert.ok(kinds.includes('idle') && kinds.includes('on'), id + ' an idle and at least one pull');
+    let cycles = 0, lo = 1e9, hi = 0;
+    for (const g of map.segs) {
+      assert.ok(['idle', 'on', 'off'].includes(g.kind), id + ' ' + g.kind);
+      assert.ok(g.marks.length === g.rpm.length && g.marks.length === g.lv.length, id + ' map arrays line up');
+      for (let i = 0; i < g.marks.length; i++) {
+        assert.ok(g.marks[i] >= 0 && g.marks[i] / map.sr <= sec + 0.1, id + ' cycle inside its file');
+        assert.ok(i === 0 || g.marks[i] > g.marks[i - 1], id + ' cycles in order');
+        assert.ok(g.rpm[i] >= 300 && g.rpm[i] <= 11000, id + ' rpm ' + g.rpm[i]);
+        if (g.kind === 'on') { lo = Math.min(lo, g.rpm[i]); hi = Math.max(hi, g.rpm[i]); }
+      }
+      cycles += g.marks.length;
     }
-    assert.ok(S.pops.length >= 3, id + ' has its own bangs');
-    for (const [at, len] of S.pops) assert.ok(len > 0.02 && len <= 0.3 && at + len <= sec + 0.05, id + ' bang inside its file');
-    assert.ok(S.trim > 0 && S.trim <= 3 && S.popLevel > 0 && S.popLevel <= 1 && S.maxRate >= 1.3 && S.maxRate <= 2.5, id + ' levels');
+    assert.ok(cycles >= 40, id + ' enough real engine cycles: ' + cycles);
+    /* the FL5 recording (the Civic) has one short pull, to about 3,250 rpm: above that its grains are played faster */
+    assert.ok(hi >= (id === 'turbo4' ? 3200 : 5000), id + ' real pulls reach at least 5,000 rpm: ' + hi);
+    assert.ok(S.pops.length >= 2, id + ' has its own bangs');
+    for (const [at, len] of S.pops) assert.ok(len > 0.02 && len <= 0.3 && at + len <= sec + 0.1, id + ' bang inside its file');
+    assert.ok(S.trim > 0 && S.trim <= 3 && S.popLevel > 0 && S.popLevel <= 1 && S.drive >= 1 && S.drive <= 2.5 && S.clip >= 1 && S.clip <= 3, id + ' levels');
+    assert.ok(Array.isArray(S.eq) && S.eq.every((e) => ['lowshelf', 'peaking', 'highshelf'].includes(e[0]) && Math.abs(e[3]) <= 8), id + ' eq');
+    assert.ok(S.limPeriod === undefined || (S.limPeriod >= 0.05 && S.limPeriod <= 0.12), id + ' limiter beat');
     assert.ok(credits.includes('  ' + id + ' ('), id + ' credited');
   }
-  assert.ok(total < 600 * 1024, 'all of them together stay small: ' + total + ' B');
+  assert.ok(total < 2.6 * 1024 * 1024, 'all ten together stay small: ' + total + ' B');
+  const src = read('public/js/swim/swimEngines.js');
+  assert.ok(src.includes("registerProcessor(\"swim-grain\"") && src.includes("data:application/javascript;base64,"), 'the grain worklet, with a data: URL fallback');
   for (const page of ['public/swim.html', 'public/swimrace.html']) {
     assert.ok(/class="carCredit" href="\/vendor\/models\/swim\/CREDITS.txt"[^>]*>[^<]*engine sounds/.test(read(page)), page + ' links the credits');
   }

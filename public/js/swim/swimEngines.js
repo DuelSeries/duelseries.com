@@ -1,10 +1,11 @@
 /* ─── Swim: the engines ───────────────────────────────────────────────────────
   Real recordings of each car's own engine (Owen 2026-11-08: "a different sound for every single vehicle ...
-  identical to what they sound like in real life ... dial in the backfiring too"). One small mono file per engine
-  in public/audio/swim (d.sample): an idle, the engine held at a few rpm on and off the throttle, and its own
-  exhaust bangs, all cut from field recordings under CC0 or CC BY, credited in public/vendor/models/swim/CREDITS.txt
-  and linked from the waiting screen. The files are made by a script from those recordings (each piece held at one
-  pitch and looped, levelled against the others); the rpm of every loop is written next to it below.
+  identical to what they sound like in real life ... dial in the backfiring too"; then "aggressive and fast"). One
+  small mono file per engine in public/audio/swim (d.sample.url): an idle, real full-throttle pulls (and lifts), and
+  the car's own exhaust bangs, cut from field recordings under open licences, credited in
+  public/vendor/models/swim/CREDITS.txt and linked from the waiting screen; next to it a map of every engine cycle
+  in it (d.sample.map), which the grain voice below plays back cycle by cycle at the revs you are at, through the
+  car's own drive and EQ, with a rev limiter that bounces like a real one.
   Ten engines, one per car (shared/swimLooks.js): turbo4, v8, inline6, i6jz, v6tt, v8sc, v8c8, flat6, v10, v8ft
   (the GT-R's file is CC BY-SA, the rest CC0 or CC BY). The synthesized voice built here in code from oscillators,
   noise and filters is every car's fallback until its file is in (or if it never arrives).
