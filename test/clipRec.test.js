@@ -157,19 +157,58 @@ test('no layout read per frame; sound is bounded without a picture', () => {
 });
 
 /* 2026-10-30 (Owen: "low quality"): the window's own size up to 1920x1080 at 8 Mbps; 1280x720 at a size-based
-   rate came out near 1.5 Mbps. The encoding runs in a worker, so the size no longer costs the game's thread. A game's
-   recorder leaves the encoder choice to Chrome, which tries the graphics card first and falls back to software by
-   itself (prefer-hardware has no fallback: a failing card encoder would stop the recorder). */
-test('a picture up to 1920x1080 at 8 Mbps, 30 a second; Chrome picks the encoder with its own fallback', () => {
+   rate came out near 1.5 Mbps. 2026-11-08 (Owen, cropping clips to phone-shaped shorts: "worse quality than the game"):
+   his 2560x1440 screen came out 1920x1038, so the cap is 1440p, at 0.16 bits a pixel a frame (17 Mbps at his
+   2560x1384 window). The encoding runs in a worker, so the size no longer costs the game's thread. A game's recorder
+   leaves the encoder choice to Chrome, which tries the graphics card first and falls back to software by itself
+   (prefer-hardware has no fallback: a failing card encoder would stop the recorder). */
+test('a picture up to 2560x1440 at 0.16 bits a pixel, 30 a second; Chrome picks the encoder with its own fallback', () => {
   const js = rec();
-  assert.match(js, /const MAX_W = 1920, MAX_H = 1080;/);
-  assert.match(js, /const BITRATE = 8e6;/);
-  assert.match(js, /const cfg = await pickCodec\(W, H, BITRATE\);/);
+  assert.match(js, /const MAX_W = 2560, MAX_H = 1440;/);
+  assert.match(js, /const STEPS = \[\[2560, 1440\], \[1920, 1080\], \[1280, 720\]\];/);
+  assert.match(js, /const BPP = 0\.16, MIN_RATE = 6e6;/);
+  assert.match(js, /cfg = await pickCodec\(W, H, rateFor\(W, H\)\);/);
   assert.match(js, /const FPS = 30;/);
-  assert.match(js, /const k = Math\.min\(1, maxW \/ w, maxH \/ h\);/, 'the game picture is scaled down to fit');
-  assert.match(js, /if \(maxW > 1280\) \{ maxW = 1280; maxH = 720;/, 'an encoder that falls behind steps the picture down before clips stop');
+  // eslint-disable-next-line no-new-func
+  const rateFor = new Function('FPS', 'BPP', 'MIN_RATE', 'return ' + js.match(/const rateFor = (\(w, h\) => [^;]+);/)[1])(30, 0.16, 6e6);
+  assert.ok(Math.abs(rateFor(2560, 1384) - 17e6) < 0.1e6, 'Owen\'s window: ' + rateFor(2560, 1384));
+  assert.ok(rateFor(1920, 1080) > 8e6, 'more than the old 8 Mbps at 1080p too');
+  assert.strictEqual(rateFor(1280, 720), 6e6, 'never under 6 Mbps');
+  assert.match(js, /const k = Math\.min\(1, maxW \/ w, maxH \/ h\);/, 'the picture is scaled down to fit');
   assert.match(js, /width: \{ max: MAX_W \}, height: \{ max: MAX_H \}/, 'and the whole-tab capture asks for no more');
   assert.match(js, /for \(const hw of TOP \? \['prefer-hardware', ''\] : \[''\]\)/);
+  // a graphics card's encoder held up to 42 frames (1.2 s) at 1440p in 'quality', 8 in 'realtime', same bitrate
+  assert.match(js, /const LATENCY = 'realtime';/);
+});
+
+/* H.264 level 4.0 holds pictures up to 1920x1088; Chrome turns avc1.640028 down at 2560x1440 (headless check
+   2026-11-08), so a bigger picture asks for level 5.0. No encoder at a size: a size down, then none. */
+test('level 5.0 for a picture over 1080p; an encoder behind steps 1440p, 1080p, 720p, then stops', () => {
+  const js = rec();
+  assert.match(js, /const big = Math\.ceil\(w \/ 16\) \* Math\.ceil\(h \/ 16\) > 8192;/);
+  assert.match(js, /big \? \['avc1\.640032', 'avc1\.4D4032', 'avc1\.42E032'\] : \['avc1\.640028', 'avc1\.4D4028', 'avc1\.42E028', 'avc1\.42E01F'\]/);
+  const mbs = (w, h) => Math.ceil(w / 16) * Math.ceil(h / 16);
+  assert.ok(mbs(1920, 1080) <= 8192 && mbs(2560, 1384) > 8192 && mbs(2560, 1440) <= 22080, 'level 4.0 to 1080p, 5.0 above');
+  assert.match(js, /if \(cfg \|\| !stepDown\(\)\) break;/, 'no encoder at a size: the next size down');
+  // eslint-disable-next-line no-new-func
+  const ladder = new Function('STEPS', 'MAX_W', 'MAX_H', 'let maxW = MAX_W, maxH = MAX_H; '
+    + js.slice(js.indexOf('function stepDown()'), js.indexOf('function behind()'))
+    + 'const out = []; while (stepDown()) out.push(maxW + "x" + maxH); return out;')([[2560, 1440], [1920, 1080], [1280, 720]], 2560, 1440);
+  assert.deepStrictEqual(ladder, ['1920x1080', '1280x720']);
+  const behind = js.slice(js.indexOf('function behind()'), js.indexOf('/* Asleep:'));
+  assert.match(behind, /if \(stepDown\(\)\) \{ sent = got;/);
+  assert.match(behind, /stop\('the encoder cannot keep up', true\);/);
+});
+
+/* The worker says how many frames its encoder has taken off its queue (encoded, or skipped by its own rate control,
+   which sends nothing back): counting outputs instead, each skipped frame would count as still out for good, and
+   twelve of them would read as an encoder behind. */
+test('frames still out are counted from what the encoder took, not from what it gave back', () => {
+  const js = rec();
+  assert.match(js, /const taken = \(\) => given - \(enc && gen === g \? enc\.encodeQueueSize : 0\);/);
+  assert.match(js, /enc\.ondequeue = \(\) => \{ if \(gen === g\) self\.postMessage\(\{ gen: g, taken: taken\(\) \}\); \};/);
+  assert.match(js, /if \(m\.taken > got\) got = m\.taken;/);
+  assert.ok(!/got\+\+/.test(js), 'no count of outputs');
 });
 
 test('the lobby paints nothing under a game; the toasts and the wallet stay above it', () => {
@@ -204,13 +243,30 @@ test('whole screen: off by default, PC only, asks at a click or P, this tab only
   assert.match(js, /if \(TOP && !running\) \{ if \(tabWanted\(\)\) \{ e\.preventDefault\(\); tabStart\(\); \} return; \}/);
   assert.match(js, /if \(T && !T\.on && T\.wanted\(\)\) T\.start\(\);/, 'P in a game asks too (a press in a frame counts for the lobby)');
   assert.match(js, /if \(!TOP\) AudioNode\.prototype\.connect = function/, 'the lobby takes the tab\'s own sound, it never wraps audio');
-  assert.match(js, /if \(T && T\.tab\) \{ if \(!tabbed\) \{ vChunks = \[\]; aChunks = \[\]; \} tabbed = true; return; \}/, 'a game\'s recorder stands down');
-  assert.match(js, /if \(tabbed\) \{ tabbed = false; vChunks = \[\]; aChunks = \[\]; frameNo = 0;/, 'and starts afresh after');
+  assert.match(js, /if \(T && T\.tab\) \{ if \(!tabbed\) \{ vChunks = \[\]; aChunks = \[\]; dot\(false\); \} tabbed = true; if \(T\.dot\) T\.dot\(DOT, LIGHT\); return; \}/,
+    'a game\'s recorder stands down, its dot shown by the lobby');
+  assert.match(js, /if \(tabbed\) \{ tabbed = false; vChunks = \[\]; aChunks = \[\]; frameNo = 0; dot\(true\); \}/, 'and starts afresh after');
   assert.match(js, /if \(!TOP\) \{ const T = topClip\(\); if \(T && T\.tab\) return T\.save\(gameNow\(\)\); \}/, 'P in a game saves the whole tab');
   assert.match(js, /tabDeclined = true; stop\('stopped sharing'\);/, 'Stop sharing hands back to the games and P stops asking');
   assert.match(js, /const g = TOP \? \(\/\^\(slither\|agar\|paper\|br\)\$\/\.test\(game\) \? game : 'other'\) : '';/, 'only a known game name goes to the server');
   const pump = js.slice(js.indexOf('async function pumpTab'), js.indexOf('function cursor()'));
-  assert.match(pump, /if \(asleep \|\| sizing \|\| now - lastCap < 1000 \/ FPS - 3\) \{ f\.close\(\); continue; \}/, '30 a second at most');
+  assert.match(pump, /if \(asleep \|\| sizing \|\| now < nextCap - 400 \/ FPS\) \{ f\.close\(\); continue; \}/, 'a frame when it is due');
+  assert.match(pump, /nextCap = Math\.max\(nextCap \+ 1000 \/ FPS, now \+ 500 \/ FPS\);/);
+  /* Owen's whole-tab clip of 2026-11-06 held 667 frames in 30.3 s (22 a second): the tab sends about 30 a second,
+     never exactly 33 ms apart, and "at least 30 ms since the last one" dropped each one that came early. */
+  // eslint-disable-next-line no-new-func
+  const kept = (rule, jitter) => new Function('FPS', 'jitter', 'let nextCap = 0, lastCap = 0, n = 0, seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;'
+    + 'for (let i = 0; i < 900; i++) { const now = i * 1000 / 30 + (rnd() * 2 - 1) * jitter; if (' + rule + ') continue; '
+    + 'nextCap = Math.max(nextCap + 1000 / FPS, now + 500 / FPS); lastCap = now; n++; } return n / 30;')(30, jitter);
+  assert.ok(kept('now - lastCap < 1000 / FPS - 3', 6) < 26, 'the old rule: ' + kept('now - lastCap < 1000 / FPS - 3', 6));
+  for (const j of [0, 3, 6, 10]) assert.ok(kept('now < nextCap - 400 / FPS', j) > 29.5, 'jitter ' + j + ' ms: ' + kept('now < nextCap - 400 / FPS', j));
+  // the recorder's own cards and dot are left out of the tab's video (Owen 2026-11-08): held to the body, they are not in it
+  assert.match(js, /await vt\.restrictTo\(await RestrictionTarget\.fromElement\(b\)\);/);
+  assert.match(js, /body\.dsclip-cap\{isolation:isolate!important;transform-style:flat!important\}/, 'the body forms a stacking context, as Chrome needs');
+  assert.match(js, /await holdToBody\(vt\);\n\s*tabStarting = false;/, 'held before the first frame is read');
+  assert.match(js, /card\.setAttribute\('aria-live', 'polite'\);[\s\S]{0,200}document\.documentElement\.appendChild\(card\);/, 'the cards hang off <html>, outside the body');
+  assert.match(js, /dotEl\.appendChild\(document\.createTextNode\('P clip'\)\);\n\s*document\.documentElement\.appendChild\(dotEl\);/, 'and the dot');
+  assert.match(js, /letGo\(\);/, 'let go when the recording stops');
   assert.match(pump, /cursor\(\);\n\s*mark\(\);\n\s*encodeMirror\(\);/, 'the mouse and the mark are drawn into the video');
 });
 

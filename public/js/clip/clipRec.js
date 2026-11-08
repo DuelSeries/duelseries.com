@@ -73,10 +73,18 @@
   const KEEP_US = 30e6;          // what a clip holds
   const FPS = 30;
   const KEY_US = 1e6;            // a key frame each second of time, so a clip starts at most 1 s early
-  const MAX_W = 1920, MAX_H = 1080;    // the window's own size up to 1080p (Owen 2026-10-30, was 1280x720)
-  const BITRATE = 8e6;           // was 2.5 to 8 Mbps by size, which came out near 1.5 (Owen: "low quality")
+  /* The window's own size up to 1440p (Owen 2026-11-08: his 2560x1440 screen came out 1920x1038, soft once cropped to
+     a phone-shaped short; 2026-10-30 it was raised from 1280x720 to 1080p). An encoder 3 s behind steps down a size. */
+  const MAX_W = 2560, MAX_H = 1440;
+  const STEPS = [[2560, 1440], [1920, 1080], [1280, 720]];
+  /* Bits per pixel per frame: 17 Mbps at 2560x1384, 10 at 1920x1080, never under 6 (it was 8 at any size). A graphics
+     card's encoder spends about half its target on a game's dark floor (Owen's 1080p clip: 3.9 of 8 Mbps). */
+  const BPP = 0.16, MIN_RATE = 6e6;
   const INFLIGHT = 12;           // frames handed to the encoder and not back yet: more and the encoder is behind
-  const LATENCY = 'quality';     // the encoder spends what it needs on each frame; a clip is never watched live
+  /* 'realtime': a graphics card's encoder in 'quality' held up to 42 frames (1.2 s) at 1440p before giving any back,
+     which the page counts as an encoder behind and drops frames for; in 'realtime' it held 8, at the same bitrate.
+     Software encoding came out the same in both (headless Chrome 157, Intel Arc, 2026-11-08). */
+  const LATENCY = 'realtime';
   const OFFER_MS = 8000;
   const IDLE_MS = 45000;         // no key, click or mouse move for this long: nobody is playing this tab
   const LS_ON = 'dsClipsOn', LS_MIC = 'dsClipsMic', LS_PERF = 'dsClipPerf';
@@ -131,12 +139,14 @@
   const usNow = () => Math.round((performance.now() - T0) * 1000);
 
   /* ── the picture ───────────────────────────────────────────────────────── */
+  // A picture w x h scaled down to fit the size allowed now, in even numbers (H.264 needs them).
+  function fitTo(w, h) {
+    const k = Math.min(1, maxW / w, maxH / h);
+    return [Math.max(2, Math.round((w * k) / 2) * 2), Math.max(2, Math.round((h * k) / 2) * 2)];
+  }
   function size() {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    let w = Math.round(innerWidth * dpr), h = Math.round(innerHeight * dpr);
-    const k = Math.min(1, maxW / w, maxH / h);
-    w = Math.max(2, Math.round((w * k) / 2) * 2); h = Math.max(2, Math.round((h * k) / 2) * 2);
-    return [w, h];
+    return fitTo(Math.round(innerWidth * dpr), Math.round(innerHeight * dpr));
   }
   // A canvas's place in the stacking order: its own z-index, or the nearest positioned ancestor's.
   function zOf(el, win) {
@@ -737,28 +747,34 @@
   /* The picture's encoder runs in a worker (2026-10-30): the game's thread hands it each frame (a VideoFrame of the
      hidden canvas, which stays on the graphics card) and gets the encoded chunks back; the encoding never lands on
      the game's thread. A new size starts a new generation, and chunks from the old one are ignored. */
+  /* taken: frames the encoder has taken off its queue (encoded, or skipped by its own rate control, which sends nothing
+     back), so the page's count of frames not done yet never creeps up on a skipped one. */
   function encoderWorker() {
     'use strict';
-    let enc = null, gen = 0;
+    let enc = null, gen = 0, given = 0;
     const own = (b) => (b instanceof ArrayBuffer ? new Uint8Array(b) : new Uint8Array(b.buffer, b.byteOffset, b.byteLength)).slice();
     self.onmessage = (e) => {
       const m = e.data;
       if (m.cfg) {
         if (enc) { try { enc.close(); } catch (_) {} }
         const g = gen = m.gen;
+        given = 0;
+        const taken = () => given - (enc && gen === g ? enc.encodeQueueSize : 0);
         enc = new VideoEncoder({
           output: (chunk, meta) => {
             const data = new Uint8Array(chunk.byteLength);
             chunk.copyTo(data);
             const d = meta && meta.decoderConfig && meta.decoderConfig.description;
-            self.postMessage({ gen: g, data, ts: chunk.timestamp, key: chunk.type === 'key', desc: d ? own(d) : null }, [data.buffer]);
+            self.postMessage({ gen: g, data, ts: chunk.timestamp, key: chunk.type === 'key', desc: d ? own(d) : null, taken: taken() }, [data.buffer]);
           },
           error: (err) => self.postMessage({ gen: g, error: String((err && err.message) || err) }),
         });
+        enc.ondequeue = () => { if (gen === g) self.postMessage({ gen: g, taken: taken() }); };
         try { enc.configure(m.cfg); } catch (err) { enc = null; self.postMessage({ gen: g, error: String(err && err.message) }); }
       } else if (m.frame) {
-        if (!enc || m.gen !== gen) { m.frame.close(); self.postMessage({ gen: m.gen, drop: 1 }); return; }
-        try { enc.encode(m.frame, { keyFrame: m.key }); } catch (_) { self.postMessage({ gen, drop: 1 }); }
+        if (!enc || m.gen !== gen) { m.frame.close(); return; }
+        given++;
+        try { enc.encode(m.frame, { keyFrame: m.key }); } catch (_) { self.postMessage({ gen, taken: given - enc.encodeQueueSize }); }
         m.frame.close();
       } else if (m.close && enc) { try { enc.close(); } catch (_) {} enc = null; }
     };
@@ -771,8 +787,8 @@
       const m = e.data;
       if (m.gen !== vGen) return;
       if (m.error) { stop('video encoder: ' + m.error); return; }
-      got++;
-      if (m.drop) return;
+      if (m.taken > got) got = m.taken;
+      if (!m.data) return;
       if (m.desc) vDesc = m.desc;
       vChunks.push({ data: m.data, ts: m.ts, key: m.key });
       prune();
@@ -780,10 +796,15 @@
     worker.onerror = () => stop('video encoder worker');
     return worker;
   }
+  const rateFor = (w, h) => Math.round(Math.max(MIN_RATE, w * h * FPS * BPP));
+  /* H.264's level sets the biggest picture: 4.0 (the 28s) holds up to 1920x1088, a 1440p picture needs 5.0 (the 32s),
+     which Chrome turns down below it (headless check 2026-11-08: avc1.640028 at 2560x1440 is not supported). */
   async function pickCodec(w, h, bitrate) {
+    const big = Math.ceil(w / 16) * Math.ceil(h / 16) > 8192;
+    const codecs = big ? ['avc1.640032', 'avc1.4D4032', 'avc1.42E032'] : ['avc1.640028', 'avc1.4D4028', 'avc1.42E028', 'avc1.42E01F'];
     // The whole tab asks for the graphics card's encoder first: it runs beside a game that is already busy.
     for (const hw of TOP ? ['prefer-hardware', ''] : ['']) {
-      for (const codec of ['avc1.640028', 'avc1.4D4028', 'avc1.42E028', 'avc1.42E01F']) {
+      for (const codec of codecs) {
         const cfg = { codec, width: w, height: h, bitrate, framerate: FPS, avc: { format: 'avc' }, latencyMode: LATENCY };
         if (hw) cfg.hardwareAcceleration = hw;
         try { if ((await VideoEncoder.isConfigSupported(cfg)).supported) return cfg; } catch (_) {}
@@ -791,11 +812,16 @@
     }
     return null;
   }
+  // w x h: the whole tab's own frame size (the game's recorder uses the window's). No encoder at a size: a size down.
   async function startVideo(w, h) {
-    [W, H] = w ? [w, h] : size();
+    let cfg = null;
+    for (;;) {
+      [W, H] = w ? fitTo(w, h) : size();
+      cfg = await pickCodec(W, H, rateFor(W, H));
+      if (cfg || !stepDown()) break;
+    }
     if (!mirror) { mirror = document.createElement('canvas'); mctx = mirror.getContext('2d', { alpha: false }); }
     mirror.width = W; mirror.height = H;
-    const cfg = await pickCodec(W, H, BITRATE);
     if (!cfg || !encoder()) { stop('no H.264 encoder'); return false; }
     vChunks = []; vDesc = null; frameNo = 0; sent = got = 0;
     worker.postMessage({ cfg, gen: ++vGen });
@@ -902,11 +928,12 @@
     requestAnimationFrame(tick);
     // The lobby is recording the whole tab: this game's recorder stands down, and starts its buffer afresh after.
     const T = topClip();
-    if (T && T.tab) { if (!tabbed) { vChunks = []; aChunks = []; } tabbed = true; return; }
-    if (tabbed) { tabbed = false; vChunks = []; aChunks = []; frameNo = 0; }
+    // Its red dot goes to the lobby too, outside what the lobby records (holdToBody), and comes back after.
+    if (T && T.tab) { if (!tabbed) { vChunks = []; aChunks = []; dot(false); } tabbed = true; if (T.dot) T.dot(DOT, LIGHT); return; }
+    if (tabbed) { tabbed = false; vChunks = []; aChunks = []; frameNo = 0; dot(true); }
     sampleFps(now);
     if (!asleep && now - lastInput > IDLE_MS) doze();
-    if (TOP) return;      // the lobby's pictures come from the tab itself (pumpTab)
+    if (TOP) { heldCheck(now); if (dotEl && now - dotAt > 1000) dot(false); return; }      // pictures: pumpTab
     // 30 a second on average whatever the game's own pace (a 55 fps game gave 27 when each frame waited a full 33 ms)
     if (asleep || !capturing || now < nextCap) return;
     nextCap = Math.max(nextCap + 1000 / FPS, now + 500 / FPS);
@@ -932,12 +959,18 @@
   }
   let capturing = false, slow = 0, tabbed = false;
   /* The encoder 3 s behind (a PC whose encoder is busy, or software encoding on a loaded CPU): the picture steps
-     down to 1280x720 and starts again rather than the clips stopping; behind again at that size, they stop. */
+     down a size (1440p, 1080p, 720p) and starts again rather than the clips stopping; behind at 720p, they stop. */
   let maxW = MAX_W, maxH = MAX_H;
+  function stepDown() {
+    const next = STEPS.find(([w]) => w < maxW);
+    if (!next) return false;
+    [maxW, maxH] = next;
+    return true;
+  }
   function behind() {
     slow = 0;
     // the frames still out are the old encoder's: the next frame finds the new size and starts it afresh
-    if (maxW > 1280) { maxW = 1280; maxH = 720; sent = got; if (window.console) console.warn('[clips] the encoder is behind: 1280x720 from now'); return; }
+    if (stepDown()) { sent = got; if (window.console) console.warn('[clips] the encoder is behind: ' + maxW + 'x' + maxH + ' at most from now'); return; }
     stop('the encoder cannot keep up', true);
   }
 
@@ -995,6 +1028,7 @@
       const s = tabStream;
       tabStream = null; vDesc = null; W = H = 0;
       if (s) s.getTracks().forEach(t => { try { t.stop(); } catch (_) {} });
+      letGo();
       if (mixer) { mixer.close().catch(() => {}); mixer = mixDest = null; }
     }
     if (tell && TOP) toast('err', 'Whole-screen recording stopped', 'Your PC could not keep up. Clips record the game only.');
@@ -1184,6 +1218,7 @@
 .dsclip-dot.bl{top:auto;bottom:10px}
 .dsclip-dot.lt{color:rgba(16,14,11,.82);text-shadow:0 1px 1px rgba(255,255,255,.55)}
 .dsclip-dot i{width:7px;height:7px;border-radius:50%;background:#e5534b;box-shadow:0 0 0 2px rgba(0,0,0,.25)}
+body.dsclip-cap{isolation:isolate!important;transform-style:flat!important}
 /* The time-left bar keeps running under reduced motion: Owen's PC reports it, and a still bar says nothing (site sweep). */
 @media (prefers-reduced-motion:reduce){.dsclip-t{transition:none}}`;
   let styled = false;
@@ -1339,12 +1374,13 @@
   }
   DSClip.offer = offer;
 
-  let dotEl = null;
-  function dot(on) {
+  // where, light: the lobby shows a game's dot where that game puts it while it records the whole tab.
+  let dotEl = null, dotAt = 0;
+  function dot(on, where, light) {
     if (!on) { if (dotEl) dotEl.remove(); dotEl = null; return; }
     style();
     if (dotEl) return;
-    dotEl = el('div', 'dsclip-dot' + (DOT === 'bl' ? ' bl' : '') + (LIGHT ? ' lt' : ''));
+    dotEl = el('div', 'dsclip-dot' + ((where || DOT) === 'bl' ? ' bl' : '') + ((light === undefined ? LIGHT : light) ? ' lt' : ''));
     dotEl.setAttribute('aria-hidden', 'true');
     dotEl.appendChild(el('i'));
     dotEl.appendChild(document.createTextNode('P clip'));
@@ -1413,7 +1449,43 @@
     T.pointer(frameBox.x + e.clientX * frameBox.k, frameBox.y + e.clientY * frameBox.k);
   }, { capture: true, passive: true });
 
-  let tabStream = null, tabStarting = false, tabDeclined = false, sizing = false;
+  let tabStream = null, tabStarting = false, tabDeclined = false, sizing = false, tabFrameAt = 0, held = null;
+  /* The recorder's own cards and dot stay out of the whole-tab video (Owen 2026-11-08: the "Save this as a clip?"
+     card was in his clips). Tab capture shows whatever is on screen, so the capture is held to the page's body
+     (Element Capture, Chrome 132+): this recorder's cards and dot hang off <html>, outside the body, and are left
+     out, while everything the page itself shows (the game, its end card, the lobby's toasts) is inside it. The body
+     must form a stacking context for Chrome to capture it alone; isolation:isolate does that and changes nothing
+     on screen. A browser without it records the whole tab as before, cards included. */
+  async function holdToBody(vt) {
+    if (typeof RestrictionTarget !== 'function' || typeof vt.restrictTo !== 'function' || !document.body) return false;
+    style();
+    const b = document.body;
+    b.classList.add('dsclip-cap');
+    try {
+      await vt.restrictTo(await RestrictionTarget.fromElement(b));
+      held = vt;
+      return true;
+    } catch (e) {
+      b.classList.remove('dsclip-cap');
+      if (window.console) console.warn('[clips] the whole tab, cards included: ' + (e && e.message));
+      return false;
+    }
+  }
+  /* Held to the body and no frame for 3 s while a game plays (Chrome sends none while the body cannot be captured
+     alone): the whole tab again, cards and all, rather than a frozen clip. */
+  function heldCheck(now) {
+    if (!held || asleep || !tabFrameAt || now - tabFrameAt < 3000 || !document.body.classList.contains('ingame')) return;
+    const vt = held;
+    held = null;
+    document.body.classList.remove('dsclip-cap');
+    vt.restrictTo(null).catch(() => {});
+    if (window.console) console.warn('[clips] no frames held to the page: the whole tab, cards included');
+  }
+  function letGo() {
+    held = null;
+    tabFrameAt = 0;
+    if (document.body) document.body.classList.remove('dsclip-cap');
+  }
   let ptrX = -1, ptrY = -1;
   const tabWanted = () => ls(LS_TAB) === '1' && ls(LS_ON) !== '0' && !tabDeclined;
   // The game on screen, so P and the card's buttons go back to it after a click on a lobby card.
@@ -1441,17 +1513,20 @@
         monitorTypeSurfaces: 'exclude', systemAudio: 'exclude',
       });
     } catch (_) { s = null; }
-    tabStarting = false;
     const vt = s && s.getVideoTracks()[0];
     const surf = vt && vt.getSettings ? vt.getSettings().displaySurface : 'browser';
     if (!vt || (surf && surf !== 'browser') || running) {      // only ever this tab, never a window or a screen
+      tabStarting = false;
       if (s) s.getTracks().forEach(t => t.stop());
       tabDeclined = true;
       return false;
     }
     tabStream = s;
     vt.addEventListener('ended', () => { if (tabStream === s) { tabDeclined = true; stop('stopped sharing'); } });
-    T0 = performance.now(); lastCap = 0; frameNo = 0; vChunks = []; aChunks = []; W = H = 0;
+    await holdToBody(vt);
+    tabStarting = false;
+    if (tabStream !== s) return false;      // Stop sharing already
+    T0 = performance.now(); lastCap = nextCap = 0; frameNo = 0; vChunks = []; aChunks = []; W = H = 0;
     lastInput = performance.now(); asleep = false;
     running = true; DSClip.on = true;
     requestAnimationFrame(tick);
@@ -1460,8 +1535,10 @@
     toast('ok', 'Recording the whole screen', 'Press P any time to save the last 30 seconds.');
     return true;
   }
-  /* Each frame of the tab, at most 30 a second: scaled onto the hidden canvas, the mouse and the mark drawn on
-     top, then encoded. Asleep or while the game's frames run late, frames are dropped unread, as in a game. */
+  /* Each frame of the tab, 30 a second: scaled onto the hidden canvas, the mouse and the mark drawn on top, then
+     encoded. Asleep, frames are dropped unread, as in a game. A frame is taken when it is due, give or take 40% of a
+     frame: the tab's frames come about 33 ms apart, never exactly, and "at least 30 ms since the last one" dropped
+     every one that came early, so a clip held 22 a second (Owen's 2026-11-06 clip: 667 frames in 30.3 s). */
   async function pumpTab(reader, s) {
     for (;;) {
       let r;
@@ -1469,16 +1546,17 @@
       const f = r.value;
       if (r.done || tabStream !== s) { if (f) f.close(); break; }
       const now = performance.now();
-      if (asleep || sizing || now - lastCap < 1000 / FPS - 3) { f.close(); continue; }
-      let w = f.displayWidth, h = f.displayHeight;
-      const k = Math.min(1, maxW / w, maxH / h);
-      w = Math.max(2, Math.round((w * k) / 2) * 2); h = Math.max(2, Math.round((h * k) / 2) * 2);
+      tabFrameAt = now;
+      if (asleep || sizing || now < nextCap - 400 / FPS) { f.close(); continue; }
+      const [w, h] = fitTo(f.displayWidth, f.displayHeight);
       if (w !== W || h !== H) {
+        const fw = f.displayWidth, fh = f.displayHeight;
         f.close();
         sizing = true;
-        startVideo(w, h).then((ok) => { sizing = false; if (!ok) tabDeclined = true; });
+        startVideo(fw, fh).then((ok) => { sizing = false; if (!ok) tabDeclined = true; });
         continue;
       }
+      nextCap = Math.max(nextCap + 1000 / FPS, now + 500 / FPS);
       lastCap = now;
       if (!worker || sent - got > INFLIGHT) { f.close(); slow++; if (slow > FPS * 3) behind(); continue; }
       slow = 0;
@@ -1518,6 +1596,8 @@
       else if (mixer && mixer.state === 'suspended') mixer.resume().catch(() => {});
     };
     DSClip.pointer = (x, y) => { ptrX = x; ptrY = y; };
+    // a game's recorder standing down: its dot, here, while it keeps saying so (each of its frames)
+    DSClip.dot = (where, light) => { dotAt = performance.now(); if (running && !dotEl) dot(true, where, light); };
   }
 
   /* ── start ─────────────────────────────────────────────────────────────── */
