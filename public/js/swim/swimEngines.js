@@ -79,9 +79,8 @@
       pops: { rate: 16, decay: 0.8, win: 2.0, big: 0.35, level: 1.0 },
       shift: { cut: 0.3, dur: 0.11, clunk: 0.45, pop: 0.25, style: 'burble' },
       turbo: null,
-      sample: { url: '/audio/swim/v8.mp3', trim: 2.0, bangs: 5, popLevel: 0.42, maxRate: 1.6,
-        loops: [['idle', 846, 0.1500, 1.1351], ['on', 2700, 1.4851, 0.5778], ['on', 3300, 2.2628, 0.4364], ['on', 4000, 2.8992, 0.5700], ['on', 4700, 3.6692, 0.5872], ['on', 5500, 4.4564, 0.5891], ['off', 3200, 5.2455, 0.4500], ['off', 3900, 5.8955, 0.4308]],
-        pops: [[6.4663, 0.1700, 1], [6.7163, 0.1600, 1], [6.9563, 0.1400, 0], [7.1763, 0.1600, 1], [7.4163, 0.1400, 0]] },
+      sample: { url: '/audio/swim/v8.mp3', map: '/audio/swim/v8.json', trim: 0.828, drive: 1.9, clip: 2.0, eq: [['lowshelf', 120, 0.7, 5], ['peaking', 1800, 0.9, 2.5]], popLevel: 0.42, bangs: 6, limPop: 0.35,
+        pops: [[26.9900, 0.1700, 1], [27.2400, 0.1600, 1], [27.4800, 0.1400, 0], [27.7000, 0.1600, 1], [27.9400, 0.1400, 0]] },
       trim: 0.358
     },
     {
@@ -102,9 +101,8 @@
       pops: { rate: 7, decay: 0.6, win: 1.2, big: 0.25, level: 0.85 },
       shift: { cut: 0.25, dur: 0.1, clunk: 0.3, pop: 0.15, style: 'pssh' },
       turbo: { lo: 2400, hi: 6400, level: 0.05, bov: 0.55 },
-      sample: { url: '/audio/swim/turbo4.mp3', trim: 2.0, bangs: 4, popLevel: 0.4, maxRate: 2.3,
-        loops: [['idle', 1491, 0.1500, 0.9658], ['on', 2400, 1.3158, 0.4500], ['on', 2900, 1.9658, 0.4966], ['on', 3200, 2.6624, 0.4500]],
-        pops: [[3.2524, 0.1400, 1], [3.4724, 0.1400, 1], [3.6924, 0.1400, 0], [3.9124, 0.1400, 1], [4.1324, 0.1600, 1]] },
+      sample: { url: '/audio/swim/turbo4.mp3', map: '/audio/swim/turbo4.json', trim: 0.804, drive: 1.8, clip: 2.0, eq: [['lowshelf', 150, 0.7, 3.5], ['peaking', 2400, 0.9, 3]], popLevel: 0.4, bangs: 4, limPop: 0.4, maxRate: 2.3,
+        pops: [[10.8900, 0.1400, 1], [11.1100, 0.1400, 1], [11.3300, 0.1400, 0], [11.5500, 0.1400, 1], [11.7700, 0.1600, 1]] },
       trim: 0.288
     },
     {
@@ -127,9 +125,8 @@
       pops: { rate: 7, decay: 0.6, win: 1.3, big: 0.25, level: 0.75 },
       shift: { cut: 0.35, dur: 0.08, clunk: 0.2, pop: 0.3, style: 'blip' },
       turbo: null,
-      sample: { url: '/audio/swim/flat6.mp3', trim: 2.0, bangs: 5, popLevel: 0.38, maxRate: 1.75,
-        loops: [['idle', 658, 0.1500, 0.7298], ['on', 2265, 1.0798, 0.4238], ['on', 2883, 1.7036, 0.4579], ['on', 5274, 2.3615, 0.4550], ['on', 4323, 3.0165, 0.4719], ['on', 4292, 3.6885, 0.4753], ['on', 5077, 4.3638, 0.3073]],
-        pops: [[4.8111, 0.1600, 1], [5.0511, 0.1400, 0], [5.2711, 0.1400, 1]] },
+      sample: { url: '/audio/swim/flat6.mp3', map: '/audio/swim/flat6.json', trim: 1.023, drive: 1.9, clip: 2.1, eq: [['lowshelf', 150, 0.7, 2.5], ['peaking', 3000, 0.9, 4]], popLevel: 0.38, bangs: 5, limPop: 0.35,
+        pops: [[18.3600, 0.1600, 1], [18.6000, 0.1400, 0], [18.8200, 0.1400, 1]] },
       trim: 0.375
     },
     {
@@ -151,9 +148,8 @@
       pops: { rate: 6, decay: 0.55, win: 1.1, big: 0.2, level: 0.7 },
       shift: { cut: 0.3, dur: 0.09, clunk: 0.25, pop: 0.2, style: 'pssh' },
       turbo: { lo: 2000, hi: 5600, level: 0.035, bov: 0.4 },
-      sample: { url: '/audio/swim/inline6.mp3', trim: 2.05, bangs: 5, popLevel: 0.36, maxRate: 1.6,
-        loops: [['idle', 1870, 0.1500, 0.7058], ['on', 2565, 1.0558, 0.3275], ['on', 5612, 1.5833, 0.1711], ['on', 4765, 1.9543, 0.1763], ['on', 5801, 2.3306, 0.1655]],
-        pops: [[2.6361, 0.1200, 1], [2.8361, 0.1200, 1], [3.0361, 0.1200, 1], [3.2361, 0.1200, 0], [3.4361, 0.1200, 0]] },
+      sample: { url: '/audio/swim/inline6.mp3', map: '/audio/swim/inline6.json', trim: 0.797, drive: 1.8, clip: 2.0, eq: [['lowshelf', 140, 0.7, 3], ['peaking', 2600, 0.9, 3]], popLevel: 0.36, bangs: 5, limPop: 0.3,
+        pops: [[25.6400, 0.1200, 1], [25.8400, 0.1200, 1], [26.0400, 0.1200, 1], [26.2400, 0.1200, 0], [26.4400, 0.1200, 0]] },
       trim: 0.36
     },
     {
@@ -176,9 +172,8 @@
       pops: { rate: 6, decay: 0.5, win: 1.0, big: 0.22, level: 0.8 },
       shift: { cut: 0.38, dur: 0.06, clunk: 0.22, pop: 0.35, style: 'blip' },
       turbo: null,
-      sample: { url: '/audio/swim/v10.mp3', trim: 2.0, bangs: 7, popLevel: 0.35, maxRate: 1.65,
-        loops: [['idle', 976, 0.1500, 1.1068], ['on', 1400, 1.4568, 0.5143], ['on', 2040, 2.1711, 0.5882], ['on', 4000, 2.9593, 0.1800], ['on', 5000, 3.3393, 0.5760], ['on', 5450, 4.1153, 0.5945]],
-        pops: [[4.8498, 0.1887, 1], [5.1185, 0.1440, 1], [5.3425, 0.1493, 0], [5.5718, 0.1740, 1], [5.8258, 0.1600, 1], [6.0658, 0.1627, 1], [6.3085, 0.1213, 0], [6.5098, 0.1400, 0]] },
+      sample: { url: '/audio/swim/v10.mp3', map: '/audio/swim/v10.json', trim: 0.796, drive: 2.0, clip: 2.2, eq: [['lowshelf', 150, 0.7, 2.5], ['peaking', 3000, 0.9, 4]], popLevel: 0.38, bangs: 7, limPop: 0.4,
+        pops: [[22.1400, 0.1887, 1], [22.4087, 0.1440, 1], [22.6327, 0.1493, 0], [22.8620, 0.1740, 1], [23.1160, 0.1600, 1], [23.3560, 0.1627, 1], [23.5987, 0.1213, 0], [23.8001, 0.1400, 0]] },
       trim: 0.42
     },
     /* The cars Owen picked on 2026-11-08 (ten real cars): the 2JZ six, the twin-turbo V6, the supercharged V8, the
@@ -203,9 +198,8 @@
       pops: { rate: 9, decay: 0.65, win: 1.4, big: 0.3, level: 0.85 },
       shift: { cut: 0.28, dur: 0.1, clunk: 0.3, pop: 0.2, style: 'pssh' },
       turbo: { lo: 1700, hi: 5000, level: 0.075, bov: 0.75 },
-      sample: { url: '/audio/swim/i6jz.mp3', trim: 2.3, bangs: 6, popLevel: 0.42, maxRate: 1.6,
-        loops: [['idle', 1611, 0.1500, 0.8941], ['on', 2100, 1.2441, 0.3428], ['on', 3300, 1.7870, 0.6909], ['on', 4300, 2.6779, 0.6977], ['on', 5400, 3.5755, 0.5111], ['on', 6600, 4.2867, 0.5091], ['on', 7900, 4.9958, 0.6987], ['off', 2300, 5.8945, 0.3652], ['off', 3800, 6.4597, 0.3790], ['off', 5600, 7.0387, 0.3857], ['off', 7600, 7.6244, 0.3947]],
-        pops: [[8.1591, 0.1800, 1], [8.4191, 0.1800, 1], [8.6791, 0.1600, 1], [8.9191, 0.1600, 0], [9.1591, 0.1700, 1], [9.4091, 0.1700, 1], [9.6591, 0.1700, 0]] },
+      sample: { url: '/audio/swim/i6jz.mp3', map: '/audio/swim/i6jz.json', trim: 1.007, drive: 1.8, clip: 2.0, eq: [['lowshelf', 130, 0.7, 4], ['peaking', 2400, 0.9, 3]], popLevel: 0.4, bangs: 6, limPop: 0.35,
+        pops: [[22.5900, 0.1800, 1], [22.8500, 0.1800, 1], [23.1100, 0.1600, 1], [23.3500, 0.1600, 0], [23.5900, 0.1700, 1], [23.8400, 0.1700, 1], [24.0900, 0.1700, 0]] },
       trim: 0.34
     },
     {
@@ -229,9 +223,8 @@
       pops: { rate: 7, decay: 0.55, win: 1.2, big: 0.25, level: 0.75 },
       shift: { cut: 0.26, dur: 0.08, clunk: 0.25, pop: 0.2, style: 'pssh' },
       turbo: { lo: 2600, hi: 6400, level: 0.05, bov: 0.6 },
-      sample: { url: '/audio/swim/v6tt.mp3', trim: 2.0, popLevel: 0.35, maxRate: 1.6, bangs: 6, minRate: 0.3,
-        loops: [['idle', 900, 0.1500, 0.4000], ['on', 5900, 0.7500, 0.4068], ['on', 6250, 1.3568, 0.4032]],
-        pops: [[1.9000, 0.1200, 1], [2.1000, 0.1200, 1], [2.3000, 0.1600, 1], [2.5400, 0.1400, 0], [2.7600, 0.1200, 0], [2.9600, 0.1200, 0]] },
+      sample: { url: '/audio/swim/v6tt.mp3', map: '/audio/swim/v6tt.json', trim: 0.765, drive: 2.0, clip: 2.2, eq: [['lowshelf', 140, 0.7, 3], ['peaking', 2600, 0.9, 3]], popLevel: 0.35, bangs: 6, limPop: 0.35, maxRate: 2.0,
+        pops: [[2.0000, 0.1200, 1], [2.2000, 0.1200, 1], [2.4000, 0.1600, 1], [2.6400, 0.1400, 0], [2.8600, 0.1200, 0], [3.0600, 0.1200, 0]] },
       trim: 0.33
     },
     {
@@ -256,9 +249,8 @@
       pops: { rate: 14, decay: 0.75, win: 1.8, big: 0.35, level: 0.95 },
       shift: { cut: 0.3, dur: 0.12, clunk: 0.5, pop: 0.25, style: 'burble' },
       turbo: null,
-      sample: { url: '/audio/swim/v8sc.mp3', trim: 1.8, bangs: 7, popLevel: 0.3, maxRate: 1.6,
-        loops: [['idle', 1162, 0.1500, 1.1357], ['on', 2100, 1.4857, 0.5142], ['on', 3000, 2.1999, 0.5200], ['on', 3800, 2.9199, 0.4737], ['on', 4600, 3.5936, 0.5478], ['on', 5400, 4.3414, 0.6000], ['on', 6200, 5.1414, 0.5806]],
-        pops: [[5.8621, 0.1800, 1], [6.1221, 0.1600, 1], [6.3621, 0.1600, 1], [6.6021, 0.1600, 1], [6.8421, 0.1400, 0], [7.0621, 0.1400, 0]] },
+      sample: { url: '/audio/swim/v8sc.mp3', map: '/audio/swim/v8sc.json', trim: 0.746, drive: 2.0, clip: 2.2, eq: [['lowshelf', 120, 0.7, 5], ['peaking', 1800, 0.9, 2.5]], popLevel: 0.32, bangs: 7, limPop: 0.35,
+        pops: [[25.6900, 0.1800, 1], [25.9500, 0.1600, 1], [26.1900, 0.1600, 1], [26.4300, 0.1600, 1], [26.6700, 0.1400, 0], [26.8900, 0.1400, 0]] },
       trim: 0.33
     },
     {
@@ -283,9 +275,8 @@
       pops: { rate: 11, decay: 0.65, win: 1.5, big: 0.3, level: 0.9 },
       shift: { cut: 0.32, dur: 0.07, clunk: 0.3, pop: 0.3, style: 'blip' },
       turbo: null,
-      sample: { url: '/audio/swim/v8c8.mp3', trim: 2.0, bangs: 6, popLevel: 0.3, maxRate: 1.6,
-        loops: [['idle', 1306, 0.1500, 0.9189], ['on', 1894, 1.2689, 0.3168], ['on', 2915, 1.7857, 0.4529], ['on', 3942, 2.4386, 0.1827], ['on', 5934, 2.8213, 0.1820]],
-        pops: [[3.1433, 0.1600, 1], [3.3833, 0.1200, 1], [3.5833, 0.1200, 0], [3.7833, 0.1400, 0], [4.0033, 0.1600, 1], [4.2433, 0.1400, 0]] },
+      sample: { url: '/audio/swim/v8c8.mp3', map: '/audio/swim/v8c8.json', trim: 0.844, drive: 1.9, clip: 2.0, eq: [['lowshelf', 120, 0.7, 5], ['peaking', 1800, 0.9, 2.5]], popLevel: 0.32, bangs: 6, limPop: 0.35, maxRate: 2.0,
+        pops: [[5.1500, 0.1600, 1], [5.3900, 0.1200, 1], [5.5900, 0.1200, 0], [5.7900, 0.1400, 0], [6.0100, 0.1600, 1], [6.2500, 0.1400, 0]] },
       trim: 0.35
     },
     {
@@ -309,9 +300,8 @@
       pops: { rate: 6, decay: 0.5, win: 1.0, big: 0.22, level: 0.8 },
       shift: { cut: 0.38, dur: 0.06, clunk: 0.22, pop: 0.35, style: 'blip' },
       turbo: { lo: 2400, hi: 6000, level: 0.035, bov: 0.35 },
-      sample: { url: '/audio/swim/v8ft.mp3', trim: 2.0, bangs: 6, popLevel: 0.36, maxRate: 1.65,
-        loops: [['idle', 980, 0.1500, 0.8570], ['on', 3195, 1.2070, 0.4131], ['on', 2650, 1.8201, 0.4076], ['on', 3700, 2.4276, 0.4216], ['on', 4200, 3.0492, 0.4286], ['on', 4750, 3.6778, 0.4295], ['on', 5200, 4.3073, 0.4385]],
-        pops: [[4.8857, 0.1600, 1], [5.1258, 0.1600, 1], [5.3658, 0.1400, 0], [5.5857, 0.1400, 0], [5.8057, 0.1400, 0], [6.0258, 0.1600, 1]] },
+      sample: { url: '/audio/swim/v8ft.mp3', map: '/audio/swim/v8ft.json', trim: 0.821, drive: 1.9, clip: 2.0, eq: [['lowshelf', 150, 0.7, 2.5], ['peaking', 3000, 0.9, 4]], popLevel: 0.36, bangs: 6, limPop: 0.35,
+        pops: [[11.1200, 0.1600, 1], [11.3600, 0.1600, 1], [11.6000, 0.1400, 0], [11.8200, 0.1400, 0], [12.0400, 0.1400, 0], [12.2600, 0.1600, 1]] },
       trim: 0.4
     }
   ];
@@ -650,19 +640,133 @@
           A.put(sLP, 650 + 2600 * f, 0.05);
         }
       },
-      /* one of the car's own bangs: a big one for the first of a run, any for the rest */
-      pop: function (t, big, scale) {
-        var P = S.pops, n = P.length, j, tries = 0;
-        if (!n) return;
-        do { j = Math.floor(Math.random() * n); } while (big && !P[j][2] && ++tries < 6);
-        var s = ctx.createBufferSource(), g = ctx.createGain();
-        s.buffer = buf;
-        s.playbackRate.value = 0.94 + 0.12 * Math.random();
-        g.gain.value = (big ? 0.8 + 0.2 * Math.random() : 0.3 + 0.35 * Math.random()) * scale * (S.popLevel || 1);
-        s.connect(g); g.connect(popOut);
-        s.onended = function () { try { s.disconnect(); g.disconnect(); } catch (_) {} };
-        try { s.start(t, P[j][0], P[j][1]); } catch (_) {}
+      pop: sampledPop(ctx, S, buf, popOut)
+    };
+  }
+
+  /* One of the car's own bangs: a big one for the first of a run, any for the rest. A short one-shot source each. */
+  function sampledPop(ctx, S, buf, popOut) {
+    return function (t, big, scale) {
+      var P = S.pops, n = P.length, j, tries = 0;
+      if (!n) return;
+      do { j = Math.floor(Math.random() * n); } while (big && !P[j][2] && ++tries < 6);
+      var s = ctx.createBufferSource(), g = ctx.createGain();
+      s.buffer = buf;
+      s.playbackRate.value = 0.94 + 0.12 * Math.random();
+      g.gain.value = (big ? 0.8 + 0.2 * Math.random() : 0.3 + 0.35 * Math.random()) * scale * (S.popLevel || 1);
+      s.connect(g); g.connect(popOut);
+      s.onended = function () { try { s.disconnect(); g.disconnect(); } catch (_) {} };
+      try { s.start(t, P[j][0], P[j][1]); } catch (_) {}
+    };
+  }
+
+  /* THE GRAIN VOICE (Owen 2026-11-08: "aggressive and fast ... sound like they do in real life"): the car's real
+     engine played back grain by grain, the way racing games do it. The file holds real full-throttle pulls (and
+     lifts, and an idle) cut into engine cycles (two crank turns), each cycle's start lined up with the one before it
+     (scripts make the map: d.sample.map). An AudioWorklet lays down one grain per engine cycle at the rpm heard,
+     each two cycles long under a raised-cosine window, taken from the cycle of the recording that was at that same
+     rpm (the next one along while it still fits, so the recording plays on naturally), so the engine is never
+     looped and barely re-pitched. Two streams: on the throttle (the pulls) and off it (the lifts), mixed by the
+     throttle. Then the car's own drive (a soft clipper), body and bite (EQ), as a sound engineer would. */
+  var GRAIN_SRC = [
+    'class SwimGrain extends AudioWorkletProcessor {',
+    '  static get parameterDescriptors() { return [{ name: "rpm", defaultValue: 900, automationRate: "k-rate" },',
+    '    { name: "on", defaultValue: 0, automationRate: "k-rate" }]; }',
+    '  constructor(o) {',
+    '    super(); const p = o.processorOptions;',
+    '    this.pcm = p.pcm; this.sets = [p.on, p.off]; this.lo = p.lo; this.hi = p.hi;',
+    '    this.ph = 1; this.gr = []; this.last = [-1, -1]; this.alive = true; this.lp = 0; this.offLp = p.offLp || 0;',
+    '    this.port.onmessage = (e) => { if (e.data === "stop") this.alive = false; };',
+    '  }',
+    '  pick(s, rpm, j) {',
+    '    const n = s.r.length; if (!n) return -1;',
+    '    const l = this.last[j];',
+    '    if (l >= 0 && l + 1 < n && s.c[l] && Math.abs(s.r[l + 1] / rpm - 1) < 0.035) return l + 1;',
+    '    let a = 0, b = n - 1; const o = s.o;',
+    '    while (a < b) { const m = (a + b) >> 1; if (s.r[o[m]] < rpm) a = m + 1; else b = m; }',
+    '    let x = a, y = a; while (x > 0 && s.r[o[x - 1]] > rpm * 0.975) x--; while (y < n - 1 && s.r[o[y + 1]] < rpm * 1.025) y++;',
+    '    if (y - x > 0) return o[x + Math.floor(Math.random() * (y - x + 1))];',
+    '    return (a > 0 && Math.abs(s.r[o[a - 1]] - rpm) < Math.abs(s.r[o[a]] - rpm)) ? o[a - 1] : o[a];',
+    '  }',
+    '  process(inp, out, prm) {',
+    '    const ch = out[0][0], N = ch.length, rpm = Math.max(200, prm.rpm[0]), on = Math.min(1, Math.max(0, prm.on[0]));',
+    '    const w = [Math.sqrt(on), Math.sqrt(1 - on)], pcm = this.pcm, cyc = sampleRate * 120 / rpm;',
+    '    for (let i = 0; i < N; i++) {',
+    '      this.ph += 1 / cyc;',
+    '      if (this.ph >= 1) {',
+    '        this.ph -= 1;',
+    '        for (let j = 0; j < 2; j++) {',
+    '          if (w[j] < 0.01) { this.last[j] = -1; continue; }',
+    '          const s = this.sets[j], k = this.pick(s, rpm, j); if (k < 0) continue;',
+    '          this.last[j] = k;',
+    '          const n = Math.max(32, Math.round(2 * cyc)), step = Math.min(this.hi, Math.max(this.lo, s.L[k] / n)) ;',
+    '          this.gr.push({ p: s.m[k], step, i: 0, n, g: s.g[k], j });',
+    '        }',
+    '      }',
+    '      let acc = 0, accOff = 0;',
+    '      for (let q = this.gr.length - 1; q >= 0; q--) {',
+    '        const g = this.gr[q]; const x = g.p + g.i * g.step, i0 = x | 0, f = x - i0;',
+    '        const v = (pcm[i0] * (1 - f) + pcm[i0 + 1] * f) * (0.5 - 0.5 * Math.cos(6.283185307 * g.i / g.n)) * g.g;',
+    '        if (g.j) accOff += v * w[1]; else acc += v * w[0];',
+    '        if (++g.i >= g.n) this.gr.splice(q, 1);',
+    '      }',
+    '      if (this.offLp) { this.lp += (accOff - this.lp) * this.offLp; accOff = this.lp; }',
+    '      ch[i] = acc + accOff;',
+    '    }',
+    '    return this.alive || this.gr.length > 0;',
+    '  }',
+    '}',
+    'registerProcessor("swim-grain", SwimGrain);'
+  ].join('\n');
+
+  /* The grain map of a car, from its JSON: per stream (on, off) the cycle starts, the rpm each cycle was at, the
+     source length of two cycles, an evening gain (each cycle's level brought to one level), whether the next cycle
+     follows on, and the cycles ordered by rpm for the search. Idle cycles count in both streams. */
+  function grainSets(map, sr) {
+    function make(kinds) {
+      var m = [], r = [], L = [], g = [], c = [];
+      for (var s = 0; s < map.segs.length; s++) {
+        var sg = map.segs[s];
+        if (kinds.indexOf(sg.kind) < 0) continue;
+        for (var i = 0; i + 2 < sg.marks.length; i++) {
+          var a = sg.marks[i], b = sg.marks[i + 2];
+          if (b - a > 0.6 * sr) continue;
+          m.push(a); r.push(sg.rpm[i]); L.push(b - a);
+          g.push(Math.max(0.35, Math.min(3, 0.12 / Math.max(0.01, sg.lv[i]))));
+          c.push(i + 3 < sg.marks.length && Math.abs((sg.marks[i + 2] - sg.marks[i + 1]) - (sg.marks[i + 1] - sg.marks[i])) < 0.25 * (sg.marks[i + 1] - sg.marks[i]) ? 1 : 0);
+        }
+        if (c.length) c[c.length - 1] = 0;
       }
+      var o = r.map(function (_, i) { return i; }).sort(function (x, y) { return r[x] - r[y]; });
+      return { m: new Float64Array(m), r: new Float32Array(r), L: new Float32Array(L), g: new Float32Array(g),
+        c: new Uint8Array(c), o: new Int32Array(o) };
+    }
+    var on = make(['idle', 'on']), off = make(['idle', 'off']);
+    return { on: on, off: off.r.length > 4 ? off : on, offLp: off.r.length > 4 ? 0 : 0.25 };
+  }
+
+  function grainVoice(ctx, K, A, d, bank, into, popOut) {
+    var S = d.sample;
+    var node = new AudioWorkletNode(ctx, 'swim-grain', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [1],
+      processorOptions: { pcm: bank.pcm, on: bank.sets.on, off: bank.sets.off, offLp: bank.sets.offLp,
+        lo: (S.minRate || 0.55) * bank.buf.sampleRate / ctx.sampleRate, hi: (S.maxRate || 1.8) * bank.buf.sampleRate / ctx.sampleRate } });
+    /* the car's own aggression: drive into a soft clipper, then body and bite */
+    var drive = K.gain(S.drive || 1.6);
+    node.connect(drive);
+    var sh = K.shaper(softClip(store(ctx), S.clip || 1.8, 0.04));
+    drive.connect(sh);
+    var post = K.gain(1 / Math.tanh(S.clip || 1.8));
+    sh.connect(post);
+    var node2 = post;
+    var eq = S.eq || [['lowshelf', 140, 0.7, 4], ['peaking', 2200, 0.9, 3]];
+    for (var i = 0; i < eq.length; i++) { var f = K.filt(eq[i][0], eq[i][1], eq[i][2], eq[i][3]); node2.connect(f); node2 = f; }
+    node2.connect(into);
+    var sR = A.add(node.parameters.get('rpm')), sO = A.add(node.parameters.get('on'));
+    return {
+      sampled: true,
+      frame: function (rpm, f, onMix) { A.put(sR, rpm, 0.006); A.put(sO, onMix, 0.02); },
+      pop: sampledPop(ctx, S, bank.buf, popOut),
+      stop: function () { try { node.port.postMessage('stop'); } catch (_) {} }
     };
   }
 
@@ -671,6 +775,7 @@
     var b, i;
     var bank = d.sample ? loadBank(ctx, d) : null;
     var buf = bank && bank.buf;
+    if (buf && d.sample.map && !bank.sets) buf = null;   // a grain car whose map or worklet is not in yet: the synth
 
     var out = K.gain(0); out.connect(dest);
     var trim = K.gain(buf ? d.sample.trim : d.trim, out);
@@ -680,7 +785,7 @@
     // Gearbox clunk, either voice.
     var clBP = K.filt('bandpass', 170, 3.5), clN = K.gain(8), clAmp = K.gain(0, trim);
     white.connect(clBP); clBP.connect(clN); clN.connect(clAmp);
-    if (buf) return run(ctx, d, K, A, out, engAmp, cut, clAmp, sampledVoice(ctx, K, A, d, buf, cut, trim));
+    if (buf) return run(ctx, d, K, A, out, engAmp, cut, clAmp, d.sample.map ? grainVoice(ctx, K, A, d, bank, cut, trim) : sampledVoice(ctx, K, A, d, buf, cut, trim));
 
     var cyc = K.constant(d.idle / (60 * d.revs));       // engine cycles per second
     function track(mult, param) { var g = K.gain(mult); cyc.connect(g); g.connect(param); return g; }
@@ -852,7 +957,7 @@
 
     var ratios = gearRatios(d), RL = d.redline, sh = (V.sampled && d.sample.shift) || d.shift;
     var rpm = d.idle, gear = 1, gasF = 0, gasS = 0, load = 0.3, prevGas = 0;
-    var liftT = -99, shiftT = -99, lastT = 0, started = false, dead = false;
+    var liftT = -99, shiftT = -99, lastT = 0, started = false, dead = false, limNext = 0;
     var listener = null, neutral = false, wasNeutral = false;
     /* The backfire run waiting to be heard: audio times and big or not, scheduled a frame ahead at a time. */
     var bfT = new Float64Array(8), bfBig = new Uint8Array(8), bfN = 0, bfI = 0, bfScale = 1;
@@ -930,8 +1035,9 @@
       neutral = !!s.rev;
       if (neutral) {
         gear = 1;
-        var free = d.idle + gasF * (RL * 0.93 - d.idle);
-        rpm += (free - rpm) * (1 - Math.exp(-dt / (free > rpm ? 0.09 : 0.16)));
+        /* a recorded car revs right up to its limiter on the line; the synthesized one stops short, as it always has */
+        var free = d.idle + gasF * (RL * (V.sampled ? 1.0 : 0.93) - d.idle);
+        rpm += (free - rpm) * (1 - Math.exp(-dt / (free > rpm ? (V.sampled ? 0.065 : 0.09) : 0.16)));
       }
 
       // Gear choice from speed, with hysteresis.
@@ -967,6 +1073,21 @@
         rpm = target;
       } else rpm += (target - rpm) * (1 - Math.exp(-dt / tau));
 
+      /* THE REV LIMITER (a recorded car): flat out at the redline the ignition cuts and comes back about fifteen
+         times a second, the revs bouncing just under the line, now and then a crack from the pipe. Each cut is
+         scheduled ahead on the cut gain, so the bounce is quicker than the frames. */
+      var limiting = V.sampled && gas > 0.5 && (neutral ? rpm >= RL * 0.97 : target >= RL * 0.995 && gear === d.gears);
+      if (limiting) {
+        if (limNext < now) limNext = now;
+        while (limNext < now + 0.06) {
+          var lc = limNext, ld = 0.02 + 0.012 * Math.random(), lg = cut.gain;
+          hold(lg, lc); lg.setTargetAtTime(0.2, lc, 0.004); lg.setTargetAtTime(1, lc + ld, 0.006);
+          if (Math.random() < (d.sample.limPop || 0.3)) V.pop(lc + ld * 0.6, false, 0.45);
+          limNext = lc + ld + 0.028 + 0.03 * Math.random();
+        }
+        rpm = RL * (0.972 + 0.022 * Math.abs(Math.sin(now * 47)));
+      } else limNext = 0;
+
       var f = rpm / RL;
       A.put(sEng, (0.35 + 0.65 * load) * (0.6 + 0.4 * f), 0.04);
       if (V.sampled) {
@@ -992,6 +1113,7 @@
       if (dead) return;
       dead = true;
       fadeOut(ctx, K, out);
+      if (V.stop) setTimeout(V.stop, 400);
     }
 
     return { id: d.id, set: set, stop: stop, out: out, real: !!V.sampled,
@@ -1006,9 +1128,12 @@
   function loadBank(ctx, d) {
     var C = store(ctx), rec = C.banks[d.id];
     if (rec || !d.sample) return rec || null;
-    rec = C.banks[d.id] = { buf: null, failed: false, p: null };
-    if (typeof fetch !== 'function' || !ctx.decodeAudioData) { rec.failed = true; rec.p = Promise.resolve(null); return rec; }
-    rec.p = fetch(d.sample.url).then(function (r) {
+    rec = C.banks[d.id] = { buf: null, failed: false, p: null, sets: null, pcm: null };
+    var grain = !!d.sample.map;
+    if (typeof fetch !== 'function' || !ctx.decodeAudioData || (grain && !(ctx.audioWorklet && typeof AudioWorkletNode === 'function'))) {
+      rec.failed = true; rec.p = Promise.resolve(null); return rec;
+    }
+    var audio = fetch(d.sample.url).then(function (r) {
       if (!r.ok) throw new Error('engine sound ' + r.status);
       return r.arrayBuffer();
     }).then(function (ab) {
@@ -1016,7 +1141,24 @@
         var q = ctx.decodeAudioData(ab, res, rej);
         if (q && typeof q.then === 'function') q.then(res, rej);
       });
-    }).then(function (b) { rec.buf = b; return b; }, function () { rec.failed = true; return null; });
+    });
+    var map = grain ? fetch(d.sample.map).then(function (r) { if (!r.ok) throw new Error('engine map ' + r.status); return r.json(); }) : null;
+    if (grain && !C.grainMod) {
+      /* a Blob URL (a page off disk, file://, refuses those: there it is a data: URL) */
+      C.grainMod = ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([GRAIN_SRC], { type: 'application/javascript' })))
+        .catch(function () { return ctx.audioWorklet.addModule('data:application/javascript;base64,' + btoa(GRAIN_SRC)); });
+    }
+    rec.p = Promise.all([audio, map, grain ? C.grainMod : null]).then(function (r) {
+      var b = r[0];
+      if (grain) {
+        var k = b.sampleRate / r[1].sr, mp = r[1];
+        /* the map is in the file's own samples; the decoded buffer may be at the context's rate */
+        mp.segs.forEach(function (sg) { sg.marks = sg.marks.map(function (x) { return x * k; }); });
+        rec.sets = grainSets(mp, b.sampleRate);
+        rec.pcm = b.getChannelData(0);
+      }
+      rec.buf = b; return b;
+    }, function () { rec.failed = true; return null; });
     return rec;
   }
 
