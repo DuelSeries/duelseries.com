@@ -348,6 +348,30 @@ test('W5: with the save turned off (index.js KEEP_DUEL_BOTS_ACROSS_RESTARTS = fa
   assert.deepEqual(fs.readdirSync(dir).filter((f) => f.startsWith('duel-bots')), [], 'nothing written');
 });
 
+test('W4: in a shutdown\'s last seconds, Off is still saved and a starting bot is kept for the next boot', async () => {
+  // Off pressed after the shutdown closed the seats: the next boot brings nothing back
+  const s = server();
+  s.bots.setEnabled(true);
+  s.bots.spawn('knockout', 1);
+  s.shutdown();
+  s.bots.setEnabled(false);
+  assert.deepEqual(s.saved(), { v: 1, enabled: false, bots: [] });
+  const b = s.boot();
+  b.bots.tick();
+  assert.equal(b.bots.enabled(), false);
+  assert.equal(b.float(), M(20));
+  // a bot still starting (its money on the way) when the shutdown begins stays in the file, nothing taken
+  const chain = fakeChain(M(5));
+  const t = server({ float: 0, chain });
+  t.bots.setEnabled(true);
+  t.bots.spawn('headsoccer', 0.5);
+  t.shutdown();
+  t.clock.t += START_GIVE_UP_MS + 1000;
+  t.bots.tick();
+  assert.equal(t.saved().bots.length, 1, 'kept for the next boot');
+  assert.equal(t.file().inflight, 0, 'nothing taken');
+});
+
 test('W6: escrow money is conserved at every step, the daily limit counts waiting bots, and the person is paid as against a person', () => {
   const s = server({ cap: 1.5 });
   s.bots.setEnabled(true);

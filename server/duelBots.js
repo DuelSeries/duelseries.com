@@ -203,7 +203,10 @@ function createDuelBots({ bank, lobbies, doorOpen = () => true, onChange = null,
     if (!enabled) { drop(s, 'paid duel bots are off'); return 'dropped'; }
     if (s.until !== null && t >= s.until - RESTORE_MIN_LEFT_MS) { drop(s, 'its wait was over before it could start'); return 'dropped'; }
     const late = t >= s.startBy;
-    if (!lobby || lobby.stopping) { if (late) drop(s, 'the game is restarting'); return late ? 'dropped' : 'later'; }
+    /* A lobby stopping is a shutdown under way (duelQueue.shutdownRows): the file keeps this bot for the next boot,
+       so it is neither dropped nor written out (Fable review 2026-11-08). */
+    if (lobby && lobby.stopping) { frozen = true; return 'later'; }
+    if (!lobby) { if (late) drop(s, 'the game is not running'); return late ? 'dropped' : 'later'; }
     if (!doorOpen(s.game)) { if (late) drop(s, gameName(s.game) + "'s paid tables are closed"); return late ? 'dropped' : 'later'; }
     const no = bank.whyNot(s.micro);
     if (no === 'funding' && !late) return 'later';
@@ -300,6 +303,9 @@ function createDuelBots({ bank, lobbies, doorOpen = () => true, onChange = null,
 
   function setEnabled(on) {
     enabled = on === true;
+    /* Off is always written, even in a shutdown's last seconds: the next boot must not bring back bots Owen switched
+       off (Fable review 2026-11-08). Every seat is already settled or gone by then, so the file says Off, no bots. */
+    if (!enabled) frozen = false;
     if (!enabled) {
       for (const s of [...seats.values()]) {
         if (s.state === 'starting') { drop(s, 'paid duel bots turned off'); continue; }
