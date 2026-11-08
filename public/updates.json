@@ -2,6 +2,14 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-11-08-paid-slither-clean-screen",
+      "date": "2026-11-08",
+      "tag": "fix",
+      "title": "A cleaner screen in paid slither.io",
+      "body": "The $ tag over your own snake now looks just like everyone else's, with no white outline.\n\nThe box at the top of the screen that named your room is gone, so more of the board is clear.",
+      "image": { "src": "/updates/slither-paid-clean-screen.webp", "alt": "Paid slither.io with matching $ tags over two snakes and no box at the top" }
+    },
+    {
       "id": "2026-11-08-clips-true-colours-sound",
       "date": "2026-11-08",
       "tag": "fix",
