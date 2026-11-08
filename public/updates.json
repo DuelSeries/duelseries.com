@@ -2,6 +2,23 @@
   "how": "The Updates tab (public/js/v2/updates.js). Add a post at the TOP of posts: id (date plus a few words, never reused), date (YYYY-MM-DD), tag (new, fix, event or heads-up), title, body (plain words for players; a blank line starts a new paragraph). Optional pictures: image (the big one, {src, alt}) and gallery (up to 4 small ones, same shape); src is a file in public/updates/ (/updates/name.webp), alt says what the picture shows. The tab shows newest first by date. No money promises: say what changed, not what anyone can win.",
   "posts": [
     {
+      "id": "2026-11-08-swim-real-engine-sounds",
+      "date": "2026-11-08",
+      "tag": "new",
+      "title": "Swim: every car sounds like the real thing",
+      "body": "Every Swim car now has its own engine sound, built from real recordings of that car's engine: the turbo four, the big V8s, the straight sixes, the flat six, the V10 and the rest. Lift off at high revs and you hear that car's own pops and bangs.\n\nThe cars go by their real names in the Shop now, and the turn in the Shop is smooth.\n\nFixed: some traffic was driving backwards. Every car on the road faces the way it drives now.",
+      "image": {
+        "src": "/updates/swim-real-engines.webp",
+        "alt": "A white hatchback racing through Swim traffic at dusk, every car facing down the road"
+      },
+      "gallery": [
+        {
+          "src": "/updates/swim-shop-real-names.webp",
+          "alt": "The Swim Shop showing a Toyota Supra by its real name"
+        }
+      ]
+    },
+    {
       "id": "2026-11-08-swim-3d-shop-real-rival",
       "date": "2026-11-08",
       "tag": "new",
@@ -45,7 +62,10 @@
       "tag": "fix",
       "title": "A cleaner screen in paid slither.io",
       "body": "The $ tag over your own snake now looks just like everyone else's, with no white outline.\n\nThe box at the top of the screen that named your room is gone, so more of the board is clear.",
-      "image": { "src": "/updates/slither-paid-clean-screen.webp", "alt": "Paid slither.io with matching $ tags over two snakes and no box at the top" }
+      "image": {
+        "src": "/updates/slither-paid-clean-screen.webp",
+        "alt": "Paid slither.io with matching $ tags over two snakes and no box at the top"
+      }
     },
     {
       "id": "2026-11-08-clips-true-colours-sound",
