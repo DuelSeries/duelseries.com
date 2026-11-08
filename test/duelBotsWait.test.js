@@ -413,3 +413,25 @@ test('W6: escrow money is conserved at every step, the daily limit counts waitin
   assert.equal(s.float(), M(19));
   assert.equal(held(s), 0);
 });
+
+test('W7: startOn (index.js, Owen 2026-11-08 "on by default every time") boots On with or without a saved Off', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'duelwait-starton-'));
+  const bankFile = path.join(dir, 'bot-bank.json');
+  fs.writeFileSync(bankFile, JSON.stringify({ balance: M(20), capMicro: M(200), day: '', spent: 0, inflight: 0, topups: [], log: [] }));
+  const file = path.join(dir, 'duel-bots.json');
+  const make = (f) => {
+    const bank = createBotBank({ file: bankFile, log: quiet, tickMs: 0 });
+    const ko = new KnockoutLobby(io);
+    return { bank, ko, bots: createDuelBots({ bank, lobbies: { knockout: ko }, log: quiet, file: f, startOn: true }) };
+  };
+  const a = make(null);
+  assert.equal(a.bots.enabled(), true, 'On at boot with no file');
+  const b = make(file);
+  assert.equal(b.bots.enabled(), true, 'On at boot with a file');
+  b.bots.setEnabled(false);
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).enabled, false, 'Off is saved');
+  const c = make(file);
+  assert.equal(c.bots.enabled(), true, 'On again at the next boot even though Off was saved');
+  assert.equal(c.bots.heldMicro(), 0, 'no stake taken just by booting');
+  assert.equal(c.bank.balanceMicro(), M(20));
+});

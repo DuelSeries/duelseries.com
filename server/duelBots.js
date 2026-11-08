@@ -74,13 +74,15 @@ const SHUTDOWN_WHYS = new Set(['restart', 'crash']);
    record    ({ game, rung, result, stakeMicro, backMicro, why }) -> the owner's Spent today (server/ownerSpend.js)
    waitMs    how long a bot waits for a person (BOT_WAIT_MS; shorter only for tests and local checks)
    file      where the switch and the waiting bots are saved (null: nothing saved, the switch starts Off)
-   tickMs    how often starting bots try again on their own (0: only when tick() is called) */
+   tickMs    how often starting bots try again on their own (0: only when tick() is called)
+   startOn   true: the switch is On at every boot, whatever was saved (Owen 2026-11-08: "turn this on by default
+             every time"); Control can still turn it Off until the next restart */
 function createDuelBots({ bank, lobbies, doorOpen = () => true, onChange = null, record = null, now = Date.now,
-  log = console, rand = Math.random, waitMs = BOT_WAIT_MS, file = null, fsx = fs, tickMs = 0 } = {}) {
+  log = console, rand = Math.random, waitMs = BOT_WAIT_MS, file = null, fsx = fs, tickMs = 0, startOn = false } = {}) {
   if (!bank || typeof bank.take !== 'function' || typeof bank.settleSeat !== 'function') throw new Error('duelBots: a bank is required');
   const WAIT = Number.isFinite(waitMs) && waitMs >= 1000 && waitMs <= BOT_WAIT_MS ? Math.round(waitMs) : BOT_WAIT_MS;
   const games = Object.assign({}, lobbies || {});
-  let enabled = false;                 // the switch
+  let enabled = startOn === true;      // the switch
   const seats = new Map();             // botId -> { id, game, rung, micro, label, name, state, roomId, since, until, startBy }
   const recent = [];                   // the last few finished seats, for Control
   let seq = 0;
@@ -406,7 +408,7 @@ function createDuelBots({ bank, lobbies, doorOpen = () => true, onChange = null,
   /* ── boot: the saved switch, and each saved bot back as a new starting seat with what is left of its wait ── */
   const saved = load();
   if (saved) {
-    enabled = saved.enabled === true;
+    enabled = startOn === true || saved.enabled === true;
     let back = 0;
     if (enabled && Array.isArray(saved.bots)) {
       const t = now();

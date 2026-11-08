@@ -3523,12 +3523,13 @@ trackDuelLobby(crossy.lobby, 'crossy');
    hard kill) and the switch (Control's "Paid duel bots") boots Off, unless the setting below keeps them. Maintenance
    closes the door like a paid door does. Battleship is not here: its bot would need the other side's ships, which no
    person can see. DUEL_BOT_WAIT_MS shortens the wait for a local check only; production ignores it. */
-/* THE ONE SETTING for keeping paid duel bots across restarts (Owen 2026-11-08: "Off at every restart", the 11-04 rule):
+/* THE ONE SETTING for keeping paid duel bots across restarts (Owen 2026-11-08 evening: keep it on; his earlier
+   "Off at every restart" answer was a misread, the Off switch after each deploy greyed out every + in Control):
    false = nothing is saved: every boot starts with paid duel bots Off and no bot waiting (each waiting bot's stake
            went back to the Bot bank at the shutdown, or at boot after a hard kill);
    true  = the switch and the waiting bots are kept in duel-bots.json and come back after a restart with what was left
-           of their wait, taking a fresh stake (built and tested, test/duelBotsWait.test.js W4/W5; not chosen). */
-const KEEP_DUEL_BOTS_ACROSS_RESTARTS = false;
+           of their wait, taking a fresh stake (built and tested, test/duelBotsWait.test.js W4/W5). */
+const KEEP_DUEL_BOTS_ACROSS_RESTARTS = true;
 const DUEL_BOT_WAIT_MS = process.env.NODE_ENV !== 'production' && /^\d{4,8}$/.test(String(process.env.DUEL_BOT_WAIT_MS || ''))
   ? Number(process.env.DUEL_BOT_WAIT_MS) : undefined;
 const duelBots = require('./duelBots').createDuelBots({
@@ -3540,6 +3541,7 @@ const duelBots = require('./duelBots').createDuelBots({
   file: KEEP_DUEL_BOTS_ACROSS_RESTARTS ? path.join(path.dirname(agJournal.file), 'duel-bots.json') : null,
   tickMs: require('./duelBots').TICK_MS,
   waitMs: DUEL_BOT_WAIT_MS,
+  startOn: true,   // Owen 2026-11-08: paid duel bots On at every boot, no more greyed-out + after a deploy
 });
 botBank.onReady(() => { try { duelBots.tick(); } catch (e) { console.error('[DUELBOT] onReady: ' + (e && e.message)); } });
 if (DUEL_BOT_WAIT_MS) console.warn('[DUELBOT] TEST wait: a paid duel bot waits ' + DUEL_BOT_WAIT_MS + ' ms (DUEL_BOT_WAIT_MS)');
