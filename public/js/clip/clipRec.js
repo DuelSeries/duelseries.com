@@ -129,12 +129,23 @@
     } catch (_) { /* a recorder problem never breaks a game's sound */ }
     return r;
   };
+  /* The house sound engine (dsSfx.js) makes its context and joins its output to the speakers while its page loads.
+     On a page that loads this recorder after it, the connect() above never sees that join: slither's page, where the
+     server adds this recorder at the end (server/sl/slBoot.js), saved clips with no game sound (Owen 2026-11-08, his
+     10:43 clip: silent, while the whole-screen clips around it, which take the tab's own sound, were fine). So the
+     engine's output is tapped directly, now and again at the start (joining it twice changes nothing). */
+  function tapSfx() {
+    const S = window.DSSfx;
+    if (TOP || !S || typeof S.context !== 'function' || typeof S.output !== 'function') return;
+    try { const c = S.context(), o = S.output(); if (c && o) origConnect.call(o, tapFor(c)); } catch (_) {}
+  }
+  tapSfx();
 
   /* ── state ─────────────────────────────────────────────────────────────── */
   let aEnc = null, vDesc = null, aDesc = null, aRate = 48000;
   let vChunks = [], aChunks = [];
   let mirror = null, mctx = null, W = 0, H = 0;
-  let T0 = performance.now(), frameNo = 0, lastKey = 0, lastCap = 0, nextCap = 0, running = false, failed = false;
+  let T0 = performance.now(), frameNo = 0, lastKey = 0, lastCap = 0, nextCap = 0, lastTs = -1e9, running = false, failed = false;
   let layers = [], layersAt = 0;
   const usNow = () => Math.round((performance.now() - T0) * 1000);
 
@@ -765,7 +776,9 @@
             const data = new Uint8Array(chunk.byteLength);
             chunk.copyTo(data);
             const d = meta && meta.decoderConfig && meta.decoderConfig.description;
-            self.postMessage({ gen: g, data, ts: chunk.timestamp, key: chunk.type === 'key', desc: d ? own(d) : null, taken: taken() }, [data.buffer]);
+            const cs = meta && meta.decoderConfig && meta.decoderConfig.colorSpace;
+            self.postMessage({ gen: g, data, ts: chunk.timestamp, key: chunk.type === 'key', desc: d ? own(d) : null,
+              cs: cs ? { fullRange: cs.fullRange, matrix: cs.matrix, primaries: cs.primaries } : null, taken: taken() }, [data.buffer]);
           },
           error: (err) => self.postMessage({ gen: g, error: String((err && err.message) || err) }),
         });
@@ -790,12 +803,47 @@
       if (m.taken > got) got = m.taken;
       if (!m.data) return;
       if (m.desc) vDesc = m.desc;
+      if (m.cs) colourFrom(m.cs);
       vChunks.push({ data: m.data, ts: m.ts, key: m.key });
       prune();
     };
     worker.onerror = () => stop('video encoder worker');
     return worker;
   }
+  /* ── colour (Owen 2026-11-08: clips darker than the game) ─────────────────
+     Every player, editor and site reads a video that does not say otherwise as BT.709 "limited range": black at 16,
+     white at 235. How Chrome turns the hidden canvas's RGB into the video's YUV depends on how the frame reaches the
+     encoder: a frame on the graphics card comes out limited range, a frame Chrome converts on the CPU comes out full
+     range, black at 0 (every clip Owen has saved since 2026-10-16, Intel and NVIDIA encoders alike), and no hardware
+     encoder writes a tag saying which. Played back, the game's dark floor, 23,26,33, came out 8,12,18, and everything
+     under 16 was black. Chrome does say which in the encoder's decoderConfig.colorSpace, and said it truly in every
+     way of making a frame tried (GPU and CPU canvases, drawn shapes, drawn images, raw pixels; headless Chrome, both
+     encoders, each clip decoded again). So when it says full range, each frame is squeezed into 16..235 before it is
+     encoded (one translucent fill, x -> 16 + 219/255 x, then the colours a touch more saturated, 224/219, so they
+     come back as they went in), the encoder starting again once so no clip mixes the two (colourFrom). The clip is
+     tagged BT.709 limited range both in the H.264 stream and in the MP4 (mp4mux), so what a player assumes and what
+     the file says agree. Measured, Chrome playing back a clip of known colours, each channel against the canvas: full
+     range untagged, off by up to 20 (the darks crushed); squeezed and tagged, at most 3 and 0.5 on average. */
+  let levels = false, vCs = null;
+  const SAT = 'saturate(' + 224 / 219 + ')', LIFT = 'rgba(113,113,113,' + 36 / 255 + ')';
+  function videoLevels() {
+    if (!levels) return;
+    mctx.globalAlpha = 1;
+    mctx.fillStyle = LIFT;
+    mctx.fillRect(0, 0, W, H);
+    mctx.filter = SAT;
+    mctx.drawImage(mirror, 0, 0);
+    mctx.filter = 'none';
+  }
+  // Each encoder's first chunk says how it converted. A change (the first time, on a PC like Owen's) starts it again.
+  function colourFrom(cs) {
+    vCs = cs;
+    const want = levels ? cs.fullRange !== false : cs.fullRange === true;
+    if (want !== levels) { levels = want; W = 0; }      // the next frame finds a new size and starts the encoder again
+  }
+  const MATRIX = { bt709: 1, bt470bg: 5, smpte170m: 6 }, PRIMARIES = { bt709: 1, bt470bg: 5, smpte170m: 6, bt2020: 9, smpte432: 12 };
+  // H.273 numbers for the MP4: always limited range (squeezed when it had to be), BT.709 unless the encoder named another.
+  const colourTag = () => ({ primaries: (vCs && PRIMARIES[vCs.primaries]) || 1, transfer: 1, matrix: (vCs && MATRIX[vCs.matrix]) || 1, full: false });
   const rateFor = (w, h) => Math.round(Math.max(MIN_RATE, w * h * FPS * BPP));
   /* H.264's level sets the biggest picture: 4.0 (the 28s) holds up to 1920x1088, a 1440p picture needs 5.0 (the 32s),
      which Chrome turns down below it (headless check 2026-11-08: avc1.640028 at 2560x1440 is not supported). */
@@ -946,8 +994,11 @@
     composite();
     encodeMirror();
   }
-  function encodeMirror() {
-    const ts = usNow();
+  // at: when the picture was taken (performance.now), if not now.
+  function encodeMirror(at) {
+    videoLevels();
+    const ts = Math.max(at === undefined ? usNow() : Math.round((at - T0) * 1000), lastTs + 1000);
+    lastTs = ts;
     // By time, not by frame count: a stretch with no picture (asleep, a stall) must not stretch the key frames.
     const key = frameNo === 0 || ts - lastKey >= KEY_US - 20000;
     let f;
@@ -1041,7 +1092,7 @@
   let last = null;      // the clip last built, kept so its Share button sends exactly that one
   const isBr = () => { const sl = window.DuelSlither && window.DuelSlither.slx; return !!(sl && typeof sl.brAuth === 'function'); };
   const muxOf = (v, a) => window.DSMp4.mux({
-    video: { width: W, height: H, description: vDesc, chunks: v },
+    video: { width: W, height: H, description: vDesc, chunks: v, color: colourTag() },
     audio: a ? { sampleRate: aRate, channels: 2, description: aDesc, chunks: a } : null,
   });
   // The clip held right now, as an MP4 plus a still of its last frame for the card on the Clips wall.
@@ -1061,7 +1112,18 @@
         const k = Math.min(1, 640 / W);
         const c = document.createElement('canvas');
         c.width = Math.round(W * k); c.height = Math.round(H * k);
-        c.getContext('2d').drawImage(mirror, 0, 0, c.width, c.height);
+        const g = c.getContext('2d', { willReadFrequently: true });
+        g.drawImage(mirror, 0, 0, c.width, c.height);
+        if (levels) {      // the hidden canvas holds the squeezed picture (videoLevels): back to the game's own colours
+          const im = g.getImageData(0, 0, c.width, c.height), d = im.data;
+          const a = 219 / 255, b = 224 / 255;
+          for (let i = 0; i < d.length; i += 4) {
+            const r = d[i] - 16, gg = d[i + 1] - 16, bb = d[i + 2] - 16;
+            const y = (0.2126 * r + 0.7152 * gg + 0.0722 * bb) / a * (b - a);
+            d[i] = (r + y) / b; d[i + 1] = (gg + y) / b; d[i + 2] = (bb + y) / b;
+          }
+          g.putImageData(im, 0, 0);
+        }
         c.toBlob((b) => resolve(b && b.size > 0 && b.size <= 380 * 1024 ? b : null), 'image/jpeg', 0.8);
       } catch (_) { resolve(null); }
     });
@@ -1177,7 +1239,7 @@
   }
   DSClip.share = () => share(last);
   // For a console check: what is being recorded right now.
-  DSClip.stats = () => ({ on: running, capturing, asleep, inflight: sent - got, size: W + 'x' + H, layers: layers.length,
+  DSClip.stats = () => ({ on: running, capturing, asleep, inflight: sent - got, size: W + 'x' + H, colour: { cs: vCs, levels }, layers: layers.length,
     seconds: vChunks.length > 1 ? Math.round((vChunks[vChunks.length - 1].ts - vChunks[0].ts) / 1e5) / 10 : 0,
     audio: !!aEnc && aChunks.length > 0, mixer: mixer ? mixer.state : 'none', hooked,
     overlays: ovs.map((o) => ({ pictures: o.n, ms: Math.round(o.cost * 10) / 10, same: o.same, shown: o.ready, off: o.off })), mb: Math.round(vChunks.concat(aChunks).reduce((n, c) => n + c.data.length, 0) / 1e5) / 10 });
@@ -1508,7 +1570,10 @@ body.dsclip-cap{isolation:isolate!important;transform-style:flat!important}
     try {
       s = await md.getDisplayMedia({
         video: { frameRate: { ideal: FPS, max: FPS }, width: { max: MAX_W }, height: { max: MAX_H } },
-        audio: { suppressLocalAudioPlayback: false },
+        /* The tab's sound as it plays, in stereo: Chrome 157 runs a microphone's processing on a shared tab's sound
+           unless told not to (headless check 2026-11-08: echoCancellation, noiseSuppression and autoGainControl all
+           on, one channel), and echo cancelling is made to take out exactly what the tab itself is playing. */
+        audio: { suppressLocalAudioPlayback: false, echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 2 },
         preferCurrentTab: true, selfBrowserSurface: 'include', surfaceSwitching: 'exclude',
         monitorTypeSurfaces: 'exclude', systemAudio: 'exclude',
       });
@@ -1526,12 +1591,12 @@ body.dsclip-cap{isolation:isolate!important;transform-style:flat!important}
     await holdToBody(vt);
     tabStarting = false;
     if (tabStream !== s) return false;      // Stop sharing already
-    T0 = performance.now(); lastCap = nextCap = 0; frameNo = 0; vChunks = []; aChunks = []; W = H = 0;
+    T0 = performance.now(); lastCap = nextCap = 0; lastTs = -1e9; capOff = null; capPrev = -1; frameNo = 0; vChunks = []; aChunks = []; W = H = 0;
     lastInput = performance.now(); asleep = false;
     running = true; DSClip.on = true;
     requestAnimationFrame(tick);
     startAudio(s.getAudioTracks()[0] || null);
-    pumpTab(new MediaStreamTrackProcessor({ track: vt }).readable.getReader(), s);
+    pumpTab(new MediaStreamTrackProcessor({ track: vt, maxBufferSize: 4 }).readable.getReader(), s);
     toast('ok', 'Recording the whole screen', 'Press P any time to save the last 30 seconds.');
     return true;
   }
@@ -1547,7 +1612,8 @@ body.dsclip-cap{isolation:isolate!important;transform-style:flat!important}
       if (r.done || tabStream !== s) { if (f) f.close(); break; }
       const now = performance.now();
       tabFrameAt = now;
-      if (asleep || sizing || now < nextCap - 400 / FPS) { f.close(); continue; }
+      const at = capturedAt(f, now);
+      if (asleep || sizing || at < nextCap - 400 / FPS) { f.close(); continue; }
       const [w, h] = fitTo(f.displayWidth, f.displayHeight);
       if (w !== W || h !== H) {
         const fw = f.displayWidth, fh = f.displayHeight;
@@ -1556,16 +1622,35 @@ body.dsclip-cap{isolation:isolate!important;transform-style:flat!important}
         startVideo(fw, fh).then((ok) => { sizing = false; if (!ok) tabDeclined = true; });
         continue;
       }
-      nextCap = Math.max(nextCap + 1000 / FPS, now + 500 / FPS);
+      nextCap = Math.max(nextCap + 1000 / FPS, at + 500 / FPS);
       lastCap = now;
       if (!worker || sent - got > INFLIGHT) { f.close(); slow++; if (slow > FPS * 3) behind(); continue; }
       slow = 0;
-      try { mctx.drawImage(f, 0, 0, W, H); } catch (_) {}
+      let drew = true;
+      try { mctx.drawImage(f, 0, 0, W, H); } catch (_) { drew = false; }
       f.close();
+      if (!drew) continue;
       cursor();
       mark();
-      encodeMirror();
+      encodeMirror(at);
     }
+  }
+  /* When the tab captured a frame, on this page's clock (Owen 2026-11-08: his 1440p clip held 27.4 frames a second,
+     a frame 13 to 20 ms after the one before as often as 60 ms, a dropped one, after it). The frames were taken and
+     stamped at the moment this page, busy drawing the game on the same thread, got round to them: a frame held up
+     behind a game frame came late, and the one after it, read straight after, looked early and was dropped. Each
+     frame carries the capture's own clock (VideoFrame.timestamp); the smallest gap between it and this page's clock
+     seen so far is the offset between the two. Frames are now paced and stamped by that time, so a frame read late
+     keeps its place and its neighbour, and the clip moves as evenly as the tab did. A capture clock that does not run
+     forward, or a jump of over a second, falls back to the page's own clock. */
+  let capOff = null, capPrev = -1;
+  function capturedAt(f, now) {
+    const c = f.timestamp / 1000;
+    if (!(c > capPrev)) { capPrev = c; capOff = null; return now; }
+    capPrev = c;
+    const lag = now - c;
+    if (capOff === null || lag < capOff || lag - capOff > 1000) capOff = lag;
+    return Math.min(now, c + capOff);
   }
   // The mouse: tab capture leaves the real one out, so a plain arrow is drawn where it is, in the video only.
   function cursor() {
@@ -1605,6 +1690,7 @@ body.dsclip-cap{isolation:isolate!important;transform-style:flat!important}
     if (running || failed) return;
     T0 = performance.now();
     if (!(await startVideo())) return;
+    tapSfx();
     running = true;
     DSClip.on = true;
     if (document.hidden) doze();

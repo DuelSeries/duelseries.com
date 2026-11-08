@@ -10,7 +10,7 @@
    realtime H.264 encoders do not make them), so there is no ctts box.
 
      DSMp4.mux({
-       video: { width, height, description, chunks: [{ data, ts, key }] },
+       video: { width, height, description, chunks: [{ data, ts, key }], color: { primaries, transfer, matrix, full } | null },
        audio: { sampleRate, channels, description, chunks: [{ data, ts }] } | null,
      }) -> Uint8Array
 
@@ -77,6 +77,139 @@
     return Uint8Array.from(u16(v));
   }
 
+  /* ── colour: what the numbers in the picture mean (Owen 2026-11-08: clips darker than the game) ──────────────
+     A clip left untagged is read by every player as BT.709 "limited range" (black at 16, white at 235). Chrome's
+     hardware encoder tagged nothing, so the recorder's tag is written twice: in the H.264 stream itself (the SPS's
+     VUI, which decoders read) and in the MP4 (a colr box, which QuickTime-style readers read). color is
+     { primaries, transfer, matrix, full } as ITU-T H.273 numbers (1, 1, 1, false: BT.709, limited range). */
+  const unescape = (b) => {      // NAL payload -> RBSP (drop the emulation-prevention 3 in 00 00 03)
+    const out = []; let z = 0;
+    for (let i = 0; i < b.length; i++) {
+      if (z >= 2 && b[i] === 3) { z = 0; continue; }
+      out.push(b[i]); z = b[i] === 0 ? z + 1 : 0;
+    }
+    return out;
+  };
+  const escape = (b) => {      // RBSP -> NAL payload
+    const out = []; let z = 0;
+    for (const x of b) {
+      if (z >= 2 && x <= 3) { out.push(3); z = 0; }
+      out.push(x); z = x === 0 ? z + 1 : 0;
+    }
+    return out;
+  };
+  function bitReader(b) {
+    let p = 0;
+    const bit = () => { if (p >= b.length * 8) throw new Error('past the end'); const v = (b[p >> 3] >> (7 - (p & 7))) & 1; p++; return v; };
+    const u = (n) => { let v = 0; for (let i = 0; i < n; i++) v = v * 2 + bit(); return v; };
+    const ue = () => { let z = 0; while (!bit()) if (++z > 31) throw new Error('bad ue'); return (2 ** z - 1) + u(z); };
+    const se = () => { const k = ue(); return k & 1 ? (k + 1) / 2 : -k / 2; };
+    return { u, ue, se, at: () => p };
+  }
+  function bitWriter() {
+    const bits = [];
+    return { bits, u: (n, v) => { for (let i = n - 1; i >= 0; i--) bits.push(Math.floor(v / 2 ** i) & 1); },
+      copy: (b, from, to) => { for (let p = from; p < to; p++) bits.push((b[p >> 3] >> (7 - (p & 7))) & 1); },
+      bytes: () => { bits.push(1); while (bits.length & 7) bits.push(0);
+        const out = []; for (let i = 0; i < bits.length; i += 8) { let v = 0; for (let j = 0; j < 8; j++) v = v * 2 + bits[i + j]; out.push(v); } return out; } };
+  }
+  const HIGH = [100, 110, 122, 244, 44, 83, 86, 118, 128, 138, 139, 134, 135];
+  function hrd(r) {
+    const n = r.ue() + 1; r.u(8);
+    for (let i = 0; i < n; i++) { r.ue(); r.ue(); r.u(1); }
+    r.u(20);
+  }
+  // One SPS NAL (header byte first) with its VUI's video_signal_type set to color; null when it cannot be read.
+  function tagSps(nal, color) {
+    try {
+      if ((nal[0] & 31) !== 7) return null;
+      const b = unescape(nal.subarray ? Array.from(nal.subarray(1)) : nal.slice(1));
+      const r = bitReader(b);
+      const profile = r.u(8); r.u(16); r.ue();
+      if (HIGH.includes(profile)) {
+        const cf = r.ue();
+        if (cf === 3) r.u(1);
+        r.ue(); r.ue(); r.u(1);
+        if (r.u(1)) for (let i = 0; i < (cf !== 3 ? 8 : 12); i++) {
+          if (!r.u(1)) continue;
+          let last = 8, next = 8;
+          for (let j = 0; j < (i < 6 ? 16 : 64); j++) { if (next) next = (last + r.se() + 256) % 256; last = next || last; }
+        }
+      }
+      r.ue();
+      const poc = r.ue();
+      if (poc === 0) r.ue();
+      else if (poc === 1) { r.u(1); r.se(); r.se(); const n = r.ue(); for (let i = 0; i < n; i++) r.se(); }
+      r.ue(); r.u(1); r.ue(); r.ue();
+      if (!r.u(1)) r.u(1);
+      r.u(1);
+      if (r.u(1)) { r.ue(); r.ue(); r.ue(); r.ue(); }
+      const vuiAt = r.at();
+      const w = bitWriter();
+      w.copy(b, 0, vuiAt);
+      w.u(1, 1);                                           // vui_parameters_present_flag
+      const sig = () => { w.u(1, 1); w.u(3, 5); w.u(1, color.full ? 1 : 0); w.u(1, 1); w.u(8, color.primaries); w.u(8, color.transfer); w.u(8, color.matrix); };
+      if (r.u(1)) {                                        // a VUI already: keep all of it but the signal type
+        const from = r.at();
+        if (r.u(1) && r.u(8) === 255) r.u(32);             // aspect ratio
+        if (r.u(1)) r.u(1);                                // overscan
+        w.copy(b, from, r.at());
+        if (r.u(1)) { r.u(4); if (r.u(1)) r.u(24); }       // the old signal type, replaced
+        sig();
+        const rest = r.at();
+        if (r.u(1)) { r.ue(); r.ue(); }                    // chroma location
+        if (r.u(1)) r.u(65);                               // timing
+        const nalHrd = r.u(1); if (nalHrd) hrd(r);
+        const vclHrd = r.u(1); if (vclHrd) hrd(r);
+        if (nalHrd || vclHrd) r.u(1);
+        r.u(1);                                            // pic_struct_present_flag
+        if (r.u(1)) { r.u(1); r.ue(); r.ue(); r.ue(); r.ue(); r.ue(); r.ue(); }
+        w.copy(b, rest, r.at());
+      } else {
+        w.u(2, 0);                                         // no aspect ratio, no overscan
+        sig();
+        w.u(6, 0);                                         // no chroma location, timing, HRDs, pic_struct, restriction
+      }
+      return Uint8Array.from([nal[0]].concat(escape(w.bytes())));
+    } catch (_) { return null; }
+  }
+  // The avcC record with each SPS tagged; as it was when it cannot be read.
+  function tagAvcC(d, color) {
+    try {
+      if (d.length < 7 || d[0] !== 1) return d;
+      const out = Array.from(d.subarray(0, 5));
+      let o = 5;
+      const nSps = d[o++] & 31;
+      out.push(0xe0 | nSps);
+      for (let i = 0; i < nSps; i++) {
+        const len = (d[o] << 8) | d[o + 1];
+        const nal = d.subarray(o + 2, o + 2 + len);
+        if (nal.length !== len) return d;
+        const t = tagSps(nal, color) || nal;
+        out.push(...u16(t.length), ...t);
+        o += 2 + len;
+      }
+      for (let i = o; i < d.length; i++) out.push(d[i]);       // the PPSs and any High profile extension, as they were
+      return Uint8Array.from(out);
+    } catch (_) { return d; }
+  }
+  // A sample (4-byte lengths) with any SPS it carries tagged too, so a decoder reading it there sees the same.
+  function tagSample(s, color) {
+    let o = 0, has = false;
+    while (o + 4 <= s.length) { const n = ((s[o] << 24) >>> 0) + (s[o + 1] << 16) + (s[o + 2] << 8) + s[o + 3]; if (n < 1 || o + 4 + n > s.length) return s; if ((s[o + 4] & 31) === 7) has = true; o += 4 + n; }
+    if (!has || o !== s.length) return s;
+    const parts = [];
+    for (o = 0; o < s.length;) {
+      const n = ((s[o] << 24) >>> 0) + (s[o + 1] << 16) + (s[o + 2] << 8) + s[o + 3];
+      let nal = s.subarray(o + 4, o + 4 + n);
+      if ((nal[0] & 31) === 7) nal = tagSps(nal, color) || nal;
+      parts.push(Uint8Array.from(u32(nal.length)), nal);
+      o += 4 + n;
+    }
+    return bytesOf(parts);
+  }
+  const colr = (c) => box('colr', ascii('nclx'), u16(c.primaries), u16(c.transfer), u16(c.matrix), [c.full ? 0x80 : 0]);
+
   function toBytes(d) {
     if (!d) return null;
     if (d instanceof Uint8Array) return d;
@@ -99,10 +232,12 @@
   function mux({ video, audio }) {
     if (!video || !video.chunks || !video.chunks.length) throw new Error('no video');
     if (!video.chunks[0].key) throw new Error('the first video frame must be a key frame');
-    const vDesc = toBytes(video.description);
+    const color = video.color || null;
+    let vDesc = toBytes(video.description);
     if (!vDesc) throw new Error('no avcC');
+    if (color) vDesc = tagAvcC(vDesc, color);
     const t0 = video.chunks[0].ts;
-    const vChunks = video.chunks.map((c) => ({ data: toBytes(c.data), ts: c.ts - t0, key: !!c.key }));
+    const vChunks = video.chunks.map((c) => ({ data: color && c.key ? tagSample(toBytes(c.data), color) : toBytes(c.data), ts: c.ts - t0, key: !!c.key }));
     const aChunks = audio && audio.chunks && audio.chunks.length
       ? audio.chunks.filter((c) => c.ts >= t0).map((c) => ({ data: toBytes(c.data), ts: c.ts - t0 }))
       : [];
@@ -124,7 +259,8 @@
       const stssBox = full('stss', 0, 0, u32(vChunks.filter((c) => c.key).length),
         [].concat(...vChunks.map((c, i) => (c.key ? u32(i + 1) : []))));
       const avc1 = box('avc1', zeros(6), u16(1), zeros(16), u16(video.width), u16(video.height),
-        u32(0x00480000), u32(0x00480000), u32(0), u16(1), zeros(32), u16(0x0018), u16(0xffff), box('avcC', vDesc));
+        u32(0x00480000), u32(0x00480000), u32(0), u16(1), zeros(32), u16(0x0018), u16(0xffff), box('avcC', vDesc),
+        color ? colr(color) : []);
       const vTrak = box('trak',
         tkhd(1, Math.round((vTotal * MOVIE_SCALE) / VIDEO_SCALE), false, video.width, video.height),
         box('mdia', mdhd(VIDEO_SCALE, vTotal), hdlr('vide', 'VideoHandler'),
@@ -170,7 +306,7 @@
     return bytesOf(parts);
   }
 
-  const api = { mux, asc };
+  const api = { mux, asc, tagSps, tagAvcC };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.DSMp4 = api;
 })(typeof window !== 'undefined' ? window : this);

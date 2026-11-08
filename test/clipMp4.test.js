@@ -4,7 +4,7 @@
    48 kHz stereo). These pin the structure so a change cannot quietly break the file. */
 const test = require('node:test');
 const assert = require('node:assert');
-const { mux, asc } = require('../public/js/clip/mp4mux');
+const { mux, asc, tagAvcC } = require('../public/js/clip/mp4mux');
 
 // Top-level and nested boxes as { type, start, size, body } by walking sizes.
 function boxes(buf, start = 0, end = buf.length) {
@@ -80,4 +80,46 @@ test('video only works, and a clip must start on a key frame', () => {
 test('AAC-LC config written for an encoder that gave none: 48 kHz stereo is 0x11 0x90', () => {
   assert.deepStrictEqual(Array.from(asc(48000, 2)), [0x11, 0x90]);
   assert.deepStrictEqual(Array.from(asc(44100, 2)), [0x12, 0x10]);
+});
+
+/* Colour (Owen 2026-11-08: clips darker than the game). The avcC records are real ones: his PC's graphics card
+   encoder (no VUI at all), a headless Chrome's hardware encoder (a VUI with timing and bitstream restriction, and
+   emulation-prevention bytes) and Chrome's software encoder (a VUI already saying full range, sRGB). Each "tagged" record
+   was checked with ffmpeg's trace_headers (video_full_range_flag 0, colour_primaries 1, transfer 1, matrix 1, every
+   other VUI field as it was) and a clean decode of the re-muxed clip. */
+const hex = (h) => Uint8Array.from(Buffer.from(h, 'hex'));
+const BT709 = { primaries: 1, transfer: 1, matrix: 1, full: false };
+const AVCC = [
+  ['his PC, no VUI', '01640032ffe1000c67640032ac16c9013005af5a01000468ee3cb0fdf8f800',
+    '01640032ffe1001167640032ac16c9013005af5cd40404040801000468ee3cb0fdf8f800'],
+  ['VUI with timing, restriction and 00 00 03', '01640032ffe1001b67640032ac2b7014004ffd6022000003000200000300791b43865c01000468ee3cb0fdf8f800',
+    '01640032ffe1001f67640032ac2b7014004ffd602d40404050000003001000000303c8da1c32e001000468ee3cb0fdf8f800'],
+  ['VUI saying full range sRGB', '01640c32ffe1001467640c32ac18d0050013ff537010d0107844235001000468ce3c80fdf8f800',
+    '01640c32ffe1001467640c32ac18d0050013ff53501010107844235001000468ce3c80fdf8f800'],
+];
+for (const [what, inp, out] of AVCC) {
+  test('the H.264 stream says BT.709 limited range: ' + what, () => {
+    assert.strictEqual(Buffer.from(tagAvcC(hex(inp), BT709)).toString('hex'), out);
+    assert.strictEqual(Buffer.from(tagAvcC(hex(out), BT709)).toString('hex'), out, 'tagging twice changes nothing');
+  });
+}
+
+test('the MP4 says it too (colr nclx after avcC), an SPS inside a key frame is tagged, and odd records are left alone', () => {
+  const sps = hex(AVCC[0][1]).subarray(8, 20);
+  const idr = Uint8Array.from([0, 0, 0, 3, 0x65, 0x88, 0x80]);
+  const key = Buffer.concat([Buffer.from([0, 0, 0, sps.length]), Buffer.from(sps), Buffer.from(idr)]);
+  const v = [{ data: new Uint8Array(key), ts: 0, key: true }, Object.assign(sample(10, false, 2), { ts: 33333 })];
+  const out = mux({ video: { width: 2560, height: 1262, description: hex(AVCC[0][1]), chunks: v, color: BT709 }, audio: null });
+  const avc1 = find(out, ['moov', 'trak', 'mdia', 'minf', 'stbl', 'stsd', 'avc1']);
+  const inner = boxes(out, avc1.body + 78, avc1.start + avc1.size);
+  assert.deepStrictEqual(inner.map((b) => b.type), ['avcC', 'colr']);
+  assert.strictEqual(Buffer.from(out.subarray(inner[1].body, inner[1].start + inner[1].size)).toString('hex'), Buffer.from('nclx').toString('hex') + '000100010001' + '00');
+  assert.strictEqual(Buffer.from(out.subarray(inner[0].body, inner[0].start + inner[0].size)).toString('hex'), AVCC[0][2]);
+  const tagged = hex(AVCC[0][2]).subarray(8, 25);
+  assert.ok(Buffer.from(out).includes(Buffer.concat([Buffer.from([0, 0, 0, tagged.length]), Buffer.from(tagged), Buffer.from(idr)])), 'the key frame carries the tagged SPS');
+  const odd = new Uint8Array([1, 77, 0, 31, 255]);
+  assert.strictEqual(tagAvcC(odd, BT709), odd);
+  const plain = mux({ video: { width: 640, height: 360, description: odd, chunks: v.slice(0, 1) }, audio: null });
+  const a2 = find(plain, ['moov', 'trak', 'mdia', 'minf', 'stbl', 'stsd', 'avc1']);
+  assert.deepStrictEqual(boxes(plain, a2.body + 78, a2.start + a2.size).map((b) => b.type), ['avcC'], 'no colour given: no colr');
 });

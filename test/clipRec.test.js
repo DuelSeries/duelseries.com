@@ -250,8 +250,19 @@ test('whole screen: off by default, PC only, asks at a click or P, this tab only
   assert.match(js, /tabDeclined = true; stop\('stopped sharing'\);/, 'Stop sharing hands back to the games and P stops asking');
   assert.match(js, /const g = TOP \? \(\/\^\(slither\|agar\|paper\|br\)\$\/\.test\(game\) \? game : 'other'\) : '';/, 'only a known game name goes to the server');
   const pump = js.slice(js.indexOf('async function pumpTab'), js.indexOf('function cursor()'));
-  assert.match(pump, /if \(asleep \|\| sizing \|\| now < nextCap - 400 \/ FPS\) \{ f\.close\(\); continue; \}/, 'a frame when it is due');
-  assert.match(pump, /nextCap = Math\.max\(nextCap \+ 1000 \/ FPS, now \+ 500 \/ FPS\);/);
+  /* Paced and stamped by when the tab captured each frame, not when the busy page read it (Owen 2026-11-08: a frame
+     read late made the next one look early, and it was dropped; his 1440p clip held 27.4 a second). */
+  assert.match(pump, /const at = capturedAt\(f, now\);\n\s*if \(asleep \|\| sizing \|\| at < nextCap - 400 \/ FPS\) \{ f\.close\(\); continue; \}/, 'a frame when it is due');
+  assert.match(pump, /nextCap = Math\.max\(nextCap \+ 1000 \/ FPS, at \+ 500 \/ FPS\);/);
+  assert.match(js, /new MediaStreamTrackProcessor\(\{ track: vt, maxBufferSize: 4 \}\)/, 'a few frames may wait while the page is busy');
+  // the capture clock against the page's: its least gap is the offset; one that does not run forward is not trusted
+  // eslint-disable-next-line no-new-func
+  const capAt = new Function(js.slice(js.indexOf('let capOff = null'), js.indexOf('// The mouse: tab capture')) + 'return capturedAt;')();
+  const near = (a, b, why) => assert.ok(Math.abs(a - b) < 1e-6, why + ': ' + a);
+  near(capAt({ timestamp: 5e6 }, 1020), 1020, 'the first frame sets the offset');
+  near(capAt({ timestamp: 5033333 }, 1090), 1053.333, 'read 37 ms late, it keeps its place 33 ms on');
+  near(capAt({ timestamp: 5066667 }, 1091), 1086.667, 'and the one read straight after it too');
+  near(capAt({ timestamp: 5066667 }, 1130), 1130, 'a capture clock standing still: the page clock');
   /* Owen's whole-tab clip of 2026-11-06 held 667 frames in 30.3 s (22 a second): the tab sends about 30 a second,
      never exactly 33 ms apart, and "at least 30 ms since the last one" dropped each one that came early. */
   // eslint-disable-next-line no-new-func
@@ -267,7 +278,7 @@ test('whole screen: off by default, PC only, asks at a click or P, this tab only
   assert.match(js, /card\.setAttribute\('aria-live', 'polite'\);[\s\S]{0,200}document\.documentElement\.appendChild\(card\);/, 'the cards hang off <html>, outside the body');
   assert.match(js, /dotEl\.appendChild\(document\.createTextNode\('P clip'\)\);\n\s*document\.documentElement\.appendChild\(dotEl\);/, 'and the dot');
   assert.match(js, /letGo\(\);/, 'let go when the recording stops');
-  assert.match(pump, /cursor\(\);\n\s*mark\(\);\n\s*encodeMirror\(\);/, 'the mouse and the mark are drawn into the video');
+  assert.match(pump, /cursor\(\);\n\s*mark\(\);\n\s*encodeMirror\(at\);/, 'the mouse and the mark are drawn into the video');
 });
 
 /* Owen 2026-10-30: a P clip shows everything a player sees in a game, without tab capture and its Chrome sharing bar.
@@ -313,4 +324,47 @@ test('Settings says what each kind of clip holds', () => {
   const html = read('public/v2.html');
   assert.match(html, /<b id="set-clips-l">Save clips with P<\/b><span>[^<]*end card, chat and HUD[^<]*<\/span>/);
   assert.match(html, /<b id="set-tab-l">Record the whole screen<\/b><span>Adds the lobby, its tabs and your mouse\./);
+});
+
+/* Owen 2026-11-08: clips darker than the game. Chrome encodes a frame it converts on the CPU at full range (black 0)
+   and one on the graphics card at limited range (black 16), says which in decoderConfig.colorSpace, and the graphics
+   card's encoders tag neither; players read untagged video as limited range, so his clips' darks were crushed. */
+test('colour: squeezed into video range when the encoder says full range, and tagged BT.709 limited range', () => {
+  const js = rec();
+  assert.match(js, /cs: cs \? \{ fullRange: cs\.fullRange, matrix: cs\.matrix, primaries: cs\.primaries \} : null/, 'the worker hands back what the encoder said');
+  assert.match(js, /if \(m\.cs\) colourFrom\(m\.cs\);/);
+  assert.match(js, /function encodeMirror\(at\) \{\n\s*videoLevels\(\);/, 'every frame goes through the squeeze, whichever recorder made it');
+  assert.match(js, /const SAT = 'saturate\(' \+ 224 \/ 219 \+ '\)', LIFT = 'rgba\(113,113,113,' \+ 36 \/ 255 \+ '\)';/);
+  assert.match(js, /video: \{ width: W, height: H, description: vDesc, chunks: v, color: colourTag\(\) \},/, 'the clip says what it is');
+  // eslint-disable-next-line no-new-func
+  const m = new Function('let W = 0, mctx = null, mirror = null;' + js.slice(js.indexOf('  let levels = false, vCs = null;'), js.indexOf('  const rateFor = ')) + 'return { colourFrom, colourTag, get levels() { return levels; }, get W() { return W; }, setW(w) { W = w; } };');
+  const c = m();
+  c.setW(2560);
+  c.colourFrom({ fullRange: false, matrix: 'bt709', primaries: 'bt709' });
+  assert.strictEqual(c.levels, false, 'limited range already: left alone');
+  assert.strictEqual(c.W, 2560, 'and the encoder keeps going');
+  c.colourFrom({ fullRange: true, matrix: 'bt709', primaries: 'bt709' });
+  assert.strictEqual(c.levels, true, 'full range: squeezed from now on');
+  assert.strictEqual(c.W, 0, 'the encoder starts again, so no clip mixes the two');
+  c.setW(2560);
+  c.colourFrom({ matrix: 'bt709' });
+  assert.strictEqual(c.levels, true, 'an encoder that says nothing about range keeps what was decided');
+  assert.deepStrictEqual(c.colourTag(), { primaries: 1, transfer: 1, matrix: 1, full: false });
+  c.colourFrom({ fullRange: true, matrix: 'smpte170m', primaries: 'bt709' });
+  assert.strictEqual(c.colourTag().matrix, 6, 'another matrix named is the one tagged');
+  // the poster on the Clips wall is the squeezed picture undone: 16 is black again, 235 white
+  assert.match(js, /if \(levels\) \{      \/\/ the hidden canvas holds the squeezed picture/);
+});
+
+/* Owen 2026-11-08: his 10:43 slither clip had no game sound. The server adds this recorder at the end of slither's page,
+   after the house sound engine (dsSfx.js) has joined its output to the speakers, so the wrapped connect() never saw it.
+   Headless, the game's own sounds playing in /sl: the live recorder's clip RMS 0.003 (silent), this one 0.024. */
+test('sound: the house sound engine is tapped even when it loaded first; the tab is shared without mic processing', () => {
+  const js = rec();
+  assert.match(js, /function tapSfx\(\) \{\n\s*const S = window\.DSSfx;\n\s*if \(TOP \|\| !S/, 'never in the lobby: the tab\'s sound has it');
+  assert.match(js, /if \(c && o\) origConnect\.call\(o, tapFor\(c\)\);/);
+  assert.match(js, /\};\n[\s\S]{0,900}\n  tapSfx\(\);\n/, 'at once when the recorder loads');
+  assert.match(js, /if \(!\(await startVideo\(\)\)\) return;\n\s*tapSfx\(\);/, 'and when it starts, for an engine that loaded after it');
+  assert.match(read('server/sl/slBoot.js'), /<script src="\/js\/clip\/clipRec\.js" data-game="slither"><\/script>/, 'slither\'s page still adds it at the end');
+  assert.match(js, /audio: \{ suppressLocalAudioPlayback: false, echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 2 \},/);
 });
