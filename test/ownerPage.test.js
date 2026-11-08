@@ -209,7 +209,7 @@ test('signed in: draws the sheet from the state and never loads the wallet', asy
     const koPlus = panel.byKey('bots:knockout:1:+');
     assert.ok(koPlus, 'a paid duel rung has its bot buttons');
     assert.equal(koPlus.disabled, true, 'off: the + does nothing');
-    assert.equal(koPlus.title, 'Paid duel bots are off (Control, Paid duel bots)');
+    assert.equal(koPlus.title, 'Paid duel bots are off. Turn them on under Site.');
     assert.equal(panel.byKey('bots:battleship:1:+'), null, 'Battleship: no bot buttons on a paid rung');
     // the column labels sit over the bot buttons (Free / $0.50 / $1)
     for (const s of ['Free', '$0.50', '$1']) assert.ok(text.includes(s), 'column ' + s);

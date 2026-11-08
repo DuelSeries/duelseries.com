@@ -111,7 +111,7 @@ input.say:focus{outline:none;border-color:var(--tx);box-shadow:0 0 0 3px rgba(24
 .s1 td.g{font-weight:700;font-size:15px;width:180px}
 .soonsw{margin-top:6px;font-weight:400}
 .soonsw .tg{height:32px}
-.soonsw .tg button{padding:0 10px;font-size:12px}
+.soonsw .tg button{padding:0 10px;font-size:12px;white-space:nowrap}
 .s1 .cell{display:flex;align-items:center;gap:12px;min-height:38px}
 /* Each column's label sits right over its own bot buttons (Owen 2026-11-04): the stepper is the first thing in its
    cell, in a slot as wide as the label box above it. */
@@ -119,7 +119,10 @@ input.say:focus{outline:none;border-color:var(--tx);box-shadow:0 0 0 3px rgba(24
 .s1 .cell .slot{width:100px;flex:none;display:inline-flex;align-items:center}
 .s1 .cell .slot.na{font-size:13px;color:var(--tx3);white-space:nowrap}
 .s1 .cell .bw{flex:none}
-.s1 .cell .play{font-size:13px;color:var(--gold);white-space:nowrap}
+/* A duel's paid cell: the stepper line, then one chip per bot under it once there is one. */
+.s1 .cell.duel{flex-wrap:wrap;row-gap:8px}
+.s1 .cell.duel .bots{flex:0 0 100%}
+.s1 .cell.duel .bots:empty{display:none}
 .s1 .cell .p{width:76px;color:var(--tx2);font-size:13px;flex:none;white-space:nowrap}
 .s1 .cell .p b{color:var(--tx);font-size:15px;font-weight:700}
 .s1 .cell .m{margin-left:auto;font-weight:650;min-width:52px;text-align:right}
@@ -134,6 +137,18 @@ input.say:focus{outline:none;border-color:var(--tx);box-shadow:0 0 0 3px rgba(24
 .s1 .low h3{margin:0 0 12px;font-size:18px;font-weight:750;color:var(--tx)}
 .s1 .line{display:flex;align-items:center;gap:12px;padding:6px 0}
 .s1 .line .l{flex:1;font-size:14px}
+/* The owner's paid duel bots, one chip each: its stake in gold, then how long it has left to wait for a person, with a
+   thin gold line under it that shortens with the wait. Starting: the Bot bank is still moving the stake into escrow.
+   Playing: at a table with a person now. */
+.bots{display:flex;flex-wrap:wrap;gap:6px}
+.bchip{position:relative;display:inline-flex;align-items:center;gap:7px;height:26px;padding:0 10px;border-radius:8px;
+  background:var(--ink);box-shadow:var(--edge);font-size:12.5px;line-height:1;white-space:nowrap;overflow:hidden}
+.bchip b{color:var(--gold);font-weight:700}
+.bchip span{color:var(--tx2)}
+.bchip i{position:absolute;left:0;bottom:0;height:2px;background:var(--gold);opacity:.75}
+.bchip.st span{color:var(--tx3)}
+.bchip.pl{box-shadow:inset 0 0 0 1px rgba(142,208,129,.45)}
+.bchip.pl span{color:var(--ok)}
 /* Narrow PCs: the same sheet with less air between things, until it is too narrow for a table at all and becomes
    the phone blocks below. */
 @media (max-width:1380px){
@@ -171,6 +186,8 @@ input.say:focus{outline:none;border-color:var(--tx);box-shadow:0 0 0 3px rgba(24
 .ph .pr .v b{color:var(--tx);font-size:15px}
 .ph .pr .na{font-size:13px;color:var(--tx2);text-align:right}
 .ph .pr .sw{display:flex;align-items:center;gap:4px}
+.ph .pr .bots{grid-column:1/-1;padding:0 0 6px 58px}
+.ph .pr .bots:empty{display:none}
 .ph .sec{margin-top:16px;padding:16px;background:var(--s1);border-radius:18px;box-shadow:var(--edge)}
 .ph .sec.acts{display:flex;gap:8px;flex-wrap:wrap;background:none;box-shadow:none;padding:0}
 .ph .sec h3{margin:0 0 8px;font-size:18px;color:var(--tx);font-weight:750}
@@ -501,10 +518,16 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) stopPoll();
   else { refresh(); startPoll(); }
 });
-// The countdown reads in seconds, so it ticks between polls.
+// The countdowns read in seconds (the battle royale's, and each waiting paid duel bot's), so they tick between polls.
 setInterval(() => {
-  if (mode === 'panel' && S && S.battleRoyale && S.battleRoyale.state === 'countdown' && !document.hidden) update();
+  if (mode !== 'panel' || !S || document.hidden) return;
+  if ((S.battleRoyale && S.battleRoyale.state === 'countdown') || duelBotsWaiting(S)) update();
 }, 1000);
+function duelBotsWaiting(s) {
+  const r = s && s.duelBots && s.duelBots.rungs;
+  if (!r || typeof r !== 'object') return false;
+  return Object.values(r).some((g) => g && Object.values(g).some((x) => x && num(x.waiting) > 0));
+}
 /* ── state ─────────────────────────────────────────────────────────────── */
 let mode = 'boot';          // boot | signin | panel
 let S = null;               // the last state the server sent, normalised
@@ -545,7 +568,7 @@ const layout = () => (mq && mq.matches ? 'ph' : 'pc');
    pointer; it rebuilds only when this changes (a game or room appears, a door
    gets built, the window crosses into the phone layout). */
 function shapeOf(s) {
-  const games = s.games.map((g) => [g.id, g.duel ? 'd' : '', !g.paid ? '-' : g.paid.enabled ? 'p' : 'x',
+  const games = s.games.map((g) => [g.id, g.duel ? 'd' : '', g.hide ? 'h' : '', !g.paid ? '-' : g.paid.enabled ? 'p' : 'x',
     COLS.map((c) => { const r = rungAt(g, c); return !r ? '_' : r.room ? 'r' : 'n'; }).join('')].join(':'));
   const br = s.battleRoyale ? (s.battleRoyale.room ? 'br' : 'brn') : '';
   return [layout(), games.join(','), br, s.smooth ? 'sm' : '', s.duelBots ? 'db' : ''].join('|');
@@ -937,6 +960,41 @@ function partSoon(ups, gid) {
     },
   });
 }
+/* One chip per paid duel bot at this rung (the row's duelBotList): stake, then the time left of its wait, counted down
+   from when the state arrived (s.got) so it moves between polls. */
+function leftWords(sec) {
+  const t = Math.max(0, Math.round(sec));
+  if (t >= 3600) return Math.floor(t / 3600) + 'h ' + String(Math.floor((t % 3600) / 60)).padStart(2, '0') + 'm left';
+  if (t >= 60) return Math.floor(t / 60) + 'm left';
+  return t + 's left';
+}
+function botChips(ups, gid, c) {
+  const box = h('div', { class: 'bots', role: 'list', 'aria-label': 'Paid bots waiting' });
+  let drawn = '';
+  ups.push((s) => {
+    const r = rungAt(game(s, gid), c) || {};
+    const list = Array.isArray(r.duelBotList) ? r.duelBotList : [];
+    const gone = (Date.now() - (s.got || Date.now())) / 1000;
+    const waitS = s.duelBots && num(s.duelBots.waitS) > 0 ? num(s.duelBots.waitS) : 7200;
+    const parts = list.map((b) => {
+      const stake = money(num(b.stake));
+      if (b.state === 'waiting') {
+        const left = Math.max(0, num(b.leftS) - gone);
+        return { cls: 'bchip', stake, word: leftWords(left), bar: Math.max(0, Math.min(1, left / waitS)),
+          title: 'Waiting for a player. If nobody plays it, its ' + stake + ' goes back to the Bot bank.' };
+      }
+      if (b.state === 'starting') return { cls: 'bchip st', stake, word: 'starting', bar: 0,
+        title: 'The Bot bank is moving its stake into escrow. It starts by itself in a few seconds.' };
+      return { cls: 'bchip pl', stake, word: 'playing', bar: 0, title: 'At a table with a player now.' };
+    });
+    const sig = JSON.stringify(parts.map((x) => [x.cls, x.stake, x.word, Math.round(x.bar * 200)]));
+    if (sig === drawn) return;
+    drawn = sig;
+    box.replaceChildren(...parts.map((x) => h('span', { class: x.cls, role: 'listitem', title: x.title },
+      h('b', null, x.stake), h('span', null, x.word), x.bar > 0 ? h('i', { style: 'width:' + (x.bar * 100).toFixed(1) + '%' }) : null)));
+  });
+  return box;
+}
 function rungStepper(ups, gid, c) {
   const g0 = game(S, gid);
   return stepper(ups, { key: 'bots:' + gid + ':' + c, label: (g0 ? g0.name : gid) + ' ' + COL_NAME[c], get: (s) => rungAt(game(s, gid), c) });
@@ -1033,15 +1091,15 @@ function partStrip(ups) {
     pick: (on) => act('earnings', on ? 'earnings:on' : 'earnings:off'),
   });
 }
-/* The kill switch for the owner's paid duel bots (server/duelBots.js): off at every boot. On lets the + on a duel's
-   $0.50 or $1 put a bot there, staking from the Bot bank for a minute; Off sends every waiting bot home. */
+/* The switch for the owner's paid duel bots (server/duelBots.js), saved across restarts. On lets the + on a duel's
+   $0.50 or $1 put a bot there, staking from the Bot bank for up to two hours; Off sends every waiting bot home. */
 function partDuelBots(ups) {
   return toggle(ups, {
     key: 'duelbots', yes: 'On', no: 'Off', label: 'Paid duel bots',
     get: (s) => ({ on: s.duelBots ? !!s.duelBots.enabled : null,
-      title: 'A paid duel bot stakes real money from the Bot bank and can win a player\'s stake. Players see "Bot opponent waiting" before they pay. Off again at every restart.' }),
+      title: 'A paid duel bot stakes real money from the Bot bank and can win a player\'s stake. Players see "Bot opponent waiting" before they pay. Stays as you set it across restarts.' }),
     pick: (on) => act('duelbots', on ? 'duelbots:on' : 'duelbots:off', {}, on ? { confirm:
-      'Turn on paid duel bots?\n\nEach bot you add stakes $0.50 or $1 from the Bot bank and waits a minute. A player sees "Bot opponent waiting" before paying. If the bot wins, the pot less the 10% cut goes back to the Bot bank.' } : null),
+      'Turn on paid duel bots?\n\nEach bot you add stakes $0.50 or $1 from the Bot bank and waits up to 2 hours for a player. A player sees "Bot opponent waiting" before paying. If nobody plays it, its stake goes back to the Bot bank. If the bot wins, the pot less the 10% cut goes back to the Bot bank.' } : null),
   });
 }
 function partSmooth(ups) {
@@ -1175,6 +1233,12 @@ function partLog(ups) {
   return box;
 }
 
+/* A game off the table while it is Coming soon (the server's hide, Battleship): its Live / Coming soon switch, under Site. */
+function hiddenSoonLines(ups) {
+  return S.games.filter((g) => g.hide && g.soon && g.soon.action)
+    .map((g) => h('div', { class: 'line' }, h('span', { class: 'l' }, String(g.name || g.id) + ' in the lobby'), partSoon(ups, g.id)));
+}
+
 /* ── PC ────────────────────────────────────────────────────────────────── */
 function buildPC(ups, next) {
   const up = h('span', { class: 'dim' });
@@ -1192,7 +1256,7 @@ function buildPC(ups, next) {
     h('div', { class: 'open' }, partMaint(ups), 'New games ', partNewGames(ups)));
   const parts = partEscrowParts(ups, 'parts', '10px 36px;border-bottom:1px solid var(--ln)');
 
-  const rows = S.games.map((g0) => {
+  const rows = S.games.filter((g0) => !g0.hide).map((g0) => {
     const nm = h('span');
     ups.push((s) => { const g = game(s, g0.id); nm.textContent = g ? String(g.name || g.id) : ''; });
     const sw = partSoon(ups, g0.id);
@@ -1211,6 +1275,7 @@ function buildPC(ups, next) {
     h('div', { class: 'line' }, h('span', { class: 'l' }, 'Cashed-out strip in the lobby'), partStrip(ups)),
     S.smooth ? h('div', { class: 'line' }, h('span', { class: 'l' }, 'Smooth turning'), partSmooth(ups)) : null,
     S.duelBots ? h('div', { class: 'line' }, h('span', { class: 'l' }, 'Paid duel bots'), partDuelBots(ups)) : null,
+    ...hiddenSoonLines(ups),
     ...partBotBank(ups, 'line'),
     partSay(ups, next, 'line'));
   const low = h('div', { class: 'low' }, site,
@@ -1226,12 +1291,13 @@ function pcCell(ups, gid, c) {
   const pb = h('b');
   const pw = h('span');
   const kids = [];
-  let m = null, play = null;
-  /* The bot buttons first, in the slot under this column's label; then the people and the money. */
+  let m = null, chips = null;
+  /* The bot buttons first, in the slot under this column's label; then the people and the money. A duel's paid cell
+     lists its bots under that line, one chip each (botChips). */
   if (r0.room) {
     const [st, auto] = rungStepper(ups, gid, c);
-    kids.push(h('span', { class: 'slot' }, st), h('span', { class: 'dim bw' }, r0.duelBot ? 'waiting' : 'bots'), auto);
-    if (r0.duelBot) kids.push(play = h('span', { class: 'play' }));
+    kids.push(h('span', { class: 'slot' }, st), h('span', { class: 'dim bw' }, 'bots'), auto);
+    if (r0.duelBot) chips = botChips(ups, gid, c);
   } else if (g0.duel) {
     kids.push(h('span', { class: 'slot na' }, c === 0 ? 'bot after 15 s' : 'people only'));
   } else {
@@ -1239,11 +1305,11 @@ function pcCell(ups, gid, c) {
   }
   kids.push(h('span', { class: 'p' }, pb, pw));
   if (c !== 0 && (r0.room || g0.duel)) kids.push(m = h('span', { class: 'm' }));
+  if (chips) kids.push(chips);
   ups.push((s) => {
     const r = rungAt(game(s, gid), c) || {};
     pb.textContent = String(num(r.people));
     pw.textContent = ' ' + people(r.people);
-    if (play) play.textContent = num(r.botPlaying) > 0 ? num(r.botPlaying) + ' playing' : '';
     if (m) {
       const v = num(r.money);
       // A duel's paid cell shows money only while there is some, as in the picker.
@@ -1251,7 +1317,7 @@ function pcCell(ups, gid, c) {
       m.className = 'm ' + (v > 0.005 ? 'gold' : 'dim');
     }
   });
-  return h('td', null, h('div', { class: 'cell' }, kids));
+  return h('td', null, h('div', { class: chips ? 'cell duel' : 'cell' }, kids));
 }
 function pcBr(ups) {
   const st = h('span', { class: 'st' });
@@ -1280,12 +1346,12 @@ function buildPhone(ups, next) {
   const pparts = partEscrowParts(ups, 'pparts', '8px 16px');
 
   const blocks = [];
-  for (const g0 of S.games) {
+  for (const g0 of S.games.filter((g) => !g.hide)) {
     const name = h('b');
     ups.push((s) => { const g = game(s, g0.id); name.textContent = g ? String(g.name || g.id) : ''; });
     blocks.push(h('div', { class: 'pg' }, name, partDoor(ups, g0.id)));
     const sw = partSoon(ups, g0.id);
-    if (sw) blocks.push(h('div', { class: 'line' }, h('span', { class: 'l' }, 'In the lobby'), sw));
+    if (sw) blocks.push(h('div', { class: 'pr' }, h('span', { class: 'k' }, 'Lobby'), h('span', { class: 'v' }), sw));
     for (const c of COLS) { const row = phRow(ups, g0.id, c); if (row) blocks.push(row); }
   }
   if (S.battleRoyale) blocks.push(...phBr(ups));
@@ -1296,6 +1362,7 @@ function buildPhone(ups, next) {
     h('div', { class: 'line' }, h('span', { class: 'l' }, 'Cashed-out strip'), partStrip(ups)),
     S.smooth ? h('div', { class: 'line' }, h('span', { class: 'l' }, 'Smooth turning'), partSmooth(ups)) : null,
     S.duelBots ? h('div', { class: 'line' }, h('span', { class: 'l' }, 'Paid duel bots'), partDuelBots(ups)) : null,
+    ...hiddenSoonLines(ups),
     ...partBotBank(ups, 'line'),
     partSay(ups, next, 'line'));
   const up = h('div', { class: 'dim', style: 'font-size:13px;padding-top:8px' });
@@ -1315,9 +1382,11 @@ function phRow(ups, gid, c) {
   const sep = h('span');
   const ms = h('span', { class: 'gold' });
   let right;
+  let chips = null;
   if (r0.room) { const [st, auto] = rungStepper(ups, gid, c); right = h('span', { class: 'sw' }, auto, st); }
-  else if (g0.duel) right = h('span', { class: 'na' }, c === 0 ? 'bot joins after 15 s' : 'people only');
+  else if (g0.duel) right = h('span', { class: 'na' }, c === 0 ? 'bot after 15 s' : 'people only');
   else right = h('span', { class: 'na' }, 'not running');
+  if (r0.room && r0.duelBot) chips = botChips(ups, gid, c);
   ups.push((s) => {
     const r = rungAt(game(s, gid), c) || {};
     const v = num(r.money);
@@ -1327,7 +1396,7 @@ function phRow(ups, gid, c) {
     sep.textContent = showMoney ? ' · ' : '';
     ms.textContent = showMoney ? money(v) : '';
   });
-  return h('div', { class: 'pr' }, h('span', { class: 'k' }, COL_NAME[c]), h('span', { class: 'v' }, pb, pw, sep, ms), right);
+  return h('div', { class: 'pr' }, h('span', { class: 'k' }, COL_NAME[c]), h('span', { class: 'v' }, pb, pw, sep, ms), right, chips);
 }
 function phBr(ups) {
   const st = h('span', { class: 'dim' });

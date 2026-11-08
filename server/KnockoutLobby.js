@@ -344,7 +344,7 @@ class KnockoutLobby {
     this.pump(t);
     let free = -1;   // free tables running, counted once a tick and only when a bot is due (freeRoomCap)
     for (const e of [...this.queue]) {
-      /* An owner's paid bot waits its minute for a person who was shown it, then leaves: its stake back to the bank. */
+      /* An owner's paid bot waits (up to two hours, duelBots.js) for a person who was shown it, then leaves: its stake back to the bank. */
       if (e.paidBot) {
         if (t >= e.paidBot.until) { this.dequeue(e.socket.id); this.refund(e, 'nobody joined'); }
         continue;

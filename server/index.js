@@ -1941,6 +1941,9 @@ function consoleGames(ko, bs, sw, hs, p8, ah, rt) {
     { id: 'battleship', name: 'Battleship', duel: true,
       paid: ownerConsole.paidDoor({ enabled: true, open: bsPaidOpen, stopping: false }, bsPaidSwitch.saved(), 'bs:paid'),
       soon: soonRow('battleship'),
+      /* Off the table while it is Coming soon and nobody holds a seat there (Owen 2026-11-08); Control keeps its
+         Live / Coming soon switch under Site, so it can still be brought back. */
+      hide: comingSoon.isSoon('battleship') && !(Number(bs && bs.people) > 0),
       rungs: ownerConsole.duelRows(bs) },
     { id: 'swim', name: SWIM_NAME, duel: true,
       paid: ownerConsole.paidDoor({ enabled: true, open: swPaidOpen, stopping: false }, swPaidSwitch.saved(), 'sw:paid'),
@@ -1971,11 +1974,16 @@ function duelBotRows(rungs, game) {
   const open = duelPaidDoors()[game] === true;
   return rungs.map((row) => {
     if (!(row && row.rung > 0)) return row;
-    const b = (v.rungs[game] || {})[String(row.rung)] || { waiting: 0, playing: 0 };
+    const b = (v.rungs[game] || {})[String(row.rung)] || { waiting: 0, playing: 0, starting: 0, bots: [] };
+    const maint = !!ops.get().maintenance;
+    /* bots: what the stepper counts (waiting, and starting while the bank moves the stake in); duelBotList: each one
+       with its stake, its state and the seconds left of its wait, for the row's chips. */
     return Object.assign({}, row, {
-      room: 'duelbots:' + game + ':' + row.rung, bots: b.waiting, botPlaying: b.playing, botTarget: null,
-      botsAllowed: v.enabled && open, duelBot: true, botMax: v.max,
-      botsNote: !v.enabled ? 'Paid duel bots are off (Control, Paid duel bots)' : !open ? 'Paid tables are closed' : null,
+      room: 'duelbots:' + game + ':' + row.rung, bots: (b.waiting || 0) + (b.starting || 0), botPlaying: b.playing,
+      botTarget: null, botsAllowed: v.enabled && open && !maint, duelBot: true, botMax: v.max,
+      duelBotList: Array.isArray(b.bots) ? b.bots.map((x) => ({ state: x.state, stake: x.stake, leftS: x.leftS })) : [],
+      botsNote: !v.enabled ? 'Paid duel bots are off. Turn them on under Site.' : !open ? 'Paid tables are closed'
+        : maint ? 'Maintenance is on' : null,
     });
   });
 }
@@ -2282,14 +2290,15 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
        ownerConsole.setBots. Paid rooms refuse before anything is touched. */
     /* The bot bank (server/botBank.js): its own wallet, so a top-up is just a transfer to its address (no step
        here). Cap: the daily limit of seed handed out, in dollars. */
-    /* The kill switch for the owner's paid duel bots (server/duelBots.js). Off at every boot; Off removes every waiting
-       bot (its stake back to the Bot bank) and lets a match already on finish as a normal paid match. */
+    /* The switch for the owner's paid duel bots (server/duelBots.js), saved across restarts. Off removes every
+       waiting bot (its stake back to the Bot bank) and lets a match already on finish as a normal paid match. */
     case 'duelbots:on':
     case 'duelbots:off': {
       const on = duelBots.setEnabled(action === 'duelbots:on');
       broadcastLobbyState();
-      return done(on ? 'Paid duel bots are on. Use the + on a duel table ($0.50 or $1) to put a bot there for a minute.'
-        : 'Paid duel bots are off. Every waiting bot left and its stake went back to the Bot bank.');
+      const kept = duelBots.switchSaved() ? '' : ' Not saved, so a restart turns them off.';
+      return done((on ? 'Paid duel bots are on. Use the + on a duel table ($0.50 or $1) to put a bot there for up to 2 hours.'
+        : 'Paid duel bots are off. Every waiting bot left and its stake went back to the Bot bank.') + kept);
     }
 
     case 'botbank:cap': {
@@ -2301,8 +2310,8 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
     }
 
     case 'bots:set': {
-      /* An owner's paid duel bot rung (server/duelBots.js): the count is how many bots wait there, each staking the
-         rung from the Bot bank for a minute. */
+      /* An owner's paid duel bot rung (server/duelBots.js): the count is how many bots wait there (or are starting,
+         their stake on its way into escrow), each staking the rung from the Bot bank for up to two hours. */
       const db_ = typeof args.room === 'string'
         ? /^duelbots:(knockout|swim|headsoccer|pool8|airhockey|rooftop|crossy):(0\.5|1)$/.exec(args.room) : null;
       if (db_) {
@@ -2315,9 +2324,13 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
         if (!r.ok) return refuse(r.why || 'Not done');
         const bb = botBank.view();
         const usd = '$' + Number(db_[2]).toFixed(2);
-        return done(gname + ' ' + usd + ': ' + r.waiting + ' bot' + (r.waiting === 1 ? '' : 's') + ' waiting for a person, '
-          + 'each staking ' + usd + ' from the Bot bank (now $' + bb.balance.toFixed(2) + '). A bot nobody plays leaves after a minute '
-          + 'and its stake goes back.' + (r.why ? ' Stopped short: ' + r.why + '.' : ''));
+        const hrs = Math.round(duelBots.BOT_WAIT_MS / 360000) / 10;
+        const wait = duelBots.BOT_WAIT_MS >= 3600000 ? hrs + ' hour' + (hrs === 1 ? '' : 's')
+          : Math.round(duelBots.BOT_WAIT_MS / 1000) + ' seconds';
+        return done(gname + ' ' + usd + ': ' + r.waiting + ' bot' + (r.waiting === 1 ? '' : 's') + ' waiting for a person'
+          + (r.starting ? ' (' + r.starting + ' starting while the Bot bank moves its stake in)' : '')
+          + ', each staking ' + usd + ' from the Bot bank (now $' + bb.balance.toFixed(2) + '). A bot nobody plays leaves after '
+          + wait + ' and its stake goes back.' + (r.why ? ' Stopped short: ' + r.why + '.' : ''));
       }
       const room = typeof args.room === 'string' ? ALL_ROOMS().find(r => r.lobbyType === args.room) : null;
       const r = ownerConsole.setBots(room, args);
@@ -3494,17 +3507,28 @@ const crossy = crossyWire.create({ io, koSend, trackEarning, sweepRake, houseCut
   createPaidSwitchStore, journalDir: path.dirname(agJournal.file), paidBotTable: (g, t, o) => paidBotTable(g, t, o) });
 trackDuelLobby(crossy.lobby, 'crossy');
 
-/* THE OWNER'S PAID DUEL BOTS (server/duelBots.js, Owen 2026-11-04): Control puts a bot on a duel's $0.50 or $1 table,
-   its stake from the Bot bank; it waits a minute for a person the lobby showed it to ("Bot opponent waiting"), then
-   leaves and its stake goes home. Off at every boot (the kill switch, Control's "Paid duel bots"). Battleship is not
-   here: its bot would need the other side's ships, which no person can see. */
+/* THE OWNER'S PAID DUEL BOTS (server/duelBots.js, Owen 2026-11-04, reworked 2026-11-08): Control puts a bot on a
+   duel's $0.50 or $1 table, its stake from the Bot bank; it waits up to two hours for a person the lobby showed it to
+   ("Bot opponent waiting"), then leaves and its stake goes home. While the bank moves the stake into escrow the bot is
+   "starting" and starts by itself when the money lands (onReady below, and the manager's own tick). The switch
+   (Control's "Paid duel bots") and the waiting bots are saved in duel-bots.json, so a deploy brings them back with what
+   was left of their wait (each stake back to the bank at the shutdown, a fresh one taken at boot). Maintenance closes
+   the door like a paid door does. Battleship is not here: its bot would need the other side's ships, which no person
+   can see. DUEL_BOT_WAIT_MS shortens the wait for a local check only; production ignores it. */
+const DUEL_BOT_WAIT_MS = process.env.NODE_ENV !== 'production' && /^\d{4,8}$/.test(String(process.env.DUEL_BOT_WAIT_MS || ''))
+  ? Number(process.env.DUEL_BOT_WAIT_MS) : undefined;
 const duelBots = require('./duelBots').createDuelBots({
   bank: botBank,
   lobbies: { knockout: knockoutLobby, swim: swimLobby, headsoccer: headSoccerLobby, pool8: pool8Lobby,
     airhockey: airHockeyLobby, rooftop: rooftopLobby, crossy: crossy.lobby },
-  doorOpen: (game) => duelPaidDoors()[game] === true,
+  doorOpen: (game) => duelPaidDoors()[game] === true && !ops.get().maintenance,
   onChange: () => { try { broadcastLobbyState(); } catch (_) { /* display only */ } },
+  file: path.join(path.dirname(agJournal.file), 'duel-bots.json'),
+  tickMs: require('./duelBots').TICK_MS,
+  waitMs: DUEL_BOT_WAIT_MS,
 });
+botBank.onReady(() => { try { duelBots.tick(); } catch (e) { console.error('[DUELBOT] onReady: ' + (e && e.message)); } });
+if (DUEL_BOT_WAIT_MS) console.warn('[DUELBOT] TEST wait: a paid duel bot waits ' + DUEL_BOT_WAIT_MS + ' ms (DUEL_BOT_WAIT_MS)');
 /* A paid duel table with one of those bots at it is paid by duelBots: the person EXACTLY as against a person (the pot
    less the same cut through koSend, or their own refund on a draw), the bot's side through the bank. -> false for
    every other table, which each lobby's onSettled pays as before. */
@@ -5491,6 +5515,9 @@ function sumLiveSelfCustodyStakes() {
      owed to somebody, as a seat or as the refund its expiry pays. Dev tokens
      have no chain behind them and are left out. */
   total += entryStore.pending({ backedOnly: true }).worth;
+  /* The owner's paid duel bots' stakes (server/duelBots.js), waiting or at a table: taken out of the Bot bank's float,
+     still in escrow, owed back to the bank or to whoever beats the bot (Owen 2026-11-08). */
+  try { total += duelBots.heldMicro() / 1e6; } catch (_) { /* not made yet at an early boot call: none held */ }
   return total;
 }
 // The escrow is SHARED across the NA + EU servers, so its true liability is the live stakes

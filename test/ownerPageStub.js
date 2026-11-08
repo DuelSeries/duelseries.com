@@ -122,9 +122,9 @@ function baseState() {
         rungs: [
           { rung: 0, room: null, people: 1, bots: 0, money: 0, botTarget: null, botsAllowed: false, botsNote: 'A bot takes the other seat when nobody joins in time' },
           { rung: 0.5, room: 'duelbots:knockout:0.5', people: 0, bots: 0, money: 0, botTarget: null, botsAllowed: false, duelBot: true, botPlaying: 0, botMax: 3,
-            botsNote: 'Paid duel bots are off (Control, Paid duel bots)' },
+            botsNote: 'Paid duel bots are off. Turn them on under Site.' },
           { rung: 1, room: 'duelbots:knockout:1', people: 2, bots: 0, money: 2, botTarget: null, botsAllowed: false, duelBot: true, botPlaying: 0, botMax: 3,
-            botsNote: 'Paid duel bots are off (Control, Paid duel bots)' },
+            botsNote: 'Paid duel bots are off. Turn them on under Site.' },
         ] },
       { id: 'battleship', name: 'Battleship', duel: true, paid: { enabled: false, open: false, stopping: false, saved: false, action: 'bs:paid' },
         rungs: [   // Battleship takes no paid bots (index.js): its rows are ownerConsole.duelRows' as they are
@@ -242,7 +242,7 @@ function createOwnerPageStub(opts = {}) {
       for (const g of state.games) for (const r of g.rungs) {
         if (!r.duelBot) continue;
         r.botsAllowed = on;
-        r.botsNote = on ? null : 'Paid duel bots are off (Control, Paid duel bots)';
+        r.botsNote = on ? null : 'Paid duel bots are off. Turn them on under Site.';
         if (!on) r.bots = 0;
       }
       return [true, on ? 'Paid duel bots are on.' : 'Paid duel bots are off.'];

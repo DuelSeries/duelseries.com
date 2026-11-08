@@ -153,7 +153,7 @@ test('state v2, maintenance and the paid Knockout door across a restart, bots:se
         assert.deepStrictEqual([row.room, row.botsAllowed, row.botsNote], [null, false, 'Paid duels stay people only: a bot would win or lose a real stake']);
       } else if (row.rung > 0 && g.duel) {
         assert.deepStrictEqual([row.room, row.botsAllowed, row.botsNote, row.bots, row.duelBot],
-          ['duelbots:' + g.id + ':' + row.rung, false, 'Paid duel bots are off (Control, Paid duel bots)', 0, true], g.id);
+          ['duelbots:' + g.id + ':' + row.rung, false, 'Paid duel bots are off. Turn them on under Site.', 0, true], g.id);
       }
       if (row.rung > 0 && !g.duel && row.botsAllowed) assert.match(String(row.room), /^paidbots:(sl|ag|paper|chomp):/);
     }
