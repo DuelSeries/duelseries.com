@@ -1,8 +1,8 @@
 /* ─── Swim: the sound ─────────────────────────────────────────────────────────
    The house Glass sounds (dsSfx.js, dsSfxGame.js) for the moments, and one
-   live engine for your own car (swimEngines.js, our own synthesis) on the
+   live engine for your own car (swimEngines.js, real recordings) on the
    sound engine's context and output (DSSfx.context / output, kept for exactly
-   this). No files.
+   this). The engines play small recordings (public/audio/swim); the moments are synthesized.
 
      match found  g.join            countdown  g.tick, g.tick, g.go
      close pass   sw.whoosh         barrier    sw.scrape (spaced out)

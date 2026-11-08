@@ -1,15 +1,21 @@
 /* ─── Swim: the engines ───────────────────────────────────────────────────────
-  Our own synthesis, written for Swim: every sound here is built in code from
-  oscillators, periodic waves, noise buffers, filters and waveshapers. No
-  recordings, nothing borrowed. One engine for each of Swim's ten cars (Owen
-  2026-11-08, shared/swimLooks.js): turbo4, v8, inline6, i6jz, v6tt, v8sc, v8c8,
-  flat6, v10 and v8ft. The first three came from the picker in Claude Code
-  Test/swim-sounds.
+  Real recordings of each car's own engine (Owen 2026-11-08: "a different sound for every single vehicle ...
+  identical to what they sound like in real life ... dial in the backfiring too"). One small mono file per engine
+  in public/audio/swim (d.sample): an idle, the engine held at a few rpm on and off the throttle, and its own
+  exhaust bangs, all cut from field recordings under CC0 or CC BY, credited in public/vendor/models/swim/CREDITS.txt
+  and linked from the waiting screen. The files are made by a script from those recordings (each piece held at one
+  pitch and looped, levelled against the others); the rpm of every loop is written next to it below.
+  Ten engines, one per car (shared/swimLooks.js): turbo4, v8, inline6, i6jz, v6tt, v8sc, v8c8, flat6, v10, v8ft.
+  The R35 (v6tt) has no recording under an open licence, so it keeps the synthesized voice built here in code from
+  oscillators, noise and filters; that voice is also every car's fallback until its file is in (or if it never
+  arrives).
 
     window.SwimEngines = {
       ids: ['v8', 'turbo4', 'flat6', 'inline6', 'v10', 'i6jz', 'v6tt', 'v8sc', 'v8c8', 'v8ft'],
-      prepare(ctx, id)        work out the engine's waves ahead of time (heavy, once per context)
-      make(ctx, id, dest) -> engine
+      prepare(ctx, id)        fetch and decode the car's recording ahead of time (or work out the synthesized
+                              voice's waves), once per context
+      ready(ctx, id) -> Promise<boolean>   true once the recording is decoded, false if it failed or has none
+      make(ctx, id, dest) -> engine        the recorded voice when its file is in, else the synthesized one
     }
 
   engine.set({ speed, throttle, rev }, at)
@@ -23,16 +29,17 @@
   engine.listen(fn) fn(kind, t, big) for 'up' and 'down' (a shift, on the beat it is heard) and 'pop'
                     (a backfire bang, at its audio time t), so the page can lurch the car and light a flame
   BACKFIRE: lifting off from high revs (in a race or revving on the start line) always fires a run of bangs,
-  3 at about half the redline up to 7 at the redline, over about a second, scheduled a frame ahead at a time
-  so nothing later cancels them.
+  3 at about half the redline up to 7 at the redline (a recorded car: up to sample.bangs of its own), over about
+  a second, scheduled a frame ahead at a time so nothing later cancels them.
   SHIFTS: each engine shifts in its own voice (shift.style): the V8 a heavy clunk and a burble, the V12 a
   quick crisp blip, the turbo four a blow-off pssh every upshift; a downshift is a softer blip.
   engine.stop()     fade out and release every node
   engine.out        the engine's output GainNode
+  engine.real       true when it is the recorded voice
 
   The engine works out its own gear and rpm from speed. set() allocates
-  nothing apart from the AudioParam automation events it schedules; all nodes
-  are built once in make() and reused. */
+  nothing apart from the AudioParam automation events it schedules (and, for the recorded voice, one short
+  one-shot source per backfire bang); all other nodes are built once in make() and reused. */
 (function (root) {
   'use strict';
 
@@ -73,6 +80,9 @@
       pops: { rate: 16, decay: 0.8, win: 2.0, big: 0.35, level: 1.0 },
       shift: { cut: 0.3, dur: 0.11, clunk: 0.45, pop: 0.25, style: 'burble' },
       turbo: null,
+      sample: { url: '/audio/swim/v8.mp3', trim: 2.0, bangs: 5, popLevel: 0.42, maxRate: 1.6,
+        loops: [['idle', 846, 0.1500, 1.1351], ['on', 2700, 1.4851, 0.5778], ['on', 3300, 2.2628, 0.4364], ['on', 4000, 2.8992, 0.5700], ['on', 4700, 3.6692, 0.5872], ['on', 5500, 4.4564, 0.5891], ['off', 3200, 5.2455, 0.4500], ['off', 3900, 5.8955, 0.4308]],
+        pops: [[6.4663, 0.1700, 1], [6.7163, 0.1600, 1], [6.9563, 0.1400, 0], [7.1763, 0.1600, 1], [7.4163, 0.1400, 0]] },
       trim: 0.358
     },
     {
@@ -93,6 +103,9 @@
       pops: { rate: 7, decay: 0.6, win: 1.2, big: 0.25, level: 0.85 },
       shift: { cut: 0.25, dur: 0.1, clunk: 0.3, pop: 0.15, style: 'pssh' },
       turbo: { lo: 2400, hi: 6400, level: 0.05, bov: 0.55 },
+      sample: { url: '/audio/swim/turbo4.mp3', trim: 2.0, bangs: 4, popLevel: 0.4, maxRate: 2.3,
+        loops: [['idle', 1491, 0.1500, 0.9658], ['on', 2400, 1.3158, 0.4500], ['on', 2900, 1.9658, 0.4966], ['on', 3200, 2.6624, 0.4500]],
+        pops: [[3.2524, 0.1400, 1], [3.4724, 0.1400, 1], [3.6924, 0.1400, 0], [3.9124, 0.1400, 1], [4.1324, 0.1600, 1]] },
       trim: 0.288
     },
     {
@@ -115,6 +128,9 @@
       pops: { rate: 7, decay: 0.6, win: 1.3, big: 0.25, level: 0.75 },
       shift: { cut: 0.35, dur: 0.08, clunk: 0.2, pop: 0.3, style: 'blip' },
       turbo: null,
+      sample: { url: '/audio/swim/flat6.mp3', trim: 2.0, bangs: 5, popLevel: 0.38, maxRate: 1.75,
+        loops: [['idle', 658, 0.1500, 0.7298], ['on', 2265, 1.0798, 0.4238], ['on', 2883, 1.7036, 0.4579], ['on', 5274, 2.3615, 0.4550], ['on', 4323, 3.0165, 0.4719], ['on', 4292, 3.6885, 0.4753], ['on', 5077, 4.3638, 0.3073]],
+        pops: [[4.8111, 0.1600, 1], [5.0511, 0.1400, 0], [5.2711, 0.1400, 1]] },
       trim: 0.375
     },
     {
@@ -136,6 +152,9 @@
       pops: { rate: 6, decay: 0.55, win: 1.1, big: 0.2, level: 0.7 },
       shift: { cut: 0.3, dur: 0.09, clunk: 0.25, pop: 0.2, style: 'pssh' },
       turbo: { lo: 2000, hi: 5600, level: 0.035, bov: 0.4 },
+      sample: { url: '/audio/swim/inline6.mp3', trim: 2.05, bangs: 5, popLevel: 0.36, maxRate: 1.6,
+        loops: [['idle', 1870, 0.1500, 0.7058], ['on', 2565, 1.0558, 0.3275], ['on', 5612, 1.5833, 0.1711], ['on', 4765, 1.9543, 0.1763], ['on', 5801, 2.3306, 0.1655]],
+        pops: [[2.6361, 0.1200, 1], [2.8361, 0.1200, 1], [3.0361, 0.1200, 1], [3.2361, 0.1200, 0], [3.4361, 0.1200, 0]] },
       trim: 0.36
     },
     {
@@ -158,6 +177,9 @@
       pops: { rate: 6, decay: 0.5, win: 1.0, big: 0.22, level: 0.8 },
       shift: { cut: 0.38, dur: 0.06, clunk: 0.22, pop: 0.35, style: 'blip' },
       turbo: null,
+      sample: { url: '/audio/swim/v10.mp3', trim: 2.0, bangs: 7, popLevel: 0.35, maxRate: 1.65,
+        loops: [['idle', 976, 0.1500, 1.1068], ['on', 1400, 1.4568, 0.5143], ['on', 2040, 2.1711, 0.5882], ['on', 4000, 2.9593, 0.1800], ['on', 5000, 3.3393, 0.5760], ['on', 5450, 4.1153, 0.5945]],
+        pops: [[4.8498, 0.1887, 1], [5.1185, 0.1440, 1], [5.3425, 0.1493, 0], [5.5718, 0.1740, 1], [5.8258, 0.1600, 1], [6.0658, 0.1627, 1], [6.3085, 0.1213, 0], [6.5098, 0.1400, 0]] },
       trim: 0.42
     },
     /* The cars Owen picked on 2026-11-08 (ten real cars): the 2JZ six, the twin-turbo V6, the supercharged V8, the
@@ -182,6 +204,9 @@
       pops: { rate: 9, decay: 0.65, win: 1.4, big: 0.3, level: 0.85 },
       shift: { cut: 0.28, dur: 0.1, clunk: 0.3, pop: 0.2, style: 'pssh' },
       turbo: { lo: 1700, hi: 5000, level: 0.075, bov: 0.75 },
+      sample: { url: '/audio/swim/i6jz.mp3', trim: 2.3, bangs: 6, popLevel: 0.42, maxRate: 1.6,
+        loops: [['idle', 1611, 0.1500, 0.8941], ['on', 2100, 1.2441, 0.3428], ['on', 3300, 1.7870, 0.6909], ['on', 4300, 2.6779, 0.6977], ['on', 5400, 3.5755, 0.5111], ['on', 6600, 4.2867, 0.5091], ['on', 7900, 4.9958, 0.6987], ['off', 2300, 5.8945, 0.3652], ['off', 3800, 6.4597, 0.3790], ['off', 5600, 7.0387, 0.3857], ['off', 7600, 7.6244, 0.3947]],
+        pops: [[8.1591, 0.1800, 1], [8.4191, 0.1800, 1], [8.6791, 0.1600, 1], [8.9191, 0.1600, 0], [9.1591, 0.1700, 1], [9.4091, 0.1700, 1], [9.6591, 0.1700, 0]] },
       trim: 0.34
     },
     {
@@ -229,6 +254,9 @@
       pops: { rate: 14, decay: 0.75, win: 1.8, big: 0.35, level: 0.95 },
       shift: { cut: 0.3, dur: 0.12, clunk: 0.5, pop: 0.25, style: 'burble' },
       turbo: null,
+      sample: { url: '/audio/swim/v8sc.mp3', trim: 1.8, bangs: 7, popLevel: 0.3, maxRate: 1.6,
+        loops: [['idle', 1162, 0.1500, 1.1357], ['on', 2100, 1.4857, 0.5142], ['on', 3000, 2.1999, 0.5200], ['on', 3800, 2.9199, 0.4737], ['on', 4600, 3.5936, 0.5478], ['on', 5400, 4.3414, 0.6000], ['on', 6200, 5.1414, 0.5806]],
+        pops: [[5.8621, 0.1800, 1], [6.1221, 0.1600, 1], [6.3621, 0.1600, 1], [6.6021, 0.1600, 1], [6.8421, 0.1400, 0], [7.0621, 0.1400, 0]] },
       trim: 0.33
     },
     {
@@ -253,6 +281,9 @@
       pops: { rate: 11, decay: 0.65, win: 1.5, big: 0.3, level: 0.9 },
       shift: { cut: 0.32, dur: 0.07, clunk: 0.3, pop: 0.3, style: 'blip' },
       turbo: null,
+      sample: { url: '/audio/swim/v8c8.mp3', trim: 2.0, bangs: 6, popLevel: 0.3, maxRate: 1.6,
+        loops: [['idle', 1306, 0.1500, 0.9189], ['on', 1894, 1.2689, 0.3168], ['on', 2915, 1.7857, 0.4529], ['on', 3942, 2.4386, 0.1827], ['on', 5934, 2.8213, 0.1820]],
+        pops: [[3.1433, 0.1600, 1], [3.3833, 0.1200, 1], [3.5833, 0.1200, 0], [3.7833, 0.1400, 0], [4.0033, 0.1600, 1], [4.2433, 0.1400, 0]] },
       trim: 0.35
     },
     {
@@ -276,6 +307,9 @@
       pops: { rate: 6, decay: 0.5, win: 1.0, big: 0.22, level: 0.8 },
       shift: { cut: 0.38, dur: 0.06, clunk: 0.22, pop: 0.35, style: 'blip' },
       turbo: { lo: 2400, hi: 6000, level: 0.035, bov: 0.35 },
+      sample: { url: '/audio/swim/v8ft.mp3', trim: 2.0, bangs: 6, popLevel: 0.36, maxRate: 1.65,
+        loops: [['idle', 980, 0.1500, 0.8570], ['on', 3195, 1.2070, 0.4131], ['on', 2650, 1.8201, 0.4076], ['on', 3700, 2.4276, 0.4216], ['on', 4200, 3.0492, 0.4286], ['on', 4750, 3.6778, 0.4295], ['on', 5200, 4.3073, 0.4385]],
+        pops: [[4.8857, 0.1600, 1], [5.1258, 0.1600, 1], [5.3658, 0.1400, 0], [5.5857, 0.1400, 0], [5.8057, 0.1400, 0], [6.0258, 0.1600, 1]] },
       trim: 0.4
     }
   ];
@@ -328,7 +362,7 @@
         slow: noiseBuffer(ctx, 9, 4, 0x1b873593),
         mid: noiseBuffer(ctx, 6, 14, 0x68e31da4),
         fast: noiseBuffer(ctx, 5, 110, 0x85ebca6b),
-        waves: {}, saw: null, curves: {}
+        waves: {}, saw: null, curves: {}, banks: {}
       };
       if (shared) shared.set(ctx, c);
     }
@@ -547,19 +581,108 @@
   // ---------------------------------------------------------------------------
   // The engine
   // ---------------------------------------------------------------------------
+  /* THE RECORDED VOICE: the car's own engine, from real recordings (d.sample, CREDITS). Loops of the engine held at one
+     rpm each (an idle, then on-throttle loops and, where the recording has them, off-throttle ones), all running at
+     once, each at playbackRate = rpm / its own rpm, the two either side of the rpm heard (equal power, on a log rpm
+     scale) and the throttle choosing between the on and off sets. With no off-throttle loops of its own, the car's
+     on-throttle loops are heard through a lowpass when you lift. Backfires are the car's own bangs, cut from the same
+     recordings, each one a short one-shot. */
+  function sampledVoice(ctx, K, A, d, buf, into, popOut) {
+    var S = d.sample, all = [], on = [], off = [], idle = null, i;
+    for (i = 0; i < S.loops.length; i++) {
+      var L = S.loops[i];
+      var src = K.loop(buf, L[2]);
+      src.loopStart = L[2]; src.loopEnd = L[2] + L[3];
+      var g = K.gain(0);
+      src.connect(g);
+      var it = { kind: L[0], rpm: L[1], src: src, g: g, sg: A.add(g.gain), sr: A.add(src.playbackRate), w: 0 };
+      all.push(it);
+      if (it.kind === 'idle') idle = it; else if (it.kind === 'off') off.push(it); else on.push(it);
+    }
+    function byRpm(a, b) { return a.rpm - b.rpm; }
+    on.sort(byRpm); off.sort(byRpm);
+    var onList = (idle ? [idle] : []).concat(on), offList = off.length ? (idle ? [idle] : []).concat(off) : null;
+    /* no off-throttle loops: the on loops also feed a lowpass, heard when off the gas */
+    var dry = K.gain(1, into), wet = null, wetLP = null;
+    if (!offList) {
+      wetLP = K.filt('lowpass', 900, 0.6); wet = K.gain(0, into); wetLP.connect(wet);
+    }
+    for (i = 0; i < all.length; i++) {
+      if (all[i] === idle) all[i].g.connect(into);
+      else if (all[i].kind === 'off') all[i].g.connect(into);
+      else { all[i].g.connect(dry); if (wetLP) all[i].g.connect(wetLP); }
+    }
+    var sDry = A.add(dry.gain), sWet = wet ? A.add(wet.gain) : -1, sLP = wetLP ? A.add(wetLP.frequency) : -1;
+    var lo = S.minRate || 0.72, hi = S.maxRate || 1.6;
+
+    function weigh(list, r, key) {
+      var n = list.length, j;
+      for (j = 0; j < n; j++) list[j][key] = 0;
+      if (!n) return;
+      if (r <= list[0].rpm) { list[0][key] = 1; return; }
+      if (r >= list[n - 1].rpm) { list[n - 1][key] = 1; return; }
+      for (j = 0; j < n - 1 && r >= list[j + 1].rpm; j++) { /* find the pair */ }
+      var x = Math.log(r / list[j].rpm) / Math.log(list[j + 1].rpm / list[j].rpm);
+      list[j][key] = Math.cos(x * Math.PI / 2);
+      list[j + 1][key] = Math.sin(x * Math.PI / 2);
+    }
+
+    return {
+      sampled: true,
+      frame: function (rpm, f, onMix) {
+        weigh(onList, rpm, 'wOn');
+        if (offList) weigh(offList, rpm, 'wOff');
+        var offMix = 1 - onMix;
+        for (var k = 0; k < all.length; k++) {
+          var it = all[k], w;
+          if (offList) w = (it.wOn || 0) * (it.kind === 'off' ? 0 : onMix) + (it.wOff || 0) * (it.kind === 'on' ? 0 : offMix);
+          else w = it.wOn || 0;
+          if (it === idle && offList) w = (it.wOn || 0) * onMix + (it.wOff || 0) * offMix;
+          var rate = rpm / it.rpm;
+          A.put(it.sr, rate < lo ? lo : (rate > hi ? hi : rate), 0.012);
+          A.put(it.sg, w, 0.03);
+        }
+        if (!offList) {
+          A.put(sDry, Math.sqrt(onMix), 0.04);
+          A.put(sWet, Math.sqrt(offMix) * 0.85, 0.04);
+          A.put(sLP, 650 + 2600 * f, 0.05);
+        }
+      },
+      /* one of the car's own bangs: a big one for the first of a run, any for the rest */
+      pop: function (t, big, scale) {
+        var P = S.pops, n = P.length, j, tries = 0;
+        if (!n) return;
+        do { j = Math.floor(Math.random() * n); } while (big && !P[j][2] && ++tries < 6);
+        var s = ctx.createBufferSource(), g = ctx.createGain();
+        s.buffer = buf;
+        s.playbackRate.value = 0.94 + 0.12 * Math.random();
+        g.gain.value = (big ? 0.8 + 0.2 * Math.random() : 0.3 + 0.35 * Math.random()) * scale * (S.popLevel || 1);
+        s.connect(g); g.connect(popOut);
+        s.onended = function () { try { s.disconnect(); g.disconnect(); } catch (_) {} };
+        try { s.start(t, P[j][0], P[j][1]); } catch (_) {}
+      }
+    };
+  }
+
   function build(ctx, d, dest) {
     var C = store(ctx), K = kit(ctx), A = automator();
     var b, i;
+    var bank = d.sample ? loadBank(ctx, d) : null;
+    var buf = bank && bank.buf;
 
     var out = K.gain(0); out.connect(dest);
-    var trim = K.gain(d.trim, out);
+    var trim = K.gain(buf ? d.sample.trim : d.trim, out);
     var engAmp = K.gain(0.3, trim);
     var cut = K.gain(1, engAmp);
+    var white = K.loop(C.white, 0);
+    // Gearbox clunk, either voice.
+    var clBP = K.filt('bandpass', 170, 3.5), clN = K.gain(8), clAmp = K.gain(0, trim);
+    white.connect(clBP); clBP.connect(clN); clN.connect(clAmp);
+    if (buf) return run(ctx, d, K, A, out, engAmp, cut, clAmp, sampledVoice(ctx, K, A, d, buf, cut, trim));
 
     var cyc = K.constant(d.idle / (60 * d.revs));       // engine cycles per second
     function track(mult, param) { var g = K.gain(mult); cyc.connect(g); g.connect(param); return g; }
 
-    var white = K.loop(C.white, 0);
     var jit = K.loop(C.slow, Math.random() * 8), jitG = K.gain(d.jitter);
     jit.connect(jitG);
     var rough = K.loop(C.fast, Math.random() * 4), roughG = K.gain(d.rough);
@@ -642,10 +765,6 @@
     popSh.connect(K.gain(d.pops.level, trim));
     popAmp.connect(K.gain(0.35, pipeIn[0]));
 
-    // Gearbox clunk.
-    var clBP = K.filt('bandpass', 170, 3.5), clN = K.gain(8), clAmp = K.gain(0, trim);
-    white.connect(clBP); clBP.connect(clN); clN.connect(clAmp);
-
     // Turbo: whistle plus spool air, and a blow-off valve.
     var T = d.turbo, tO, tAmp, spBP, bovAmp, bovBP;
     if (T) {
@@ -660,29 +779,85 @@
       white.connect(bovHP); bovHP.connect(bovBP); bovBP.connect(bovAmp);
     }
 
-    var R = buildRoad(K, C, out, A);
-
-    var sCyc = A.add(cyc.offset), sEng = A.add(engAmp.gain), sDrv = A.add(drive.gain);
+    var sCyc = A.add(cyc.offset), sDrv = A.add(drive.gain);
     var sBody = A.add(body.frequency), sIn = A.add(inAmp.gain), sLope = A.add(lopeG.gain);
     var sHalf = halfG ? A.add(halfG.gain) : -1, sJit = A.add(jitG.gain), sGas = A.add(gasN.gain);
     var sWail = wailAmp ? A.add(wailAmp.gain) : -1;
     var sEven = d.even && d.banks.length > 1 ? A.add(bankAmp[1].gain) : -1;
     var sTf = T ? A.add(tO.frequency) : -1, sSp = T ? A.add(spBP.frequency) : -1, sTa = T ? A.add(tAmp.gain) : -1;
+    var boost = 0, bovT = -99;
+
+    function bov(t, strength) {
+      if (t - bovT < 0.35) return;
+      bovT = t;
+      var g = bovAmp.gain, fq = bovBP.frequency;
+      hold(g, t);
+      g.linearRampToValueAtTime(T.bov * Math.min(1, strength + 0.2), t + 0.012);
+      g.setTargetAtTime(0, t + 0.06, 0.12);
+      hold(fq, t);
+      fq.setValueAtTime(5200, t);
+      fq.setTargetAtTime(1600, t + 0.01, 0.16);
+    }
+
+    return run(ctx, d, K, A, out, engAmp, cut, clAmp, {
+      frame: function (rpm, f, load, gasF, dt) {
+        var RL = d.redline;
+        A.put(sCyc, rpm / (60 * d.revs), 0.012);
+        A.put(sDrv, d.drive * (0.55 + 0.45 * load), 0.05);
+        A.put(sBody, d.lp[0] + d.lp[1] * load * (0.4 + 0.6 * f), 0.05);
+        A.put(sIn, d.intake[0] * (0.1 + 0.9 * gasF) * (0.2 + 0.8 * f), 0.05);
+        var idleness = clamp01(1 - (rpm - d.idle) / (0.25 * RL));
+        A.put(sLope, d.lope[0] * idleness * (1 - 0.6 * load), 0.08);
+        if (sHalf >= 0) A.put(sHalf, d.half * (0.5 + 0.5 * (1 - f)) * (1 + 0.8 * (1 - load)), 0.08);
+        A.put(sJit, d.jitter * (1 - 0.6 * f), 0.1);
+        A.put(sGas, 0.3 + 0.7 * load, 0.05);
+        if (sEven >= 0) A.put(sEven, 1 + d.even * (d.banks[0].amp / d.banks[1].amp - 1) * f * load, 0.08);
+        if (sWail >= 0) A.put(sWail, d.wail.level * (0.2 + 0.8 * load) * Math.pow(f, 1.5), 0.05);
+        if (T) {
+          var bT = gasF > 0.5 ? clamp01((f - 0.18) / 0.5) * gasF : 0;
+          boost += (bT - boost) * (1 - Math.exp(-dt / (bT > boost ? 0.55 : 0.15)));
+          var tf = T.lo + (T.hi - T.lo) * boost;
+          A.put(sTf, tf, 0.03);
+          A.put(sSp, tf * 0.5, 0.03);
+          A.put(sTa, T.level * Math.pow(boost, 1.5) * (0.35 + 0.65 * gasF), 0.05);
+        }
+      },
+      pop: function (t, big, scale) {
+        var a = (big ? 0.75 + 0.25 * Math.random() : 0.2 + 0.25 * Math.random()) * scale;
+        var dec = big ? 0.018 + 0.02 * Math.random() : 0.004 + 0.007 * Math.random();
+        popBP.frequency.setValueAtTime(big ? 250 + 500 * Math.random() : 900 + 1600 * Math.random(), t);
+        thumpG.gain.setValueAtTime(big ? 0.45 : 0.08, t);
+        var g = popAmp.gain;
+        hold(g, t);
+        g.linearRampToValueAtTime(a, t + 0.0015);
+        g.setTargetAtTime(0, t + 0.0015, dec);
+      },
+      lift: function (now) { if (T && boost > 0.3) bov(now, boost); },
+      blowoff: function (t) { if (T) { bov(t, Math.max(boost, 0.65)); boost *= 0.55; } }
+    });
+  }
+
+  /* What both voices share: the road, the gears and rpm worked out from speed, the shifts and the backfire runs. */
+  function run(ctx, d, K, A, out, engAmp, cut, clAmp, V) {
+    var C = store(ctx);
+    var R = buildRoad(K, C, out, A);
+    var sEng = A.add(engAmp.gain);
 
     var ts = ctx.currentTime;
     K.start(ts);
     out.gain.setValueAtTime(0, ts);
     out.gain.setTargetAtTime(1, ts, 0.06);
 
-    var ratios = gearRatios(d), RL = d.redline, P = d.pops;
-    var rpm = d.idle, gear = 1, gasF = 0, gasS = 0, load = 0.3, boost = 0, prevGas = 0;
-    var liftT = -99, shiftT = -99, bovT = -99, lastT = 0, started = false, dead = false;
+    var ratios = gearRatios(d), RL = d.redline, sh = (V.sampled && d.sample.shift) || d.shift;
+    var rpm = d.idle, gear = 1, gasF = 0, gasS = 0, load = 0.3, prevGas = 0;
+    var liftT = -99, shiftT = -99, lastT = 0, started = false, dead = false;
     var listener = null, neutral = false, wasNeutral = false;
     /* The backfire run waiting to be heard: audio times and big or not, scheduled a frame ahead at a time. */
     var bfT = new Float64Array(8), bfBig = new Uint8Array(8), bfN = 0, bfI = 0, bfScale = 1;
+    var bfMax = V.sampled && d.sample.bangs ? d.sample.bangs : 7, bfMin = Math.min(3, bfMax);
     function fire(k, t, big) { if (listener) { try { listener(k, t, !!big); } catch (_) {} } }
     function backfire(now, f) {
-      var n = Math.round(3 + 4 * clamp01((f - 0.5) / 0.42)), at = now + 0.05;
+      var n = Math.round(bfMin + (bfMax - bfMin) * clamp01((f - 0.5) / 0.42)), at = now + 0.05;
       bfN = n; bfI = 0; bfScale = 0.9 + 0.35 * clamp01((f - 0.5) / 0.42);
       for (var i = 0; i < n; i++) {
         bfT[i] = at; bfBig[i] = i === 0 || Math.random() < 0.3 + 0.4 * f ? 1 : 0;
@@ -690,52 +865,29 @@
       }
     }
 
-    function pop(t, big, scale) {
-      var a = (big ? 0.75 + 0.25 * Math.random() : 0.2 + 0.25 * Math.random()) * scale;
-      var dec = big ? 0.018 + 0.02 * Math.random() : 0.004 + 0.007 * Math.random();
-      popBP.frequency.setValueAtTime(big ? 250 + 500 * Math.random() : 900 + 1600 * Math.random(), t);
-      thumpG.gain.setValueAtTime(big ? 0.45 : 0.08, t);
-      var g = popAmp.gain;
-      hold(g, t);
-      g.linearRampToValueAtTime(a, t + 0.0015);
-      g.setTargetAtTime(0, t + 0.0015, dec);
-    }
-
     function clunk(t, k) {
       var g = clAmp.gain;
       hold(g, t);
-      g.linearRampToValueAtTime(Math.min(0.6, d.shift.clunk * k), t + 0.002);
+      g.linearRampToValueAtTime(Math.min(0.6, sh.clunk * k), t + 0.002);
       g.setTargetAtTime(0, t + 0.002, 0.02);
-    }
-
-    function bov(t, strength) {
-      if (t - bovT < 0.35) return;
-      bovT = t;
-      var g = bovAmp.gain, f = bovBP.frequency;
-      hold(g, t);
-      g.linearRampToValueAtTime(T.bov * Math.min(1, strength + 0.2), t + 0.012);
-      g.setTargetAtTime(0, t + 0.06, 0.12);
-      hold(f, t);
-      f.setValueAtTime(5200, t);
-      f.setTargetAtTime(1600, t + 0.01, 0.16);
     }
 
     function upshift(t) {
       shiftT = t;
       var g = cut.gain;
       hold(g, t);
-      g.setTargetAtTime(d.shift.cut, t, 0.008);
-      g.setTargetAtTime(1, t + d.shift.dur, 0.03);
-      var st = d.shift.style;
+      g.setTargetAtTime(sh.cut, t, 0.008);
+      g.setTargetAtTime(1, t + sh.dur, 0.03);
+      var st = sh.style;
       if (st === 'burble') {                 // V8: a heavy clunk, then the pipes burble through the gap
         clunk(t, 1.3);
-        pop(t + d.shift.dur * 0.35, true, 0.55); pop(t + d.shift.dur * 0.8, false, 0.7);
-      } else if (st === 'blip') {            // V12: quick and crisp, one sharp crack
+        V.pop(t + sh.dur * 0.35, true, 0.55); V.pop(t + sh.dur * 0.8, false, 0.7);
+      } else if (st === 'blip') {            // quick and crisp, one sharp crack
         clunk(t, 0.8);
-        pop(t + d.shift.dur * 0.4, false, d.shift.pop * 2.4);
-      } else {                               // turbo four: the blow-off valve every time
+        V.pop(t + sh.dur * 0.4, false, sh.pop * 2.4);
+      } else {                               // turbo: the blow-off valve every time
         clunk(t, 1);
-        if (T) { bov(t, Math.max(boost, 0.65)); boost *= 0.55; }
+        if (V.blowoff) V.blowoff(t);
       }
       fire('up', t);
     }
@@ -743,7 +895,7 @@
     function downshift(t, braking) {
       shiftT = t;
       clunk(t, 0.5);                         // softer than an upshift
-      if (braking && Math.random() < 0.6) pop(t + 0.03, Math.random() < 0.4, 0.6);
+      if (braking && Math.random() < 0.6) V.pop(t + 0.03, Math.random() < 0.4, 0.6);
       fire('down', t);
     }
 
@@ -767,7 +919,7 @@
 
       if (prevGas > 0.5 && gas <= 0.5) {
         liftT = now;
-        if (T && boost > 0.3) bov(now, boost);
+        if (V.lift) V.lift(now);
         if (rpm / RL > 0.45) backfire(now, rpm / RL);
       }
       prevGas = gas;
@@ -814,33 +966,19 @@
       } else rpm += (target - rpm) * (1 - Math.exp(-dt / tau));
 
       var f = rpm / RL;
-      A.put(sCyc, rpm / (60 * d.revs), 0.012);
       A.put(sEng, (0.35 + 0.65 * load) * (0.6 + 0.4 * f), 0.04);
-      A.put(sDrv, d.drive * (0.55 + 0.45 * load), 0.05);
-      A.put(sBody, d.lp[0] + d.lp[1] * load * (0.4 + 0.6 * f), 0.05);
-      A.put(sIn, d.intake[0] * (0.1 + 0.9 * gasF) * (0.2 + 0.8 * f), 0.05);
-      var idleness = clamp01(1 - (rpm - d.idle) / (0.25 * RL));
-      A.put(sLope, d.lope[0] * idleness * (1 - 0.6 * load), 0.08);
-      if (sHalf >= 0) A.put(sHalf, d.half * (0.5 + 0.5 * (1 - f)) * (1 + 0.8 * (1 - load)), 0.08);
-      A.put(sJit, d.jitter * (1 - 0.6 * f), 0.1);
-      A.put(sGas, 0.3 + 0.7 * load, 0.05);
-      if (sEven >= 0) A.put(sEven, 1 + d.even * (d.banks[0].amp / d.banks[1].amp - 1) * f * load, 0.08);
-      if (sWail >= 0) A.put(sWail, d.wail.level * (0.2 + 0.8 * load) * Math.pow(f, 1.5), 0.05);
-
-      if (T) {
-        var bT = gasF > 0.5 ? clamp01((f - 0.18) / 0.5) * gasF : 0;
-        boost += (bT - boost) * (1 - Math.exp(-dt / (bT > boost ? 0.55 : 0.15)));
-        var tf = T.lo + (T.hi - T.lo) * boost;
-        A.put(sTf, tf, 0.03);
-        A.put(sSp, tf * 0.5, 0.03);
-        A.put(sTa, T.level * Math.pow(boost, 1.5) * (0.35 + 0.65 * gasF), 0.05);
-      }
+      if (V.sampled) {
+        /* the throttle shuts for the length of an upshift, so the off-throttle sound is heard through it */
+        var onMix = clamp01((load - 0.3) / 0.7);
+        if (now - shiftT < sh.dur) onMix *= 0.25;
+        V.frame(rpm, f, onMix);
+      } else V.frame(rpm, f, load, gasF, dt);
 
       // The backfire run after a lift: each bang scheduled when it is under a frame away. Back on the gas ends it.
       if (gas > 0.5) bfI = bfN;
       while (bfI < bfN && bfT[bfI] <= now + 0.05) {
         var bt = Math.max(bfT[bfI], now), big = bfBig[bfI] === 1;
-        pop(bt, big, bfScale * (big ? 1.25 : 1));
+        V.pop(bt, big, bfScale * (big ? 1.25 : 1));
         fire('pop', bt, big);
         bfI++;
       }
@@ -854,21 +992,49 @@
       fadeOut(ctx, K, out);
     }
 
-    return { id: d.id, set: set, stop: stop, out: out,
+    return { id: d.id, set: set, stop: stop, out: out, real: !!V.sampled,
       gear: function () { return neutral ? 0 : gear; },
       rev: function () { return rpm / RL; },
       listen: function (fn) { listener = typeof fn === 'function' ? fn : null; } };
   }
 
-  /* The heavy part of make() (the noise loops and the engine's waves), done ahead so a race never waits for it. */
+  /* A car's recordings: fetched and decoded once per AudioContext (they are small), the moment a page asks for the
+     engine (prepare), so a race never waits for them. Until they are in (or if they never arrive) the car has its
+     synthesized voice. */
+  function loadBank(ctx, d) {
+    var C = store(ctx), rec = C.banks[d.id];
+    if (rec || !d.sample) return rec || null;
+    rec = C.banks[d.id] = { buf: null, failed: false, p: null };
+    if (typeof fetch !== 'function' || !ctx.decodeAudioData) { rec.failed = true; rec.p = Promise.resolve(null); return rec; }
+    rec.p = fetch(d.sample.url).then(function (r) {
+      if (!r.ok) throw new Error('engine sound ' + r.status);
+      return r.arrayBuffer();
+    }).then(function (ab) {
+      return new Promise(function (res, rej) {
+        var q = ctx.decodeAudioData(ab, res, rej);
+        if (q && typeof q.then === 'function') q.then(res, rej);
+      });
+    }).then(function (b) { rec.buf = b; return b; }, function () { rec.failed = true; return null; });
+    return rec;
+  }
+
+  /* Get an engine ready ahead of a race: its recordings, or for a car without any (or when they fail) the waves of
+     its synthesized voice. ready() is a promise that settles when a car's recordings are in (true) or failed (false). */
   function prepare(ctx, id) {
-    var C = store(ctx);
-    engineWaves(ctx, C, defOf(id));
+    var d = defOf(id);
+    if (d.sample) { loadBank(ctx, d); return; }
+    engineWaves(ctx, store(ctx), d);
+  }
+  function ready(ctx, id) {
+    var d = defOf(id), rec = loadBank(ctx, d);
+    if (!rec) return Promise.resolve(false);
+    return rec.p.then(function (b) { return !!b; });
   }
 
   function make(ctx, id, dest) {
     return build(ctx, defOf(id), dest || ctx.destination);
   }
 
-  root.SwimEngines = { ids: DEFS.map(function (x) { return x.id; }), prepare: prepare, make: make };
+  root.SwimEngines = { ids: DEFS.map(function (x) { return x.id; }), prepare: prepare, ready: ready, make: make,
+    sample: function (id) { return BY_ID[id] && BY_ID[id].sample || null; } };
 })(typeof window !== 'undefined' ? window : this);

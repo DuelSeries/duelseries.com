@@ -53,7 +53,49 @@ test('swimEngines.js builds exactly those ten, and nothing the picker page alone
   assert.strictEqual(typeof sandbox.SwimEngines.make, 'function');
   assert.strictEqual(typeof sandbox.SwimEngines.prepare, 'function');
   for (const gone of ['electric', 'buildEv', 'topSpeed', 'desc:']) assert.ok(!src.includes(gone), gone + ' is gone');
-  assert.ok(/our own synthesis/i.test(src.slice(0, 600)), 'the header says it is ours');
+  assert.strictEqual(typeof sandbox.SwimEngines.ready, 'function');
+  assert.ok(/real recordings/i.test(src.slice(0, 600)) && src.slice(0, 900).includes('CREDITS.txt'), 'the header says where the sounds come from');
+});
+
+/* Owen 2026-11-08: every car its own real engine and its own backfire. Each recorded engine is one small file of
+   loops (an idle and the engine held at a few rpm) and its own bangs; the R35 (v6tt) has no open-licence recording
+   and keeps the synthesized voice. Every file is credited and the credits are linked from the waiting screen. */
+test('nine engines play their own recording (idle, rpm loops, bangs), small files, all credited; the R35 keeps the synth', () => {
+  const sandbox = {};
+  new Function('window', read('public/js/swim/swimEngines.js'))(sandbox);
+  const E = sandbox.SwimEngines;
+  const credits = read('public/vendor/models/swim/CREDITS.txt');
+  const recorded = E.ids.filter((id) => E.sample(id));
+  assert.deepStrictEqual(recorded.slice().sort(), E.ids.filter((id) => id !== 'v6tt').sort(), 'all but the R35');
+  assert.strictEqual(E.sample('v6tt'), null);
+  let total = 0;
+  for (const id of recorded) {
+    const S = E.sample(id);
+    assert.strictEqual(S.url, '/audio/swim/' + id + '.mp3', id);
+    const file = path.join(ROOT, 'public', S.url);
+    assert.ok(fs.existsSync(file), id + ' file');
+    const bytes = fs.statSync(file).size;
+    total += bytes;
+    assert.ok(bytes < 100 * 1024, id + ' is small (' + bytes + ' B)');
+    const sec = bytes * 8 / 56000;
+    const kinds = S.loops.map((l) => l[0]);
+    assert.strictEqual(kinds.filter((k) => k === 'idle').length, 1, id + ' one idle');
+    assert.ok(kinds.filter((k) => k === 'on').length >= 2, id + ' at least two on-throttle loops');
+    for (const [k, rpm, at, len] of S.loops) {
+      assert.ok(['idle', 'on', 'off'].includes(k), id + ' ' + k);
+      assert.ok(rpm >= 400 && rpm <= 10000, id + ' rpm ' + rpm);
+      assert.ok(len >= 0.15 && at >= 0.1 && at + len <= sec + 0.05, id + ' loop inside its file ' + [at, len, sec]);
+    }
+    assert.ok(S.pops.length >= 3, id + ' has its own bangs');
+    for (const [at, len] of S.pops) assert.ok(len > 0.02 && len <= 0.3 && at + len <= sec + 0.05, id + ' bang inside its file');
+    assert.ok(S.trim > 0 && S.trim <= 3 && S.popLevel > 0 && S.popLevel <= 1 && S.maxRate >= 1.3 && S.maxRate <= 2.5, id + ' levels');
+    assert.ok(credits.includes('  ' + id + ' ('), id + ' credited');
+  }
+  assert.ok(total < 600 * 1024, 'all of them together stay small: ' + total + ' B');
+  for (const page of ['public/swim.html', 'public/swimrace.html']) {
+    assert.ok(/class="carCredit" href="\/vendor\/models\/swim\/CREDITS.txt"[^>]*>[^<]*engine sounds/.test(read(page)), page + ' links the credits');
+  }
+  assert.ok(/CC0|CC BY/.test(credits) && !/NonCommercial|BY-NC|BY-SA/.test(credits.slice(credits.indexOf('engine sounds'))), 'open licences only');
 });
 
 test('/swim loads the list and the engines before its sound module: your engine, and a capped few for the other cars', () => {
