@@ -5,10 +5,9 @@
   exhaust bangs, all cut from field recordings under CC0 or CC BY, credited in public/vendor/models/swim/CREDITS.txt
   and linked from the waiting screen. The files are made by a script from those recordings (each piece held at one
   pitch and looped, levelled against the others); the rpm of every loop is written next to it below.
-  Ten engines, one per car (shared/swimLooks.js): turbo4, v8, inline6, i6jz, v6tt, v8sc, v8c8, flat6, v10, v8ft.
-  The R35 (v6tt) has no recording under an open licence, so it keeps the synthesized voice built here in code from
-  oscillators, noise and filters; that voice is also every car's fallback until its file is in (or if it never
-  arrives).
+  Ten engines, one per car (shared/swimLooks.js): turbo4, v8, inline6, i6jz, v6tt, v8sc, v8c8, flat6, v10, v8ft
+  (the GT-R's file is CC BY-SA, the rest CC0 or CC BY). The synthesized voice built here in code from oscillators,
+  noise and filters is every car's fallback until its file is in (or if it never arrives).
 
     window.SwimEngines = {
       ids: ['v8', 'turbo4', 'flat6', 'inline6', 'v10', 'i6jz', 'v6tt', 'v8sc', 'v8c8', 'v8ft'],
@@ -230,6 +229,9 @@
       pops: { rate: 7, decay: 0.55, win: 1.2, big: 0.25, level: 0.75 },
       shift: { cut: 0.26, dur: 0.08, clunk: 0.25, pop: 0.2, style: 'pssh' },
       turbo: { lo: 2600, hi: 6400, level: 0.05, bov: 0.6 },
+      sample: { url: '/audio/swim/v6tt.mp3', trim: 2.0, popLevel: 0.35, maxRate: 1.6, bangs: 6, minRate: 0.3,
+        loops: [['idle', 900, 0.1500, 0.4000], ['on', 5900, 0.7500, 0.4068], ['on', 6250, 1.3568, 0.4032]],
+        pops: [[1.9000, 0.1200, 1], [2.1000, 0.1200, 1], [2.3000, 0.1600, 1], [2.5400, 0.1400, 0], [2.7600, 0.1200, 0], [2.9600, 0.1200, 0]] },
       trim: 0.33
     },
     {
