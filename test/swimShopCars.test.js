@@ -59,6 +59,7 @@ test('every car has its own model, its own engine and its own paint; old ids rea
   for (const c of SwimLooks.CARS) {
     for (const f of [c.id + '.glb', c.id + '-lo.glb']) assert.ok(fs.existsSync(path.join(ROOT, 'public/vendor/models/swim/cars', f)), f);
     assert.ok(fs.existsSync(path.join(ROOT, 'public/img/swim-cars', c.id + '.webp')), c.id + ' Shop picture');
+    assert.ok(fs.existsSync(path.join(ROOT, 'public/img/swim-cars', c.id + '-3d.webp')), c.id + ' Shop 3D turntable strip');
   }
   assert.strictEqual(new Set(SwimLooks.CARS.map((c) => c.engine)).size, 10);
   assert.strictEqual(new Set(SwimLooks.CARS.map((c) => c.hex)).size, 10);

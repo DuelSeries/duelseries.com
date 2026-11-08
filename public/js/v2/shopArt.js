@@ -642,6 +642,32 @@
     im.src = '/img/swim-cars/' + id + '.webp?v=1';
     return im;
   }
+  /* The Shop's 3D car (Owen 2026-11-08, "make the shop look really cool"): the same model turning a full circle on the
+     spot, seen from a raised three-quarter with its tail lamps lit: SW3_N pictures in one strip
+     (public/img/swim-cars/<id>-3d.webp, scripts/swimCarShots.js --strip), one turn every SW3_T seconds of the Shop's
+     clock, each picture faded into the next so the turn is smooth. Until the strip lands, the side picture. */
+  var SW3 = {}, SW3_N = 24, SW3_W = 256, SW3_H = 144, SW3_T = 9;
+  function swStrip(id) {
+    var im = SW3[id];
+    if (im) return im;
+    if (typeof Image === 'undefined') return null;
+    im = SW3[id] = new Image();
+    im.decoding = 'async';
+    im.src = '/img/swim-cars/' + id + '-3d.webp?v=1';
+    return im;
+  }
+  function swBadge(ctx, x, y, size, badge, col) {
+    ctx.font = 'italic 800 ' + size.toFixed(1) + 'px Archivo, ui-sans-serif, system-ui, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    var mt = ctx.measureText(badge), bw = (mt && mt.width || badge.length * size * 0.6) + size * 0.7, bh = size * 1.1, bx = x - bw / 2, by = y, r = size * 0.35;
+    ctx.beginPath();
+    ctx.moveTo(bx + r, by); ctx.lineTo(bx + bw - r, by); ctx.quadraticCurveTo(bx + bw, by, bx + bw, by + r);
+    ctx.lineTo(bx + bw, by + bh - r); ctx.quadraticCurveTo(bx + bw, by + bh, bx + bw - r, by + bh);
+    ctx.lineTo(bx + r, by + bh); ctx.quadraticCurveTo(bx, by + bh, bx, by + bh - r);
+    ctx.lineTo(bx, by + r); ctx.quadraticCurveTo(bx, by, bx + r, by); ctx.closePath();
+    ctx.fillStyle = 'rgba(20,24,32,.92)'; ctx.fill();
+    ctx.fillStyle = col; ctx.fillText(badge, x, by + bh / 2 + size * 0.04);
+  }
   function paintSwim(cv, k, t, big, bare) {
     var ctx = cv.getContext('2d'), w = cv.width, h = cv.height;
     var L = root.DS_SWIM_LOOKS, car = L ? L.carOf(k && (k.car || k.id)) : 'civic';
@@ -649,6 +675,18 @@
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, w, h);
     if (!bare) { ctx.fillStyle = '#1c1942'; ctx.fillRect(0, 0, w, h); }
+    var st = swStrip(car);
+    if (st && st.complete && st.naturalWidth >= SW3_W * SW3_N) {
+      var f = (((t || 0) / SW3_T) % 1 + 1) % 1 * SW3_N, i0 = Math.floor(f) % SW3_N, a = f - Math.floor(f), i1 = (i0 + 1) % SW3_N;
+      var dh = h * (big ? 0.82 : 0.9), dw = dh * SW3_W / SW3_H;
+      if (dw > w * 0.98) { dw = w * 0.98; dh = dw * SW3_H / SW3_W; }
+      var dx = (w - dw) / 2, dy = (h - dh) / 2 - (badge ? h * 0.05 : 0);
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(st, i0 * SW3_W, 0, SW3_W, SW3_H, dx, dy, dw, dh);
+      if (a > 0.02) { ctx.globalAlpha = a; ctx.drawImage(st, i1 * SW3_W, 0, SW3_W, SW3_H, dx, dy, dw, dh); ctx.globalAlpha = 1; }
+      if (badge) swBadge(ctx, w / 2, dy + dh * 0.86, Math.max(8, Math.min(16, h * 0.11)), badge, L ? L.paintOf(car) : '#fff');
+      return;
+    }
     var im = swImage(car);
     if (!im || !im.complete || !im.naturalWidth) { if (im) SW_WAIT.push([[cv, k, t, big, bare], car]); return; }
     var s = Math.min(w * 0.94 / 102, h * (big ? 0.72 : 0.9) / 40);

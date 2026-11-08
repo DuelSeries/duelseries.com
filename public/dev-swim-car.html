@@ -7,7 +7,7 @@
 <!-- Dev only: one of Swim's ten cars on its own, on a clear background, lit by the same sky as the race
      (swimHiFi.js loadCar). scripts/swimCarShots.js drives it to make the Shop's pictures
      (public/img/swim-cars/<id>.webp) and the reference comparisons.
-     Query: car=<id> (shared/swimLooks.js), view=side|front|rear|three|front0|rear0 (straight on, for badges), lite=1 (the phone model), bg=#rrggbb,
+     Query: car=<id> (shared/swimLooks.js), view=side|front|rear|three|front0|rear0 (straight on, for badges)|shop (the Shop's tilted three-quarter), yaw=<rad>, brake=1, lite=1 (the phone model), bg=#rrggbb,
      debug=roles (every part in its role's colour), traffic=<type> (a traffic model instead: sedan, hatch, suv, van, truck,
      bus; its body in paint=#rrggbb, the camera backed off to its length). -->
 <style>html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; } canvas { display: block; width: 100vw; height: 100vh; }</style>
@@ -41,8 +41,8 @@ scene.environment = pm.fromScene(env, 0, 0.1, 100).texture;
 scene.add(new THREE.HemisphereLight(0xffe2cc, 0x3a3040, 0.6));
 const sun = new THREE.DirectionalLight(0xffd2a8, 2.2); sun.position.set(2, 4, 3); scene.add(sun);
 const camera = new THREE.PerspectiveCamera(22, innerWidth / innerHeight, 0.1, 100);
-const V = { side: [10.5, 0.75, -0.25], front: [3.4, 1.3, -9.2], rear: [2.6, 1.6, 9.4], three: [7.4, 1.9, -7.2], front0: [0, 0.9, -6.2], rear0: [0, 1.0, 6.2] }[view] || [10.5, 0.75, -0.25];
-camera.position.set(V[0], V[1], V[2]); camera.lookAt(0, view === 'side' ? 0.62 : 0.6, view === 'side' ? -0.25 : 0);
+const V = { side: [10.5, 0.75, -0.25], front: [3.4, 1.3, -9.2], rear: [2.6, 1.6, 9.4], three: [7.4, 1.9, -7.2], front0: [0, 0.9, -6.2], rear0: [0, 1.0, 6.2], shop: [4.64, 2.68, -6.6] }[view] || [10.5, 0.75, -0.25];
+camera.position.set(V[0], V[1], V[2]); camera.lookAt(0, view === 'side' ? 0.62 : view === 'shop' ? 0.3 : 0.6, view === 'side' ? -0.25 : 0);
 window.__car = { done: false };
 (async () => {
   const A = await import(ADDONS_URL);
@@ -64,9 +64,12 @@ window.__car = { done: false };
     const RC = { paint: 0xff2020, accent: 0x2040ff, glass: 0x20e0ff, tail: 0xff20ff, head: 0xffff20, chrome: 0xffffff, tyre: 0x111111, rim: 0x888888, plate: 0xff8800, other: 0x20c040 };
     car.solid.traverse((o) => { if (o.isMesh) o.material = new THREE.MeshBasicMaterial({ color: RC[o.userData.role] || 0x20c040 }); });
   }
+  /* yaw=<radians>: the car turned on the spot (the Shop's turntable frames); brake=1: its tail lamps lit */
+  car.solid.rotation.y = +q.get('yaw') || 0;
+  if (q.get('brake') === '1' && car.lamps) car.lamps(true);
   scene.add(car.solid);
   renderer.render(scene, camera);
-  window.__car = { done: true, id };
+  window.__car = { done: true, id, turn(y) { car.solid.rotation.y = y; renderer.render(scene, camera); return true; } };
 })().catch((e) => { window.__car = { done: true, error: String(e) }; });
 </script>
 </body>
