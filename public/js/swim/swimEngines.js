@@ -224,8 +224,8 @@
       pops: { rate: 7, decay: 0.55, win: 1.2, big: 0.25, level: 0.75 },
       shift: { cut: 0.26, dur: 0.08, clunk: 0.25, pop: 0.2, style: 'pssh' },
       turbo: { lo: 2600, hi: 6400, level: 0.05, bov: 0.6 },
-      sample: { url: '/audio/swim/v6tt.mp3', map: '/audio/swim/v6tt.json', trim: 1.152, drive: 1.35, clip: 1.6, eq: [['lowshelf', 140, 0.7, 3], ['peaking', 2600, 0.9, 1.5], ['highshelf', 6500, 0.7, -4]], popLevel: 0.35, bangs: 6, limPop: 0.0, maxRate: 2.0, limDip: 0.5, liftHz: 900,
-        pops: [[2.0000, 0.1200, 1], [2.2000, 0.1200, 1], [2.4000, 0.1600, 1], [2.6400, 0.1400, 0], [2.8600, 0.1200, 0], [3.0600, 0.1200, 0]] },
+      sample: { url: '/audio/swim/v6tt.mp3', map: '/audio/swim/v6tt.json', trim: 1.152, drive: 1.35, clip: 1.6, eq: [['lowshelf', 140, 0.7, 3], ['peaking', 2600, 0.9, 1.5], ['highshelf', 6500, 0.7, -4]], popLevel: 0.22, bangs: 3, limPop: 0, maxRate: 1.8, limDip: 0.5, liftHz: 900, minRate: 0.65,
+        pops: [[2.7597, 0.1400, 1], [2.9797, 0.1400, 0], [3.1997, 0.1400, 1]] },
       trim: 0.33
     },
     {
