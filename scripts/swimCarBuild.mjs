@@ -125,15 +125,30 @@ async function build(level) {
   }
   for (const mesh of root.listMeshes()) for (const p of mesh.listPrimitives()) {
     const role = ((p.getMaterial() && p.getMaterial().getName()) || 'other|').split('|')[0];
-    const ix = p.getIndices(), pos = p.getAttribute('POSITION'), nor = p.getAttribute('NORMAL');
+    const ix = p.getIndices(), pos = p.getAttribute('POSITION');
     if (!ix || !pos || p.getMode() !== 4) continue;
+    /* a part saved without normals gets smooth ones first, so the simplifier can weigh them (and the paint stays smooth) */
+    if (!p.getAttribute('NORMAL')) {
+      const I0 = ix.getArray(), n0 = pos.getCount(), e0 = [], Q = new Float32Array(n0 * 3), acc = new Float32Array(n0 * 3);
+      for (let v = 0; v < n0; v++) { pos.getElement(v, e0); Q[v * 3] = e0[0]; Q[v * 3 + 1] = e0[1]; Q[v * 3 + 2] = e0[2]; }
+      for (let t = 0; t < I0.length; t += 3) {
+        const a = I0[t] * 3, b = I0[t + 1] * 3, c = I0[t + 2] * 3;
+        const ux = Q[b] - Q[a], uy = Q[b + 1] - Q[a + 1], uz = Q[b + 2] - Q[a + 2], vx = Q[c] - Q[a], vy = Q[c + 1] - Q[a + 1], vz = Q[c + 2] - Q[a + 2];
+        const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+        for (const v of [a, b, c]) { acc[v] += nx; acc[v + 1] += ny; acc[v + 2] += nz; }
+      }
+      for (let v = 0; v < n0; v++) { const l = Math.hypot(acc[v * 3], acc[v * 3 + 1], acc[v * 3 + 2]); if (l > 0) { acc[v * 3] /= l; acc[v * 3 + 1] /= l; acc[v * 3 + 2] /= l; } else acc[v * 3 + 1] = 1; }
+      p.setAttribute('NORMAL', doc.createAccessor().setType('VEC3').setArray(acc).setBuffer(root.listBuffers()[0]));
+      if (process.env.DEBUG) console.log('normals made', role, n0);
+    }
+    const nor = p.getAttribute('NORMAL');
     const isDet = detail.has(role);
     const ratio = role === 'paint' ? (L.paintRatio || L.ratio || 0.3) : isDet ? (L.detailRatio || 0.3) : (L.ratio || 0.3);
-    const err = isDet ? (L.detailError || 0.01) : role === 'paint' && L.paintError ? L.paintError : (L.error || 0.001);
+    const err = (L.errBy && L.errBy[role]) || (isDet ? (L.detailError || 0.01) : role === 'paint' && L.paintError ? L.paintError : (L.error || 0.001));
     const fl = (acc) => { const n = acc.getCount(), k = acc.getElementSize(), o = new Float32Array(n * k), e = []; for (let i = 0; i < n; i++) { acc.getElement(i, e); for (let c = 0; c < k; c++) o[i * k + c] = e[c]; } return o; };
     const src = new Uint32Array(ix.getArray()), P = fl(pos);
     // a hard cap per part as well as the ratio: a 2-million-triangle source must not stay heavy at 10 %
-    const cap = role === 'paint' ? (L.maxPaint || (level === 'hi' ? 30000 : 9000)) : (L.maxRole || (level === 'hi' ? 10000 : 3000));
+    const cap = (L.maxBy && L.maxBy[role]) || (role === 'paint' ? (L.maxPaint || (level === 'hi' ? 30000 : 9000)) : (L.maxRole || (level === 'hi' ? 10000 : 3000)));
     const want = Math.max(36, Math.min(Math.floor(cap * (src.length / 3) / (roleTris[role] || 1)), Math.floor(src.length / 3 * ratio))) * 3;
     let out;
     try {
@@ -146,7 +161,7 @@ async function build(level) {
        still weighing the normals, before giving up on them. */
     if (arr.length > want * 1.6 && nor && nor.getCount() === pos.getCount() && !(cfg.noPermissive || []).includes(role)) {
       try {
-        const o3 = MeshoptSimplifier.simplifyWithAttributes(src, P, 3, fl(nor), 3, [0.5, 0.5, 0.5], null, want, err, ['Permissive']);
+        const o3 = MeshoptSimplifier.simplifyWithAttributes(src, P, 3, fl(nor), 3, [0.5, 0.5, 0.5], null, want, err, cfg.prune ? ['Permissive', 'Prune'] : ['Permissive']);   // prune: tiny loose bits go
         const a3 = Array.isArray(o3) ? o3[0] : o3;
         if (process.env.DEBUG) console.log('perm', role, src.length / 3, '->', a3.length / 3, 'e', Array.isArray(o3) ? (+o3[1]).toFixed(4) : '-');
         if (a3 && a3.length >= 3 && a3.length < arr.length) arr = a3;

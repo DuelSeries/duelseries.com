@@ -5464,7 +5464,7 @@ function openBuy(s){
   BUY.s=s; BUY.later=false;
   document.getElementById('bs-case').style.background=sg&&sg.bg?sg.bg:'var(--s2)';
   document.getElementById('bs-title').textContent='Unlock '+s.name;
-  document.getElementById('bs-sub').textContent=(sg?sg.name:'')+(sg&&sg.id==='swim'?' car':' skin')+'. Yours to keep on every device.';   /* Swim sells whole cars */
+  document.getElementById('bs-sub').textContent=(sg?sg.name:'')+' skin. Yours to keep on every device.';
   buyMsg('');
   const go=document.getElementById('bs-go'), no=document.getElementById('bs-no');
   go.disabled=false; no.disabled=false; no.textContent='Not now';

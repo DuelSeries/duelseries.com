@@ -493,19 +493,22 @@
   "sloppy": [
    "other",
    "accent",
-   "rim",
-   "tyre",
    "chrome"
   ],
   "hi": {
-   "ratio": 0.1,
-   "paintRatio": 0.2,
-   "error": 0.004,
+   "ratio": 0.25,
+   "paintRatio": 0.3,
+   "error": 0.003,
    "detailRatio": 0.05,
    "detailError": 0.02,
-   "maxPaint": 2600,
+   "maxPaint": 3000,
    "maxRole": 700,
-   "sloppyAbove": 40
+   "sloppyAbove": 40,
+   "maxBy": {
+    "tyre": 1600,
+    "rim": 1600,
+    "glass": 900
+   }
   },
   "src": "t-sedan.glb",
   "front": "+z",
@@ -528,31 +531,54 @@
    "accent": "^plastic1$|^dark_plastic|^invisible_dark$|^Material.01?3$|^Material.008$",
    "rim": "^main_paint$"
   },
-  "credit": "\"2014 Toyota Corolla E180 EU (with interior)\" by Armored Wave, CC-BY 4.0, https://sketchfab.com/3d-models/2014-toyota-corolla-e180-eu-with-interior-36f95efb0585464cae43a25a3b3392e8"
+  "credit": "\"2014 Toyota Corolla E180 EU (with interior)\" by Armored Wave, CC-BY 4.0, https://sketchfab.com/3d-models/2014-toyota-corolla-e180-eu-with-interior-36f95efb0585464cae43a25a3b3392e8",
+  "detail": [
+   "other",
+   "accent"
+  ],
+  "islands": [
+   {
+    "mat": ".",
+    "max": 0.2,
+    "lat": 0.1,
+    "end": 1.95,
+    "y": [
+     0.35,
+     1
+    ]
+   }
+  ]
  },
  "van": {
   "traffic": true,
   "sloppy": [
    "other",
    "accent",
-   "rim",
-   "tyre",
-   "chrome",
-   "paint",
-   "head",
-   "glass",
-   "tail"
+   "chrome"
   ],
   "hi": {
-   "ratio": 0.1,
-   "paintRatio": 0.2,
-   "error": 0.004,
+   "ratio": 0.25,
+   "paintRatio": 0.3,
+   "error": 0.012,
    "detailRatio": 0.05,
-   "detailError": 0.02,
-   "maxPaint": 1800,
-   "maxRole": 400,
+   "detailError": 0.03,
+   "maxPaint": 3600,
+   "maxRole": 700,
    "sloppyAbove": 40,
-   "sloppyError": 0.06
+   "maxBy": {
+    "tyre": 1600,
+    "rim": 1600,
+    "glass": 900
+   },
+   "paintError": 0.012,
+   "errBy": {
+    "tyre": 0.025,
+    "rim": 0.025,
+    "glass": 0.02,
+    "chrome": 0.02,
+    "head": 0.02,
+    "tail": 0.02
+   }
   },
   "src": "t-pickup.glb",
   "front": "+z",
@@ -575,7 +601,12 @@
    "rim": "^B4W_aluminiumbrushed$|^B4W_brushedmetal",
    "accent": "^B4W_plasticdiffuse$|^B4W_plasticshiny$|^B4W_blackpaint$"
   },
-  "credit": "\"2020 Chevrolet Silverado 1500 RST\" by Ddiaz Design, CC-BY 4.0, https://sketchfab.com/3d-models/2020-chevrolet-silverado-1500-rst-6a0be94fec824513bffe48df57d0b17a"
+  "credit": "\"2020 Chevrolet Silverado 1500 RST\" by Ddiaz Design, CC-BY 4.0, https://sketchfab.com/3d-models/2020-chevrolet-silverado-1500-rst-6a0be94fec824513bffe48df57d0b17a",
+  "detail": [
+   "other",
+   "accent"
+  ],
+  "prune": true
  },
  "truck": {
   "traffic": true,
@@ -669,22 +700,46 @@
   },
   "sloppy": [
    "other",
-   "accent",
-   "rim",
-   "tyre",
-   "chrome"
+   "accent"
   ],
   "hi": {
-   "ratio": 0.3,
-   "paintRatio": 0.6,
-   "error": 0.004,
+   "ratio": 1,
+   "paintRatio": 0.3,
+   "error": 0.003,
    "detailRatio": 0.2,
    "detailError": 0.02,
-   "maxPaint": 2600,
-   "maxRole": 800,
-   "sloppyAbove": 40
+   "maxPaint": 3000,
+   "maxRole": 700,
+   "sloppyAbove": 40,
+   "maxBy": {
+    "tyre": 3000,
+    "rim": 3000,
+    "chrome": 3000,
+    "glass": 900
+   },
+   "errBy": {
+    "tyre": 0.0005,
+    "rim": 0.0005,
+    "chrome": 0.0005
+   }
   },
-  "credit": "\"Volkswagen Golf II\" by ardmation, CC-BY 4.0, https://sketchfab.com/3d-models/740500f10bc94e7a91c2290e445fcb39"
+  "credit": "\"Volkswagen Golf II\" by ardmation, CC-BY 4.0, https://sketchfab.com/3d-models/740500f10bc94e7a91c2290e445fcb39",
+  "detail": [
+   "other",
+   "accent"
+  ],
+  "islands": [
+   {
+    "mat": ".",
+    "max": 0.16,
+    "lat": 0.1,
+    "end": 1.65,
+    "y": [
+     0.3,
+     1
+    ]
+   }
+  ]
  },
  "suv": {
   "traffic": true,
@@ -713,27 +768,52 @@
    "accent": "^Trim|^Base_Nocolor|^Radiator$"
   },
   "sloppy": [
-   "other",
-   "accent",
-   "rim",
-   "tyre",
-   "chrome",
-   "paint",
-   "glass",
-   "head",
-   "tail"
+   "other"
   ],
   "hi": {
-   "ratio": 0.05,
-   "paintRatio": 0.05,
-   "error": 0.004,
+   "ratio": 0.25,
+   "paintRatio": 0.3,
+   "error": 0.012,
    "detailRatio": 0.02,
-   "detailError": 0.02,
-   "maxPaint": 2600,
-   "maxRole": 600,
+   "detailError": 0.03,
+   "maxPaint": 4500,
+   "maxRole": 500,
    "sloppyAbove": 40,
-   "sloppyError": 0.06
+   "maxBy": {
+    "tyre": 1100,
+    "rim": 1100,
+    "glass": 700,
+    "accent": 1400,
+    "chrome": 600
+   },
+   "paintError": 0.008,
+   "errBy": {
+    "tyre": 0.03,
+    "rim": 0.03,
+    "glass": 0.025,
+    "chrome": 0.03,
+    "head": 0.03,
+    "tail": 0.03,
+    "accent": 0.03
+   }
   },
-  "credit": "\"2020 Ford Explorer XLT\" by blarg, CC-BY 4.0, https://sketchfab.com/3d-models/ba986f9f9c44426ca7d5e91831b2c98d"
+  "credit": "\"2020 Ford Explorer XLT\" by blarg, CC-BY 4.0, https://sketchfab.com/3d-models/ba986f9f9c44426ca7d5e91831b2c98d",
+  "detail": [
+   "other",
+   "accent"
+  ],
+  "prune": true,
+  "islands": [
+   {
+    "mat": ".",
+    "max": 0.3,
+    "lat": 0.12,
+    "end": 2,
+    "y": [
+     0.4,
+     1.2
+    ]
+   }
+  ]
  }
 }
