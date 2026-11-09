@@ -70,8 +70,9 @@ tall x 1/2/3 long. Lily 0.5 x 0.125. Train: front 4.875, five middles 4.5 apart,
 * Water: checked when the hop arc ends (0.19 s): on a log if |x - log.x| < (0.05 + logHitX)/2 (log hit X 1.5 / 2.5 /
   3.5 for 1/2/3-long logs), on a lily if same cell, else drowned.
 * Riding a log: x snaps to the log's cells, then moves with the log. Carried past |x| > 4.5 = dead ("log").
-* Eagle: its clock runs once you have moved; +dt every frame, -1 per forward hop (floor 0), +1 per back hop;
-  over 5 s it swoops at 30 units/s from 20 units ahead and takes you.
+* Eagle (the reference's; NOT IN OURS since 2026-11-08, see "Too far behind"): its clock runs once you have moved; +dt
+  every frame, -1 per forward hop (floor 0), +1 per back hop; over 5 s it swoops at 30 units/s from 20 units ahead and
+  takes you.
 
 ## Lanes (source: level generator, chunk table, strip table)
 * Start: 1 field row, 2 full forest rows, 6 open grass rows, then chunks.
@@ -99,15 +100,13 @@ tall x 1/2/3 long. Lily 0.5 x 0.125. Train: front 4.875, five middles 4.5 apart,
   (the row the player stood on when the reference made it), so the map is the same for both and for the server.
 * Each screen follows its own hopper exactly like the reference; the rival is a whole character with a name tag
   (Owen 2026-10-28), and you pass through each other.
-* Each player has their own eagle clock (5 s, as the reference).
-* First one hit, drowned, carried off or taken by the eagle loses. Both on the same tick: more coins wins (Owen
-  2026-10-28), equal coins is a draw, both refunded.
+* No eagle (Owen 2026-11-08). First one hit, drowned or carried off loses, and so does the one 12 rows behind the
+  other ("Too far behind"). Both out on the same tick: more coins wins (Owen 2026-10-28), equal coins is a draw, both
+  refunded.
 * Pressure ramp: every vehicle, log and train spawn speed is multiplied by 1.0 for the first 45 s of the match,
   then +1.2% per second, capped at 2.0x (reached at 128 s). Measured with the bot-vs-bot harness.
 * Safety stop: 5 minutes, then the one further ahead wins; level = draw.
 * Coins are collected per player and shown, but they do not decide the match. Coins riding on logs are left out.
-* The eagle's clock starts at GO for both players (the reference starts it at your first move, which in a duel would
-  let a player stand still at the start forever).
 * A 3 s countdown before GO.
 * Leaving or losing the connection mid-match forfeits (Knockout's rule; no reconnect grace).
 * The free-table bot (server/crossy/crossyBot.js) plans each crossing as a timed path at a middling pace; alone it
@@ -218,3 +217,28 @@ old careful bot's choice. Each look shares 10,000 search nodes at most. Measured
 (`scripts/crossyBotSim.js`; keyed = maps from a secret key as a match's): solo 200/200 keyed and 200/200 seeded maps
 alive at the stop, 118 rows a minute (p10 114, p90 122), a look 0.05 ms at the 99th percentile of ticks and about 30 ms
 at worst; two bots on one map, 100 matches: neither died in any (both still going at the stop).
+
+## Too far behind (2026-11-08, replaces the eagle)
+
+Owen: "there should be no bird that comes to kill you. If the person you're competing against gets too far in front of
+you, then you lose ... The screen should just follow your character." So:
+
+* The eagle is gone from the rules, the look and the sound. A hopper has no eagle clock; its wire row is 18 numbers
+  (VERSION 5).
+* BEHIND_LOSE = 12 rows (shared/crossySim.js DUEL). The server keeps the row each seat stood on for every tick
+  (CrossyRoom rHist) and judges every tick both timelines have reached, in order (Swim's judge): a death on it first,
+  else the one 12 rows behind the other on it (S.behindOut) loses ("fell behind"). The same both ways; paid duels keep
+  every money rule, only the verdict is new.
+* Picked with `node scripts/crossyBotSim.js` (bot against bot through the real room). A seat that stands still against
+  the bot loses in 6.3 s at the median at 12 rows (5.8 s at 10, 8.3 at 15, 9.6 at 20): about the old eagle's 5 s and
+  Swim's 200 m. Two equal bots, 40 matches at 12: 38 reach the 5 minute stop (the bot no longer dies without the
+  eagle), 2 end by the gap; their widest gap p50 9, p90 11; seats split 25 / 14 / 1 draw (the bots' streams, not the
+  seat: swapped seeds swap it). A faster player (pace 12-24 ticks, 227 rows a minute) beats the free bot 20 of 20 by
+  the gap, a slightly faster one (pace 40-55) 20 of 20, 12 by the gap and 8 at the stop.
+* The camera follows your own hopper: z = player + 7 (where the reference's sat at half a second on the eagle's
+  clock), eased 1 - e^(-4 dt) a frame (a quarter second behind, any frame rate), nothing pushing it on.
+* HUD: the pill after the rival's score says "3 rows ahead" (green), "5 rows behind" (white), amber from 6 behind,
+  red and pulsing from 8 with "Catch up! N rows left" big in the middle and the house warning sound once.
+* The bot keeps the eagle's clock for itself as its patience (it was tuned on it): the same pace (120 rows a minute
+  solo, alive at the stop in 10 of 10), never idle. It watches the gap: 6 behind it halves its pace waits, 9 behind
+  it rushes (forced paths, riskier).

@@ -1,8 +1,9 @@
 'use strict';
 /* ─── One Crossy Road duel ────────────────────────────────────────────────────
    Two hoppers on the same seeded map (shared/crossySim.js) at the same time.
-   The first one hit, drowned, carried off or taken by the eagle loses; both on
-   the same tick is a draw, each seat refunded.
+   The first one hit, drowned or carried off loses, and so does the one that
+   falls S.DUEL.BEHIND_LOSE rows behind the other (no eagle since 2026-11-08);
+   both out on the same tick is a draw, each seat refunded.
 
    THE SEATS AND THE MONEY ARE KNOCKOUT'S. This room extends KnockoutRoom for
    everything that decides who is owed what: addPlayer (the server-recorded
@@ -18,8 +19,10 @@
    behind the server's clock (by their latency). If a person's hops stop
    arriving, their hopper is moved on with nothing pressed once it is LAG_MAX
    ticks behind, so a stalled connection cannot hold the match up or buy time.
-   The two are only ever compared on ticks BOTH timelines have reached: the
-   first tick on which one died decides it. Both on that tick: more coins wins
+   The two are only ever compared on ticks BOTH timelines have reached, tick by
+   tick (Swim's judge): the first tick on which one died, or stood
+   S.DUEL.BEHIND_LOSE rows behind the other (each seat keeps the row it stood on
+   for every tick, rHist), decides it. Both died on that tick: more coins wins
    (Owen 2026-10-28), equal coins is a draw.
 
    WHAT THE SCREENS ARE SENT.
@@ -65,6 +68,7 @@ class CrossyRoom extends KnockoutRoom {
     this.floor = 0;            // the clock the lag allowance is measured from (Swim's: a stall never drives anyone blind)
     this.turn = 0;             // the lobby's match card reads it: rows the leader has reached
     this.endTick = 0;
+    this.judged = -1;          // the last tick judge() has compared on both timelines
   }
 
   /* A seat, as KnockoutRoom makes it, plus its hopper and what it has pressed. The bot's seat (KnockoutLobby gives it
@@ -76,6 +80,7 @@ class CrossyRoom extends KnockoutRoom {
       h: S.newHopper(),
       press: new Int8Array(HIST),
       pressTick: new Int32Array(HIST).fill(-1),
+      rHist: new Int32Array(HIST),   // the row this seat stood on after each tick (by tick % HIST): what judge() compares
       heard: -1,
       bot: isBotId(socket.id) ? new CrossyBot(S.rng(crypto.randomBytes(4).readUInt32LE(0))) : null,
     };
@@ -123,38 +128,67 @@ class CrossyRoom extends KnockoutRoom {
   pressFor(c, tick) {
     return c.pressTick[tick % HIST] === tick ? c.press[tick % HIST] : 0;
   }
+  /* One tick of a seat's hopper, with what it pressed then, and the row it stands on after it kept for judge(). Every
+     step of a seat goes through here. */
+  stepSeat(c, press) {
+    const t = c.h.tick;
+    S.step(this.world, c.h, press);
+    c.rHist[t % HIST] = c.h.r;
+  }
+  other(p) {
+    for (const q of this.players.values()) if (q !== p) return q;
+    return null;
+  }
 
   /* Move one seat's hopper on, as far as its hops (or the lag allowance) let it. */
   advance(p) {
     const c = p.cr, h = c.h;
     if (c.bot) {
-      while (h.tick < Math.min(this.clock, S.DUEL.MAX_TICKS + 1) && h.alive) S.step(this.world, h, c.bot.input(this.world, h));
+      // The bot keeps an eye on the gap, as a person does on the screen: the row the rival stands on, as the server has it.
+      const o = this.other(p);
+      c.bot.rivalR = o && o.cr && o.cr.h.alive ? o.cr.h.r : null;
+      while (h.tick < Math.min(this.clock, S.DUEL.MAX_TICKS + 1) && h.alive) this.stepSeat(c, c.bot.input(this.world, h));
       return;
     }
     const upTo = Math.min(this.clock, Math.max(c.heard + 1, this.floor - LAG_MAX), S.DUEL.MAX_TICKS + 1);
-    while (h.tick < upTo && h.alive) S.step(this.world, h, this.pressFor(c, h.tick));
+    while (h.tick < upTo && h.alive) this.stepSeat(c, this.pressFor(c, h.tick));
   }
 
-  /* Decided once both timelines have reached the first death: the one that died first loses; both on the same tick
-     is a draw. Returns true once it is decided. */
+  /* Every tick both timelines have reached, in order (Swim's judge): a death on it decides it (the one that died loses;
+     both on the same tick, the coins), else standing S.DUEL.BEHIND_LOSE rows behind the other on it does (the one behind
+     loses: S.behindOut). Returns true once it is decided. */
   judge() {
     const a = this.bySide(0), b = this.bySide(1);
     if (!a || !b) return false;
     const ha = a.cr.h, hb = b.cr.h;
     const known = (h) => (h.alive ? h.tick - 1 : Infinity);
     const crash = (h) => (h.alive ? Infinity : h.deadTick);
-    const first = Math.min(crash(ha), crash(hb));
-    if (first < Infinity && first <= Math.min(known(ha), known(hb))) {
-      this.endTick = first;
-      if (crash(ha) === crash(hb)) {
-        // Both out on the same tick: the coins decide it (Owen 2026-10-28); level coins is a draw.
-        if (ha.coins === hb.coins) this.finish(null, 'both out');
-        else this.finish(this.seats[ha.coins > hb.coins ? 0 : 1].id, 'more coins');
-      } else this.finish(this.seats[crash(ha) === first ? 1 : 0].id, why(crash(ha) === first ? ha : hb));
-      return true;
+    const ca = crash(ha), cb = crash(hb);
+    // Up to the tick both have reached (a dead hopper's timeline is known to its end), never past the stop.
+    const upTo = Math.min(known(ha), known(hb), Math.max(ca, cb), S.DUEL.MAX_TICKS);
+    // Never further back than the rows kept hold (the further timeline has written over older ticks).
+    const start = Math.max(this.judged + 1, Math.max(ha.tick, hb.tick) - HIST + 1);
+    for (let t = start; t <= upTo; t++) {
+      if (ca <= t || cb <= t) {
+        const first = Math.min(ca, cb);
+        this.endTick = first;
+        if (ca === cb) {
+          // Both out on the same tick: the coins decide it (Owen 2026-10-28); level coins is a draw.
+          if (ha.coins === hb.coins) this.finish(null, 'both out');
+          else this.finish(this.seats[ha.coins > hb.coins ? 0 : 1].id, 'more coins');
+        } else this.finish(this.seats[ca === first ? 1 : 0].id, why(ca === first ? ha : hb));
+        return true;
+      }
+      const out = S.behindOut(a.cr.rHist[t % HIST], b.cr.rHist[t % HIST]);
+      if (out >= 0) {
+        this.endTick = t;
+        this.finish(this.seats[1 - out].id, 'fell behind');
+        return true;
+      }
+      this.judged = t;
     }
     // The safety stop: five minutes with both still going, the one further ahead wins, level is a draw.
-    if (Math.min(known(ha), known(hb)) >= S.DUEL.MAX_TICKS) {
+    if (this.judged >= S.DUEL.MAX_TICKS) {
       this.endTick = S.DUEL.MAX_TICKS;
       const sa = S.score(ha) * 1e6 + ha.coins, sb = S.score(hb) * 1e6 + hb.coins;   // further along, then coins
       this.finish(sa === sb ? null : this.seats[sa > sb ? 0 : 1].id, 'time');
@@ -262,13 +296,13 @@ class CrossyRoom extends KnockoutRoom {
       p.cr.left = true;
       p.cr.heard = Math.min(p.cr.heard, this.clock);     // nothing more counts from the seat that left
       const h = p.cr.h;
-      while (h.tick < this.clock && h.alive) S.step(this.world, h, this.pressFor(p.cr, h.tick));
+      while (h.tick < this.clock && h.alive) this.stepSeat(p.cr, this.pressFor(p.cr, h.tick));
       /* The other seat walked out first and its death is still to be judged (leftId): its hopper too is stepped to the
          clock with what it sent, so a death either timeline decides still decides it. If neither does, the FIRST to walk
          out is the leaver and this seat is paid, as in every other duel (Fable review 2026-10-28 of the reconnect grace:
          this leave used to take over leftId, and leftCheck then paid the first leaver as "the one who stayed"). */
       const first = this.leftId && this.leftId !== socketId ? this.players.get(this.leftId) : null;
-      if (first) { const fh = first.cr.h; while (fh.tick < this.clock && fh.alive) S.step(this.world, fh, this.pressFor(first.cr, fh.tick)); }
+      if (first) { const fh = first.cr.h; while (fh.tick < this.clock && fh.alive) this.stepSeat(first.cr, this.pressFor(first.cr, fh.tick)); }
       if (this.judge()) { this.players.delete(socketId); return; }
       if (first) { const id = this.leftId; this.leftId = null; super.removePlayer(id); return; }
       this.leftAt = this.clock; this.leftId = socketId;
@@ -289,7 +323,7 @@ class CrossyRoom extends KnockoutRoom {
     for (const q of this.players.values()) {
       if (q === leaver || q.cr.bot) continue;
       const until = Math.min(this.clock, Math.max(this.leftAt, leaver && !leaver.cr.h.alive ? leaver.cr.h.deadTick + 1 : 0));
-      while (q.cr.h.tick < until && q.cr.h.alive) S.step(this.world, q.cr.h, this.pressFor(q.cr, q.cr.h.tick));
+      while (q.cr.h.tick < until && q.cr.h.alive) this.stepSeat(q.cr, this.pressFor(q.cr, q.cr.h.tick));
     }
     if (this.judge()) return;
     if (leaver) leaver.cr.left = false;
@@ -315,7 +349,7 @@ class CrossyRoom extends KnockoutRoom {
       if (p.cr.bot) continue;
       const h = p.cr.h;
       p.cr.heard = Math.min(p.cr.heard, this.clock);
-      while (h.tick < this.clock && h.alive) S.step(this.world, h, this.pressFor(p.cr, h.tick));
+      while (h.tick < this.clock && h.alive) this.stepSeat(p.cr, this.pressFor(p.cr, h.tick));
     }
     if (this.judge()) return;
     super.bothGone();
@@ -381,7 +415,7 @@ class CrossyRoom extends KnockoutRoom {
 
 // What a hopper died of, in the words the result card uses.
 function why(h) {
-  return ({ car: 'hit by a car', train: 'hit by a train', water: 'fell in the river', log: 'carried off the edge', eagle: 'taken by the eagle' })[h.death] || 'out';
+  return ({ car: 'hit by a car', train: 'hit by a train', water: 'fell in the river', log: 'carried off the edge' })[h.death] || 'out';
 }
 
 module.exports = { CrossyRoom, LAG_MAX, LEAD_MAX, HIST };

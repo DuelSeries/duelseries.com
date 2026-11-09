@@ -36,7 +36,7 @@ function sock(id) { const sent = []; return { id, sent, join() {}, leave() {}, e
 const keyOf = (s, ev) => { const m = s.sent.filter(x => x.e === ev + ':seat').pop(); return m ? m.p.key : null; };
 const lastTo = (s, e) => s.sent.filter(x => x.e === e).pop();
 
-/* Crossy's test map: an empty field, nothing but the eagle (test/crossy.test.js handWorld). */
+/* Crossy's test map: an empty field (test/crossy.test.js handWorld). */
 function handWorld() {
   const w = new CS.World(1);
   w.next = 1e9;
@@ -44,8 +44,9 @@ function handWorld() {
   return new Proxy(w, { get(t, k) { if (k === 'row') return (r) => t.rows.get(r) || (t.rows.set(r, blank(r)), t.rows.get(r)); return t[k]; } });
 }
 
-/* Each game: its lobby, its event prefix, and how long until it is being played. Crossy's seats are fed hops (a
-   forward hop every half second keeps the eagle off a seat that is still connected). */
+/* Each game: its lobby, its event prefix, and how long until it is being played. Crossy's connected seats tell the
+   server how far they have got every tick and hop only where a test plans it (env.plan: seat id to (tick) => move),
+   so nobody falls behind unless a test means it (no eagle since 2026-11-08). */
 const GAMES = {
   rooftop: { Lobby: RooftopLobby, ev: 'rt', on: RT.READY_MS + 300 },
   airhockey: { Lobby: AirHockeyLobby, ev: 'ah', on: AH.COUNTDOWN_MS + 300 },
@@ -76,7 +77,10 @@ function runTo(env, until) {
   for (let t = env.t + STEP; t <= until; t += STEP) {
     if (room.ev === 'cr' && room.state === 'playing') {
       const tick = Math.max(0, Math.floor((t - room.goAt) / CS.TICK_MS) - 1);
-      for (const id of env.live) room.input(id, { t: tick, h: tick % 30 === 0 ? [[tick, CS.IN.FWD]] : [] });
+      for (const id of env.live) {
+        const m = env.plan && env.plan[id] ? env.plan[id](tick) : 0;
+        room.input(id, { t: tick, h: m ? [[tick, m]] : [] });
+      }
     }
     lob.tick(t);
     env.t = t;
@@ -85,8 +89,7 @@ function runTo(env, until) {
 }
 function drop(env, id) {
   env.live.delete(id);
-  // Crossy: a dropped hopper stands still; its eagle is pushed out of the way so the grace, not the eagle, is tested.
-  if (env.room.ev === 'cr') { const p = env.room.players.get(id); if (p) p.cr.h.eagle = -60; }
+  // Crossy: a dropped hopper stands still (it is moved on with nothing pressed).
   return env.lob.drop(id, env.t);
 }
 
@@ -263,16 +266,20 @@ test('pool8: a drop during the result hold settles by the verdict, whether the h
 test('crossy: a match decided inside the grace settles by its result, to the seat that dropped', () => {
   const env = setup('crossy', 1);
   const { room, settled } = env;
-  runTo(env, CS.DUEL.COUNTDOWN_MS + 300);
+  // A hops 11 rows ahead (every 20 ticks) while Bob stands, then drops: A stands still from there.
+  env.plan = { A: (tick) => (tick % 20 === 0 && tick <= 200 ? CS.IN.FWD : 0) };
+  runTo(env, CS.DUEL.COUNTDOWN_MS + 4300);
+  assert.strictEqual(room.state, 'playing', '11 rows behind is still in');
   const T = env.t;
-  drop(env, 'A');                                // A stands still (its eagle pushed back)
-  env.live.delete('B');                          // and Bob, still connected, stops hopping a second from the eagle
-  room.players.get('B').cr.h.eagle = CS.C.EAGLE_S - 1;
+  drop(env, 'A');
+  // Bob, still connected, hops back a row: 12 behind A.
+  let back = true;
+  env.plan = { B: () => (back ? (back = false, CS.IN.BACK) : 0) };
   runTo(env, T + GRACE - 1);
   assert.strictEqual(room.state, 'over', 'decided inside the grace');
   assert.strictEqual(settled.length, 1);
   assert.strictEqual(settled[0].winnerId, 'A', 'the result, not who was connected');
-  assert.strictEqual(settled[0].why, 'taken by the eagle');
+  assert.strictEqual(settled[0].why, 'fell behind');
 });
 
 /* ── around the grace ─────────────────────────────────────────────────── */
@@ -371,15 +378,17 @@ test('crossy: both seats run out one after the other: the first to run out is th
   assert.strictEqual(env2.settled.length, 1);
   assert.strictEqual(env2.settled[0].winnerId, 'B');
   const env3 = setup('crossy', 1);
-  runTo(env3, env3.g.on + 500);
+  env3.plan = { A: (tick) => (tick % 20 === 0 && tick <= 200 ? CS.IN.FWD : 0) };   // A 11 rows ahead
+  runTo(env3, env3.g.on + 4000);
+  assert.strictEqual(env3.room.state, 'playing');
   env3.room.removePlayer('A');
-  env3.room.players.get('B').cr.h.eagle = CS.C.EAGLE_S + 1;   // B's standing hopper is taken on its next step
-  env3.live.delete('B');
+  let back = true;
+  env3.plan = { B: () => (back ? (back = false, CS.IN.BACK) : 0) };   // B hops back to 12 behind on its next tick
   runTo(env3, env3.t + 100);
   env3.room.removePlayer('B');
   assert.strictEqual(env3.settled.length, 1);
-  assert.strictEqual(env3.settled[0].winnerId, 'A', 'the timelines decided it: B died, A is paid');
-  assert.strictEqual(env3.settled[0].why, 'taken by the eagle');
+  assert.strictEqual(env3.settled[0].winnerId, 'A', 'the timelines decided it: B fell behind, A is paid');
+  assert.strictEqual(env3.settled[0].why, 'fell behind');
 });
 
 test('the free bot match: a drop is held too, a resume plays on, no resume hands it to the bot with no money', () => {

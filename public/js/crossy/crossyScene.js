@@ -299,21 +299,6 @@ const CAST = window.DS_CROSSY_CAST;
 function castOf(look) { const [id, alt] = String(look || 'chicken').split(':'); return { id, alt: alt === 'alt' }; }
 function critterGeo(look) { const c = castOf(look); return boxes(CAST.model(c.id, c.alt)); }
 
-// The eagle: our own bird (a slate hawk), wings out, 2.9 across like the reference's.
-function eagleGeo() {
-  const dark = 0x3a4250, dark2 = 0x2a303b, white = 0xf2efe6, beak = 0xffb02e;
-  return boxes([
-    B(0, 0, 0, 0.5, 0.42, 0.9, dark, { side: dark2 }),
-    B(0, 0.1, -0.6, 0.36, 0.36, 0.36, white),
-    B(0, 0.16, -0.84, 0.14, 0.12, 0.14, beak),
-    B(-0.11, 0.3, -0.79, 0.06, 0.06, 0.02, 0x111111), B(0.11, 0.3, -0.79, 0.06, 0.06, 0.02, 0x111111),
-    B(-0.85, 0.24, 0.05, 1.2, 0.08, 0.6, dark, { side: dark2 }), B(0.85, 0.24, 0.05, 1.2, 0.08, 0.6, dark, { side: dark2 }),
-    B(-1.5, 0.22, 0.12, 0.3, 0.06, 0.4, white), B(1.5, 0.22, 0.12, 0.3, 0.06, 0.4, white),
-    B(0, 0.08, 0.6, 0.4, 0.08, 0.36, white),
-    B(-0.12, -0.12, -0.2, 0.08, 0.14, 0.08, beak), B(0.12, -0.12, -0.2, 0.08, 0.14, 0.08, beak),
-  ]);
-}
-
 /* ── strips (the rows' ground), measured layer by layer ──────────────────── */
 function stripGeo(row, prev) {
   const h = row.h, list = [];
@@ -583,9 +568,6 @@ export function createScene(canvas) {
     return { holder, solid, sh, squash: new THREE.Vector3(1, 1, 1), look: null, dead: null, carry: null, landKey: null };
   });
   const FACE = { 1: 0, 2: Math.PI, 3: Math.PI / 2, 4: -Math.PI / 2 };
-  const eagle = new THREE.Mesh(eagleGeo(), MAT);
-  eagle.visible = false;
-  scene.add(eagle);
   // The splash (70 blue boxes, the reference's drown burst) and the feathers (the chicken's, in its own colours).
   const splash = [0, 1].map(() => makeBurst(scene, 70, 0x449eff, [0.15, 0.15, 0.15], { acc: 1.9, grav: 0.3, size: 0.9, dir: [0, 1.5, 0], ground: true }));
   const feathers = [0, 1].map(() => ({}));
@@ -635,9 +617,6 @@ export function createScene(canvas) {
         // Sinks: 0.5 - easeOutQuint over 1 s to 1.4 down (the reference's drown), then gone.
         y = 0.5 - easeOutQuint(t) * 1.4;
         if (t > 1.05) c.holder.visible = false;
-      } else if (dead.type === 'eagle') {
-        const ez = b.z - 20 + t * 30;
-        if (ez >= b.z) { z = ez; y = b.y + 0.2 + (ez - b.z) * 0.12; }
       }
     }
     const f = Math.min(0.5, 15 * dt);
@@ -687,15 +666,6 @@ export function createScene(canvas) {
   }
   function hideHopper(k) { crit[k].holder.visible = false; crit[k].sh.visible = false; }
 
-  /* The eagle swoops from 20 ahead at 30 units a second (the reference's), takes the hopper and flies on. */
-  function drawEagle(on, x, z, age) {
-    eagle.visible = on;
-    if (!on) return;
-    const ez = z - 20 + age * 30;
-    eagle.position.set(x, ez < z ? 2.2 - Math.max(0, 1 - (z - ez) / 6) * 0.6 : 1.6 + (ez - z) * 0.12, ez);
-    eagle.rotation.y = Math.PI;
-  }
-
   /* ── the camera (the reference's resize and follow loop) ─────────────── */
   let W = 1, H = 1;
   function resize(w, h, dpr) {
@@ -712,27 +682,30 @@ export function createScene(canvas) {
     camera.left = -3.6 * a; camera.right = 3.6 * a; camera.top = 3.6 * a / aspect; camera.bottom = -3.6 * a / aspect;
     camera.updateProjectionMatrix();
   }
-  /* Follow: x and z ease toward the target by dt a frame (the reference's lerp(.., .., deltaTime)). A dead hopper's
-     camera eases in to 1.5 zoom on where it is drawn (the death cam: + (2.388232, 10.25858, 8)); one carried by a
-     train is followed only while it is within 5 of the middle (the reference's). */
-  function follow(b, eagleT, dt, dead, seat) {
+  /* Follow (Owen 2026-11-08: "the screen should just follow your character"): the camera rides your own hopper, a
+     fixed way behind it, and nothing pushes it on. The reference's camera crept ahead on the eagle's clock
+     (z = player + 4 + (4 - (eagle + 0.5))) and eased by dt a frame, a second behind; ours stays where the reference's
+     sat at half a second on that clock (player + 7) and eases a quarter of a second behind, the same at any frame
+     rate, so a quick run never leaves you near the bottom edge. A dead hopper's camera eases in to 1.5 zoom on where
+     it is drawn (the death cam: + (2.388232, 10.25858, 8)); one carried by a train is followed only while it is within
+     5 of the middle (the reference's). */
+  const FOLLOW_Z = 7, FOLLOW_RATE = 4;
+  function follow(b, dt, dead, seat) {
     const tx = 2.388232 + cam.xExtra + b.x;
-    const tz = b.z + 4 + (4 - (eagleT + 0.5));
+    const tz = b.z + FOLLOW_Z;
     cam.y = 10.25858 + cam.yExtra;
     let zoom = cam.zoom;
     if (!cam.ready) { cam.x = tx; cam.z = tz; cam.ready = true; cam.deadZoom = cam.zoom; }
     if (dead) {
       cam.deadZoom += (1.5 - cam.deadZoom) * Math.min(1, dt * 2);
       zoom = cam.deadZoom;
-      if (dead.type !== 'eagle') {
-        const p = seat >= 0 ? crit[seat].holder.position : b;
-        const px = dead.type === 'train' ? Math.max(-5, Math.min(5, p.x)) : p.x;
-        const k = Math.min(1, dt * 1.5);
-        cam.x += (px + 2.388232 - cam.x) * k; cam.z += (b.z + 8 - cam.z) * k;
-      }
+      const p = seat >= 0 ? crit[seat].holder.position : b;
+      const px = dead.type === 'train' ? Math.max(-5, Math.min(5, p.x)) : p.x;
+      const k = Math.min(1, dt * 1.5);
+      cam.x += (px + 2.388232 - cam.x) * k; cam.z += (b.z + 8 - cam.z) * k;
     } else {
       cam.deadZoom = cam.zoom;
-      const k = Math.min(1, dt);
+      const k = 1 - Math.exp(-dt * FOLLOW_RATE);
       cam.x += (tx - cam.x) * k; cam.z += (tz - cam.z) * k;
     }
     camera.position.set(cam.x, cam.y, cam.z);
@@ -786,6 +759,6 @@ export function createScene(canvas) {
     renderer.render(scene, camera);
   }
 
-  return { renderer, scene, camera, resize, follow, render, setWorld, drawHopper, hideHopper, drawEagle, takeCoin, resetCoins, setLooks,
+  return { renderer, scene, camera, resize, follow, render, setWorld, drawHopper, hideHopper, takeCoin, resetCoins, setLooks,
     size: () => ({ w: W, h: H }) };
 }

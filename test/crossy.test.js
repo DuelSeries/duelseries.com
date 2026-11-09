@@ -96,20 +96,24 @@ test('a hop: one cell, the next only after 9 ticks, a blocked move waits (and is
   assert.strictEqual(g.x, 4, 'snapped to the cell on grass');
 });
 
-test('the eagle comes after 5 s without moving forward; a forward hop buys a second, a back hop costs one', () => {
+test('no eagle (Owen 2026-11-08): standing still on grass for the whole five minutes never takes you', () => {
   const w = handWorld({});
   const h = S.newHopper();
-  for (let i = 0; i < 302 && h.alive; i++) S.step(w, h, 0);
-  assert.strictEqual(h.alive, false);
-  assert.strictEqual(h.death, 'eagle');
-  assert.strictEqual(h.deadTick, 300, 'the eagle comes once its clock is past 5 s');
-  const g = S.newHopper();
-  for (let i = 0; i < 240; i++) S.step(w, g, 0);
-  S.step(w, g, IN.FWD);
-  assert.ok(Math.abs(g.eagle - (241 / 60 - 1)) < 1e-9);
-  for (let i = 0; i < 9; i++) S.step(w, g, 0);
-  S.step(w, g, IN.BACK);
-  assert.ok(g.eagle > 241 / 60 - 1 + 9 / 60 + 1 - 1e-9);
+  for (let i = 0; i < S.DUEL.MAX_TICKS; i++) S.step(w, h, 0);
+  assert.strictEqual(h.alive, true);
+  assert.strictEqual(h.death, '');
+  assert.ok(!('eagle' in h), 'a hopper has no eagle clock');
+  assert.strictEqual(S.packHopper(h).length, 18, 'and the wire row has no slot for one');
+});
+
+test('too far behind: BEHIND_LOSE rows between where the two stand puts the one behind out, either side', () => {
+  const L = S.DUEL.BEHIND_LOSE;
+  assert.strictEqual(L, 12);
+  assert.strictEqual(S.behindOut(-2, -2), -1);
+  assert.strictEqual(S.behindOut(-2, -2 + L - 1), -1, 'one short of the limit is still in');
+  assert.strictEqual(S.behindOut(-2, -2 + L), 0, 'side 0 out');
+  assert.strictEqual(S.behindOut(30 + L, 30), 1, 'side 1 out');
+  assert.strictEqual(S.behindOut(30 + L + 5, 30), 1);
 });
 
 test('a car on the target cell is a hit at once; the next lane over is not', () => {
@@ -147,7 +151,6 @@ test('water: landing with no log or lily drowns when the arc ends (14 ticks); a 
   assert.ok(L, 'a log is in the field');
   const g = S.newHopper(); g.x = Math.round(L.x);
   S.step(w2, g, IN.FWD);
-  g.eagle = -1e9;                                // no eagle in this one
   assert.ok(g.log >= 0, 'on the log');
   const x0 = g.x;
   for (let i = 0; i < 60 && g.alive; i++) S.step(w2, g, 0);
@@ -162,7 +165,7 @@ test('a hop from a log onto a lily lands on the lily (it used to drown every tim
   const w = handWorld({ [-1]: logs, [0]: lily });
   const L = S.logsAt(logs, 0, []).find(l => Math.abs(l.x) < 3);
   assert.ok(L, 'a log is in the field');
-  const h = S.newHopper(); h.x = Math.round(L.x); h.eagle = -1e9;
+  const h = S.newHopper(); h.x = Math.round(L.x);
   S.step(w, h, IN.FWD);
   assert.ok(h.log >= 0, 'on the log');
   for (let i = 0; i < 20; i++) S.step(w, h, 0);
@@ -186,10 +189,10 @@ test('a hopper packs and unpacks to the same hopper', () => {
 });
 
 /* ── the room: two timelines ───────────────────────────────────────────── */
-function duel(now) {
+function duel(now, rows) {
   const io = fakeIo();
   const room = new CrossyRoom(io);
-  room.world = handWorld({});          // an empty field: nothing but the eagle
+  room.world = handWorld(rows || {});  // an empty field unless rows are given
   room.addPlayer(sock('a'), 'Ann', 'WA', 1, 1);
   room.addPlayer(sock('b'), 'Bob', 'WB', 1, 1);
   room.stake = 1;
@@ -200,10 +203,10 @@ function duel(now) {
 }
 const at = (room, tick) => room.goAt + tick * S.TICK_MS + 0.5;
 
-test('the first one out loses; it is only decided once both timelines have reached that tick', () => {
+test('falling BEHIND_LOSE rows behind loses, on the tick it happens, with both timelines there', () => {
   const { room, settles } = duel(1000);
   room.tick(at(room, 0));
-  // Ann hops forward every 30 ticks; Bob never does, so the eagle takes him at tick 300.
+  // Ann hops forward every 30 ticks; Bob never does: her 12th hop (tick 330) puts him 12 rows behind.
   for (let t = 1; t <= 400 && room.state === 'playing'; t++) {
     room.input('a', { t: t - 1, h: (t - 1) % 30 === 0 ? [[t - 1, IN.FWD]] : [] });
     room.input('b', { t: t - 1 });
@@ -211,16 +214,40 @@ test('the first one out loses; it is only decided once both timelines have reach
   }
   assert.strictEqual(room.state, 'over');
   assert.strictEqual(room.winner, 'a');
-  assert.strictEqual(room.endTick, 300);
+  assert.strictEqual(room.overWhy, 'fell behind');
+  assert.strictEqual(room.endTick, 330);
   assert.strictEqual(settles.length, 1);
   assert.strictEqual(settles[0].pot, 2);
 });
 
-test('both out on the same tick is a draw, and settles once', () => {
-  const { room, settles, io } = duel(1000);
+test('the gap is judged on the tick both stood there: a hop back to 12 behind ends it', () => {
+  const { room } = duel(1000);
   room.tick(at(room, 0));
-  for (let t = 1; t <= 320 && room.state === 'playing'; t++) {
-    room.input('a', { t: t - 1 }); room.input('b', { t: t - 1 });
+  // Ann gets 11 ahead; Bob stands still.
+  for (let t = 1; t <= 330 && room.state === 'playing'; t++) {
+    room.input('a', { t: t - 1, h: (t - 1) % 30 === 0 && t < 320 ? [[t - 1, IN.FWD]] : [] });
+    room.input('b', { t: t - 1 });
+    room.tick(at(room, t));
+  }
+  assert.strictEqual(room.state, 'playing', '11 rows is not 12');
+  // Bob hops back once: on that tick he is 12 behind, and that ends it.
+  room.input('a', { t: 330 });
+  room.input('b', { t: 330, h: [[330, IN.BACK]] });
+  for (let t = 331; t <= 334; t++) { room.input('a', { t }); room.input('b', { t }); room.tick(at(room, t)); }
+  assert.strictEqual(room.state, 'over');
+  assert.strictEqual(room.winner, 'a');
+  assert.strictEqual(room.overWhy, 'fell behind');
+  assert.strictEqual(room.endTick, 330);
+});
+
+/* Both hop into the same road on tick 0 and stand there: the same car hits both on the same tick. */
+const ROAD = () => ({ [-1]: { kind: 'road', type: 'car', h: 0.25, dir: 1, speed: 2, t0: -3, mini: 0, gapN: 0, spawns: [], car: { id: 'sedan', hx: 1.6 } } });
+
+test('both out on the same tick is a draw, and settles once', () => {
+  const { room, settles, io } = duel(1000, ROAD());
+  room.tick(at(room, 0));
+  for (let t = 1; t <= 400 && room.state === 'playing'; t++) {
+    room.input('a', { t: t - 1, h: t === 1 ? [[0, IN.FWD]] : [] }); room.input('b', { t: t - 1, h: t === 1 ? [[0, IN.FWD]] : [] });
     room.tick(at(room, t));
   }
   assert.strictEqual(room.state, 'over');
@@ -236,12 +263,12 @@ test('both out on the same tick is a draw, and settles once', () => {
 });
 
 test('both out on the same tick with more coins wins (Owen 2026-10-28)', () => {
-  const { room, settles } = duel(1000);
+  const { room, settles } = duel(1000, ROAD());
   room.tick(at(room, 0));
   room.players.get('b').cr.h.coins = 2;
   room.players.get('a').cr.h.coins = 1;
-  for (let t = 1; t <= 320 && room.state === 'playing'; t++) {
-    room.input('a', { t: t - 1 }); room.input('b', { t: t - 1 });
+  for (let t = 1; t <= 400 && room.state === 'playing'; t++) {
+    room.input('a', { t: t - 1, h: t === 1 ? [[0, IN.FWD]] : [] }); room.input('b', { t: t - 1, h: t === 1 ? [[0, IN.FWD]] : [] });
     room.tick(at(room, t));
   }
   assert.strictEqual(room.winner, 'b');
@@ -290,16 +317,16 @@ test('walking out forfeits to the one who stayed, while both are still alive', (
 });
 
 test('a slow event loop cannot let a silent seat trail without limit (Opus review 2026-10-28)', () => {
-  // A sends nothing (the eagle takes it at 300); B hops on time and dies later. Ticked at 20 Hz, A is still judged.
+  // A sends nothing (it stands still); B hops on time and gets 12 ahead. Ticked at 20 Hz, A is still judged.
   const { room } = duel(1000);
   room.tick(at(room, 0));
   for (let t = 3; t <= 420 && room.state === 'playing'; t += 3) {
-    room.input('b', { t: t - 1, h: (t - 3) % 30 === 0 && t < 330 ? [[t - 1, IN.FWD]] : [] });
+    room.input('b', { t: t - 1, h: (t - 3) % 30 === 0 && t < 360 ? [[t - 1, IN.FWD]] : [] });
     room.tick(at(room, t));
   }
   assert.strictEqual(room.state, 'over');
   assert.strictEqual(room.winner, 'b');
-  assert.strictEqual(room.overWhy, 'taken by the eagle');
+  assert.strictEqual(room.overWhy, 'fell behind');
 });
 
 test('a room that throws ends as a draw with refunds, and takes nothing else down', () => {
@@ -311,33 +338,41 @@ test('a room that throws ends as a draw with refunds, and takes nothing else dow
   assert.strictEqual(settles[0].winnerId, null);
 });
 
-test('leaving never undoes a death the timelines decide (Fable review 2026-10-28)', () => {
-  // B is taken by the eagle at tick 300; A has been hopping forward but its timeline trails. A leaves at once:
-  // stepped to the clock with what it sent, A is alive past 300, so B was out first and A is paid.
+test('leaving never undoes a loss the timelines decide (Fable review 2026-10-28)', () => {
+  // A hops 11 ahead, goes quiet (its timeline trails the clock), sends its 12th hop for a tick its timeline has not
+  // reached, and leaves at once: stepped to the clock with what it sent, B was 12 behind first, and A is paid.
   const x = duel(1000);
   x.room.tick(at(x.room, 0));
-  for (let t = 1; t <= 305; t++) {
-    if (t < 280) x.room.input('a', { t: t - 1, h: (t - 1) % 30 === 0 ? [[t - 1, IN.FWD]] : [] });
+  for (let t = 1; t <= 300; t++) {
+    if (t <= 220) x.room.input('a', { t: t - 1, h: (t - 1) % 20 === 0 ? [[t - 1, IN.FWD]] : [] });
     x.room.input('b', { t: t - 1 });
     x.room.tick(at(x.room, t));
   }
-  assert.strictEqual(x.room.state, 'playing', 'not judged yet: A trails');
+  const ah = x.room.players.get('a').cr.h;
+  assert.strictEqual(x.room.state, 'playing', '11 ahead: not over');
+  assert.ok(ah.tick < 296, 'A trails: ' + ah.tick);
+  x.room.input('a', { t: 299, h: [[296, IN.FWD]] });
   x.room.removePlayer('a');
   assert.strictEqual(x.room.winner, 'a');
+  assert.strictEqual(x.room.overWhy, 'fell behind');
   assert.strictEqual(x.settles[0].winnerId, 'a');
-  // A is out (eagle at 300) ahead of B's timeline, then leaves: B is judged as its hops arrive, alive past 300, wins.
+  // B is 11 ahead with its timeline trailing; A leaves; B's 12th hop, for a tick before the leave, then arrives: A was
+  // out first on the timelines, so B wins it as a win, not as a walk-out.
   const y = duel(1000);
   y.room.tick(at(y.room, 0));
-  for (let t = 1; t <= 310; t++) {
+  for (let t = 1; t <= 300; t++) {
     y.room.input('a', { t: t - 1 });
-    if (t < 250) y.room.input('b', { t: t - 1, h: (t - 1) % 30 === 0 ? [[t - 1, IN.FWD]] : [] });
+    if (t <= 220) y.room.input('b', { t: t - 1, h: (t - 1) % 20 === 0 ? [[t - 1, IN.FWD]] : [] });
     y.room.tick(at(y.room, t));
   }
-  assert.ok(!y.room.players.get('a').cr.h.alive);
+  const bh = y.room.players.get('b').cr.h;
+  assert.ok(bh.tick < 296, 'B trails: ' + bh.tick);
   y.room.removePlayer('a');
   assert.strictEqual(y.settles.length, 0, 'kept until the timeline of B gets there');
-  for (let t = 311; t <= 330 && y.room.state === 'playing'; t++) { y.room.input('b', { t: t - 1 }); y.room.tick(at(y.room, t)); }
+  y.room.input('b', { t: 299, h: [[296, IN.FWD]] });
+  for (let t = 301; t <= 320 && y.room.state === 'playing'; t++) { y.room.input('b', { t: t - 1 }); y.room.tick(at(y.room, t)); }
   assert.strictEqual(y.room.winner, 'b');
+  assert.strictEqual(y.room.overWhy, 'fell behind');
   assert.strictEqual(y.settles.length, 1);
 });
 

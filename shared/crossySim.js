@@ -1,7 +1,10 @@
 /* ─── Crossy Road: the one step (server, bot and page) ─────────────────────────
    Two hoppers on the SAME seeded map at the same time. The first one hit,
-   drowned, carried off the edge or taken by the eagle loses; both on the same
-   tick is a draw (server/crossy/CrossyRoom.js judges it).
+   drowned or carried off the edge loses, and so does one that falls
+   DUEL.BEHIND_LOSE rows behind the other (Owen 2026-11-08: no eagle, "if the
+   person you're competing against gets too far in front of you, then you
+   lose"); both on the same tick is a draw (server/crossy/CrossyRoom.js judges
+   it, tick by tick on both timelines, with behindOut below).
 
    EVERY NUMBER HERE IS THE REFERENCE'S (Poki's Crossy Road, the "original"
    world), read from its decoded source or measured from it running headless:
@@ -26,8 +29,9 @@
   /* The step's version. A page running an older step would predict a different
      game from the one the server judges, so the server only seats a page that
      says this number (cr:queue v). Bump it with any change to the rules. */
-  const VERSION = 4;                    // 2: the map comes as lanes (packRow), never as a seed; 3: x rounds off a log over water;
-                                        // 4: a hop from a log onto a lily lands (it drowned: the water was never cleared)
+  const VERSION = 5;                    // 2: the map comes as lanes (packRow), never as a seed; 3: x rounds off a log over water;
+                                        // 4: a hop from a log onto a lily lands (it drowned: the water was never cleared);
+                                        // 5: no eagle (no eagle clock, the wire row one shorter); too far behind loses
 
   const HZ = 60;
   const DT = 1 / HZ;
@@ -44,8 +48,6 @@
     SIDE: 3.5,               // a side hop only while target x < 3.5 (or > -3.5)
     START_ROW: -2,           // targetPosition (0, 0.375, 2): row = -z
     BACK_ROW: -4,            // back only while target z <= 4
-    EAGLE_S: 5,              // eagle timeOut
-    EAGLE_SPEED: 30,
     SPAWN_X: 12.5,           // xSpawnDistance
     CAR_GONE: 14,            // pooled past |x| > 14
     CAR_GAP: 12, CAR_MINI_GAP: 6,
@@ -113,7 +115,16 @@
     RAMP_RATE: 0.012,        // +1.2% a second
     RAMP_MAX: 2.0,           // reached at 45 + 1/0.012 = 128.3 s
     MAX_TICKS: 5 * 60 * HZ,  // safety stop: 5 minutes, then the one further ahead wins
+    /* CHOSEN 2026-11-08 (Owen: no eagle; the one too far behind loses, Swim's 200 m rule in rows). The rows between where
+       the two stand (h.r) that end it: the one this many rows behind the other loses. Picked by bot against bot
+       (scripts/crossyBotSim.js): docs/crossy-reference.md "Too far behind". */
+    BEHIND_LOSE: 12,
   };
+  /* Who is out for being too far behind, from the rows the two stand on (side 0's, side 1's) on the same tick: 0 or 1,
+     or -1 for neither. The room asks it of every tick both timelines have reached (server/crossy/CrossyRoom.js judge). */
+  function behindOut(r0, r1) {
+    return r1 - r0 >= DUEL.BEHIND_LOSE ? 0 : r0 - r1 >= DUEL.BEHIND_LOSE ? 1 : -1;
+  }
 
   /* ── a seeded generator (mulberry32) ───────────────────────────────────── */
   function rng(seed) {
@@ -475,7 +486,6 @@
       water: false, waterAt: 0,
       log: -1,                 // the log being ridden (its spawn index on this row), or -1
       lily: false,
-      eagle: 0,                // seconds; the eagle comes past EAGLE_S
       alive: true, death: '', deadTick: -1,
       best: C.START_ROW,
       coins: 0, got: [],       // rows whose coin this hopper took
@@ -491,17 +501,17 @@
 
   /* A hopper as a flat list for the wire (the room's snapshots), and back. Everything a step reads, so a page can
      take the server's hopper and step on from it exactly. Not the coins' rows (looks only). */
-  const DEATHS = ['', 'car', 'train', 'water', 'log', 'eagle'];
+  const DEATHS = ['', 'car', 'train', 'water', 'log'];
   function packHopper(h) {
     return [h.tick, h.x, h.r, h.px, h.pr, h.face, h.hopAt, h.wait, h.pend, h.water ? 1 : 0, h.waterAt, h.log,
-      h.eagle, h.alive ? 1 : 0, DEATHS.indexOf(h.death), h.deadTick, h.best, h.coins, h.hops];
+      h.alive ? 1 : 0, DEATHS.indexOf(h.death), h.deadTick, h.best, h.coins, h.hops];
   }
   function unpackHopper(a, into) {
     const h = into || newHopper();
-    if (!Array.isArray(a) || a.length < 19) return null;
+    if (!Array.isArray(a) || a.length < 18) return null;
     h.tick = a[0]; h.x = a[1]; h.r = a[2]; h.px = a[3]; h.pr = a[4]; h.face = a[5]; h.hopAt = a[6]; h.wait = a[7];
-    h.pend = a[8]; h.water = !!a[9]; h.waterAt = a[10]; h.log = a[11]; h.eagle = a[12]; h.alive = !!a[13];
-    h.death = DEATHS[a[14]] || ''; h.deadTick = a[15]; h.best = a[16]; h.coins = a[17]; h.hops = a[18];
+    h.pend = a[8]; h.water = !!a[9]; h.waterAt = a[10]; h.log = a[11]; h.alive = !!a[12];
+    h.death = DEATHS[a[13]] || ''; h.deadTick = a[14]; h.best = a[15]; h.coins = a[16]; h.hops = a[17];
     return h;
   }
 
@@ -579,8 +589,6 @@
         h.px = h.x; h.pr = h.r;
         h.x += dx; h.r += dr;
         h.hopAt = tick; h.wait = C.HOP_DELAY; h.hops++;
-        if (dr > 0) h.eagle = Math.max(0, h.eagle - 1);
-        else if (dr < 0) h.eagle += 1;
         landWater(world, h, d, dx, prevLog, prevRow);
         if (h.r > h.best) h.best = h.r;
         const row = world.row(h.r);
@@ -596,8 +604,6 @@
     } else h.x = Math.round(h.x);   // off a log, over water too: the reference rounds every frame it has no log (so a hop
                                     // from a log can land on a lily, which it finds by exact x); it was skipped over water
     if (Math.abs(h.x) > C.EDGE) { die(h, 'log'); h.tick++; return; }
-    h.eagle += DT;
-    if (h.eagle > C.EAGLE_S) { die(h, 'eagle'); h.tick++; return; }
     /* Hit: anything overlapping the TARGET cell (the reference checks the target, not where the body is drawn). A lane
        a screen does not hold (behind what it was sent; the server always holds them) has nothing on it to hit. */
     const row = world.row(h.r);
@@ -637,7 +643,7 @@
   const api = {
     NAME, VERSION, HZ, DT, TICK_MS, C, DUEL, IN, CARS, TRUCKS, CAR_HZ, CHUNKS,
     rng, World, laneTime, rampAt, carsAt, logsAt, logById, trainAt,
-    newHopper, copyHopper, step, bodyAt, score, blocked, packHopper, unpackHopper, packRow, unpackRow,
+    newHopper, copyHopper, step, bodyAt, score, blocked, behindOut, packHopper, unpackHopper, packRow, unpackRow,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (root) root.CrossySim = api;

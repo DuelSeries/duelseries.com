@@ -28,6 +28,7 @@
 
 const SHARE = require('../shared/shareGames');
 const CHOMP_NAME = require('../shared/chompName');
+const CROSSY_BEHIND = require('../shared/crossySim').DUEL.BEHIND_LOSE;   // rows behind that lose a Crossy duel (the how-to-play says it)
 
 const PAGES = Object.freeze([
   {
@@ -227,15 +228,15 @@ const PAGES = Object.freeze([
     title: 'Road Hop: 1v1 Road Crossing Race, Play Free Online',
     description: 'Play a 1v1 road crossing race free in your browser. Hop the same roads, rivers and rails as your rival; the first one hit loses. Phone and PC, no download.',
     short: 'Hop the same roads as your rival.',
-    lede: 'A 1v1 race like Crossy Road. Hop the same roads, rivers and rails as your rival. The first one hit loses.',
+    lede: 'A 1v1 race like Crossy Road. Hop the same roads, rivers and rails as your rival. Get hit or fall too far behind and you lose.',
     about: [
-      'You both hop the same map at the same time. Getting hit, falling in the river, riding a log off the edge, or dawdling until the eagle takes you all lose the race. Forward hops buy time on the eagle and backward hops cost it. If you both go out at once, the coins you picked up decide it, and after five minutes whoever is further ahead takes it.',
+      'You both hop the same map at the same time. Getting hit, falling in the river or riding a log off the edge loses the race, and so does falling ' + CROSSY_BEHIND + ' rows behind your rival. The camera follows you and nothing chases you: the only clock is the other player. If you both go out at once, the coins you picked up decide it, and after five minutes whoever is further ahead takes it.',
     ],
     how: [
       ['Hop', 'Arrow keys or WASD: you hop when you let go of the key. Space or a click hops forward.'],
       ['On a phone', 'Tap to hop forward, swipe to hop any way.'],
       ['Time it', 'Wait for a gap in the cars, ride the logs, and watch for the train warning.'],
-      ['Keep moving', 'Stand still too long and the eagle takes you.'],
+      ['Keep up', 'Fall ' + CROSSY_BEHIND + ' rows behind your rival and you lose. The gap shows next to their score and turns red as it gets close.'],
     ],
     genre: ['Arcade', 'Racing'],
   },

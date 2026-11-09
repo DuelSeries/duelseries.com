@@ -10,25 +10,40 @@
    whole way to the next grass or lily as a timed path (plan, below) and follows
    it. So it almost never dies, and a good player can still out-distance it.
    The CHOSEN numbers are in SKILL, measured with scripts/crossyBotSim.js solo
-   (docs/crossy-reference.md "The bot"). */
+   (docs/crossy-reference.md "The bot").
+
+   ITS OWN CLOCK (since 2026-11-08 the game has no eagle). The bot was tuned
+   against the eagle's clock (+1 s a second, -1 a forward hop, +1 a back hop),
+   so it keeps that clock for itself, as its patience: it paces itself, waits
+   for a path and rushes on that clock exactly as it did, but nothing in the
+   rules reads it, and it never passes PATIENCE (it only stops waiting). It also
+   watches the gap the rules now judge (rivalR, set by the room): half the
+   BEHIND_LOSE limit behind it drops its pace, and close to the limit it rushes. */
 
 const S = require('../../shared/crossySim');
 const { IN } = S;
+/* The old eagle's 5 s: a path that would leave the bot's clock past this is no path for it. Its clock stops a little
+   short of it (CLOCK_TOP), so a bot that has waited long can still plan a way on. */
+const PATIENCE = 5;
+const CLOCK_TOP = 4.2;
 
 /* CHOSEN 2026-10-28 (Owen: "make it so it doesn't die... like medium skill"). It plans whole crossings as timed paths
    (decidePlan) and keeps a pace of about two rows a second (118 a minute). The measured numbers are in
    docs/crossy-reference.md "The bot"; the careful bot before it lived 53 s at the median and never reached 5 minutes. */
 const SKILL = {
   plans: true,              // timed paths over the known traffic (decidePlan, plan)
-  eagleGoal: 2.5,           // a path should end with the eagle at most this many seconds along
-  paceEagle: 1.5,           // it keeps its pace only while the eagle is below this
+  eagleGoal: 2.5,           // a path should end with its clock at most this many seconds along
+  paceEagle: 1.5,           // it keeps its pace only while its clock is below this
   careful: true,            // what it does when no path is found (decideCareful)
   think: [3, 6],            // ticks between looks
   react: [0, 0],            // presses what it decided at once
   depth: 3, stand: 36,      // its plain look-ahead, used only when no whole crossing is found
   blunder: 0, freeze: 0,
   pace: [50, 70],           // ticks before it leaves grass or a lily after a forward hop (its middling pace)
-  rush: 3,                  // eagle seconds past which it stops waiting for a path
+  rush: 3,                  // seconds on its clock past which it stops waiting for a path
+  hurryAt: 0.5,             // this share of BEHIND_LOSE behind its rival: its pace waits are cut to hurryPace of them
+  hurryPace: 0.5,
+  rushAt: 3,                // this many rows short of BEHIND_LOSE behind: it rushes (no pace, forced paths: riskier)
   budget: 600, reach: 10,   // tries and moves the crossing search may spend (a few ms at most a look)
 };
 // The old bot, kept for the tests that need one that gets far (a lane test drives it 14 rows up the map).
@@ -41,11 +56,40 @@ class CrossyBot {
     this.nextLook = 0;
     this.queued = 0; this.pressAt = 0;      // a move decided, waiting out the reaction time
     this.lastFwd = -1e9;                    // the tick of its last forward hop (its pace)
+    this.e = 0;                             // its own clock (the old eagle's arithmetic), seconds
+    this.seen = null;                       // { r, hops } of h when it last looked, to see the hop the step made
+    this.rivalR = null;                     // the row its rival stands on (the room sets it), or null
+    this.E = 0;                             // its clock as it acts on it this tick (pushed up by the gap)
   }
+
+  /* Its clock, moved on by the tick the step just ran: -1 for a forward hop (not below 0), +1 for a back hop, then
+     the tick's 1/60 (the eagle's order). Called on every tick, before anything else. */
+  clock(h) {
+    if (this.seen && this.seen.tick === h.tick - 1) {
+      if (h.hops !== this.seen.hops) {
+        if (h.r > this.seen.r) this.e = Math.max(0, this.e - 1);
+        else if (h.r < this.seen.r) this.e += 1;
+      }
+      this.e = Math.min(CLOCK_TOP, this.e + S.DT);
+    }
+    this.seen = { tick: h.tick, r: h.r, hops: h.hops };
+    // The gap, as a person feels it: half the limit behind, it waits less between rows; close to it, a rush.
+    let E = this.e;
+    this.paceK = 1;
+    if (this.rivalR !== null && this.rivalR !== undefined) {
+      const behind = this.rivalR - h.r, lim = S.DUEL.BEHIND_LOSE, k = this.skill;
+      if (behind >= lim - k.rushAt) E = Math.max(E, k.rush + 0.01);
+      else if (behind >= lim * k.hurryAt) this.paceK = k.hurryPace;
+    }
+    this.E = E;
+  }
+  // The ticks it waits after a forward hop before the next crossing (its pace, cut short when it is behind).
+  paceTicks() { return Math.round((this.skill.pace[0] + (this.paceExtra || 0)) * (this.paceK === undefined ? 1 : this.paceK)); }
 
   /* The move to press on h's next tick, or 0. */
   input(world, h) {
     if (!h.alive) return IN.NONE;
+    this.clock(h);
     // A trusted path is followed press by press to its end (the lanes cannot surprise it).
     if (this.path) {
       const p = this.path;
@@ -80,20 +124,20 @@ class CrossyBot {
     const k = this.skill;
     if (k.plans) return this.decidePlan(world, h);
     if (k.careful) return this.decideCareful(world, h);
-    if (this.R() < k.freeze && h.eagle < 3.5) return IN.NONE;
+    if (this.R() < k.freeze && this.E < 3.5) return IN.NONE;
     if (this.R() < k.blunder) { const c = after(world, h, IN.FWD, 2); if (c.alive) return IN.FWD; }
     const full = (k.depth - 1) * 6 + 6 + k.stand;     // the least a whole look can last (moves of a wait each, then standing)
     /* Its pace: within `pace` ticks of its last forward hop it would rather stand, if standing is safe, unless the eagle
        is close. So it goes forward at a steady, middling speed and never chains quick hops it does not need. */
-    let list = order(world, h);
+    let list = order(world, h, this.E > 3.6);
     const [p0, p1] = k.pace || [0, 0];
-    if (h.tick - this.lastFwd < p0 + (this.paceExtra || 0) && h.eagle < (k.rush || 5)) list = [IN.NONE].concat(list.filter((m) => m !== IN.NONE));
+    if (h.tick - this.lastFwd < this.paceTicks() && this.E < (k.rush || 5)) list = [IN.NONE].concat(list.filter((m) => m !== IN.NONE));
     /* The first move (best first) whose best way on lasts the whole look; failing that, the one that lasts longest. */
     let best = IN.NONE, bestLast = -1;
     for (const m of list) {
       const c = after(world, h, m);
       if (m !== IN.NONE && c.hops === h.hops && c.alive) continue;   // that way is blocked: not a move
-      const last = c.alive ? (c.tick - h.tick) + wayOn(world, c, k.depth - 1, k.stand) : c.tick - h.tick - 100;
+      const last = c.alive ? (c.tick - h.tick) + wayOn(world, c, k.depth - 1, k.stand, this.E > 3.6) : c.tick - h.tick - 100;
       if (last >= full) return this.took(m, h, p0, p1);
       if (last > bestLast) { bestLast = last; best = m; }
     }
@@ -108,9 +152,9 @@ class CrossyBot {
   decideCareful(world, h) {
     const k = this.skill;
     const [p0, p1] = k.pace || [0, 0];
-    const rush = h.eagle >= (k.rush || 3.5);
+    const rush = this.E >= (k.rush || 3.5);
     if (haven(world, h)) {
-      if (!rush && h.tick - this.lastFwd < p0 + (this.paceExtra || 0)) return IN.NONE;
+      if (!rush && h.tick - this.lastFwd < this.paceTicks()) return IN.NONE;
       // Through the trees first: the way round them over the grass (nothing moves there) to the next lane that is not
       // grass, or 4 rows on; only a hop up out of the grass is the crossing's to judge (pockets in the trees are a trap).
       const e = maze(world, h);
@@ -130,11 +174,11 @@ class CrossyBot {
     // No whole crossing: the safest move it can see (the plain look-ahead), never into a pocket of trees.
     const full = (k.depth - 1) * 6 + 6 + k.stand;
     let best = IN.NONE, bestLast = -1;
-    for (const m of order(world, h)) {
+    for (const m of order(world, h, this.E > 3.6)) {
       const c = after(world, h, m);
       if (m !== IN.NONE && c.hops === h.hops && c.alive) continue;
       const pocket = m !== IN.NONE && c.alive && c.r !== h.r && haven(world, c) && world.row(c.r).kind === 'grass' && maze(world, c) === null;
-      const last = (c.alive ? (c.tick - h.tick) + wayOn(world, c, k.depth - 1, k.stand) : c.tick - h.tick - 100) - (pocket ? 200 : 0);
+      const last = (c.alive ? (c.tick - h.tick) + wayOn(world, c, k.depth - 1, k.stand, this.E > 3.6) : c.tick - h.tick - 100) - (pocket ? 200 : 0);
       if (last >= full) return this.took(m, h, p0, p1);
       if (last > bestLast) { bestLast = last; best = m; }
     }
@@ -150,20 +194,20 @@ class CrossyBot {
     const next = this.next && this.next.t0 === h.tick ? this.next : null;
     this.next = null;
     // Found none a moment ago: the lanes have hardly moved, so it looks again a little later (each look is a search).
-    if (!next && h.tick < (this.noPathUntil || 0)) return haven(world, h) && h.eagle < k.rush ? IN.NONE : this.decideCareful(world, h);
+    if (!next && h.tick < (this.noPathUntil || 0)) return haven(world, h) && this.E < k.rush ? IN.NONE : this.decideCareful(world, h);
     this.left = { n: P.LOOK };                 // the nodes this look's searches may spend between them
     if (haven(world, h)) {
       /* Its pace: no hop before `from` (a steady middling speed). Failing a paced path, any path. With none it waits
          here, safe, and looks again; once the eagle is up: the way on found from here when it chose the path that
          brought it (if it starts now), a path to grass or a lily with no way on from there found yet, or back. */
-      const from = h.eagle < k.paceEagle ? this.lastFwd + k.pace[0] + (this.paceExtra || 0) : h.tick;
-      const rush = h.eagle >= k.rush;
+      const from = this.E < k.paceEagle ? this.lastFwd + this.paceTicks() : h.tick;
+      const rush = this.E >= k.rush;
       const p = (from > h.tick && this.findPath(world, h, { from, most: P.LOOK / 2 })) || this.findPath(world, h, {})
         || (rush && ((next && trustPlan(world, h, next) && next) || this.findPath(world, h, { force: true })
           || this.findPath(world, h, { back: true, force: true })));
       if (p) return this.follow(p, h);
-      this.noPathUntil = h.tick + (h.eagle < k.rush ? 12 : 6);
-      if (h.eagle < k.rush) return IN.NONE;
+      this.noPathUntil = h.tick + (this.E < k.rush ? 12 : 6);
+      if (this.E < k.rush) return IN.NONE;
     } else {
       const p = this.findPath(world, h, { back: true, force: true });
       if (p) return this.follow(p, h);
@@ -175,7 +219,7 @@ class CrossyBot {
   findPath(world, h, o) {
     if (this.left.n <= 0) return null;
     const look = o.most ? { n: Math.min(o.most, this.left.n) } : this.left, had = look.n;
-    const p = plan(world, h, { eagle: this.skill.eagleGoal, back: !!o.back, from: o.from, force: !!o.force, look });
+    const p = plan(world, h, { eagle: this.skill.eagleGoal, back: !!o.back, from: o.from, force: !!o.force, look, e0: this.E });
     if (o.most) this.left.n -= had - look.n;
     if (!p) return null;
     if (!trustPlan(world, h, p)) { this.untrusted = (this.untrusted || 0) + 1; return null; }
@@ -196,7 +240,7 @@ class CrossyBot {
 
 /* The moves worth trying, best first: forward; then sideways toward the nearest gap in the row ahead when forward
    is blocked, or waiting when it is not (unless the eagle is close); then back. */
-function order(world, h) {
+function order(world, h, hurry) {
   const ahead = world.row(h.r + 1);
   const x = Math.round(h.x);
   let toward = x > 0 ? -1 : 1;
@@ -209,7 +253,7 @@ function order(world, h) {
     return [side[0], IN.FWD, IN.NONE, side[1], IN.BACK];
   }
   const side = toward < 0 ? [IN.LEFT, IN.RIGHT] : [IN.RIGHT, IN.LEFT];
-  return h.eagle > 3.6 ? [IN.FWD, side[0], side[1], IN.NONE, IN.BACK] : [IN.FWD, IN.NONE, side[0], side[1], IN.BACK];
+  return hurry ? [IN.FWD, side[0], side[1], IN.NONE, IN.BACK] : [IN.FWD, IN.NONE, side[0], side[1], IN.BACK];
 }
 
 /* A copy of h after pressing m, run on to the next moment it could move again (a wait is a third of a hop). */
@@ -222,7 +266,7 @@ function after(world, h, m, cap) {
 }
 
 /* How many ticks the best way on from c lives: `depth` more moves, then standing still for up to STAND ticks. */
-function wayOn(world, c, depth, stand) {
+function wayOn(world, c, depth, stand, hurry) {
   if (depth <= 0) {
     const n = S.copyHopper(c);
     let i = 0;
@@ -230,10 +274,10 @@ function wayOn(world, c, depth, stand) {
     return i;
   }
   let most = 0;
-  for (const m of order(world, c)) {
+  for (const m of order(world, c, hurry)) {
     const n = after(world, c, m);
     if (m !== IN.NONE && n.hops === c.hops && n.alive) continue;
-    const got = n.alive ? (n.tick - c.tick) + wayOn(world, n, depth - 1, stand) : n.tick - c.tick;
+    const got = n.alive ? (n.tick - c.tick) + wayOn(world, n, depth - 1, stand, hurry) : n.tick - c.tick;
     if (got > most) most = got;
     if (got >= (depth - 1) * 6 + stand + 6 && n.alive) return got;
   }
@@ -367,14 +411,14 @@ function stand(world, a, n) {
       if (!now || !was) return null;
       x += now.x - was.x;
       e += S.DT;
-      if (Math.abs(x) > S.C.EDGE || e > S.C.EAGLE_S) return null;
+      if (Math.abs(x) > S.C.EDGE || e > PATIENCE) return null;
     }
     return { r: a.r, x, t: a.t + n, e, k: a.k };
   }
   const bit = 1 << (x + 4), dz = dangers(row);
   for (let i = 0; i < n; i++) {
     e += S.DT;
-    if (e > S.C.EAGLE_S || (danger(row, dz, a.t + i) & bit)) return null;
+    if (e > PATIENCE || (danger(row, dz, a.t + i) & bit)) return null;
   }
   return { r: a.r, x, t: a.t + n, e, k: -1 };
 }
@@ -396,7 +440,7 @@ function hop(world, a, m) {
     const bit = 1 << (x + 4), dz = dangers(row);
     for (let i = 0; i < S.C.HOP_DELAY; i++) {
       e += S.DT;
-      if (e > S.C.EAGLE_S || (danger(row, dz, t + i) & bit)) return null;
+      if (e > PATIENCE || (danger(row, dz, t + i) & bit)) return null;
     }
     return { r, x, t: t + S.C.HOP_DELAY, e, k: -1 };
   }
@@ -404,7 +448,7 @@ function hop(world, a, m) {
     // Straight onto a lily, or into the water and onto the lily under it when the arc ends (x is rounded by then).
     let wait = S.C.HOP_DELAY;
     if (!onLily(row, x)) { x = Math.round(x); if (!onLily(row, x)) return null; wait = S.C.WATER_TEST; }
-    for (let i = 0; i < wait; i++) { e += S.DT; if (e > S.C.EAGLE_S) return null; }
+    for (let i = 0; i < wait; i++) { e += S.DT; if (e > PATIENCE) return null; }
     return { r, x, t: t + wait, e, k: -1 };
   }
   /* Onto a log row: on the first log in reach, snapped to its cells (landWater); or into the water, where a log that
@@ -423,7 +467,7 @@ function hop(world, a, m) {
     x = Math.round(x);
     for (let i = 0; i < S.C.WATER_TEST; i++) {
       e += S.DT;
-      if (Math.abs(x) > S.C.EDGE || e > S.C.EAGLE_S) return null;
+      if (Math.abs(x) > S.C.EDGE || e > PATIENCE) return null;
     }
     T = t + S.C.WATER_TEST;
     on = snapOnto(row, T, x);
@@ -436,7 +480,7 @@ function hop(world, a, m) {
     if (!now || !was) return null;
     x += now.x - was.x;
     e += S.DT;
-    if (Math.abs(x) > S.C.EDGE || e > S.C.EAGLE_S) return null;
+    if (Math.abs(x) > S.C.EDGE || e > PATIENCE) return null;
   }
   return { r, x, t: t + S.C.HOP_DELAY, e, k: on.k };
 }
@@ -491,7 +535,7 @@ function plan(world, h, opt) {
   // One allowance of nodes for the whole look, the checks of its goals included (a few ms at most).
   const look = opt.look || { n: Infinity };
   const left = opt.left || { n: Math.min(P.NODES, look.n) }, cap = opt.nested ? Math.max(0, left.n - P.NESTED) : 0, had = left.n;
-  const root = { r: h.r, x: h.log >= 0 ? h.x : Math.round(h.x), t: t0, e: h.eagle, k: h.log, parent: null, m: 0 };
+  const root = { r: h.r, x: h.log >= 0 ? h.x : Math.round(h.x), t: t0, e: opt.e0 || 0, k: h.log, parent: null, m: 0 };
   if (h.log < 0 && isLog(world.row(h.r))) return null;
   /* Best first: the node that is earliest once each row made good counts as P.PUSH ticks saved (a hop takes 9), so it
      presses on up the map before it tries every wait behind; backing out of a pocket, plain earliest first. */
@@ -517,7 +561,7 @@ function plan(world, h, opt) {
     if (n.k >= 0 || n === root || (back ? n.r === r0 : n.r <= r0)) return false;
     const row = world.row(n.r);
     if (!(row.kind === 'grass' || (row.type === 'lily' && onLily(row, n.x)))) return false;
-    if (n.e + 0.6 > S.C.EAGLE_S) return false;
+    if (n.e + 0.6 > PATIENCE) return false;
     return row.kind === 'grass' ? leads(world, n.r, n.x) : lilyLeads(world, n.r, n.x);
   };
   /* A goal is trusted only if a way on from it is found too (a lily or a patch of grass can be a dead end: no lily
@@ -528,7 +572,7 @@ function plan(world, h, opt) {
     if (!first) first = n;
     if (checks >= P.CHECKS) return false;
     checks++;
-    n.next = plan(world, { wait: 0, water: false, r: n.r, x: n.x, tick: n.t, log: -1, eagle: n.e }, { eagle: S.C.EAGLE_S, nested: true, left });
+    n.next = plan(world, { wait: 0, water: false, r: n.r, x: n.x, tick: n.t, log: -1 }, { eagle: PATIENCE, nested: true, left, e0: n.e });
     return !!n.next;
   };
   const MOVES = [IN.FWD, IN.NONE, IN.LEFT, IN.RIGHT, IN.BACK];

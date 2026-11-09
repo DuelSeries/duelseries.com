@@ -2,8 +2,9 @@
    Our own sounds, synthesized by the house engine (dsSfx.js: a few lines of
    numbers each, no files), for the moments the reference has a sound for: the
    hop, a coin, a car's horn, the splash, the squash, the crossing bell and the
-   train going by, the eagle. Match found, the countdown and the result use the
-   house set every game shares (dsSfxGame.js).
+   train going by (no eagle since 2026-11-08). Match found, the countdown, the
+   result and falling too far behind (g.warn) use the house set every game
+   shares (dsSfxGame.js).
 
    crossyMain.js calls CrossySound.play(name, opts). */
 (function (root) {
@@ -27,8 +28,6 @@
                 { o: 'fm', f: mf(88), m: 2.76, i: 1.4, at: 0.25, d: 0.22, v: 0.05, e: 0.08 },
                 { o: 'fm', f: mf(88), m: 2.76, i: 1.4, at: 0.5, d: 0.22, v: 0.05, e: 0.08 }],
     'cr.train': [{ o: 'n', d: 0.9, v: 0.13, lp: [400, 1800], a: 0.12, e: 0.4 }, { o: 't', f: [110, 82], d: 0.8, v: 0.06, e: 0.3 }],
-    'cr.eagle': [{ o: 's', f: [mf(96), mf(84)], d: 0.5, v: 0.08, a: 0.03, e: 0.2, vib: [22, 0.03] },
-                 { o: 'n', d: 0.4, v: 0.05, hp: 3000, e: 0.15 }],
   });
   root.CrossySound = { play(name, o) { try { S.play(name, o); } catch (_) {} } };
 })(typeof window !== 'undefined' ? window : this);

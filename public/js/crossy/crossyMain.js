@@ -3,7 +3,8 @@
    your keys, clicks, taps and swipes, and tells the server when you hopped.
 
    THE SERVER DECIDES (server/crossy/CrossyRoom.js): who was hit, who drowned,
-   who the eagle took, who won. The page runs the very same step
+   who fell too far behind (Sim.DUEL.BEHIND_LOSE rows: no eagle since
+   2026-11-08), who won. The page runs the very same step
    (shared/crossySim.js) to show you your own hopper the moment you press, and
    checks it against the server's 20 times a second; if they ever differ (a hop
    that reached the server too late), it takes the server's and replays your
@@ -258,7 +259,7 @@ function takeRow(row) {
 }
 function same(a, b) {
   return a && b && a.r === b.r && Math.abs(a.x - b.x) < 1e-6 && a.alive === b.alive && a.wait === b.wait
-    && a.pend === b.pend && a.log === b.log && a.water === b.water && Math.abs(a.eagle - b.eagle) < 1e-6;
+    && a.pend === b.pend && a.log === b.log && a.water === b.water;
 }
 function check(s) {
   // The server already has this tick and the page not yet (a slow frame): step there first, then compare.
@@ -287,7 +288,7 @@ function catchUp() {
     if (!mine.alive) {
       mine.diedAt = performance.now();
       deadAt[mySeat] = deadAt[mySeat] || mine.diedAt;
-      if (SND) SND.play(mine.death === 'water' || mine.death === 'log' ? 'cr.splash' : mine.death === 'eagle' ? 'cr.eagle' : 'cr.squash');
+      if (SND) SND.play(mine.death === 'water' || mine.death === 'log' ? 'cr.splash' : 'cr.squash');
     }
   }
 }
@@ -468,7 +469,8 @@ const TEXT = {
   againSlowLine: 'Your wallet has not answered yet. If you approved the stake, wait here: the round starts once it lands.',
   againFailed: 'Stake failed', lobbyOnly: 'Buy a new entry in the lobby to play again.',
 };
-const DEATH_WORDS = { car: 'hit by a car', train: 'hit by a train', water: 'fell in the river', log: 'carried off the edge', eagle: 'taken by the eagle' };
+const DEATH_WORDS = { car: 'hit by a car', train: 'hit by a train', water: 'fell in the river', log: 'carried off the edge' };
+const BEHIND_WORDS = Sim.DUEL.BEHIND_LOSE + ' rows behind';
 function paintOver() {
   const m = lastOver;
   if (!m || !window.DSEnd) return;
@@ -504,6 +506,7 @@ function paintOver() {
   else if (m.why === 'both out') card.notes.push('You were both out on the same moment, with the same coins.');
   else if (m.why === 'more coins') card.notes.push('You were both out on the same moment: more coins wins.');
   else if (m.why === 'time') card.notes.push('Five minutes up: the one further along wins.');
+  else if (m.why === 'fell behind') card.notes.push(won === false ? 'You fell ' + BEHIND_WORDS + '.' : 'They fell ' + BEHIND_WORDS + '.');
   else if (won === true && deaths[1 - s]) card.notes.push('They were ' + (DEATH_WORDS[deaths[1 - s]] || 'out') + '.');
   else if (won === false && deaths[s]) card.notes.push('You were ' + (DEATH_WORDS[deaths[s]] || 'out') + '.');
   const paid = myStake > 0;
@@ -727,6 +730,7 @@ function watchOver(m) {
   const loser = m.winnerSide === 0 ? names[1] : m.winnerSide === 1 ? names[0] : null;
   const said = [m.winner ? m.winner + ' wins' : 'Draw'];
   if (m.why === 'opponent left') said.push((loser || 'A player') + ' left the match');
+  else if (m.why === 'fell behind') said.push((loser || 'A player') + ' fell ' + BEHIND_WORDS);
   else if (loser && m.why) said.push(loser + ' was ' + m.why);
   watchLine(said.join('. ') + '.');
   publishWatch('over');
@@ -817,6 +821,8 @@ function rivalArrow(o, dr, s) {
   hx.fillStyle = '#fff'; hx.fillText(txt, lx, ly);
   hx.textAlign = 'left'; hx.textBaseline = 'top';
 }
+const GAP_RED = 4;          // rows short of BEHIND_LOSE at which the gap goes red and "Catch up" shows
+let gapWarned = false;      // the warning sound played for this stretch of falling behind
 function drawHud(W, H, dpr) {
   hx.setTransform(dpr, 0, 0, dpr, 0, 0);
   hx.clearRect(0, 0, W, H);
@@ -838,21 +844,40 @@ function drawHud(W, H, dpr) {
     const lw = hx.measureText(label).width;
     const sx = top + lw + u, su = Math.max(2, Math.round(fs / 11));
     const sw = blockText(o ? Sim.score(o) : 0, sx, yy + 1, su, '#fff');
-    /* How far ahead or behind you are, in rows where you both stand now (Owen 2026-10-28): a dark pill after their
-       score, green when you lead, red when you trail. Shown only; the server decides the match. */
-    if (o && mine) {
-      const dr = mine.r - o.r;
-      const txt = dr === 0 ? 'level' : (dr > 0 ? '+' : '-') + Math.abs(dr) + (Math.abs(dr) === 1 ? ' row' : ' rows');
+    /* The gap (Owen 2026-11-08: fall BEHIND_LOSE rows behind and you lose), in rows where you both stand now: a dark
+       pill after their score, "3 rows ahead" in green, "5 rows behind" in white, amber from half the limit and red
+       (the pill red too, pulsing) once only GAP_RED rows are left, with "Catch up" big in the middle of the screen.
+       Shown only; the server decides the match (CrossyRoom.judge). */
+    if (o && mine && !overShown) {              // (gone under the result card: the card says how it ended)
+      const dr = mine.r - o.r, lim = Sim.DUEL.BEHIND_LOSE, behind = Math.max(0, -dr);
+      const red = behind >= lim - GAP_RED, amber = !red && behind >= lim / 2;
+      const txt = dr === 0 ? 'level' : Math.abs(dr) + (Math.abs(dr) === 1 ? ' row ' : ' rows ') + (dr > 0 ? 'ahead' : 'behind');
       const pf = Math.max(11, Math.round(fs * 0.86));
       hx.font = '800 ' + pf + 'px Archivo, system-ui, sans-serif';
       const pw = hx.measureText(txt).width + pf, ph = Math.round(pf * 1.45), px = sx + sw + su * 4, py = yy + Math.round((fs - ph) / 2) + 1;
-      hx.fillStyle = 'rgba(0,0,0,0.58)';
+      const beat = red ? 0.5 + 0.5 * Math.sin(performance.now() / 120) : 0;
+      hx.fillStyle = red ? 'rgba(' + Math.round(150 + 60 * beat) + ',20,16,0.9)' : 'rgba(0,0,0,0.58)';
       hx.beginPath(); if (hx.roundRect) hx.roundRect(px, py, pw, ph, ph / 2); else hx.rect(px, py, pw, ph); hx.fill();
-      hx.fillStyle = dr > 0 ? '#a6f27a' : dr < 0 ? '#ff8f7f' : '#ffffff';
+      hx.fillStyle = red ? '#ffffff' : amber ? '#ffc04d' : dr > 0 ? '#a6f27a' : '#ffffff';
       hx.textBaseline = 'middle';
       hx.fillText(txt, px + pf / 2, py + ph / 2 + 1);
       hx.textBaseline = 'top';
       rivalArrow(o, dr, Math.max(14, Math.round(u * 3.4)));
+      const danger = red && mine.alive && phase === 'playing';
+      if (danger) {
+        const left = lim - behind, line = 'Catch up! ' + left + (left === 1 ? ' row left' : ' rows left');
+        const bf = Math.max(18, Math.round(u * 5));
+        hx.font = '900 ' + bf + 'px Archivo, system-ui, sans-serif';
+        hx.textAlign = 'center'; hx.textBaseline = 'middle';
+        const by = Math.round(H * 0.24);
+        hx.lineWidth = Math.max(4, bf * 0.18); hx.strokeStyle = '#000'; hx.lineJoin = 'round';
+        hx.strokeText(line, W / 2, by);
+        hx.fillStyle = beat > 0.5 ? '#ff5a45' : '#ffffff';
+        hx.fillText(line, W / 2, by);
+        hx.textAlign = 'left'; hx.textBaseline = 'top';
+      }
+      if (danger && !gapWarned) { gapWarned = true; if (SND) SND.play('g.warn'); }
+      else if (!danger && behind < lim - GAP_RED - 1) gapWarned = false;
     }
   }
   // Coins, top right: 7 units tall, yellow, then our coin.
@@ -953,7 +978,7 @@ function frame(now) {
   };
   if (fh) {
     const b = Sim.bodyAt(world, fh, ft);
-    view.follow(b, fh.eagle, dt, deadInfo(fh, focusSeat), focusSeat);
+    view.follow(b, dt, deadInfo(fh, focusSeat), focusSeat);
     for (const s of [0, 1]) {
       const h = shown[s];
       if (!h || (!seen[s] && s !== mySeat)) { view.hideHopper(s); continue; }
@@ -962,8 +987,6 @@ function frame(now) {
       // The rival is a whole character on the same map (Owen 2026-10-28); you pass through each other.
       view.drawHopper(s, bb, mineNow && faceOnly ? faceOnly : h.face, false, mineNow && hold && !!faceOnly, deadInfo(h, s), dt, landOf(h), ft * Sim.DT);
     }
-    const dead = deadInfo(fh, focusSeat);
-    view.drawEagle(!!dead && dead.type === 'eagle', fh.x, -fh.r, dead ? dead.age : 0);
     // Crossing bells for trains about to cross a row near the hopper you follow.
     for (let r = fh.r - 2; r <= fh.r + 4; r++) {
       const row = world.row(r);
@@ -1003,7 +1026,7 @@ let tagTf = '';
 window.__crView = view;      // read only, for the headless frame checks (game-refs/crossy/harness/redo/blink.js)
 window.__cr = () => ({
   phase, mySeat, lanes: world ? world.rows.size : 0, tick: mine ? mine.tick : null, ft: Math.round(matchFt()),
-  me: mine ? { x: mine.x, r: mine.r, alive: mine.alive, death: mine.death, score: Sim.score(mine), coins: mine.coins, eagle: mine.eagle } : null,
+  me: mine ? { x: mine.x, r: mine.r, alive: mine.alive, death: mine.death, score: Sim.score(mine), coins: mine.coins } : null,
   them: mySeat >= 0 && seen[1 - mySeat] ? { r: seen[1 - mySeat].h.r, alive: seen[1 - mySeat].h.alive } : null,
   corrections, rtt: Math.round(rtt), over: overShown, waiting, touchUI, rival: rivalNdc,
   connected: socket.connected, hold: seatHold ? seatHold.state() : null,

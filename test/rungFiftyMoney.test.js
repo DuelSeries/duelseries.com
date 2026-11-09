@@ -506,9 +506,51 @@ test('Crossy Road at $0.50: the same split through its own lobby (the Knockout q
   await duel('cr', 'Cr', { v: require(path.join(ROOT, 'shared', 'crossySim.js')).VERSION });
 });
 
-/* Crossy Road at $0.50, decided by the game itself on the real server. Nobody hops, so the eagle takes both on the
-   same tick (its 5 s): a draw, each seat refunded its whole stake. Or A hops forward twice (two seconds of eagle
-   bought back) and B stands still: B is taken first and A is paid. */
+/* Crossy Road at $0.50, decided by the game itself on the real server (no eagle since 2026-11-08). Both press the
+   very same blind hops, so both are out on the same tick with the same coins: a draw, each seat refunded its whole
+   stake. Or B hops 12 rows up the map while A stands still: A falls 12 rows behind and B is paid. Each plan is worked
+   out on the lanes the screen was sent (cr:start holds 24 rows ahead, and every car and log on them), exactly as the
+   server will step it. */
+function crossyPlan(S, lanes, ending) {
+  const w = S.World.fromLanes(lanes);
+  const start = (from) => { const h = S.newHopper(); while (h.tick < from) S.step(w, h, 0); return h; };
+  if (ending === 'draw') {
+    // A blind forward hop every k ticks from tick 'from' that is out before row 20 (on lanes the screen holds).
+    for (let k = 10; k <= 24; k++) for (let from = 40; from <= 100; from += 10) {
+      const h = start(from), at = [];
+      let ok = true;
+      while (ok && h.alive && h.r < 20 && h.tick < from + 40 * k) {
+        if ((h.tick - from) % k === 0) { const r0 = h.r; S.step(w, h, S.IN.FWD); if (h.r === r0 + 1) at.push(h.tick - 1); else ok = false; }
+        else S.step(w, h, 0);
+      }
+      if (ok && !h.alive) return at;
+    }
+    return null;
+  }
+  // B's way 12 rows up: greedy, each forward hop the earliest from which it still lives half a second on.
+  for (let from = 40; from <= 600; from += 20) {
+    let h = start(from);
+    const at = [];
+    while (h && h.r < S.C.START_ROW + S.DUEL.BEHIND_LOSE) {
+      let next = null;
+      for (let wait = 0; wait < 400 && !next; wait++) {
+        const c = S.copyHopper(h);
+        for (let i = 0; i < wait && c.alive; i++) S.step(w, c, 0);
+        if (!c.alive) break;
+        const r0 = c.r, t = c.tick;
+        S.step(w, c, S.IN.FWD);
+        if (c.r !== r0 + 1) continue;
+        const d = S.copyHopper(c);
+        for (let i = 0; i < 30 && d.alive; i++) S.step(w, d, 0);
+        if (d.alive) next = { c, t };
+      }
+      if (!next) { h = null; break; }
+      at.push(next.t); h = next.c;
+    }
+    if (h) return at;
+  }
+  return null;
+}
 async function crossyEnding(pre, ending) {
   const S = require(path.join(ROOT, 'shared', 'crossySim.js'));
   const A = wallet(pre + 'A'), B = wallet(pre + 'B');
@@ -524,43 +566,47 @@ async function crossyEnding(pre, ending) {
   const st = a.has('cr:start')[1];
   assert.strictEqual(st.stake, 0.5);
   const tickNow = () => Math.floor((Date.now() - st.goAt) / S.TICK_MS);
+  const plan = crossyPlan(S, st.lanes, ending);
+  assert.ok(plan && plan.length, 'a plan on the lanes sent');
   assert.ok(await until(() => tickNow() > 2, 6000), 'go');
-  // Both pages say how far their timelines have got, the way the page does; A hops forward twice early on.
-  let hops = ending === 'win' ? [30, 45] : [];
+  // Both pages say how far their timelines have got, the way the page does, with each planned hop sent a few ticks
+  // ahead of its tick (never later): both seats press the draw's hops; only B presses the win's.
+  let hops = plan.slice();
   const beat = setInterval(() => {
     const t = tickNow();
-    const due = hops.filter((k) => k <= t + 3);
-    hops = hops.filter((k) => k > t + 3);
-    a.s.emit('cr:in', { t: t + 3, h: due.map((k) => [Math.max(k, t + 1), S.IN.FWD]) });
-    b.s.emit('cr:in', { t: t + 3 });
+    const due = hops.filter((k) => k <= t + 10);
+    hops = hops.filter((k) => k > t + 10);
+    const h = due.map((k) => [Math.max(k, t + 1), S.IN.FWD]);
+    a.s.emit('cr:in', { t: t + 10, h: ending === 'draw' ? h : [] });
+    b.s.emit('cr:in', { t: t + 10, h });
   }, 50);
   try {
     if (ending === 'draw') {
-      await until(() => sentTo(A).length && sentTo(B).length, 12000);
+      await until(() => sentTo(A).length && sentTo(B).length, 30000);
       await new Promise((r) => setTimeout(r, 300));
-      assert.deepStrictEqual(sentTo(A), [500000], 'both taken on the same tick: A has its whole stake back');
+      assert.deepStrictEqual(sentTo(A), [500000], 'both out on the same tick: A has its whole stake back');
       assert.deepStrictEqual(sentTo(B), [500000], 'and B its own');
       assert.deepStrictEqual(sentTo(REVENUE).slice(revBefore), [], 'no rake on a draw');
       assert.ok(await until(() => a.has('cr:over')), 'the result reached the screen');
       assert.strictEqual(a.has('cr:over')[1].why, 'both out');
     } else {
-      await until(() => sentTo(A).length && sentTo(REVENUE).length > revBefore, 12000);
-      assert.deepStrictEqual(sentTo(A), [900000], 'the one the eagle took second is paid 90 percent of the 1.00 pot');
+      await until(() => sentTo(B).length && sentTo(REVENUE).length > revBefore, 30000);
+      assert.deepStrictEqual(sentTo(B), [900000], 'the one 12 rows ahead is paid 90 percent of the 1.00 pot');
       assert.deepStrictEqual(sentTo(REVENUE).slice(revBefore), [100000], 'the house keeps 10 percent');
-      assert.deepStrictEqual(sentTo(B), [], 'the one taken first is paid nothing');
+      assert.deepStrictEqual(sentTo(A), [], 'the one who fell behind is paid nothing');
       assert.ok(await until(() => a.has('cr:over')), 'the result reached the screen');
-      assert.strictEqual(a.has('cr:over')[1].why, 'taken by the eagle');
+      assert.strictEqual(a.has('cr:over')[1].why, 'fell behind');
     }
   } finally { clearInterval(beat); }
   assert.strictEqual(depositsBy([A, B]), 1000000);
   for (const s of [a, b]) s.s.close();
 }
 
-test('Crossy Road at $0.50: both taken by the eagle on the same tick is a draw, each seat refunded 500000', async () => {
+test('Crossy Road at $0.50: both out on the same tick is a draw, each seat refunded 500000', async () => {
   await crossyEnding('CrDraw', 'draw');
 });
 
-test('Crossy Road at $0.50: the one taken first loses; the other is paid 900000 and the house 100000', async () => {
+test('Crossy Road at $0.50: the one 12 rows behind loses; the other is paid 900000 and the house 100000', async () => {
   await crossyEnding('CrWin', 'win');
 });
 
