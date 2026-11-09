@@ -8,7 +8,8 @@
      - the page: headless Chrome racing in /swimrace (desktop 1280x800, and a phone 390x844 at dpr 3 with the CPU
        throttled 4x), its own car driven by the same bot through the page's test hook (__swimraceDriver), frame
        times sampled every second, with the frame-rate limit and vsync off so the number is what a frame costs.
-     node scripts/swimEventPerf.js --n 50 [--secs 90] [--pages desktop,phone] [--port 4474]
+     node scripts/swimEventPerf.js --n 50 [--secs 90] [--pages desktop,phone] [--port 4474] [--shot <dir>]
+   --shot: a screenshot of each page 8 s into its race (swimrace-desktop.png, swimrace-phone.png).
    Needs Playwright (as scripts/swimScenePerf.js) and Google Chrome. */
 const { spawn } = require('child_process');
 const fs = require('fs');
@@ -21,6 +22,7 @@ const N = Number(arg('n', 8)), SECS = Number(arg('secs', 90)), PORT = String(arg
 const PAGES = String(arg('pages', 'desktop,phone')).split(',').filter(Boolean);
 /* --watch: the pages only watch (no driver of their own), so their frames are the game's alone. */
 const WATCH = process.argv.includes('--watch');
+const SHOT = arg('shot', null);
 const URL = 'http://127.0.0.1:' + PORT;
 
 function loadPlaywright() {
@@ -108,6 +110,10 @@ const r1 = (v) => (v === null ? null : Math.round(v * 10) / 10);
           cars: w.cars, corr: w.corrections, rtt: w.rtt, calls: w.scene ? w.scene.calls : 0, tri: w.scene ? w.scene.triangles : 0, dpr: w.scene ? w.scene.dpr : 0, ft: take, js, drv };
       }).catch(() => null);
       if (s && s.state === 'racing') { p.samples.push(s); if (!s.out && !WATCH) p.drove++; }
+      if (SHOT && s && s.state === 'racing' && p.samples.length === 8) {
+        fs.mkdirSync(SHOT, { recursive: true });
+        await p.page.screenshot({ path: path.join(SHOT, 'swimrace-' + p.name + '.png') }).catch((e) => console.log('  shot failed: ' + e.message));
+      }
     }
     if (overLine || (startedAt && Date.now() - startedAt > (SECS + 10) * 1000)) break;
   }

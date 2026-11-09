@@ -22,7 +22,7 @@
    paint and one for the fixed-colour details (glass, tyres, lights), sharing
    one matrix buffer, and every effect is instanced. */
 import * as THREE from 'three';
-import { pickTier, pbrMaterial, pbrOfHex, loadCar, loadTraffic, makeComposer, ADDONS_URL, ASSETS } from './swimHiFi.js';
+import { pickTier, pbrMaterial, pbrOfHex, loadCar, loadTraffic, makeComposer, ADDONS_URL, ASSETS, EXHAUST } from './swimHiFi.js';
 
 const DEG = Math.PI / 180;
 const BLOCK = 48;                // the static pattern repeats every 48 m
@@ -486,7 +486,7 @@ export function createScene(canvasEl, opts = {}) {
   /* The realistic look's dials in one place (opts.look overrides any, for the dev page's ?look=). */
   const LOOK = Object.assign({ exposure: 0.95, hemi: 0.6, sun: 2.6, env: 1.0, skyGain: 1.2, sunGain: 6, clouds: 0.65,
     roadRough: 0.7, roadEnv: 0.3, sandEnv: 0.35, bloom: 0.45, bloomRadius: 0.4, bloomThreshold: 2.2, paintMetal: 0.2, paintRough: 0.38,
-    msaa: 0, shadow: 1024, trafficCoat: 1, far: FAR_M }, opts.look || {});
+    msaa: 0, shadow: 1024, trafficCoat: 1, far: FAR_M, farCar: 40 }, opts.look || {});
   /* 4x MSAA on a plain screen; 2x from 125% scaling up, where the pixels are small anyway and 4x cost the
      most of anything here (Intel Arc, 1920x1200: 82 fps with 4x, 127 without, 2026-11-08). */
   if (!LOOK.msaa) LOOK.msaa = (typeof window !== 'undefined' && window.devicePixelRatio > 1.25) ? 2 : 4;
@@ -1005,7 +1005,7 @@ export function createScene(canvasEl, opts = {}) {
     const k = KITS.get(id);
     if (k && !(k instanceof Promise)) return k;
     if (k === undefined && ADD && HI) {
-      KITS.set(id, loadCar(ADD, ASSETS.car(id, !HIGH), { envIntensity: ENV_I, glowGain: GLOW, shadows: SHADOW, paintMetal: LOOK.paintMetal, paintRough: LOOK.paintRough })
+      KITS.set(id, loadCar(ADD, ASSETS.car(id, !HIGH), { envIntensity: ENV_I, glowGain: GLOW, shadows: SHADOW, paintMetal: LOOK.paintMetal, paintRough: LOOK.paintRough, tips: EXHAUST[id] })
         .then((kit) => {
           if (disposed) { kit.dispose(); return; }
           KITS.set(id, kit);
@@ -1016,9 +1016,41 @@ export function createScene(canvasEl, opts = {}) {
     }
     return null;
   }
+  /* A car further than FAR_CAR m from the one followed (the other seat, the Swim Race's other racers) is drawn from its
+     phone model, about a third of the triangles, at ~50 px wide: the Swim Race drew 11 full racers, 2.4M triangles
+     (2026-11-08). High only (lite draws the phone model anyway); a car's far model is fetched the first time it is that far. */
+  const FAR_CAR = LOOK.farCar;
+  const KITS_LO = new Map();   // car id -> its far kit (loaded), a Promise (loading) or null (failed)
+  function kitLoFor(id) {
+    const k = KITS_LO.get(id);
+    if (k && !(k instanceof Promise)) return k;
+    if (k === undefined && ADD && HIGH) {
+      KITS_LO.set(id, loadCar(ADD, ASSETS.car(id, true), { envIntensity: ENV_I, glowGain: GLOW, shadows: false, paintMetal: LOOK.paintMetal, paintRough: LOOK.paintRough, tips: EXHAUST[id] })
+        .then((kit) => {
+          if (disposed) { kit.dispose(); return; }
+          KITS_LO.set(id, kit);
+          for (const c of cars) if (c.useHf && c.hfId === id) hifiLo(c);
+          precompile();
+        })
+        .catch((e) => { console.warn('[swim] far car not loaded:', id, e); KITS_LO.set(id, null); }));
+    }
+    return null;
+  }
+  function hifiLo(car) {
+    const kit = kitLoFor(car.hfId);
+    if (!kit) return;
+    let hf = car.hfsLo[car.hfId];
+    if (!hf) { hf = car.hfsLo[car.hfId] = kit.make(car.hex); hf.solid.visible = hf.ghost.visible = false; car.group.add(hf.solid, hf.ghost); }
+    hf.setPaint(car.hex);
+    car.hfLo = hf;
+  }
   function hifiLook(car, l, hex) {
     const id = idOf(l), kit = HI ? kitFor(id) : null;
     for (const k in car.hfs) car.hfs[k].solid.visible = car.hfs[k].ghost.visible = false;
+    for (const k in car.hfsLo) car.hfsLo[k].solid.visible = car.hfsLo[k].ghost.visible = false;
+    car.hfId = id; car.hex = hex;
+    car.hfLo = car.hfsLo[id] || null;
+    if (car.hfLo) car.hfLo.setPaint(hex);
     car.useHf = !!kit;
     /* Owen 2026-11-08: never the old shape, not even for a moment. Until its model lands the seat is not drawn at all
        (the old shape only stands in when the model failed to load, or with ?gfx=off). */
@@ -1073,7 +1105,7 @@ export function createScene(canvasEl, opts = {}) {
     group.add(flame);
     group.visible = false;
     scene.add(group);
-    return { side, group, paint, det, solid, ghost, ind, brake, flame, flameMat, hf: null, hfs: {}, useHf: false, wait: HI, look: null, roll: 0, pitch: 0, acc: 0, lastV: -1, lastVx: 0,
+    return { side, group, paint, det, solid, ghost, ind, brake, flame, flameMat, hf: null, hfs: {}, hfLo: null, hfsLo: {}, hfOn: null, hfId: '', hex: base, useHf: false, wait: HI, look: null, roll: 0, pitch: 0, acc: 0, lastV: -1, lastVx: 0,
              blinkSide: 0, blinkT: 0, blinkHold: 0, flameT: 0, flameLeft: 0, flameNext: 0 };
   });
 
@@ -1168,7 +1200,14 @@ export function createScene(canvasEl, opts = {}) {
     car.det.material = ghost ? detGhost : detSolid;
     car.paint.renderOrder = car.det.renderOrder = ghost ? 2 : 0;
     car.paint.castShadow = car.det.castShadow = SHADOW && !ghost;
-    if (car.useHf) { car.hf.solid.visible = !ghost; car.hf.ghost.visible = ghost; }
+    if (car.useHf) {
+      const far = HIGH && steer == null && Math.abs((st.z || 0) - z0) > FAR_CAR;
+      if (far && !car.hfLo) hifiLo(car);             // the first time: its far model is fetched
+      const show = far && car.hfLo ? car.hfLo : car.hf, hide = show === car.hf ? car.hfLo : car.hf;
+      show.solid.visible = !ghost; show.ghost.visible = ghost;
+      if (hide) hide.solid.visible = hide.ghost.visible = false;
+      car.hfOn = show;
+    }
     const v = st.v || 0, vx = st.vx || 0;
     if (car.lastV < 0 || snap) { car.lastV = v; car.lastVx = vx; }
     const a = clamp((v - car.lastV) / Math.max(dt, 1e-3), -25, 25);
@@ -1218,7 +1257,7 @@ export function createScene(canvasEl, opts = {}) {
     car.ind[0].visible = lit && car.blinkSide < 0;
     car.ind[1].visible = lit && car.blinkSide > 0;
     car.brake.visible = alive && !!st.brake;
-    if (car.useHf) car.hf.lamps(car.brake.visible && !ghost);
+    if (car.useHf) car.hfOn.lamps(car.brake.visible && !ghost);
     /* Backfire: each bang a short flame at the pipes; a remote car's run is spaced out here. */
     if (car.flameLeft > 0) {
       car.flameNext -= dt;
@@ -1616,14 +1655,15 @@ export function createScene(canvasEl, opts = {}) {
   })().catch((e) => { console.warn('[swim] realistic look not loaded:', e); return 'off'; });
   /* compile the programs the new models need now (solid and ghost), as at start, into the target they are drawn to */
   function precompile() {
-    const prevVis = cars.map((c) => [c.group.visible, c.hf && c.hf.solid.visible, c.hf && c.hf.ghost.visible]);
+    const hfsOf = (c) => [c.hf, c.hfLo].filter(Boolean);
+    const prevVis = cars.map((c) => [c.group.visible, hfsOf(c).map((h) => [h.solid.visible, h.ghost.visible])]);
     const tVis = tPairs.map((t) => t.paint.visible);
-    for (const c of cars) { c.group.visible = true; if (c.hf) c.hf.solid.visible = c.hf.ghost.visible = true; }
+    for (const c of cars) { c.group.visible = true; for (const h of hfsOf(c)) h.solid.visible = h.ghost.visible = true; }
     for (const t of tPairs) t.paint.visible = t.det.visible = true;
     if (fx) renderer.setRenderTarget(fx.composer.renderTarget1);
     renderer.compile(scene, camera);
     renderer.setRenderTarget(null);
-    cars.forEach((c, i) => { c.group.visible = prevVis[i][0]; if (c.hf) { c.hf.solid.visible = !!prevVis[i][1]; c.hf.ghost.visible = !!prevVis[i][2]; } });
+    cars.forEach((c, i) => { c.group.visible = prevVis[i][0]; hfsOf(c).forEach((h, k) => { h.solid.visible = prevVis[i][1][k][0]; h.ghost.visible = prevVis[i][1][k][1]; }); });
     tPairs.forEach((t, i) => { t.paint.visible = t.det.visible = tVis[i]; });
   }
 
@@ -1679,7 +1719,8 @@ export function createScene(canvasEl, opts = {}) {
       if (middle) { middle.geometry.dispose(); lines.geometry.dispose(); }
       for (const im of [shadows, parts, rocks, buttes, trees, gantries, tLamps, tHalos]) im.dispose();
       disposed = true;
-      for (const c of cars) for (const k in c.hfs) c.hfs[k].dispose();
+      for (const c of cars) { for (const k in c.hfs) c.hfs[k].dispose(); for (const k in c.hfsLo) c.hfsLo[k].dispose(); }
+      for (const k of KITS_LO.values()) if (k && !(k instanceof Promise)) k.dispose();
       for (const k of KITS.values()) if (k && !(k instanceof Promise)) k.dispose();
       if (fx) { fx.composer.renderTarget1.dispose(); fx.composer.renderTarget2.dispose(); fx.bloom.dispose(); fx.composer.dispose && fx.composer.dispose(); }
       if (skyEnvRT) skyEnvRT.dispose();

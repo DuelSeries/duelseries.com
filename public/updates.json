@@ -5,12 +5,22 @@
       "id": "2026-11-08-swim-faster-no-wind-streaks",
       "date": "2026-11-08",
       "tag": "fix",
-      "title": "Swim: smoother, and no more wind streaks",
-      "body": "Swim runs a lot smoother now: about a third more frames a second on a PC, even more on a laptop with a sharp screen, and less work for your phone in busy traffic. The cars, the road and the sky look exactly the same.\n\nThe white wind streaks that flew at the screen at speed are gone, so the road ahead stays clear.",
+      "title": "Swim: smoother, no wind streaks, real exhaust flames",
+      "body": "Swim runs a lot smoother now: about a third more frames a second on a PC, even more on a laptop with a sharp screen, and less work for your phone in busy traffic. The cars, the road and the sky look exactly the same.\n\nThe white wind streaks that flew at the screen at speed are gone, so the road ahead stays clear.\n\nBackfire flames now come out of each car's real exhaust pipes: the Civic's centre pair, the Huracan's high pair, the Mustang's and the GT-R's four, the Supra's one, and so on for every car.\n\nThe Swim Race runs much lighter too with a full road of racers.",
       "image": {
         "src": "/updates/swim-faster-no-streaks.webp",
         "alt": "A Supra racing through Swim traffic at dusk with a clear view of the road, no streaks across the screen"
-      }
+      },
+      "gallery": [
+        {
+          "src": "/updates/swim-exhaust-flames.webp",
+          "alt": "All ten Swim cars from behind, each with its backfire flames coming out of its own exhaust tips"
+        },
+        {
+          "src": "/updates/swim-race-new-look.webp",
+          "alt": "A Swim Race with twelve racers on a wide road at dusk, real cars and traffic"
+        }
+      ]
     },
     {
       "id": "2026-11-08-swim-engines-aggressive",

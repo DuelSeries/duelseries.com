@@ -109,7 +109,45 @@ function floatGeo(src, m) {
   if (!n) g.computeVertexNormals();   // a model saved without normals gets smooth ones
   return g;
 }
-/* [cx, cy, cz, w, h] quads square to z (halos and flames), as swimScene.js draws them */
+/* Each car's exhaust tips, [x, y, z, r] in its model's metres (nose to -z, centred, wheels on y = 0, the same in the
+   phone model): where its backfire flames come out (Owen 2026-11-08: "two flames coming out the back on every single car,
+   it doesn't make any sense"). Measured on the models: a straight-behind view of each, every tip snapped to its own pipe
+   by raycasts along the car (the centre of the pipe's mouth, z where the pipe or its surround ends, r its radius). The
+   Civic model has two centre tips (the real car's small third one is not modelled). */
+export const EXHAUST = {
+  civic:   [[-0.050, 0.295, 2.150, 0.040], [0.049, 0.295, 2.150, 0.040]],
+  mustang: [[-0.630, 0.275, 2.120, 0.042], [-0.538, 0.276, 2.129, 0.042], [0.538, 0.273, 2.129, 0.042], [0.622, 0.275, 2.120, 0.042]],
+  m3:      [[-0.361, 0.284, 2.122, 0.045], [-0.257, 0.285, 2.143, 0.045], [0.249, 0.287, 2.142, 0.045], [0.345, 0.286, 2.121, 0.045]],
+  supra:   [[-0.541, 0.255, 2.095, 0.040]],
+  gtr:     [[-0.639, 0.320, 2.075, 0.055], [-0.518, 0.315, 2.092, 0.055], [0.518, 0.315, 2.092, 0.055], [0.638, 0.320, 2.076, 0.055]],
+  hellcat: [[-0.493, 0.235, 2.063, 0.030], [-0.405, 0.235, 2.068, 0.030], [0.405, 0.234, 2.069, 0.030], [0.493, 0.235, 2.065, 0.030]],
+  c8:      [[-0.732, 0.268, 2.004, 0.042], [-0.630, 0.265, 2.046, 0.042], [0.641, 0.265, 2.038, 0.042], [0.741, 0.265, 2.000, 0.042]],
+  gt3:     [[-0.059, 0.265, 2.148, 0.040], [0.063, 0.262, 2.148, 0.040]],
+  huracan: [[-0.338, 0.567, 2.115, 0.050], [0.331, 0.565, 2.115, 0.050]],
+  f8:      [[-0.306, 0.335, 2.131, 0.050], [0.306, 0.334, 2.131, 0.050]],
+};
+/* The flames for a list of tips: at each, a glow and a hot core facing back, and a tongue lying flat behind the tip (bright
+   at the pipe, fading away from it) so a flame is seen leaving the pipe from the chase camera above. Sized by the pipe. */
+function flameGeo(tips) {
+  const p = [], uv = [];
+  const face = (cx, cy, cz, w, h) => {
+    const x0 = cx - w / 2, x1 = cx + w / 2, y0 = cy - h / 2, y1 = cy + h / 2;
+    p.push(x0, y0, cz, x1, y0, cz, x1, y1, cz, x0, y0, cz, x1, y1, cz, x0, y1, cz);
+    uv.push(0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1);
+  };
+  const tongue = (cx, cy, cz, w, len) => {
+    const x0 = cx - w / 2, x1 = cx + w / 2, z1 = cz + len;
+    p.push(x0, cy, cz, x1, cy, cz, x1, cy, z1, x0, cy, cz, x1, cy, z1, x0, cy, z1);
+    uv.push(0, 0.5, 1, 0.5, 1, 1, 0, 0.5, 1, 1, 0, 1);
+  };
+  for (const [x, y, z, r] of tips) { face(x, y, z + 0.03, 8 * r, 6 * r); face(x, y, z + 0.02, 3.5 * r, 2.6 * r); tongue(x, y, z + 0.01, 3.5 * r, 10 * r); }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(p, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  return g;
+}
+
+/* [cx, cy, cz, w, h] quads square to z (halos), as swimScene.js draws them */
 function quads(list) {
   const p = [], uv = [];
   for (const [cx, cy, cz, w, h] of list) {
@@ -124,9 +162,10 @@ function quads(list) {
 }
 
 /* Loads one car and returns a maker: make(paintHex) gives one car's solid group (its own paint and tail lamps) and
-   ghost group (one merged translucent shell drawn after a depth pre-pass), and lamps: the halo, indicator and
-   flame pieces placed on this model's own tail lights (worked out from where they are). */
-export async function loadCar(A, url, { envIntensity = 1, glowGain = 1, shadows = false, paintMetal = 0.25, paintRough = 0.36 } = {}) {
+   ghost group (one merged translucent shell drawn after a depth pre-pass), and lamps: the halo and indicator pieces
+   placed on this model's own tail lights (worked out from where they are) and the flames at its own exhaust tips
+   (opts.tips, EXHAUST above; without them two at the old fixed spots). */
+export async function loadCar(A, url, { envIntensity = 1, glowGain = 1, shadows = false, paintMetal = 0.25, paintRough = 0.36, tips = null } = {}) {
   const loader = new A.GLTFLoader().setMeshoptDecoder(A.MeshoptDecoder);
   const gltf = await loader.loadAsync(url);
   const root = gltf.scene;
@@ -179,13 +218,14 @@ export async function loadCar(A, url, { envIntensity = 1, glowGain = 1, shadows 
   const lamps = {
     brake: { lamp: new THREE.BufferGeometry(), halo: quads([[-tx * 0.8, ty, tz, 1.5, 0.8], [tx * 0.8, ty, tz, 1.5, 0.8]]) },
     ind: [-1, 1].map((sx) => ({ lamp: new THREE.BufferGeometry(), halo: quads([[sx * (tx + 0.05), ty, tz + 0.02, 0.8, 0.5]]) })),
-    flame: quads([[-0.42, 0.3, allBox.max.z + 0.12, 0.6, 0.4], [0.42, 0.3, allBox.max.z + 0.12, 0.6, 0.4],
-                  [-0.42, 0.3, allBox.max.z + 0.1, 0.28, 0.2], [0.42, 0.3, allBox.max.z + 0.1, 0.28, 0.2]]),
+    flame: tips && tips.length ? flameGeo(tips)
+      : quads([[-0.42, 0.3, allBox.max.z + 0.12, 0.6, 0.4], [0.42, 0.3, allBox.max.z + 0.12, 0.6, 0.4],
+               [-0.42, 0.3, allBox.max.z + 0.1, 0.28, 0.2], [0.42, 0.3, allBox.max.z + 0.1, 0.28, 0.2]]),
   };
+  /* culled like anything else: a racer behind the camera, or outside the sun's shadow box, costs nothing */
   function mesh(geo, mat, matrix) {
     const x = new THREE.Mesh(geo, mat);
     matrix.decompose(x.position, x.quaternion, x.scale);
-    x.frustumCulled = false;
     x.castShadow = shadows;
     return x;
   }
@@ -208,7 +248,6 @@ export async function loadCar(A, url, { envIntensity = 1, glowGain = 1, shadows 
     const shell = new THREE.Mesh(ghostShell, new THREE.MeshStandardMaterial({ color: paintHex, emissive: new THREE.Color(paintHex).multiplyScalar(0.25),
       metalness: 0.3, roughness: 0.3, transparent: true, opacity: 0.45, depthWrite: false, envMapIntensity: envIntensity }));
     depth.renderOrder = 1; shell.renderOrder = 2;
-    depth.frustumCulled = shell.frustumCulled = false;
     ghost.add(depth, shell);
     return {
       solid, ghost,
