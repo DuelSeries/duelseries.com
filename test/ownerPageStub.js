@@ -157,7 +157,7 @@ function parseCookies(req) {
 }
 
 function createOwnerPageStub(opts = {}) {
-  const log = { requests: [], missingHeader: [], actions: [] };
+  const log = { requests: [], missingHeader: [], actions: [], sweeps: [] };
   let state = baseState();
   const sessions = new Map();          // sid -> { id, device, createdAt, lastSeen, exp }
   const challenges = new Set();
@@ -324,6 +324,18 @@ function createOwnerPageStub(opts = {}) {
           audit(String(body.action || ''), note, ok);
           return ok ? send(res, 200, { ok: true, note, state: snapshot(sid) }) : send(res, 409, { error: note, state: snapshot(sid) });
         }
+        if (p === '/api/owner/house-sweep' && req.method === 'POST') {
+          // Control's "Send house wallets" (server/houseSweep.js), with made-up wallets: nothing real moves here
+          const wallets = [
+            { key: 'bot', name: 'Bot bank', address: '11111111111111111111111111111112', lamports: 142636000, send: 142631000, fee: 5000, usdc: 0 },
+            { key: 'escrow', name: 'Escrow', address: '11111111111111111111111111111113', lamports: 32814000, send: 32809000, fee: 5000, usdc: 1.25 },
+          ];
+          if (body.step !== 'send') return send(res, 200, { ok: true, why: null, fee: 5000, defaultTo: 'StubCoinbase1111111111111111111111111111111', wallets });
+          log.sweeps.push(body.args);
+          const exp = (body.args && body.args.expect) || {};
+          if (wallets.some((w) => exp[w.key] !== w.send)) return send(res, 409, { ok: false, why: 'The Bot bank balance changed since you looked. Look again.', wallets });
+          return send(res, 200, { ok: true, to: body.args.to, results: wallets.map((w, i) => ({ key: w.key, name: w.name, sent: w.send, sig: 'stubsig' + (i + 1) })) });
+        }
         return send(res, 404, { error: 'No such route' });
       }
 
@@ -341,7 +353,7 @@ function createOwnerPageStub(opts = {}) {
   return {
     server, log,
     get state() { return state; },
-    reset() { state = baseState(); log.requests.length = 0; log.missingHeader.length = 0; log.actions.length = 0; },
+    reset() { state = baseState(); log.requests.length = 0; log.missingHeader.length = 0; log.actions.length = 0; log.sweeps.length = 0; },
     listen(port = 0) {
       return new Promise((resolve) => server.listen(port, '127.0.0.1', () => resolve(server.address().port)));
     },

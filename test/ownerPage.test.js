@@ -279,3 +279,36 @@ test('signed out: one card, and the widget loads only when Sign in is pressed, a
     assert.equal(pg.appended.length, 1, 'a second press does not load it twice');
   } finally { await pg.stop(); }
 });
+
+test('Send house wallets: Look only reads, Send asks with the exact amounts and sends nothing on Cancel', async () => {
+  const pg = await runPage({ signedIn: true });
+  try {
+    await pg.settle(150);
+    assert.equal(pg.ids.sweepOpen.hidden, false, 'button shown with the panel');
+    pg.ids.sweepOpen.click();
+    await pg.settle(150);
+    assert.equal(pg.ids.swTo.value, 'StubCoinbase1111111111111111111111111111111', 'address prefilled');
+    const list = pg.ids.swList.textContent;
+    assert.match(list, /Bot bank.*0.142631 SOL/);
+    assert.match(list, /Escrow.*0.032809 SOL/);
+    assert.match(list, /1.25 USDC stays here/);
+    assert.match(list, /Total.*0.175440 SOL/);
+    assert.equal(pg.ids.swSend.disabled, false);
+    assert.equal(pg.stub.log.sweeps.length, 0, 'looking sends nothing');
+    const asked = [];
+    pg.ctx.confirm = (m) => { asked.push(m); return false; };
+    pg.ids.swSend.click();
+    await pg.settle(100);
+    assert.equal(asked.length, 1);
+    assert.ok(asked[0].includes('Bot bank: 0.142631 SOL\nEscrow: 0.032809 SOL\nTotal: 0.175440 SOL'), asked[0]);
+    assert.match(asked[0], /StubCoinbase1111/);
+    assert.equal(pg.stub.log.sweeps.length, 0, 'Cancel sends nothing');
+    pg.ctx.confirm = () => true;
+    pg.ids.swSend.click();
+    await pg.settle(150);
+    assert.deepEqual(JSON.parse(JSON.stringify(pg.stub.log.sweeps)), [{ to: 'StubCoinbase1111111111111111111111111111111', expect: { bot: 142631000, escrow: 32809000 } }]);
+    assert.match(pg.ids.swList.textContent, /Sent 0.142631 SOL.*Sent 0.032809 SOL/);
+    assert.ok(pg.ids.swList.find((n) => n.attrs.href === 'https://solscan.io/tx/stubsig1'), 'transaction link');
+    assert.equal(pg.ids.swSend.disabled, true, 'a second Send needs a fresh Look');
+  } finally { await pg.stop(); }
+});
