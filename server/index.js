@@ -2704,6 +2704,29 @@ app.post('/api/owner/do', sigLimiter, async (req, res) => {
   }
 });
 
+/* Send the house wallets home (server/houseSweep.js, Owen 2026-11-24 closing DuelSeries): Control's "Send house
+   wallets to my Coinbase". step 'look' reads the Bot bank and Escrow balances; step 'send' moves each one's SOL
+   less its fee to the owner's address, only with the exact amounts his confirm showed. Owner only, NA only. */
+let houseSweep = null; // made beside the Bot bank wallet below
+app.post('/api/owner/house-sweep', sigLimiter, async (req, res) => {
+  const who = ((await ownerAuthOf(req)) || {}).who;
+  if (!who) return res.status(403).json({ error: 'Not an owner' });
+  if (!houseSweep) return res.status(404).json({ error: 'The house wallets are not on this server.' });
+  const args = req.body && req.body.args && typeof req.body.args === 'object' && !Array.isArray(req.body.args) ? req.body.args : {};
+  try {
+    if (req.body && req.body.step === 'send') {
+      const r = await houseSweep.send({ to: args.to, expect: args.expect });
+      const note = r.results ? r.results.map((x) => x.name + ' ' + (x.sig ? (x.sent / 1e9).toFixed(6) + ' SOL ' + x.sig : (x.error || 'nothing'))).join('; ') : r.why;
+      ops.audit({ action: 'house:sweep', args: { to: strOr(args.to, '').slice(0, 64) }, who: ownerWho(req, who), ok: !!r.ok, note });
+      return res.status(r.results ? 200 : 409).json(r);
+    }
+    return res.json(await houseSweep.preview());
+  } catch (e) {
+    console.error('[SWEEP] ' + (e && e.message));
+    return res.status(500).json({ error: 'Could not read the wallets: ' + ((e && e.message) || 'error') });
+  }
+});
+
 /* Why owner auth is failing, without leaking anything that is a secret. A Privy
    app id is not one — it ships inside the browser bundle — and the whole reason
    this exists is that a flat 401 gave nothing to act on. */
@@ -3431,6 +3454,35 @@ if (REGION === 'na' && process.env.ESCROW_PRIVATE_KEY) {
 const ownerSpend = require('./ownerSpend').createOwnerSpend({ file: path.join(path.dirname(agJournal.file), 'owner-spend.json') });
 const botBank = require('./botBank').createBotBank({ file: path.join(path.dirname(agJournal.file), 'bot-bank.json'), chain: botWallet,
   onMove: (ev) => ownerSpend.bank(ev) });
+/* The house wallets Control can send home (the /api/owner/house-sweep route above). The Bot bank key is read here
+   and never made: a missing key file means no Bot bank row, not a new empty wallet. Refused while the site is open
+   or any player has money in play or unpaid, because the escrow then holds their stakes. */
+if (REGION === 'na' && process.env.ESCROW_PRIVATE_KEY) {
+  const { Keypair } = require('@solana/web3.js');
+  const bankKp = (() => {
+    try {
+      if (process.env.BOT_BANK_PRIVATE_KEY) return Keypair.fromSecretKey(Buffer.from(process.env.BOT_BANK_PRIVATE_KEY, 'base64'));
+      const raw = JSON.parse(require('fs').readFileSync(path.join(path.dirname(agJournal.file), 'bot-bank-key.json'), 'utf8'));
+      return Keypair.fromSecretKey(Buffer.from(raw.secret, 'base64'));
+    } catch (e) { console.error('[SWEEP] Bot bank key not read: ' + (e && e.message)); return null; }
+  })();
+  houseSweep = require('./houseSweep').createHouseSweep({
+    conn: Usdc.connection, withRetry: Usdc.withRetry,
+    wallets: () => [bankKp && { key: 'bot', name: 'Bot bank', keypair: bankKp },
+      { key: 'escrow', name: 'Escrow', keypair: Usdc.escrowKeypair() }].filter(Boolean),
+    usdcOf: (addr) => Usdc.usdcBalanceOf(addr),
+    defaultTo: strOr(process.env.HOUSE_SWEEP_TO, ''),
+    guard: async () => {
+      if (!ops.get().maintenance) return 'Close the site first: while it is open the escrow holds players\' stakes.';
+      const live = totalLiveStakesSol();
+      if (live > 1e-9) return 'Players still have ' + live.toFixed(4) + ' SOL in play. Wait for those games to end.';
+      const owed = await db.sumOwedPayouts().catch(() => null);
+      if (owed === null) return 'Could not check for unpaid payouts. Try again.';
+      if (owed > 1e-9) return 'Players are still owed ' + owed.toFixed(4) + ' in unpaid payouts.';
+      return null;
+    },
+  });
+}
 /* Product analytics (server/analytics.js): the owner's wallets are marked is_owner, the bot bank's never sent, and a
    box minting dev entry tokens (PAPER_DEV_TOKENS, fake money) sends nothing at all. */
 analytics.configure({ isOwner: (w) => OWNER_WALLETS.has(w), isBot: (w) => !!(botWallet && w === botWallet.address), region: REGION,

@@ -217,6 +217,17 @@ input.say:focus{outline:none;border-color:var(--tx);box-shadow:0 0 0 3px rgba(24
 /* Devices: the kit's sheet over the page, not a page of its own. */
 dialog{background:var(--s1);color:var(--tx);border:0;border-radius:18px;padding:0;width:min(460px,calc(100vw - 32px));box-shadow:0 28px 70px rgba(0,0,0,.8),0 0 0 1px var(--ln)}
 dialog::backdrop{background:rgba(0,0,0,.78);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+.sweepbtn{position:fixed;right:16px;bottom:16px;z-index:5;background:var(--gold);color:var(--ink);box-shadow:0 10px 30px rgba(0,0,0,.6);font-weight:700}
+.sweepbtn:hover:not(:disabled){background:#ffbd4a}
+.swbody{padding:4px 24px 14px;display:grid;gap:8px}
+.swl{font-size:13px;color:var(--tx2)}
+.swin{width:100%;box-sizing:border-box;height:40px;border-radius:10px;border:0;background:var(--s2);box-shadow:var(--edge);color:var(--tx);padding:0 12px;font:500 13px ui-monospace,Consolas,monospace}
+.swlist{display:grid;gap:2px;margin-top:6px}
+.swrow{display:grid;grid-template-columns:auto 1fr auto;gap:4px 10px;align-items:baseline;padding:8px 0;box-shadow:inset 0 -1px 0 var(--ln)}
+.swrow .swa{color:var(--tx3);font-size:12.5px;font-family:ui-monospace,Consolas,monospace}
+.swrow .swu{grid-column:1/-1;font-size:12.5px;color:var(--tx2)}
+.swrow a{color:var(--gold)}
+.swrow .bad{color:var(--bad)}
 .dhd{display:flex;align-items:center;padding:20px 24px 6px}
 .dhd h2{margin:0;font-size:18px;font-weight:700}
 .dhd .link{margin-left:auto;font-size:13.5px;min-height:44px}
@@ -352,6 +363,7 @@ main[data-tab="live"] #panel,main[data-tab="today"] #panel,main[data-tab="spend"
   </section>
 
   <div id="panel" hidden></div>
+  <button type="button" class="btn sweepbtn" id="sweepOpen" hidden>Send house wallets to my Coinbase</button>
 </main>
 
 <!-- Parts that outlive a redraw: the status line and the alerts list move into
@@ -367,6 +379,19 @@ main[data-tab="live"] #panel,main[data-tab="today"] #panel,main[data-tab="spend"
   <p class="dnote">Each device stays signed in for a year from when it signed in.</p>
   <div id="devList"></div>
   <div class="dft"><span class="status" id="devStatus" role="status" aria-live="polite"></span><button type="button" class="btn red" id="devOthers">Sign out everywhere else</button></div>
+</dialog>
+
+<!-- Send the house wallets home (Owen 2026-11-24, closing DuelSeries): the Bot bank and the Escrow, each all its SOL
+     less the network fee, to one address. Look reads; Send asks first with the exact amounts. -->
+<dialog id="sweep" aria-labelledby="swTitle">
+  <div class="dhd"><h2 id="swTitle">Send house wallets</h2><button type="button" class="link" id="swClose">Close</button></div>
+  <p class="dnote">The Bot bank and the Escrow are wallets only the server holds the keys to. Each sends all its SOL, less a 0.000005 SOL network fee, to the address below.</p>
+  <div class="swbody">
+    <label class="swl" for="swTo">Send to (your Coinbase SOL address)</label>
+    <input id="swTo" class="swin" type="text" autocomplete="off" spellcheck="false">
+    <div id="swList" class="swlist"></div>
+  </div>
+  <div class="dft"><span class="status" id="swStatus" role="status" aria-live="polite"></span><button type="button" class="btn" id="swLook">Look again</button><button type="button" class="btn main" id="swSend" disabled>Send</button></div>
 </dialog>
 
 <script src="/socket.io/socket.io.js"></script>
@@ -1488,6 +1513,7 @@ function show(which) {
   $('boot').hidden = which !== 'boot';
   $('signin').hidden = which !== 'signin';
   panelEl.hidden = which !== 'panel';
+  $('sweepOpen').hidden = which !== 'panel';
 }
 function why(text, bad) {
   const el = $('signinWhy');
@@ -1682,6 +1708,83 @@ $('devOthers').addEventListener('click', () => {
   if (!window.confirm('Sign out every other device?\n\nEach one needs the owner wallet to sign in again. This device stays signed in.')) return;
   revoke({ others: true }, $('devOthers'));
 });
+
+/* ── send the house wallets home (Owen 2026-11-24, closing DuelSeries) ────
+   Look reads the Bot bank and Escrow; Send asks first with the exact amounts,
+   and the server sends only if the balances still match them. */
+const swDlg = $('sweep');
+let swLooked = null;
+const sol9 = (l) => (num(l) / 1e9).toFixed(6) + ' SOL';
+const shortAddr = (a) => { const s = String(a || ''); return s.length > 12 ? s.slice(0, 4) + '…' + s.slice(-4) : s; };
+function swSay(text, bad) {
+  const el = $('swStatus');
+  el.textContent = text || '';
+  el.className = 'status' + (bad ? ' bad' : '');
+}
+function swDraw(r) {
+  const rows = (Array.isArray(r && r.wallets) ? r.wallets : []).filter((w) => w && typeof w === 'object');
+  const total = rows.reduce((t, w) => t + num(w.send), 0);
+  $('swList').replaceChildren(...rows.map((w) => h('div', { class: 'swrow' },
+    h('span', null, String(w.name || '')),
+    h('span', { class: 'swa' }, shortAddr(w.address)),
+    h('b', { class: 'gold' }, num(w.send) > 0 ? sol9(w.send) : 'empty'),
+    num(w.usdc) > 0 ? h('span', { class: 'swu' }, num(w.usdc).toFixed(2) + ' USDC stays here (this sends SOL only)') : null)),
+  h('div', { class: 'swrow' }, h('span', null, 'Total'), h('span'), h('b', null, sol9(total))));
+}
+async function swLook() {
+  swLooked = null;
+  $('swSend').disabled = true;
+  swSay('Reading the wallets…');
+  const r = await api('POST', '/api/owner/house-sweep', { step: 'look' });
+  if (r.status === 401 || r.status === 403) { swDlg.close(); toSignIn(reasonFor(r.status)); return; }
+  if (!r.ok) { swSay(sentence(r.body.error) || 'Could not read the wallets (' + r.status + ').', true); return; }
+  if (!$('swTo').value && typeof r.body.defaultTo === 'string') $('swTo').value = r.body.defaultTo;
+  swDraw(r.body);
+  if (r.body.why) { swSay(sentence(r.body.why), true); return; }
+  const any = (r.body.wallets || []).some((w) => w && num(w.send) > 0);
+  swLooked = any ? r.body : null;
+  $('swSend').disabled = !any;
+  swSay(any ? 'Check the address, then press Send.' : 'Both wallets are empty.');
+}
+async function swSend() {
+  const L = swLooked;
+  if (!L) return;
+  const to = $('swTo').value.trim();
+  if (!to) { swSay('Paste the address to send to.', true); return; }
+  const going = L.wallets.filter((w) => num(w.send) > 0);
+  const total = going.reduce((t, w) => t + num(w.send), 0);
+  if (!window.confirm('Send to ' + to + '\n\n' + going.map((w) => w.name + ': ' + sol9(w.send)).join('\n') +
+    '\nTotal: ' + sol9(total) + '\n\nThis cannot be undone. Send it?')) return;
+  const expect = {};
+  for (const w of L.wallets) expect[w.key] = num(w.send);
+  swLooked = null;
+  $('swSend').disabled = true;
+  $('swLook').disabled = true;
+  swSay('Sending… keep this open.');
+  const r = await api('POST', '/api/owner/house-sweep', { step: 'send', args: { to, expect } });
+  $('swLook').disabled = false;
+  if (r.status === 401 || r.status === 403) { swDlg.close(); toSignIn(reasonFor(r.status)); return; }
+  const res = Array.isArray(r.body.results) ? r.body.results.filter((x) => x && typeof x === 'object') : null;
+  if (!res) {
+    swSay(sentence(r.body.why || r.body.error) || 'Refused (' + r.status + ').', true);
+    if (r.body.wallets) swDraw(r.body);
+    return;
+  }
+  $('swList').replaceChildren(...res.map((x) => h('div', { class: 'swrow' },
+    h('span', null, String(x.name || '')),
+    h('span'),
+    x.sig ? h('a', { href: 'https://solscan.io/tx/' + encodeURIComponent(String(x.sig)), target: '_blank', rel: 'noopener' },
+      (x.unconfirmed ? 'Sent, not confirmed yet: ' : 'Sent ') + sol9(x.sent))
+      : h('span', { class: x.error ? 'bad' : '' }, x.error ? 'Not sent: ' + String(x.error) : 'Nothing to send'))));
+  swSay(r.body.ok ? 'Done. Coinbase shows it within a few minutes.' : 'Not everything was sent. See above.', !r.body.ok);
+}
+$('sweepOpen').addEventListener('click', () => {
+  if (!swDlg.open) { if (typeof swDlg.showModal === 'function') swDlg.showModal(); else swDlg.setAttribute('open', ''); }
+  swLook();
+});
+$('swClose').addEventListener('click', () => { swDlg.close(); });
+$('swLook').addEventListener('click', () => { swLook(); });
+$('swSend').addEventListener('click', () => { swSend(); });
 
 /* ── start ─────────────────────────────────────────────────────────────── */
 async function boot() {
